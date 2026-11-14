@@ -98,30 +98,24 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         let page = HTMLPageSheet(file: url, source: source, tile: tile)
         AppLog.trace("chatui", "html page opened live, talk-back \(source?.send != nil || tile?.send != nil ? "on" : "off")\(tile != nil ? ", as a tile" : "")\(url == nil ? ", page still reading" : "")")
         let sheet = ChatSheet.wrap(page, title: title, detents: [.large()])
-        SheetStyle.widen(sheet, to: 960, from: vc)   // [ipad-polish] a page made for a browser, not a phone's width
-        macSize(sheet, from: vc)
+        // [ipad-polish] A page made for a browser, not a phone's width. [tiles] On the Mac: the document page size
+        // (`SheetStyle.macPage`, the size a note's sheet takes too), 960 wide at most, as tall as the window allows, the
+        // same every time; `macFit` below keeps it with the window as the window is resized.
+        #if targetEnvironment(macCatalyst)
+        SheetStyle.macPage(sheet, width: 960, from: vc)
+        #else
+        SheetStyle.widen(sheet, to: 960, from: vc)
+        #endif
         vc.present(sheet, animated: true)
         return page
     }
 
-    /// [tiles] Mac pass 2026-11-14 (owner: "Tiles not loading well in their pop up"): on the Mac a page's sheet was the
-    /// forms' 620 points, a tall narrow strip over a wide window, and it followed the web view's scrolling content like a
-    /// list does, so a tile (a page exactly its window's height) kept whatever height the sheet had while it loaded and
-    /// opened a different size each time. A page is drawn for a browser: here it is the iPad's document width (960, the
-    /// window less 80 a side at most) and as tall as the window allows, the same every time.
-    private static func macSize(_ sheet: UINavigationController, from vc: UIViewController) {
-        #if targetEnvironment(macCatalyst)
-        guard let window = vc.viewIfLoaded?.window ?? MainTabController.current?.viewIfLoaded?.window else { return }
-        sheet.view.subviews.filter { $0 is MacSheetFit }.forEach { $0.removeFromSuperview() }   // no following the page
-        sheet.modalPresentationStyle = .formSheet
-        sheet.preferredContentSize = macFit(window.bounds.size)
-        #endif
-    }
-
     #if targetEnvironment(macCatalyst)
-    /// The page's size in a window this size: 960 wide at most (80 a side), as tall as the window allows.
+    /// The page's size in a window this size: `SheetStyle.macPage`'s (960 wide at most, 80 a side; as tall as the
+    /// window allows, never past it), so a resize keeps the size it opened at.
     private static func macFit(_ window: CGSize) -> CGSize {
-        CGSize(width: max(620, min(960, window.width - 160)), height: max(480, min(window.height - 180, 1100)))
+        CGSize(width: max(620, min(960, window.width - 160)),
+               height: min(window.height - 80, max(480, min(window.height - 180, 1100))))
     }
 
     /// [tiles] Mac pass 2026-11-14: the size was worked out once, when the page opened, so a page opened in a small

@@ -597,7 +597,7 @@ final class ModelProviderHeader: UITableViewHeaderFooterView, UIContextMenuInter
         accessibilityLabel = title
         accessibilityValue = folded ? "Collapsed, \(count) model\(count == 1 ? "" : "s")" : "Expanded"
         accessibilityTraits = [.header, .button]
-        accessibilityHint = "Double tap to \(folded ? "show" : "hide") this provider’s models."
+        accessibilityHint = "\(folded ? "Shows" : "Hides") this provider’s models."   // [macpass-chat] no touch gesture (the Mac)
         var actions: [UIAccessibilityCustomAction] = []
         if canFoldAll { actions.append(UIAccessibilityCustomAction(name: "Collapse All") { [weak self] _ in self?.onAll?(true); return true }) }
         if canOpenAll { actions.append(UIAccessibilityCustomAction(name: "Expand All") { [weak self] _ in self?.onAll?(false); return true }) }

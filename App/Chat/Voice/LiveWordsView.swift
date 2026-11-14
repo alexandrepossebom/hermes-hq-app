@@ -33,7 +33,7 @@ final class LiveWordsView: UIView, UITextViewDelegate {
         didSet {
             guard editable != oldValue else { return }
             isUserInteractionEnabled = editable
-            accessibilityHint = editable ? "Double-tap to fix a word." : nil
+            accessibilityHint = editable ? "Lets you fix a word." : nil   // [macpass-chat] no touch gesture named (the Mac)
             accessibilityTraits = editable ? [.staticText, .button] : [.staticText, .updatesFrequently]
             if !editable { endEditing() }
         }

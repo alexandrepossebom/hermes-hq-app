@@ -61,7 +61,9 @@ final class MemoMicControl: UIControl {
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = "Record Voice Memo"
-        accessibilityHint = "Hold to record, let go to send. Or tap to record hands-free."
+        // [macpass-chat] A mouse is clicked and held, then released: no "tap" or "let go" on the Mac.
+        accessibilityHint = DeviceWord.isMac ? "Click and hold to record, release to send. Or click to record hands-free."
+                                             : "Hold to record, let go to send. Or tap to record hands-free."
         accessibilityIdentifier = "composer.mic"
         isExclusiveTouch = true
     }

@@ -50,10 +50,13 @@ import UIKit
         }
         replyChip.widthAnchor.constraint(equalTo: dock.widthAnchor).isActive = true
         mentions.widthAnchor.constraint(equalTo: dock.widthAnchor).isActive = true
-        NSLayoutConstraint.activate([
-            dock.leadingAnchor.constraint(equalTo: chat.view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            dock.trailingAnchor.constraint(equalTo: chat.view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            dock.bottomAnchor.constraint(equalTo: chat.composer.topAnchor, constant: -8),
+        let sides = [dock.leadingAnchor.constraint(equalTo: chat.view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+                     chat.view.safeAreaLayoutGuide.trailingAnchor.constraint(equalTo: dock.trailingAnchor, constant: 12)]
+        // [macpass-chat] On the Mac the @ list stood 7 pt wider each side than the message box under it: it takes the
+        // box's edges, as the / drawer does.
+        if DeviceWord.isMac { chat.followsDockSides(sides) }
+        NSLayoutConstraint.activate(sides + [
+            dock.bottomAnchor.constraint(equalTo: chat.composer.topAnchor, constant: -8 - chat.composer.boxRise),   // [macpass-chat] 8 pt clear of the Mac's box, as the / drawer
             jumpButton.bottomAnchor.constraint(lessThanOrEqualTo: dock.topAnchor, constant: -8),
         ])
         replyChip.onClose = { [weak self] in self?.room.replyTarget = nil }

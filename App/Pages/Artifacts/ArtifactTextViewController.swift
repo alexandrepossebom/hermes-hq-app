@@ -44,6 +44,9 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
     private let mode = ArtifactFilterChoice()
     private var text = ""
     private var loaded = false
+    /// [mac] Kept by itself: a chat's sheet (ChatSheet.wrap) puts Done first on the Mac's trailing side, so
+    /// `rightBarButtonItem` there is Done and Share stayed dimmed after the file had loaded.
+    private weak var shareButton: UIBarButtonItem?
     private var loadTask: Task<Void, Never>?
     /// Rendered Markdown Preview per text size and appearance (switching Preview / Source never renders again).
     private var previews: [String: NSAttributedString] = [:]
@@ -104,6 +107,7 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
         share.accessibilityLabel = "Share"
         share.isEnabled = false
         navigationItem.rightBarButtonItem = share
+        shareButton = share
         if hasModes {
             buildModes()
             NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -141,7 +145,7 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
                 if self.hasModes, self.viewIfLoaded?.window != nil { self.navigationController?.setToolbarHidden(false, animated: false) }
                 self.loadingLabel.isHidden = true
                 self.spinner.stopAnimating()
-                self.navigationItem.rightBarButtonItem?.isEnabled = true
+                self.shareButton?.isEnabled = true
                 self.render()
             } catch {
                 guard !(error is CancellationError) else { return }
@@ -448,7 +452,7 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
     }
 
     private func share() {
-        let button = navigationItem.rightBarButtonItem
+        let button = shareButton
         Task { [weak self] in
             guard let self else { return }
             var item: Any = self.text

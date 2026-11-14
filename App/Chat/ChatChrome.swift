@@ -775,7 +775,7 @@ final class ChatNoticeToast: UIView {
         let sticky = dismissOnTap && action == nil
         isUserInteractionEnabled = action != nil || sticky
         isAccessibilityElement = sticky
-        accessibilityHint = sticky ? "Double-tap to dismiss." : nil
+        accessibilityHint = sticky ? "Dismisses it." : nil   // [macpass-chat] what it does, not a touch gesture (the Mac has none)
         if sticky, tapToDismiss == nil {
             let tap = UITapGestureRecognizer(target: self, action: #selector(dismissTapped))
             addGestureRecognizer(tap)

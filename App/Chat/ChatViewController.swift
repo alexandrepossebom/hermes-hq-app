@@ -1198,6 +1198,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         return promptDock is ComposerRowDock ? ChatMetrics.composerSideDown + composer.columnMargin : 8 + composer.columnMargin   // [talk]
     }
 
+    /// [macpass-chat] Sides (leading: guide → view, trailing: view → guide, as `installDrawer`'s) that follow
+    /// `dockSideInset` with the / drawer's: a room's @ list.
+    func followsDockSides(_ sides: [NSLayoutConstraint]) {
+        sides.forEach { $0.constant = dockSideInset }
+        dockSides += sides
+    }
+
     /// The docked cards follow the row's side inset in the same pass (inside the keyboard's animation).
     private func followDockSide() {
         let side = dockSideInset
@@ -1315,6 +1322,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isMovingFromParent { fadeBottomBarWithTabBar(appearing: false) }
+        // [macpass-chat] The bar hands its button views on to the page pushed over the chat (a table's pane): the names
+        // and tips set on them here (`applyHeaderTips`) stayed, so the table's Copy as Text was read and tipped as "Read
+        // Replies Aloud is on", its Share as "Chat Actions". They go with the chat; `keepHeaderTips` puts them back.
+        if DeviceWord.isMac { headerButtons()?.forEach { $0.toolTip = nil; $0.accessibilityLabel = nil } }
     }
 
     /// [swipe-back] The tab bar fades in place (iOS 26's floating bar, and the Desktop Look's own) while this page and
@@ -4162,6 +4173,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// [groups] The row for a message (the hold menu's source).
     func roomRow(id: String) -> ChatRow? { rows.first { $0.id == id } }
 
+    /// [macpass-chat] The Mac's message box's place in the column (its sides' inset, its gap above the window's foot),
+    /// for the question dock that stands in for it; nil off the Mac or before the box is laid out.
+    private func macDockPlace() -> (side: CGFloat, bottom: CGFloat)? {
+        guard DeviceWord.isMac, let box = composer.macBoxFrame, composer.window != nil else { return nil }
+        let frame = composer.convert(box, to: view)
+        let side = (frame.minX - columnGuide.layoutFrame.minX).rounded(), bottom = (view.bounds.maxY - frame.maxY).rounded()
+        guard side >= 0, side < 40, bottom > 0, bottom < 40 else { return nil }
+        return (side, bottom)
+    }
+
     func showPromptDock(_ dock: UIView?, animated: Bool) {
         guard isViewLoaded else { return }
         let old = promptDock
@@ -4180,7 +4201,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                 // and rises from below the screen's edge instead, like the keyboard it often replaces. It starts there
                 // at its own size, laid out before it joins the screen (so only its position animates, never its
                 // contents growing from a zero frame), and the layout pass below moves it into place.
-                let side = dock is ComposerRowDock ? ChatMetrics.composerSideDown + composer.columnMargin : 8 + composer.columnMargin
+                let side = dock is ComposerRowDock ? ChatMetrics.composerSideDown + composer.columnMargin
+                                                   : (macDockPlace()?.side ?? 8) + composer.columnMargin
                 let width = max(0, view.bounds.width - 2 * side)
                 let height = dock.systemLayoutSizeFitting(CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
                                                           withHorizontalFittingPriority: .required,
@@ -4196,8 +4218,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             // screen's bottom, 8 pt above the keys), so nothing reaches the screen's edges; the question dock keeps its
             // own 8 pt card place.
             let row = dock is ComposerRowDock
-            let side = row ? ChatMetrics.composerSideDown : 8
-            let bottom = row ? ChatMetrics.composerBottomDown : 8, keys = row ? ChatMetrics.composerBottomUp : 4
+            var side = row ? ChatMetrics.composerSideDown : 8
+            var bottom = row ? ChatMetrics.composerBottomDown : 8, keys = row ? ChatMetrics.composerBottomUp : 4
+            // [macpass-chat] On the Mac the question dock stood ~6 pt off the window's foot and ~7 pt wider each side than
+            // the message box it replaces, so it jumped as it came in: it takes the box's own place.
+            if !row, let box = macDockPlace() {
+                side = box.side; bottom = box.bottom; keys = box.bottom
+            }
             let follow = dock.bottomAnchor.constraint(equalTo: guide.topAnchor, constant: -keys)
             follow.priority = .defaultHigh
             let gap = queueCard.bottomAnchor.constraint(equalTo: dock.topAnchor, constant: queueGap.constant)
