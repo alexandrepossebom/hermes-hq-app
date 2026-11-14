@@ -259,6 +259,9 @@ import UIKit
 
     // Metrics, in the app's points (the Mac draws them at 77 %).
     static let pad: CGFloat = 8
+    /// [macpass-popups] The field's and the rows' inset from the panel's edges, as Open Quickly's: at 8 pt (the field)
+    /// and 6 pt (the rows' marked box) they ran 5 to 6 px from the rounded edge.
+    static let inset: CGFloat = 12
     /// One row: 38 pt with the Mac's body text (≈ 29 pt on screen, a macOS table's large row).
     static var rowHeight: CGFloat { (HQFont.preferred(.body).lineHeight + 16).rounded() }
     static var headerHeight: CGFloat { (HQFont.preferred(.footnote).lineHeight + 14).rounded() }
@@ -329,17 +332,18 @@ import UIKit
         let bounds = view.bounds
         guard bounds.width > 0 else { return }
         let pad = Self.pad
+        let inset = Self.inset
         let w = min(width, bounds.width - 2 * pad)
-        var y = pad
+        var y = inset
         // Field (and the accessory beside it); none while there is nothing to search.
-        let fieldH = fieldBox.isHidden ? -pad : Self.fieldHeight
-        var fieldW = w - 2 * pad
+        let fieldH = fieldBox.isHidden ? -inset : Self.fieldHeight
+        var fieldW = w - 2 * inset
         if let accessory {
             let side = fieldH
             fieldW -= side + 4
-            accessory.frame = CGRect(x: w - pad - side, y: y, width: side, height: fieldH)
+            accessory.frame = CGRect(x: w - inset - side, y: y, width: side, height: fieldH)
         }
-        fieldBox.frame = CGRect(x: pad, y: y, width: fieldW, height: fieldH)
+        fieldBox.frame = CGRect(x: inset, y: y, width: fieldW, height: fieldH)
         if let glass = fieldBox.viewWithTag(1) {
             let size = glass.intrinsicContentSize
             glass.frame = CGRect(x: 9, y: ((fieldH - size.height) / 2).rounded(), width: size.width, height: size.height)
@@ -347,10 +351,10 @@ import UIKit
         }
         y += fieldH
         if !note.isHidden {
-            let textX = 6 + MacPickRowCell.textInset
-            let size = note.sizeThatFits(CGSize(width: w - textX - pad, height: .greatestFiniteMagnitude))
+            let textX = inset + MacPickRowCell.textInset
+            let size = note.sizeThatFits(CGSize(width: w - textX - inset, height: .greatestFiniteMagnitude))
             y += 6
-            note.frame = CGRect(x: textX, y: y, width: w - textX - pad, height: ceil(size.height))
+            note.frame = CGRect(x: textX, y: y, width: w - textX - inset, height: ceil(size.height))
             y += ceil(size.height)
         }
         y += pad
@@ -402,7 +406,7 @@ import UIKit
             tallestList = listH
         }
         let foot: CGFloat = 6
-        table.frame = CGRect(x: 6, y: listTop + 4, width: w - 12, height: max(0, listH - 4 - foot))
+        table.frame = CGRect(x: inset, y: listTop + 4, width: w - 2 * inset, height: max(0, listH - 4 - foot))
         table.isScrollEnabled = table.contentSize.height > table.bounds.height + 1 || listH >= maxList
         let h = listTop + listH
         // [Mac UI check 2026-11-13] V22: a button in the window's trailing half (the box's model pill) has the panel's

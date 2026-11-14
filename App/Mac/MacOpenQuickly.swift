@@ -167,8 +167,10 @@ import UIKit
             field.topAnchor.constraint(equalTo: fieldBox.topAnchor, constant: 10),
             field.bottomAnchor.constraint(equalTo: fieldBox.bottomAnchor, constant: -10),
             table.topAnchor.constraint(equalTo: fieldBox.bottomAnchor, constant: 6),
-            table.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 6),
-            table.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -6),
+            // [macpass-popups] The rows (and the marked row's box) line up with the field's box, 12 pt in: at 6 pt the
+            // blue mark ran 5 px from the panel's rounded edge while the field sat 9 px in.
+            table.leadingAnchor.constraint(equalTo: fieldBox.leadingAnchor),
+            table.trailingAnchor.constraint(equalTo: fieldBox.trailingAnchor),
             table.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -6),
             tableHeight,
         ])
