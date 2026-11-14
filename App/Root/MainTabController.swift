@@ -220,6 +220,7 @@ final class MainTabController: UITabBarController, UITabBarControllerDelegate {
         get { super.selectedViewController }
         set {
             if let newValue { slotIndex(for: newValue) }
+            if let newValue, newValue !== super.selectedViewController { split?.tabWillShow(newValue) }   // [mac] kwojt's freeze
             super.selectedViewController = newValue
         }
     }
@@ -402,7 +403,16 @@ final class MainTabController: UITabBarController, UITabBarControllerDelegate {
     private var debugTabMotionStarted = false
     #endif
 
-    override var selectedIndex: Int { didSet { reportShownTab() } }
+    override var selectedIndex: Int {
+        willSet {
+            #if targetEnvironment(macCatalyst)
+            // [mac] Tester 2026-11-14 (kwojt): a chat left over the incoming tab's list comes off it before the switch
+            // puts that list in the window (`RootSplitController.tabWillShow`).
+            if newValue != selectedIndex, let tabs = viewControllers, tabs.indices.contains(newValue) { split?.tabWillShow(tabs[newValue]) }
+            #endif
+        }
+        didSet { reportShownTab() }
+    }
 
     private func reportShownTab() {
         AppLog.note("screen", "tab \(selectedIndex): \(selectedViewController.map { ($0 as? UINavigationController)?.viewControllers.first ?? $0 }.map { String(describing: type(of: $0)) } ?? "none")")
