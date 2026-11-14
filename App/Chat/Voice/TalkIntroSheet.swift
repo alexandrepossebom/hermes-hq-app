@@ -192,7 +192,9 @@ final class TalkIntroSheet: UIViewController {
     /// One detent that fits the content, and large; only large at accessibility sizes, where the content scrolls.
     private func configureSheet() {
         guard let sheet = sheetPresentationController else { return }
+        #if !targetEnvironment(macCatalyst)   // [macpass-chat r4] a Mac sheet has no grabber
         sheet.prefersGrabberVisible = true
+        #endif
         if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
             sheet.detents = [.large()]
             return

@@ -110,8 +110,20 @@ extension AppModel: ChatMenuHosting {
         if let index = stack.firstIndex(where: { $0 === screen }) { stack.remove(at: index) }
         stack.append(next)
         navigation.setViewControllers(stack, animated: true)
+        Self.markPane(navigation)
         (next as? ChatViewController)?.showNotice("Branched into a new chat.")
         refreshSessions()
+    }
+
+    /// [macpass-chat r4] A chat put in place of another in the right pane (Branch, /new) is set on the pane's own stack,
+    /// which the split never hears: the Sessions list, the sidebar and the inspector kept following the old chat. They
+    /// follow the new one once it is in place (the old one stays first on the stack until the change has played).
+    private static func markPane(_ navigation: UINavigationController) {
+        var holder = navigation.parent
+        while let next = holder, !(next is RootSplitController) { holder = next.parent }
+        guard let split = holder as? RootSplitController else { return }
+        guard let moving = navigation.transitionCoordinator else { split.tabs.paneSelectionChanged(); return }
+        moving.animate(alongsideTransition: nil) { [weak split] _ in split?.tabs.paneSelectionChanged() }
     }
 
     /// `/new` (docs/spec/3x-composer.md §8.2): the chat Bots › New Chat starts (`newChat(for:)`, made on the gateway as
@@ -130,6 +142,7 @@ extension AppModel: ChatMenuHosting {
         if let index = stack.firstIndex(where: { $0 === screen }) { stack.remove(at: index) }
         stack.append(next)
         navigation.setViewControllers(stack, animated: true)
+        Self.markPane(navigation)
         let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if !words.isEmpty, let chatScreen = next as? ChatViewController {
             chatScreen.loadViewIfNeeded()

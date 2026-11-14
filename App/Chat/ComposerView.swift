@@ -402,7 +402,12 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// The Mac chip's width in a field `fieldW` wide (0 when it doesn't show or has no room).
     private func macChipWidth(fieldW: CGFloat) -> CGFloat {
         guard macBoxChip, modelChip.title != nil, !recorderTakesRow, !leadingHeld else { return 0 }
-        let w = modelChip.fittedWidth(in: min(240, fieldW * 0.4), height: Self.macChipHeight)
+        // [macpass-chat r4] The chip leaves the text room for a whole "Message" (a long model name in a 900 pt window
+        // cut the placeholder to "Mes…"): it narrows to what is left, and steps aside when that is under 56 pt.
+        let font = textView.font ?? .preferredFont(forTextStyle: .body)
+        let word = ceil(("Message" as NSString).size(withAttributes: [.font: font]).width) + 4
+        let left = fieldW - 2 * ChatMetrics.fieldPadH - micInset - 10 - word
+        let w = modelChip.fittedWidth(in: min(240, fieldW * 0.4, max(0, left)), height: Self.macChipHeight)
         return w >= 56 ? w : 0
     }
 

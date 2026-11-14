@@ -13,7 +13,10 @@ import UIKit
         SheetStyle.apply(navigation, from: host)   // UX study #161: a form sheet in two panes
         if let sheet = navigation.sheetPresentationController {
             sheet.detents = [.large()]
+            // [macpass-chat r4] A Mac form sheet has no grabber: its bar stood half out of the sheet's top edge.
+            #if !targetEnvironment(macCatalyst)
             sheet.prefersGrabberVisible = true
+            #endif
         }
         let guardian = SheetEditGuard(navigation: navigation)
         navigation.presentationController?.delegate = guardian
@@ -271,6 +274,8 @@ struct GroupBotsPickerView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+                    // [macpass-chat r4] In the Desktop Look the line was boxed like a card, its words 3 pt from the box.
+                    .hqDesktopBareRow()
                     .accessibilityIdentifier("group-picker.line")
             }
             .listSectionSpacing(.compact)

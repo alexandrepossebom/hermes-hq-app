@@ -551,6 +551,7 @@ struct GroupNamePhotoView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+                    .hqDesktopBareRow()   // [macpass-chat r4] no box round the line in the Desktop Look
             }
             .listSectionSpacing(.compact)
             Section {
