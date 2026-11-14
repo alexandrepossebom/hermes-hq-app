@@ -81,6 +81,8 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
     /// Whether a press may start a selection (a code card or table that scrolls sideways keeps its drag).
     var canReceive: (UITouch) -> Bool = { _ in true }
     let pan = UIPanGestureRecognizer()
+    /// [macpass 2026-11-14] FEEL-LIST #19: a double-click on a word selects it, as in every Mac text view.
+    let doubleClick = UITapGestureRecognizer()
     private(set) var selection: MessageSelection?
     private var clearing = false
 
@@ -94,6 +96,11 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
         host.addGestureRecognizer(pan)
+        doubleClick.numberOfTapsRequired = 2
+        doubleClick.cancelsTouchesInView = false
+        doubleClick.addTarget(self, action: #selector(doubleClicked(_:)))
+        doubleClick.delegate = self
+        host.addGestureRecognizer(doubleClick)
     }
 
     var hasSelection: Bool { selection.map { !$0.isEmpty } ?? false }
@@ -120,7 +127,21 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        startsSelection(at: pressPoint())
+        if gestureRecognizer === doubleClick, let host { return hit(doubleClick.location(in: host)) != nil }
+        return startsSelection(at: pressPoint())
+    }
+
+    /// The double-click never takes the message's own click (links, one-click copy, a table's page, ⌘A's focus).
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === doubleClick
+    }
+
+    @objc private func doubleClicked(_ gr: UITapGestureRecognizer) {
+        guard gr.state == .ended, let host else { return }
+        let point = gr.location(in: host)
+        // After the second click's own handling (which puts any selection away), not before it.
+        DispatchQueue.main.async { [weak self] in self?.selectWord(at: point) }
     }
 
     /// Where the press was, before the pointer moved far enough to make a drag (host coordinates).
@@ -187,6 +208,21 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
     /// The drag let go: a selection takes the keyboard (for ⌘C, ⌘A), an empty one is put away.
     func end() {
         if hasSelection { takeKeyboard() } else { clear() }
+    }
+
+    /// A double-click (host coordinates): the word under it is selected and takes the keyboard for ⌘C.
+    func selectWord(at point: CGPoint) {
+        guard let spot = hit(point) else { return }
+        let all = surfaces()
+        guard all.indices.contains(spot.block) else { return }
+        let pieces = all[spot.block].selectionPieces
+        guard pieces.indices.contains(spot.piece),
+              let word = MessageSelection.word(in: pieces[spot.piece].text.string, at: spot.offset) else { return }
+        becomeActive()
+        selection = MessageSelection(anchor: TextSpot(block: spot.block, piece: spot.piece, offset: word.location),
+                                     focus: TextSpot(block: spot.block, piece: spot.piece, offset: NSMaxRange(word)))
+        apply()
+        takeKeyboard()
     }
 
     /// ⌘A: the whole message.

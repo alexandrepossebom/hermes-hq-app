@@ -264,6 +264,10 @@ final class StepDetailViewController: UIViewController {
         config.title = "Copy"
         config.image = UIImage(systemName: "doc.on.doc")
         config.imagePadding = 6
+        // [macpass 2026-11-14] The Mac's push button sets no symbol size, so the glyph drew twice the word's height.
+        if DeviceWord.isMac {
+            config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: HQFont.preferred(.body), scale: .small)
+        }
         let copy = UIButton(configuration: config, primaryAction: UIAction { [weak self] action in self?.copyAll(action.sender as? UIButton) })
         copy.accessibilityIdentifier = "sheet.copy"
         let row = UIStackView(arrangedSubviews: [copy, UIView()])
@@ -893,7 +897,7 @@ final class StepLineCell: UITableViewCell {
         // Hermes's own progress line says just "terminal" for a command; the sheet words it like "Running code". The
         // calls the chat's row words itself ("Checked how to use 3 tools", not "tool_describe…") read the same here.
         let plain = failed ? nil : ToolWords.plainLabel(name: call.name, args: ChatRunSummary.args(call), preview: call.title)
-        text.text = plain ?? (call.name == "terminal" && line.text == "terminal" ? "Running a command" : line.text)
+        text.text = plain ?? (call.name == "terminal" && line.text == "terminal" ? (running ? "Running a command" : "Ran a command") : line.text)
         text.textColor = ChatPalette.label
         let time = call.durationSeconds.map(ToolCards.formatDurationSeconds)
         meta.text = failed ? "Failed" : time

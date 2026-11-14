@@ -33,6 +33,18 @@ struct MessageSelectionRuleTests {
         #expect(moved.anchor == a && moved.start == TextSpot(block: 0, piece: 0, offset: 3) && moved.end == a)
     }
 
+    /// [macpass 2026-11-14] A double-click selects the word under the caret; just past a word's end is still it.
+    @Test func aDoubleClickPicksTheWordAroundTheCaret() {
+        let text = "Every one has GitHub OPEN, see ABC-168."
+        #expect(MessageSelection.word(in: text, at: 0) == NSRange(location: 0, length: 5))
+        #expect(MessageSelection.word(in: text, at: 16) == NSRange(location: 14, length: 6), "inside GitHub")
+        #expect(MessageSelection.word(in: text, at: 5) == NSRange(location: 0, length: 5), "just past Every")
+        #expect(MessageSelection.word(in: text, at: 25) == NSRange(location: 21, length: 4), "the comma after OPEN: OPEN")
+        #expect(MessageSelection.word(in: "a  b", at: 2) == nil, "between two spaces")
+        #expect(MessageSelection.word(in: "", at: 0) == nil)
+        #expect(MessageSelection.word(in: "word", at: 9) == nil, "past the end")
+    }
+
     @Test func eachPieceGetsItsPartOfTheSelection() {
         let s = MessageSelection(anchor: TextSpot(block: 0, piece: 1, offset: 4), focus: TextSpot(block: 2, piece: 0, offset: 6))
         #expect(s.range(block: 0, piece: 0, length: 20) == nil, "before the start")

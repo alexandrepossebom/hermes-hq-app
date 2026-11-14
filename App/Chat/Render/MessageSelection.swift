@@ -49,6 +49,20 @@ nonisolated struct MessageSelection: Hashable, Sendable {
         }
     }
 
+    /// [macpass 2026-11-14] A double-click: the word around a caret `offset` (UTF-16) in a piece's text, as the Mac's
+    /// text views pick it; a caret just past a word's last letter is still on that word. Nil on a space or a mark.
+    static func word(in text: String, at offset: Int) -> NSRange? {
+        let ns = text as NSString
+        guard ns.length > 0, offset >= 0, offset <= ns.length else { return nil }
+        var inside: NSRange?, before: NSRange?
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: [.byWords, .substringNotRequired]) { _, range, _, stop in
+            if range.location <= offset && offset < NSMaxRange(range) { inside = range; stop.pointee = true }
+            else if NSMaxRange(range) == offset { before = range }
+            else if range.location > offset { stop.pointee = true }
+        }
+        return inside ?? before
+    }
+
     /// The whole of blocks whose pieces are `lengths` (nil when there is no text).
     static func all(lengths: [[Int]]) -> MessageSelection? {
         guard let first = lengths.firstIndex(where: { !$0.isEmpty }),
