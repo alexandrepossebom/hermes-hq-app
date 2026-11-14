@@ -10,9 +10,11 @@ import UIKit
 
 final class TasksViewController: UIViewController, UICollectionViewDelegate, UISearchResultsUpdating,
                                   UICollectionViewDragDelegate, UICollectionViewDropDelegate {
-    private nonisolated enum Section: Hashable { case week, group(TodoGroupKind), empty, ideas, skeleton }
+    private nonisolated enum Section: Hashable { case offers, keeper, week, group(TodoGroupKind), empty, ideas, skeleton }
     private nonisolated enum Item: Hashable {
         case task(String), skeleton(Int), week, viewEmpty(String)
+        /// [task-lists] A bot's offer (its id), the line naming a list's bot, and "4 more in Work" (the list's id).
+        case offer(String), keeper(String), more(String)
         case ideaHead, idea(String), ideaNote(TaskIdeasNote)
     }
 
@@ -30,6 +32,11 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private var current: TodoView = .today
     /// The view's groups, each with its task ids in order.
     private var groups: [(TodoGroupKind, [String])] = []
+    /// [task-lists] Today's "Next in Work": how many more open tasks each list has than the few shown.
+    private var mores: [String: Int] = [:]
+    /// The offers' cards on show, and the ones whose answer is on its way.
+    private var offerCards: [String: TaskOfferCardModel] = [:]
+    private var answering: Set<String> = []
     /// Upcoming's week strip.
     private var week: [TodoWeekStrip.Day] = []
     /// The day picked on it ("2026-11-14"): the list holds that day alone. nil: every coming day.
@@ -48,6 +55,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private let scopeItem = ScopeBarItem()
     /// [tasks-first] The views under the bar; the bots are the bar's Filter.
     private lazy var header = TaskViewsHeader(actions: TaskListActions(
+        edit: { [weak self] in self?.editList($0) },
         rename: { [weak self] in self?.renameList($0) },
         move: { [weak self] in self?.moveList($0, by: $1) },
         delete: { [weak self] in self?.deleteList($0) },
@@ -399,6 +407,23 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
         }
+        let offerCell = UICollectionView.CellRegistration<SoftCardListCell, String> { [weak self] cell, _, id in
+            guard let self, let card = self.offerCards[id] else { return }
+            cell.contentConfiguration = UIHostingConfiguration {
+                TaskOfferCard(model: card, enabled: !self.store.readOnlyGateway) { [weak self] button in self?.answerOffer(id, button) }
+            }.margins(.all, 0)
+            cell.backgroundConfiguration = .clear()
+        }
+        let keeperCell = UICollectionView.CellRegistration<SoftCardListCell, String> { cell, _, text in
+            cell.contentConfiguration = UIHostingConfiguration { TaskKeeperRow(text: text) }.margins(.all, 0)
+            cell.backgroundConfiguration = .clear()
+        }
+        let moreCell = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, id in
+            guard let self else { return }
+            let text = TodoViews.moreLine(self.mores[id] ?? 0, list: self.listName(id) ?? "List")
+            cell.contentConfiguration = UIHostingConfiguration { TaskMoreRow(text: text) }.margins(.all, 0)
+            cell.configurationUpdateHandler = { cell, state in Self.rowBackground(cell as! UICollectionViewListCell, state) }
+        }
         let emptyCell = UICollectionView.CellRegistration<SoftCardListCell, String> { cell, _, text in
             cell.contentConfiguration = UIHostingConfiguration { TodoViewEmptyRow(text: text) }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
@@ -421,6 +446,9 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             case .skeleton(let n): return cv.dequeueConfiguredReusableCell(using: skeletonCell, for: path, item: n)
             case .week: return cv.dequeueConfiguredReusableCell(using: weekCell, for: path, item: item)
             case .viewEmpty(let text): return cv.dequeueConfiguredReusableCell(using: emptyCell, for: path, item: text)
+            case .offer(let id): return cv.dequeueConfiguredReusableCell(using: offerCell, for: path, item: id)
+            case .keeper(let text): return cv.dequeueConfiguredReusableCell(using: keeperCell, for: path, item: text)
+            case .more(let id): return cv.dequeueConfiguredReusableCell(using: moreCell, for: path, item: id)
             }
         }
         dataSource.supplementaryViewProvider = { cv, _, path in cv.dequeueConfiguredReusableSupplementary(using: header, for: path) }
@@ -475,7 +503,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     /// A group's heading; none over a list's or Inbox's open tasks, or while searching (one flat list of matches).
     private func heading(_ kind: TodoGroupKind) -> (title: String, detail: String?)? {
         if kind == .open { return searching ? ("To Do", nil) : nil }
-        return TodoViews.heading(kind, now: Date(), botName: { [bots] in PagesNames.botName($0 ?? "default", bots: bots) })
+        if kind == .done, current == .today, !searching { return ("Done Today", nil) }   // [task-lists] one folded line
+        return TodoViews.heading(kind, now: Date(), sections: store.sections, botName: { [bots] in PagesNames.botName($0 ?? "default", bots: bots) })
     }
 
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -540,6 +569,25 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                                        sort: store.settings.sort)
         }
         groups = made.map { ($0.kind, $0.tasks.map(\.id)) }
+        mores = [:]
+        for group in made where group.more > 0 { if case .next(let id) = group.kind { mores[id] = group.more } }
+        // [task-lists] The offers that wait, above everything in Today and Inbox, and in the list they are for (a list's
+        // own page is its tasks); not while searching or selecting.
+        let name: (String?) -> String = { [bots] in PagesNames.botName($0 ?? "default", bots: bots) }
+        let offersHere: (TodoOffer) -> Bool = { [current] offer in
+            switch current {
+            case .today, .inbox: return true
+            case .list(let id): return offer.section == id || self.store.sections.first { $0.id == id }?.name.caseInsensitiveCompare(offer.list) == .orderedSame
+            default: return false
+            }
+        }
+        let waiting = store.listsSupported && !searching && !selecting ? TodoLists.waiting(store.offers).filter(offersHere) : []
+        let previousOffers = offerCards
+        offerCards = Dictionary(waiting.map { offer in
+            (offer.id, TaskOfferCardModel(offer: offer, title: TodoLists.offerTitle(offer, botName: name),
+                                          buttons: TodoLists.offerButtons(offer), busy: answering.contains(offer.id),
+                                          color: TodoLists.color(store.sections.first { $0.id == offer.section })))
+        }, uniquingKeysWith: { first, _ in first })
         var nextRows: [String: TodoRowModel] = [:]
         // A task ticked here stays where it was until it moves (a moment later), so the tick shows first.
         for group in made {
@@ -553,6 +601,16 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         }
         var ideasShown = false
         if listShown {
+            if !waiting.isEmpty {
+                snapshot.appendSections([.offers])
+                snapshot.appendItems(waiting.map { .offer($0.id) }, toSection: .offers)
+            }
+            // A list a bot keeps says so in one quiet line, in words (a face on a row means the bot is on that task).
+            if !searching, let id = currentList, let list = store.sections.first(where: { $0.id == id }),
+               let line = TodoLists.keeperLine(list, now: now, botName: name) {
+                snapshot.appendSections([.keeper])
+                snapshot.appendItems([.keeper(line)], toSection: .keeper)
+            }
             if !week.isEmpty {
                 snapshot.appendSections([.week])
                 snapshot.appendItems([.week], toSection: .week)
@@ -561,6 +619,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             for (kind, ids) in groups {
                 snapshot.appendSections([.group(kind)])
                 if kind != .done || open { snapshot.appendItems(ids.map { .task($0) }, toSection: .group(kind)) }
+                if case .next(let id) = kind, mores[id] != nil { snapshot.appendItems([.more(id)], toSection: .group(kind)) }
             }
             // No tasks at all: every view says so, with New Task (and Inbox's ideas still under it).
             let nothing = groups.isEmpty && !searching
@@ -589,7 +648,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         // The week's dots, who looks (and when) and each idea's card follow every read.
         changed += snapshot.itemIdentifiers.filter { item in
             switch item {
-            case .week, .ideaHead: return true
+            case .week, .ideaHead, .more: return true
+            case .offer(let id): return previousOffers[id] != nil && previousOffers[id] != offerCards[id]
             case .idea(let id): return previousIdeaCards[id] != nil && previousIdeaCards[id] != ideaCards[id]
             default: return false
             }
@@ -661,7 +721,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                    TaskViewPill(view: .upcoming, title: "Upcoming", count: count(.upcoming)),
                    TaskViewPill(view: .inbox, title: "Inbox", count: count(.inbox))]
         for list in store.sections {
-            out.append(TaskViewPill(view: .list(list.id), title: list.name, count: count(.list(list.id))))
+            out.append(TaskViewPill(view: .list(list.id), title: list.name, count: count(.list(list.id)),
+                                    color: TodoLists.color(list), icon: list.icon))
         }
         if TodoViews.showsBots(store.tasks) { out.append(TaskViewPill(view: .bots, title: "Bots", count: count(.bots))) }
         return out
@@ -718,6 +779,10 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private func rowModel(_ task: TodoTask, kind: TodoGroupKind, now: Date, heads: [String: JSONValue?]) -> TodoRowModel {
         let helper = task.helper
         let name: (String?) -> String = { [bots] in PagesNames.botName($0 ?? "default", bots: bots) }
+        // [task-lists] Its list's colour, where the row isn't under that list's own name.
+        var dot = searching ? TodoLists.color(store.sections.first { $0.id == task.section })
+            : TodoLists.dot(task, in: current, sections: store.sections)
+        if case .next = kind { dot = nil }   // "Next in Work" names the list over the rows
         return TodoRowModel(
             id: task.id, title: task.title.isEmpty ? "Untitled Task" : task.title,
             words: TodoViews.row(task, in: kind, now: now, botName: name),
@@ -726,7 +791,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             done: task.isDone, ticking: ticking.contains(task.id),
             face: helper, head: helper.flatMap { heads[$0] ?? nil },
             selecting: selecting, picked: picked.contains(task.id),
-            wide: isTable, who: TodoWords.whoWords(task, botName: name))
+            wide: isTable, who: TodoWords.whoWords(task, botName: name),
+            listDot: dot, listName: dot == nil ? nil : listName(task.section))
     }
 
     private func refreshHeaders() {
@@ -1243,7 +1309,10 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         guard let section = store.sections.first(where: { $0.id == id }) else { return }
         askName(title: "Rename List", message: nil, name: section.name, action: "Save") { [weak self] name in
             guard let self else { return }
-            let next = self.store.sections.map { $0.id == id ? TodoUserSection(id: id, name: String(name.prefix(60))) : $0 }
+            let next = self.store.sections.map { list -> TodoUserSection in
+                guard list.id == id else { return list }
+                var list = list; list.name = String(name.prefix(60)); return list   // its colour, icon and bot stay
+            }
             Task {
                 if await self.store.saveSections(next) != nil { PagesHaptics.success() } else { PagesHaptics.error() }
             }
@@ -1272,6 +1341,53 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             }
         })
         present(alert, animated: true)
+    }
+
+    // MARK: [task-lists] Edit List, and a bot's offers
+
+    #if DEBUG
+    /// `-HQPagesEditList <name>` (PagesDebug): the sheet a hold on the pill opens.
+    func debugEditList(_ id: String) { editList(id) }
+    #endif
+
+    /// A hold on a list's pill › Edit List…: its name, colour, icon, the bot that keeps it, and Today.
+    private func editList(_ id: String) {
+        guard let section = store.sections.first(where: { $0.id == id }) else { return }
+        guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
+        present(TaskListEditSheet.make(store: store, section: section, bots: bots) { [weak self] in
+            guard let self else { return }
+            self.dismiss(animated: true) { self.deleteList(id) }
+        }, animated: true)
+    }
+
+    /// A tap on an offer's card. What it did shows as a notice, with Undo for what accepting made.
+    private func answerOffer(_ id: String, _ button: TodoOfferButton) {
+        guard !answering.contains(id), let offer = store.offers.first(where: { $0.id == id }) else { return }
+        guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
+        Haptics.play(.light)
+        answering.insert(id)
+        reload(animated: false)
+        Task {
+            let ok = await store.answerOffer(id, button.action, list: button.makesList)
+            answering.remove(id)
+            guard ok else { PagesHaptics.error(); reload(animated: false); return }
+            PagesHaptics.success()
+            reload(animated: true)
+            // What it did, once: while the card still asks about your own tasks it is the answer on show (a notice
+            // would lie over its question), so the notice waits for Move or Leave Them.
+            guard button.action != .decline, let after = store.offers.first(where: { $0.id == id }), !after.asksMove,
+                  let words = TodoLists.offerDone(after) else { return }
+            AppLog.note("tasks", "offer \(button.action.rawValue): \(offer.tasks.count) tasks, \(offer.move.count) to move")
+            guard TodoLists.canUndo(after) else { notices.show(words); return }
+            notices.show(words, action: (title: "Undo", handler: { [weak self] in self?.undoOffer(id) }))
+        }
+    }
+
+    private func undoOffer(_ id: String) {
+        Haptics.play(.light)
+        Task {
+            if await store.answerOffer(id, .undo) { PagesHaptics.success() } else { PagesHaptics.error() }
+        }
     }
 
     private func askName(title: String, message: String?, name: String, action: String, done: @escaping (String) -> Void) {
@@ -1484,6 +1600,10 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             PagesHaptics.selection()
             openTask(id)
             if onShowTask != id { collectionView.deselectItem(at: indexPath, animated: true) }
+        case .more(let id)?:
+            collectionView.deselectItem(at: indexPath, animated: false)
+            PagesHaptics.selection()
+            show(.list(id))
         default:
             collectionView.deselectItem(at: indexPath, animated: true)
         }
@@ -1537,7 +1657,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
         if selecting { return taskID(at: indexPath) != nil }
         switch dataSource.itemIdentifier(for: indexPath) {
-        case .task?, .idea?: return true
+        case .task?, .idea?, .more?: return true
         default: return false
         }
     }

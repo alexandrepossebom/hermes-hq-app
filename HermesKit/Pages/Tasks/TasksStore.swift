@@ -66,10 +66,28 @@ nonisolated struct TasksAPI: Sendable {
     /// its tasks stay, under no section.
     @concurrent
     func saveSections(_ sections: [TodoUserSection]) async throws -> [TodoUserSection] {
-        let list = JSONValue.array(sections.map { .object(["id": .string(TodoIDs.isLocal($0.id) ? "" : $0.id), "name": .string($0.name)]) })
+        // [task-lists] Each list whole (colour, icon, bot, rules): 0.9.55 keeps them, an older add-on reads only id
+        // and name. `checked_at` is the gateway's own.
+        let list = JSONValue.array(sections.map { section -> JSONValue in
+            guard case .object(var object)? = try? JSONValue.parse(JSONEncoder().encode(section)) else {
+                return .object(["id": .string(section.id), "name": .string(section.name)])
+            }
+            object["id"] = .string(TodoIDs.isLocal(section.id) ? "" : section.id)
+            object["checked_at"] = nil
+            return .object(object)
+        })
         let data = try await PagesREST.send(client, "PUT", Self.base + "/sections", json: .object(["sections": list]))
         struct Answer: Decodable { var sections: [TodoUserSection] }
         return try JSONDecoder().decode(Answer.self, from: data).sections
+    }
+
+    /// [task-lists] `POST /tasks/offers/{id}` (hermes-hq-push 0.9.55): your tap on a bot's offer. `list` false with
+    /// `accept` is "Add, No List".
+    @concurrent
+    func answerOffer(_ id: String, action: TodoOfferAction, list: Bool = true) async throws -> TodoOfferAnswer {
+        let body: JSONValue = .object(["action": .string(action.rawValue), "list": .bool(list)])
+        let data = try await PagesREST.send(client, "POST", Self.base + "/offers/" + PagesREST.segment(id), json: body)
+        return try JSONDecoder().decode(TodoOfferAnswer.self, from: data)
     }
 
     /// `POST /tasks/prep-job/{profile}`: that bot's "Task prep" scheduled job made, or removed, to match its open prep
@@ -125,6 +143,15 @@ nonisolated struct TodoSnapshot: Codable, Sendable {
     var ideas: Int?
     var fields: Bool?
     var files: Bool?
+    var lists: Bool?
+    var offers: [TodoOffer]?
+}
+
+/// `POST /tasks/offers/{id}`'s answer.
+nonisolated struct TodoOfferAnswer: Decodable, Sendable {
+    var rev: Int
+    var offer: TodoOffer
+    var sections: [TodoUserSection]
 }
 
 @MainActor @Observable
@@ -153,6 +180,11 @@ final class TasksStore {
     private(set) var fieldsSupported = false
     /// The add-on takes your own files and links on a task (0.9.53+).
     private(set) var filesSupported = false
+    /// [task-lists] The add-on keeps a list's colour, icon, bot and rules, and bots' offers (0.9.55+): the Edit List
+    /// sheet shows those rows only then.
+    private(set) var listsSupported = false
+    /// Bots' offers of a list or a batch of tasks: the ones that wait, and the last day's answered ones.
+    private(set) var offers: [TodoOffer] = []
     /// [task-ideas] New ideas to decide; nil when the add-on has no Ideas (older than 0.9.39), and the page keeps its
     /// Add a task row instead of the To Do | Ideas switch.
     private(set) var ideasCount: Int?
@@ -182,6 +214,7 @@ final class TasksStore {
     @ObservationIgnored private var readGeneration = 0
     @ObservationIgnored private var lastReadAt: Date?
     @ObservationIgnored private var sectionsWriting = false
+    @ObservationIgnored private var offersWriting = 0
     /// [13-5] Forgotten at sign-out or a switch: an answer still on its way neither writes tasks.json again nor resets
     /// the phone's due reminders to this account's tasks.
     @ObservationIgnored private var closed = false
@@ -208,6 +241,9 @@ final class TasksStore {
         pagesSupported = cached.value.pages == true
         fieldsSupported = cached.value.fields == true
         filesSupported = cached.value.files == true
+        listsSupported = cached.value.lists == true
+        offers = Self.once(cached.value.offers ?? [])
+        noteOffers(whole: false)
         ideasCount = cached.value.ideas
         rev = cached.value.rev
         hasList = true
@@ -218,7 +254,8 @@ final class TasksStore {
         guard !closed, let url = cacheURL else { return }
         let snapshot = TodoSnapshot(rev: rev, tasks: tasks.filter { !TodoIDs.isLocal($0.id) }, settings: settings,
                                     sections: sectionsSupported ? sections.filter { !TodoIDs.isLocal($0.id) } : nil,
-                                    pages: pagesSupported, ideas: ideasCount, fields: fieldsSupported, files: filesSupported)
+                                    pages: pagesSupported, ideas: ideasCount, fields: fieldsSupported, files: filesSupported,
+                                    lists: listsSupported, offers: offers)
         PagesCache.write(PagesCached(at: Date().timeIntervalSince1970, value: snapshot), to: url)
     }
 
@@ -258,6 +295,8 @@ final class TasksStore {
             pagesSupported = answer.pages
             fieldsSupported = answer.fields
             filesSupported = answer.files
+            listsSupported = answer.lists
+            if offersWriting == 0 { offers = Self.once(answer.offers); noteOffers(whole: answer.lists) }
             ideasCount = answer.ideas
             if !sectionsWriting {
                 sections = answer.sections ?? []
@@ -575,11 +614,82 @@ final class TasksStore {
         }
     }
 
+    /// [task-lists] One list changed (its name, colour, icon, bot or rules); the others stay as they are.
+    @discardableResult
+    func saveSection(_ section: TodoUserSection) async -> Bool {
+        guard sections.contains(where: { $0.id == section.id }) else { return false }
+        return await saveSections(sections.map { $0.id == section.id ? section : $0 }) != nil
+    }
+
+    /// Each offer once, the first of an id kept: an id sent twice would be two rows with one identity, which the
+    /// list refuses (a crash, seen on the Mac against the stand-in gateway).
+    nonisolated static func once(_ offers: [TodoOffer]) -> [TodoOffer] {
+        var seen = Set<String>()
+        return offers.filter { seen.insert($0.id).inserted }
+    }
+
+    /// The chats' offer cards hear what the offers are now.
+    private func noteOffers(whole: Bool) {
+        if TodoOfferStates.note(offers, whole: whole) { NotificationCenter.default.post(name: TodoOfferStates.changed, object: nil) }
+    }
+
+    /// [task-lists] Your tap on a bot's offer. The card changes at once; the list is read again for the tasks and
+    /// the list it made, moved or took back. False when the gateway refused it (the card shows as it was).
+    @discardableResult
+    func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool = true) async -> Bool {
+        guard !refuse(), let at = offers.firstIndex(where: { $0.id == id }) else { return false }
+        let before = offers[at]
+        var shown = before
+        switch action {
+        case .accept: shown.state = "accepted"; shown.listed = list || !before.isNew
+        case .decline: shown.state = "declined"
+        case .move: shown.moveState = "moved"
+        case .leave: shown.moveState = "left"
+        case .undo: shown.state = "undone"
+        }
+        offers[at] = shown
+        noteOffers(whole: false)
+        changed()
+        offersWriting += 1
+        defer { offersWriting -= 1 }
+        do {
+            let answer = try await api.answerOffer(id, action: action, list: list)
+            if let now = offers.firstIndex(where: { $0.id == id }) { offers[now] = answer.offer }
+            noteOffers(whole: false)
+            if !sectionsWriting { sections = answer.sections }
+            save()
+            changed()
+            lastReadAt = nil
+            await refresh(force: true)
+            return true
+        } catch {
+            if let now = offers.firstIndex(where: { $0.id == id }) { offers[now] = before }
+            noteOffers(whole: false)
+            changed()
+            notice("Couldn’t do that. \(PagesREST.reason(error))")
+            Task { await refresh(force: true) }
+            return false
+        }
+    }
+
+    /// [task-lists] "Keep Open" on a bot's offer to close a task: the offer leaves the row, and the bot isn't to ask
+    /// again.
+    @discardableResult
+    func keepOpen(_ id: String) async -> Bool {
+        guard let base = task(id), var offer = base.offer else { return false }
+        offer.kept = true
+        guard let value = try? JSONValue.parse(JSONEncoder().encode(offer)) else { return false }
+        // `offer` is what the row shows at once; the gateway reads only `keep_open`.
+        return await patch(id, ["keep_open": .bool(true), "offer": value])
+    }
+
     /// Adds a section at the end; returns it (with the gateway's id).
     func addSection(named name: String) async -> TodoUserSection? {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return nil }
-        let draft = TodoUserSection(id: TodoIDs.local(), name: String(clean.prefix(60)))
+        // [task-lists] A new list takes the first colour no list has (0.9.55+; an older add-on keeps only the name).
+        let draft = TodoUserSection(id: TodoIDs.local(), name: String(clean.prefix(60)),
+                                    color: listsSupported ? TodoLists.nextColor(sections).rawValue : nil)
         guard let saved = await saveSections(sections + [draft]) else { return nil }
         return saved.last { $0.name == draft.name } ?? saved.last
     }

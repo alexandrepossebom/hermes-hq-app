@@ -50,6 +50,10 @@ struct TodoRowModel: Hashable {
     var wide = false
     /// Who has it ("You", the bot, "You & the bot"): the table's last column.
     var who = ""
+    /// [task-lists] Its list's colour, outside the list's own view: a small dot before the date.
+    var listDot: TodoListColor?
+    /// That list's name, for VoiceOver.
+    var listName: String?
 }
 
 struct TodoRowView: View {
@@ -78,6 +82,7 @@ struct TodoRowView: View {
                 .strikethrough(row.done || row.ticking, color: Color.hqLabel3)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let color = row.listDot { listDot(color, font: .subheadline) }
             Text(row.line.lead ?? "")
                 .font(Font.hq(.subheadline).weight(.medium)).foregroundStyle(TodoInk.color(row.line.tone))
                 .lineLimit(1)
@@ -101,7 +106,7 @@ struct TodoRowView: View {
         .frame(minHeight: 42, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.title), \(row.line.text), \(row.who)")
+        .accessibilityLabel("\(row.title), \(row.line.text), \(row.who)\(row.listName.map { ", in \($0)" } ?? "")")
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: row.done ? "Mark Not Done" : "Mark Done") { toggle() }
@@ -119,6 +124,8 @@ struct TodoRowView: View {
                     titleLine
                         .lineLimit(large ? 4 : 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    // [task-lists] Its list's dot, before the date (and alone at the row's end with no date).
+                    if let color = row.listDot, !large { listDot(color, font: .footnote) }
                     if let when = row.words.when {
                         Text(when)
                             .font(Font.hq(.footnote)).monospacedDigit()
@@ -143,7 +150,7 @@ struct TodoRowView: View {
         .frame(minHeight: Theme.isDesktop ? 46 : 44, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(row.words.spoken.isEmpty ? row.title : "\(row.title), \(row.words.spoken)")
+        .accessibilityLabel(([row.title] + (row.words.spoken.isEmpty ? [] : [row.words.spoken]) + (row.listName.map { ["in \($0)"] } ?? [])).joined(separator: ", "))
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: row.done ? "Mark Not Done" : "Mark Done") { toggle() }
@@ -173,6 +180,12 @@ struct TodoRowView: View {
             line = Text("\(line)\(gap)\(Text(word).font(small).foregroundStyle(Color.hqLabel2))")
         }
         return line
+    }
+
+    /// [task-lists] The list's dot, centred on the words' x-height beside it.
+    private func listDot(_ color: TodoListColor, font: UIFont.TextStyle) -> some View {
+        TaskListDot(color: row.done ? .gray : color)
+            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(font).xHeight / 2 }
     }
 
     @ViewBuilder private var lead: some View {

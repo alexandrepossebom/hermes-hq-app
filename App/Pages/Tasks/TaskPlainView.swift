@@ -45,6 +45,8 @@ struct TaskPlainView: View {
                     priorityRow
                     tagsRow
                     whoRow
+                    sourceRow
+                    closeOffer
                     if model.gone {
                         TaskGridRow(last: true, topLine: true) { Image(systemName: "trash") } text: {
                             Text("This task was deleted.").foregroundStyle(Color.hqLabel2)
@@ -334,7 +336,7 @@ struct TaskPlainView: View {
                 }
             }
         } label: {
-            TaskGridRow(last: true) {
+            TaskGridRow(last: sourceLine == nil) {
                 Image(systemName: task.whoKind == .together ? "person.2" : "person").foregroundStyle(Color.hqLabel2)
             } text: {
                 HStack(spacing: 6) {
@@ -345,6 +347,12 @@ struct TaskPlainView: View {
                         Text(model.botName(helper)).foregroundStyle(Color.hqLabel).lineLimit(1)
                     } else {
                         Text("You").foregroundStyle(Color.hqLabel)
+                        // [task-lists] The list's bot looks after this task without being on it: said in words, not
+                        // with a face (a face means the bot has the task; owner 2026-11-14).
+                        if let watched {
+                            Text("· \(watched)").foregroundStyle(Color.hqLabel2).lineLimit(1)
+                                .accessibilityIdentifier("task.watched-by")
+                        }
                     }
                     Spacer(minLength: 8)
                     if task.helper != nil {
@@ -372,8 +380,57 @@ struct TaskPlainView: View {
         }
         .buttonStyle(.plain)
         .disabled(model.gone || bots.isEmpty)
-        .accessibilityLabel("Who: \(words)\(TodoViews.botState(task, running: model.chat?.session.isRunning == true).map { ", \($0.words)" } ?? ""). Change")
+        .accessibilityLabel("Who: \(words)\(watched.map { ", \($0)" } ?? "")\(TodoViews.botState(task, running: model.chat?.session.isRunning == true).map { ", \($0.words)" } ?? ""). Change")
         .accessibilityIdentifier("task.who")
+    }
+
+    // MARK: [task-lists] Where it came from, and a bot's offer to close it
+
+    private var watched: String? { TodoLists.watchedBy(task, sections: model.store.sections, botName: model.botName) }
+    private var sourceLine: String? { TodoLists.sourceLine(task, now: Date()) }
+
+    /// "Email · Ivy · Nov 13": where the bot found a task it added. A tap opens the link, when it gave one.
+    @ViewBuilder private var sourceRow: some View {
+        if let line = sourceLine {
+            let url = TodoLists.sourceURL(task)
+            Button {
+                guard let url else { return }
+                PagesHaptics.selection()
+                UIApplication.shared.open(url)
+            } label: {
+                TaskGridRow(last: true) {
+                    Image(systemName: "tray.and.arrow.down").foregroundStyle(Color.hqLabel2)
+                } text: {
+                    HStack(spacing: 6) {
+                        Text(line).foregroundStyle(Color.hqLabel2).lineLimit(1)
+                        Spacer(minLength: 8)
+                        if url != nil {
+                            Image(systemName: "arrow.up.right").imageScale(.small).foregroundStyle(Color.hqLabel3).accessibilityHidden(true)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(url == nil)
+            .accessibilityLabel("From \(line)")
+            .accessibilityHint(url == nil ? "" : "Opens it")
+            .accessibilityIdentifier("task.source")
+        }
+    }
+
+    /// A bot thinks the task is done and says why: Mark Done, or Keep Open (and it doesn't ask again).
+    @ViewBuilder private var closeOffer: some View {
+        if let offer = TodoLists.closeOffer(task), !model.gone {
+            TaskCloseOfferCard(line: TodoLists.closeLine(offer, botName: model.botName), enabled: !model.store.readOnlyGateway,
+                               done: { model.markDone() },
+                               keep: {
+                                   PagesHaptics.selection()
+                                   Task { if await !model.store.keepOpen(task.id) { PagesHaptics.error() } }
+                               })
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+        }
     }
 
     /// What isn't set yet, as quiet words under the who row, always one line: "+ Notes  + Repeat  + Priority  + Tags

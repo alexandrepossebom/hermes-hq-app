@@ -1293,6 +1293,16 @@ extension ChatViewController: ActivityCellDelegate, ChatCellMenuExtending {
             done(ok)
         }
     }
+
+    /// [task-lists] A tap on a bot's offer: `POST /tasks/offers/{id}` on this chat's gateway.
+    func activityCellAnswerOffer(id: String, action: TodoOfferAction, list: Bool, done: @escaping (Bool) -> Void) {
+        let client = (session as? LiveChatSession)?.client
+        Task {
+            let ok = await TasksHub.answerOffer(id, action, list: list, client: client)
+            AppLog.note("tasks", "chat offer \(action.rawValue) → \(ok ? "ok" : "failed")")
+            done(ok)
+        }
+    }
 }
 
 /// The reply menu's Show / Hide Steps for the menus stream (`1x-menus.md` §9): nil when the reply has none.
