@@ -216,6 +216,23 @@ nonisolated final class BrowserCloseOnce: Sendable {
         return cloud
     }
 
+    /// "Use for All Bots" (plugin 3.10+): every bot on the computer browses in Browser Use Cloud, new bots too; off gives
+    /// each its own browser back. The answer's `skipped` names the bots the computer couldn't change.
+    func setCloudForAll(_ on: Bool) async throws -> BrowserCloud {
+        let found = try await plugin()
+        let answer = try await json("POST", found.base + "/cloud", body: .object(["all": .bool(on)]), timeout: 120)
+        guard let cloud = BrowserCloud.parse(answer) else { throw GatewayFailure.notHermes }
+        return cloud
+    }
+
+    /// Browser Use Cloud for Settings, with whether the plugin has "Use for All Bots" (3.10+); nil when it has no cloud.
+    func cloudSettings() async throws -> (cloud: BrowserCloud, offersAll: Bool)? {
+        let found = try await plugin()
+        guard found.setup == .ready, BrowserHealth.offersCloud(found.health) else { return nil }
+        guard let cloud = BrowserCloud.parse(try await json("GET", found.base + "/cloud")) else { return nil }
+        return (cloud, BrowserHealth.offersCloudForAll(found.health))
+    }
+
     func chromeProfiles() async throws -> ChromeProfiles {
         let found = try await plugin()
         return ChromeProfiles.parse(try await json("GET", found.base + "/chrome-profiles"))
@@ -282,10 +299,16 @@ nonisolated struct BrowserCloud: Sendable, Equatable {
     var keySet: Bool
     /// "…" and the key's last four characters, to tell two keys apart.
     var keyHint: String?
+    /// "Use for All Bots" is on (plugin 3.10+): every bot browses in the cloud, new bots too.
+    var all = false
+    /// After switching it: the bots the computer couldn't change (browser tools off, a config that won't save).
+    var skipped: [String] = []
 
     static func parse(_ value: JSONValue) -> BrowserCloud? {
         guard value["schema"]?.string == "hermes-hq-browser.cloud.v1" else { return nil }
-        return BrowserCloud(keySet: value["key_set"]?.bool ?? false, keyHint: value["key_hint"]?.string.map { String($0.prefix(8)) })
+        return BrowserCloud(keySet: value["key_set"]?.bool ?? false, keyHint: value["key_hint"]?.string.map { String($0.prefix(8)) },
+                            all: value["all"]?.bool ?? false,
+                            skipped: (value["skipped"]?.array ?? []).prefix(50).compactMap { $0.string.map { String($0.prefix(60)) } })
     }
 }
 

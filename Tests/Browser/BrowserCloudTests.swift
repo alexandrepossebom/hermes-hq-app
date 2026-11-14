@@ -31,6 +31,30 @@ struct BrowserCloudTests {
         #expect(BrowserCloud.parse(try JSONValue.parse(Data(#"{"schema": "something.else", "key_set": true}"#.utf8))) == nil)
     }
 
+    /// Settings › Browser Use Cloud › Use for All Bots (add-on 3.10).
+    @Test func useForAllBotsIsReadFromTheAddOn() throws {
+        let new = try JSONValue.parse(Data(#"{"features": {"cloud": true, "cloud_all": true}}"#.utf8))
+        #expect(BrowserHealth.offersCloudForAll(new))
+        #expect(!BrowserHealth.offersCloudForAll(try JSONValue.parse(Data(#"{"features": {"cloud": true}}"#.utf8))), "3.9: the key, no switch")
+        let on = try #require(BrowserCloud.parse(try JSONValue.parse(Data(
+            #"{"schema": "hermes-hq-browser.cloud.v1", "key_set": true, "key_hint": "…AbCd", "all": true, "skipped": ["ivy", 3, "juno"]}"#.utf8))))
+        #expect(on.all && on.skipped == ["ivy", "juno"])
+        let older = try #require(BrowserCloud.parse(try JSONValue.parse(Data(#"{"schema": "hermes-hq-browser.cloud.v1", "key_set": true}"#.utf8))))
+        #expect(!older.all && older.skipped.isEmpty)
+    }
+
+    @Test func botsLeftAsTheyWereAreNamed() {
+        #expect(BrowserCloudSettingsModel.skippedLine([]) == nil)
+        #expect(BrowserCloudSettingsModel.skippedLine(["ivy"])?.hasPrefix("ivy was left as it was: its browser tools") == true)
+        #expect(BrowserCloudSettingsModel.skippedLine(["ivy", "juno"])?.hasPrefix("ivy and juno were left as they were: their") == true)
+        #expect(BrowserCloudSettingsModel.skippedLine(["ivy", "juno", "otto", "wren"])?.hasPrefix("ivy, juno and 2 more were left") == true)
+    }
+
+    @Test func settingsFindsBrowserUseCloud() {
+        #expect(SettingsSearch.results("browser use", in: SettingsSearch.rootPages).first?.label == "Browser Use Cloud")
+        #expect(SettingsNavigator.category(of: "browser-use-cloud") == .gateway)
+    }
+
     @Test func aBotInTheCloudIsAChoiceNotAProblem() throws {
         let cloud = try choice(["mode": "cloud", "changeable": false, "blocked": "cloud", "can_take_over": true])
         #expect(cloud.cloud)

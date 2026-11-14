@@ -46,7 +46,7 @@ def fresh_state():
     return {'active': False, 'listed': True, 'url': 'https://example.test/sign-in', 'ask': None, 'plugin': 'ready',
             'choice_feature': True, 'dialogs_feature': True, 'frame_fps': 60.0, 'control': 'bot', 'holder': None, 'epoch': 0, 'pointer': (0.5, 0.5),
             'focus': None, 'choices': {'default': own_choice()}, 'blocked': {}, 'take_overs': [], 'dialog': None,
-            'cloud_feature': True, 'cloud_key': None,   # Browser Use Cloud (3.9): the invented key's last four, never a real one
+            'cloud_feature': True, 'cloud_all_feature': True, 'cloud_all': False, 'cloud_skip': [], 'cloud_key': None,   # Browser Use Cloud (3.9): the invented key's last four, never a real one
             'inputs': [], 'acks': 0, 'frames_sent': 0, 'hellos': [], 'views': [], 'viewers': 0, 'version': 0}
 
 
@@ -348,7 +348,8 @@ def handler(gateway):
                                         'installed': True, 'missing': [], 'drift': [],
                                         'features': {'watch': True, 'control': True, 'ask': True, 'own_chrome': True,
                                                      'choice': bool(STATE['choice_feature']), 'dialogs': bool(STATE['dialogs_feature']),
-                                                     'cloud': bool(STATE['cloud_feature'])}})
+                                                     'cloud': bool(STATE['cloud_feature']),
+                                                     'cloud_all': bool(STATE['cloud_feature'] and STATE['cloud_all_feature'])}})
             if route == '/bots':
                 return self.reply(200, {'schema': 'dispatch-browser.bots.v1', 'own_chrome': True,
                                         'bots': [{'profile': 'default', 'status': 'ready', 'port': 9222}]})
@@ -366,7 +367,7 @@ def handler(gateway):
         def cloud(self):
             key = STATE['cloud_key']
             return {'schema': 'hermes-hq-browser.cloud.v1', 'provider': 'hq-browser-use', 'key_set': key is not None,
-                    'key_hint': f'…{key[-4:]}' if key else None}
+                    'key_hint': f'…{key[-4:]}' if key else None, 'all': bool(STATE['cloud_all'])}
 
         def choice(self, profile):
             with LOCK:
@@ -401,6 +402,7 @@ def handler(gateway):
                                                   'blocked', 'take_overs', 'viewers', 'focus', 'url', 'epoch')}
                     view['choice'] = STATE['choices'].get('default') or own_choice()
                     view['cloud_key_set'] = STATE['cloud_key'] is not None
+                    view['cloud_all'] = bool(STATE['cloud_all'])
                 return self.reply(200, view)
             return super().do_GET()
 
@@ -454,7 +456,25 @@ def handler(gateway):
                     return self.reply(401, {'detail': 'unauthorized'})
                 if STATE['plugin'] == 'missing' or not STATE['cloud_feature']:
                     return self.reply(404, {'detail': 'Not Found'})
-                key = str(self.body().get('key') or '').strip()
+                sent = self.body()   # read once: a second read waits for bytes that never come
+                everyone = sent.get('all')
+                if isinstance(everyone, bool):   # "Use for All Bots" (3.10): every bot but the ones the fixture skips
+                    if not STATE['cloud_all_feature']:
+                        return self.reply(400, {'detail': 'Send the API key.'})
+                    if everyone and STATE['cloud_key'] is None:
+                        return self.reply(409, {'detail': 'Add your Browser Use API key first (Settings › Browser Use Cloud).'})
+                    time.sleep(0.4)
+                    with LOCK:
+                        STATE['cloud_all'] = everyone
+                        skipped = [str(name) for name in STATE['cloud_skip']] if everyone else []
+                        for profile in ['default'] + [name for name in STATE['choices'] if name != 'default']:
+                            c = STATE['choices'].setdefault(profile, own_choice())
+                            if everyone and profile not in skipped:
+                                c.update(mode='cloud', source=None, copied_at=None)
+                            elif not everyone and c['mode'] == 'cloud':
+                                c.update(mode='own', source=None, copied_at=None)
+                    return self.reply(200, {**self.cloud(), 'skipped': skipped})
+                key = str(sent.get('key') or '').strip()
                 time.sleep(0.4)   # the plugin asks Browser Use whether the key works
                 if key.startswith('bad'):
                     return self.reply(409, {'detail': 'Browser Use didn’t accept the API key. Check it in Hermes HQ › Bot Info › Browser.'})
@@ -464,7 +484,7 @@ def handler(gateway):
             if path == '/__fixture/browser':
                 body = self.body()
                 with LOCK:
-                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'cloud_feature', 'plugin', 'frame_fps', 'dialog'):
+                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'cloud_feature', 'cloud_all_feature', 'cloud_skip', 'plugin', 'frame_fps', 'dialog'):
                         if key in body:
                             STATE[key] = body[key]
                     if isinstance(body.get('blocked'), dict):

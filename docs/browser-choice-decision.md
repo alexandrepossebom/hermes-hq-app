@@ -99,6 +99,22 @@ watched. Bot Info › Browser has an **In the Cloud** section when the add-on is
   browser's own address.
 - Choosing Its Own Profile (or a profile copy) brings the bot's Chrome on the computer back.
 
+### Use for All Bots (2026-11-14, add-on 3.10.0)
+
+The owner found the choice was per bot only and asked for one switch. **Settings › Browser Use Cloud** (Accounts &
+Keys) has the API key and **Use for All Bots** (`App/Browser/BrowserCloudSettings.swift`):
+
+- On (`POST /cloud {"all": true}`): every bot on the computer goes to Browser Use Cloud, and the add-on's supervisor
+  moves a new bot there within one pass. No key saved: the switch asks for it first. A bot whose browser tools or
+  add-on are off is left alone and named under the switch.
+- A bot put back on Its Own Profile (or a profile copy) in Bot Info › Browser while the switch is on is remembered as
+  an exception and stays there; choosing Browser Use Cloud for it again clears that.
+- Off asks first, then gives every bot in the cloud its own browser back (also one that was chosen by hand before).
+- Removing the key from this page turns the switch off first, so no bot is left without a browser.
+- An add-on older than 3.10 (`features.cloud_all` missing): the page keeps the key and says to update for the switch.
+
+Guards: `BrowserCloudTests`, `test3c_BrowserUseCloudForAllBots`, the add-on's `CloudForAllTests`.
+
 Not in it: 1Password's approve-in-the-app flow (a partner preview that needs a 1Password Business account on our
 side; the owner chose to start without it). Not tested yet: a Hermes Cloud gateway, where the add-on is not installed
 and the bot's browser setting may be managed. Guards: `BrowserCloudTests`, `test3b_BrowserUseCloud`

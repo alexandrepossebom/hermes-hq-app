@@ -236,6 +236,51 @@ final class BrowserEndToEndTests: XCTestCase {
         XCTAssertFalse(app.buttons["browser.choice.cloud"].exists, "3.8 and older: hidden")
     }
 
+    /// Settings › Browser Use Cloud (add-on 3.10): "Use for All Bots" asks for the key the first time, then puts every
+    /// bot in the cloud; turning it off asks first and gives each its own browser back. An older add-on has no switch.
+    @MainActor func test3c_BrowserUseCloudForAllBots() throws {
+        launch()
+        openCloudSettings(shot: "all-1-settings-row")
+        let all = app.switches["settings.cloud.all"]
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "the page offers Use for All Bots")
+        XCTAssertEqual(all.value as? String, "0")
+        attach("all-2-page")
+        all.switches.firstMatch.tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no key saved: the key is asked for first")
+        field.typeText("invented-key-00000000WXYZ")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == true }, "a key that works also turns it on")
+        XCTAssertEqual((try state()["choice"] as? [String: Any])?["mode"] as? String, "cloud", "the bot browses in the cloud")
+        XCTAssertTrue(waitUntil(timeout: 5) { all.value as? String == "1" })
+        XCTAssertTrue(app.buttons["settings.cloud.forget"].exists, "the saved key can be removed")
+        attach("all-3-on")
+
+        all.switches.firstMatch.tap()
+        let off = app.alerts.buttons["Turn Off"]
+        XCTAssertTrue(off.waitForExistence(timeout: 5), "turning it off asks first")
+        attach("all-4-off-asked")
+        off.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == false })
+        XCTAssertEqual((try state()["choice"] as? [String: Any])?["mode"] as? String, "own", "its own browser is back")
+        XCTAssertTrue(waitUntil(timeout: 5) { all.value as? String == "0" })
+
+        // A bot the computer couldn't change is named.
+        try account.control("/__fixture/browser", ["cloud_skip": ["default"]])
+        all.switches.firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["settings.cloud.skipped"].waitForExistence(timeout: 10), "the bot left as it was is named")
+        attach("all-5-skipped")
+
+        // Add-on 3.9: the key, no switch.
+        try account.control("/__fixture/browser", ["cloud_all_feature": false])
+        app.terminate()   // the app keeps the add-on's answer for five minutes
+        launch()
+        openCloudSettings(shot: nil)
+        XCTAssertTrue(app.buttons["settings.cloud.key"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.switches["settings.cloud.all"].exists, "3.9: no switch")
+        attach("all-6-older-add-on")
+    }
+
     @MainActor func test3_BotInfoBrowserChoice() throws {
         launch()
         openBotInfo()
@@ -415,6 +460,23 @@ final class BrowserEndToEndTests: XCTestCase {
         app.launch()
         self.app = app
         XCTAssertTrue(app.cells["bot-row-default"].waitForExistence(timeout: 20), "signed in: the Bots list shows")
+    }
+
+    /// More › Settings › Browser Use Cloud.
+    @MainActor private func openCloudSettings(shot: String?) {
+        let more = app.tabButton(id: "tab-more", label: "More")   // Desktop Look draws its own tab bar
+        XCTAssertTrue(more.waitForExistence(timeout: 20), "the More tab shows")
+        let settings = app.cells["more-row-settings"]
+        for _ in 0..<4 {
+            more.tap()
+            if settings.waitForExistence(timeout: 2), settings.isHittable { break }
+        }
+        settings.tap()
+        let row = app.buttons["settings.browser-use-cloud"]
+        for _ in 0..<10 where !(row.exists && row.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(row.exists, "Settings lists Browser Use Cloud")
+        if let shot { attach(shot) }
+        row.tap()
     }
 
     @MainActor private func openChat() {

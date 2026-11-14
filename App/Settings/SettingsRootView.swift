@@ -1208,6 +1208,9 @@ struct SettingsRootView: View {
                     .accessibilityIdentifier("settings.keys")
                 NavRow(title: "Billing", systemImage: "creditcard") { SettingsNavigator.openRoot("billing", router: router) }
                     .accessibilityIdentifier("settings.billing")
+                // The owner 2026-11-14: Browser Use Cloud was per bot only; its key and "Use for All Bots" live here.
+                NavRow(title: "Browser Use Cloud", systemImage: "cloud") { SettingsNavigator.openRoot("browser-use-cloud", router: router) }
+                    .accessibilityIdentifier("settings.browser-use-cloud")
             } header: { HQSectionLabel {
                 Text("Accounts & Keys")
             } }
@@ -1858,6 +1861,7 @@ extension SettingsRowLabel {
         "bolt": ("bolt.fill", Tile.orange),
         "key": ("key.fill", Tile.graphite),
         "creditcard": ("creditcard.fill", Tile.green),
+        "cloud": ("cloud.fill", Tile.sky),
         "sparkles": ("sparkles", Tile.purple),
         "point.3.connected.trianglepath.dotted": ("point.3.filled.connected.trianglepath.dotted", Tile.teal),
         "powerplug": ("powerplug.fill", Tile.teal),   // Capabilities › Connectors (Mac polish #90)
