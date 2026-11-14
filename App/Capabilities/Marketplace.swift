@@ -601,7 +601,8 @@ struct MarketplaceView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .lastTextBaseline, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(Font.hq(.title).weight(.bold)).foregroundStyle(Color.hqLabel).lineLimit(1)
+                    Text(title).font(Font.hq(.title).weight(.bold)).foregroundStyle(Color.hqLabel).lineLimit(Self.titleLines(wide: wide))
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
                     if let blurb { Text(blurb).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2) }
                 }
@@ -617,6 +618,16 @@ struct MarketplaceView: View {
             }
             chips(categories: !wide)
         }
+    }
+
+    /// [mac] Mac pass 2026-11-14: with a plugin or skill open beside it the results column is narrow, and one line cut
+    /// "Results for “weather”" to "Results for “…". There the heading takes a second line; elsewhere it stays one.
+    private static func titleLines(wide: Bool) -> Int {
+        #if targetEnvironment(macCatalyst)
+        return wide ? 1 : 2
+        #else
+        return 1
+        #endif
     }
 
     /// A pop-up button's face: "Sort  Most Stars ⌃".

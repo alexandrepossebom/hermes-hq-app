@@ -180,7 +180,7 @@ final class TileVersionsModel {
         tile.version = .init(verb: current || !writable ? nil : verb(version)) { [weak self] host in
             host.dismiss(animated: true) { self?.askRollBack(version) }
         }
-        FilePreviewPresenter.shared.open(path: path, name: version.file, context: context, from: controller, row: nil, tile: tile)
+        HTMLPageSheet.openTile(path: path, name: version.file, context: context, tile: tile, from: controller)   // [tiles] at once
     }
 
     func rollBack(_ version: TileVersion) {

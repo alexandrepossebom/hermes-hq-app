@@ -51,10 +51,15 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     static let maxIntentLength = 500
     private static let intentGap: TimeInterval = 1.0
 
-    private var file: URL
+    /// nil while a tile opened before its page was on this Mac is still being read (`openTile`).
+    private var file: URL?
     private let source: Source?
     private let tile: Tile?
     private var webView: WKWebView?
+    /// [tiles] The page has drawn once: until then the web view is hidden behind a spinner, so the sheet never shows
+    /// its own empty colour and then the page's (Mac pass 2026-11-14: a black sheet, then a white page snapping in).
+    private var painted = false
+    private let spinner = UIActivityIndicatorView(style: .medium)
     private let status = UILabel()
     /// [glass-audit] Floating over the page: Liquid Glass (flattened in the Desktop Look by ThemeChrome).
     private let statusBar = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
@@ -75,15 +80,82 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     @discardableResult
     static func present(_ url: URL, source: Source? = nil, tile: Tile? = nil, title: String? = nil,
                         from vc: UIViewController) -> HTMLPageSheet {
+        show(url, source: source, tile: tile, title: title ?? tile?.name ?? url.lastPathComponent, from: vc)
+    }
+
+    private static func show(_ url: URL?, source: Source?, tile: Tile?, title: String, from vc: UIViewController) -> HTMLPageSheet {
         let page = HTMLPageSheet(file: url, source: source, tile: tile)
-        AppLog.trace("chatui", "html page opened live, talk-back \(source?.send != nil || tile?.send != nil ? "on" : "off")\(tile != nil ? ", as a tile" : "")")
-        let sheet = ChatSheet.wrap(page, title: title ?? tile?.name ?? url.lastPathComponent, detents: [.large()])
+        AppLog.trace("chatui", "html page opened live, talk-back \(source?.send != nil || tile?.send != nil ? "on" : "off")\(tile != nil ? ", as a tile" : "")\(url == nil ? ", page still reading" : "")")
+        let sheet = ChatSheet.wrap(page, title: title, detents: [.large()])
         SheetStyle.widen(sheet, to: 960, from: vc)   // [ipad-polish] a page made for a browser, not a phone's width
+        macSize(sheet, from: vc)
         vc.present(sheet, animated: true)
         return page
     }
 
-    init(file: URL, source: Source?, tile: Tile? = nil) {
+    /// [tiles] Mac pass 2026-11-14 (owner: "Tiles not loading well in their pop up"): on the Mac a page's sheet was the
+    /// forms' 620 points, a tall narrow strip over a wide window, and it followed the web view's scrolling content like a
+    /// list does, so a tile (a page exactly its window's height) kept whatever height the sheet had while it loaded and
+    /// opened a different size each time. A page is drawn for a browser: here it is the iPad's document width (960, the
+    /// window less 80 a side at most) and as tall as the window allows, the same every time.
+    private static func macSize(_ sheet: UINavigationController, from vc: UIViewController) {
+        #if targetEnvironment(macCatalyst)
+        guard let window = vc.viewIfLoaded?.window ?? MainTabController.current?.viewIfLoaded?.window else { return }
+        sheet.view.subviews.filter { $0 is MacSheetFit }.forEach { $0.removeFromSuperview() }   // no following the page
+        sheet.modalPresentationStyle = .formSheet
+        sheet.preferredContentSize = CGSize(width: max(620, min(960, window.bounds.width - 160)),
+                                            height: max(480, min(window.bounds.height - 180, 1100)))
+        #endif
+    }
+
+    /// [tiles] A tile or pinned page opens at once: from the copy already on this Mac (the Tiles page drew it), read
+    /// again behind it and drawn again only if the bot changed it. It used to wait, with nothing on screen, for the page
+    /// to download again before the sheet even started to open (Mac pass 2026-11-14: three seconds of nothing on a slow
+    /// gateway, and a second click cancelled it). Never read yet: the sheet opens with a spinner, and says why if the
+    /// page can't be read, with Try Again.
+    @discardableResult
+    static func openTile(path: String, name: String, context: MediaContext, tile: Tile, from vc: UIViewController) -> HTMLPageSheet {
+        let store = MediaLoader.shared.store(for: context.accountId)
+        let kept = store.cachedFile(MediaStore.gatewayKey(accountId: context.accountId, profile: context.profile, path: path), name: name)
+        let page = show(kept, source: FilePreviewPresenter.pageSource(path, context, from: vc), tile: tile, title: tile.name, from: vc)
+        page.readTile(path: path, name: name, context: context)
+        return page
+    }
+
+    /// The tile's page from the bot's computer; drawn again only when it differs from the copy shown.
+    private func readTile(path: String, name: String, context: MediaContext) {
+        contentUnavailableConfiguration = nil
+        let shown = file.flatMap { try? Data(contentsOf: $0) }
+        Task { [weak self] in
+            do {
+                let url = try await MediaLoader.shared.file(path: path, name: name, context: context, progressKey: "page|" + path, fresh: true)
+                guard let self else { return }
+                let changed = shown == nil || url != self.file || (try? Data(contentsOf: url)) != shown
+                self.file = url
+                if changed { self.load() }
+                AppLog.trace("chatui", "tile page read again, \(changed ? "changed: drawn again" : "unchanged")")
+            } catch is CancellationError {
+            } catch {
+                guard let self, self.file == nil else { return }   // a kept copy shows: it stays
+                AppLog.note("chatui", "tile page could not be read: \((error as? MediaLoadError).map { String(describing: $0) } ?? "\(type(of: error))")")
+                self.spinner.stopAnimating()
+                var notice = UIContentUnavailableConfiguration.empty()
+                notice.image = UIImage(systemName: "exclamationmark.triangle")
+                notice.text = "Couldn’t Open \(self.tile?.name ?? name)"
+                notice.secondaryText = (error as? MediaLoadError)?.fileMessage ?? MediaLoadError.unreachable.fileMessage
+                var button = UIButton.Configuration.bordered()
+                button.title = "Try Again"
+                notice.button = button
+                notice.buttonProperties.primaryAction = UIAction { [weak self] _ in
+                    self?.spinner.startAnimating()
+                    self?.readTile(path: path, name: name, context: context)
+                }
+                self.contentUnavailableConfiguration = notice
+            }
+        }
+    }
+
+    init(file: URL?, source: Source?, tile: Tile? = nil) {
         self.file = file
         self.source = source
         self.tile = tile
@@ -119,8 +191,14 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         // 2026-11-03, the revenue tile opened from Tiles: its headline cut off).
         web.translatesAutoresizingMaskIntoConstraints = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
+        web.alpha = 0   // [tiles] shown once the page has drawn (`didFinish`)
         view.addSubview(web)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.hidesWhenStopped = true
+        view.addSubview(spinner)
         NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
             web.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             web.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             web.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -158,8 +236,8 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         ])
 
         let share = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), primaryAction: UIAction { [weak self] _ in
-            guard let self else { return }
-            FilePreviewPresenter.shared.share(self.file, from: self, anchor: nil)
+            guard let self, let file = self.file else { return }
+            FilePreviewPresenter.shared.share(file, from: self, anchor: nil)
         })
         share.accessibilityLabel = "Share"
         var items = navigationItem.rightBarButtonItems ?? []
@@ -204,6 +282,11 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         #if DEBUG
         if UserDefaults.standard.string(forKey: "HQDebugTour") == "htmlstatus" { show("Sent to Hermes — waiting for a reply…") }
         #endif
+        // [tiles] A spinner only when drawing takes a moment: a page from this Mac's copy draws before it would show.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, !self.painted, self.contentUnavailableConfiguration == nil else { return }
+            self.spinner.startAnimating()
+        }
     }
 
     override func viewIsAppearing(_ animated: Bool) {
@@ -224,7 +307,8 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     }
 
     private func load() {
-        guard handedPrelude != nil else { return }   // the first load waits for the theme (`handTheme`)
+        // The first load waits for the theme (`handTheme`); a tile still being read loads when it lands (`readTile`).
+        guard handedPrelude != nil, let file else { return }
         webView?.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
     }
 
@@ -242,7 +326,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             if let read = source.read {
                 url = try? await read()
             } else {
-                url = try? await MediaLoader.shared.file(path: source.path, name: self?.file.lastPathComponent ?? "",
+                url = try? await MediaLoader.shared.file(path: source.path, name: self?.file?.lastPathComponent ?? "",
                                                          context: source.context, progressKey: "page|" + source.path, fresh: true)
             }
             guard let self else { return }
@@ -309,7 +393,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
         // The page itself (and its own #anchors) loads here; any other address opens outside it.
-        if url.isFileURL, url.path == file.path { decisionHandler(.allow); return }
+        if url.isFileURL, url.path == file?.path { decisionHandler(.allow); return }
         if action.navigationType == .linkActivated { LinkOpener.open(url, from: self) }
         decisionHandler(action.targetFrame?.isMainFrame == false && !url.isFileURL ? .allow : .cancel)
     }
@@ -320,7 +404,19 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             (() => { const b = getComputedStyle(document.body).backgroundColor;
               return /rgba\\(.*, 0\\)$|transparent/.test(b) ? getComputedStyle(document.documentElement).backgroundColor : b })()
             """) { [weak self] value, _ in
-            guard let self, let css = value as? String, let colour = Self.cssColour(css) else { return }
+            guard let self else { return }
+            let colour = (value as? String).flatMap(Self.cssColour)
+            // [tiles] The first draw fades in over its own colour, the spinner gone; later ones (a look change, the bot
+            // rewrote it) swap in place.
+            if !self.painted {
+                self.painted = true
+                self.spinner.stopAnimating()
+                UIView.animate(withDuration: 0.15) {
+                    webView.alpha = 1
+                    if let colour { self.view.backgroundColor = colour }
+                }
+            }
+            guard let colour else { return }
             self.view.backgroundColor = colour
             // The bar's words and buttons in the ink that reads on the page's colour: white on a light tile in dark mode
             // was all but invisible (2026-11-03).
@@ -328,6 +424,20 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             colour.getWhite(&white, alpha: nil)
             self.navigationController?.navigationBar.overrideUserInterfaceStyle = white > 0.6 ? .light : white < 0.35 ? .dark : .unspecified
         }
+    }
+
+    /// [tiles] A page that fails to draw still shows what it has, not a spinner forever.
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { reveal(webView, error) }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) { reveal(webView, error) }
+
+    private func reveal(_ webView: WKWebView, _ error: any Error) {
+        // A load the next one replaced (the theme handed, the page read again) is not a failure.
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled || ns.domain == "WebKitErrorDomain" && ns.code == 102 { return }
+        guard !painted else { return }
+        painted = true
+        spinner.stopAnimating()
+        webView.alpha = 1
     }
 
     /// `rgb(…)`/`rgba(…)` as a colour; nil for a clear one (the page paints nothing: the sheet's own stays).

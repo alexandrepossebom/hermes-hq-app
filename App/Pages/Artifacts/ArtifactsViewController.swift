@@ -1616,6 +1616,17 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     private func openArtifactsPage() {
         guard let services, let navigation = navigationController else { return }
         PagesHaptics.selection()
+        #if targetEnvironment(macCatalyst)
+        // [mac] Mac pass 2026-11-14: pushed, Artifacts landed in the right pane beside Tiles and stayed there after
+        // other places were clicked (Tiles came back as a narrow list beside a second Artifacts, not No Tile Open).
+        // Artifacts is a place in the sidebar: it opens as its row's click opens it.
+        if let root = view.window.flatMap({ AppRoot.tabs($0) }) ?? MainTabController.current,
+           let tab = root.placedTabs.first(where: { $0.tabBarItem.accessibilityIdentifier == "tab-page-artifacts" }) {
+            if let split = root.split { split.switchPlace(to: tab) { root.pick(tab) } } else { root.pick(tab) }
+            (tab as? UINavigationController)?.popToRootViewController(animated: false)
+            return
+        }
+        #endif
         let page = ArtifactsViewController(store: store, scope: scope, services: services, fixedProfile: fixedProfile, makeChat: makeChat)
         page.showInChatOverride = showInChatOverride
         page.navigationItem.largeTitleDisplayMode = .never
@@ -2567,7 +2578,8 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             // [live-tiles] Its buttons go to the tile's bot, as on the Tiles page (a page opened from Tiles has no chat).
             tile.botName = PagesNames.botName(pin.profile, bots: services?.bots ?? [])
             tile.send = { [weak self] prompt, host, ended in self?.sendFromTile(pin.id, prompt, from: host, ended: ended) ?? false }
-            FilePreviewPresenter.shared.open(path: path, name: pin.label, context: context, from: self, row: nil, tile: tile)
+            // [tiles] At once, from the copy the Tiles page drew; read again behind it (HTMLPageSheet.openTile).
+            HTMLPageSheet.openTile(path: path, name: pin.label, context: context, tile: tile, from: self)
             return
         }
         if pin.kind == .image {
