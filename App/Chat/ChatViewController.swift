@@ -1325,7 +1325,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [macpass-chat] The bar hands its button views on to the page pushed over the chat (a table's pane): the names
         // and tips set on them here (`applyHeaderTips`) stayed, so the table's Copy as Text was read and tipped as "Read
         // Replies Aloud is on", its Share as "Chat Actions". They go with the chat; `keepHeaderTips` puts them back.
-        if DeviceWord.isMac { headerButtons()?.forEach { $0.toolTip = nil; $0.accessibilityLabel = nil } }
+        #if targetEnvironment(macCatalyst)
+        headerButtons()?.forEach { $0.toolTip = nil; $0.accessibilityLabel = nil }
+        #endif
     }
 
     /// [swipe-back] The tab bar fades in place (iOS 26's floating bar, and the Desktop Look's own) while this page and
