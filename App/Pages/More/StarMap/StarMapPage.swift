@@ -240,16 +240,31 @@ struct StarMapNodeSheet: View {
     @State private var attempt = 0
 
     @Environment(\.hqGlassSheet) private var glass
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(node.label)
-                    .font(Font.hq(.title3).weight(.semibold))
-                    .foregroundStyle(Color.hqLabel)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("starmap.node.title")
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(node.label)
+                        .font(Font.hq(.title3).weight(.semibold))
+                        .foregroundStyle(Color.hqLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("starmap.node.title")
+                    // [macpass-tools] Mac full pass 2026-11-14: a Mac sheet has no grabber to pull down, and this one
+                    // had nothing to click away (only Escape closed it). It closes with the word Done, as the others.
+                    if DeviceWord.isMac {
+                        Button("Done") { dismiss() }
+                            .font(Font.hq(.body).weight(.semibold))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .hqPointerFill()
+                            .accessibilityIdentifier("sheet.close")
+                    }
+                }
                 // [starmap-tags] Owner 2026-11-10 (design pick 21): the kind, category, state and pin are small tags
                 // under the title and the use and maker one quiet line, so what the skill or memory says leads the
                 // sheet (they were six rows in a box above it). At the accessibility text sizes the rows stay.
@@ -362,7 +377,10 @@ struct StarMapNodeSheet: View {
         do {
             let detail = try await StarMapAPI.node(client, id: node.id, profile: profile)
             guard !Task.isCancelled else { return }
-            text = .text(detail.content)
+            // [macpass-tools] Mac full pass 2026-11-14: a skill's sheet opened on its file's front matter ("---",
+            // "name: draft-standups", "description: …"), words for the bot. They go, as on the skill's own page
+            // (Capabilities). Shared with the iPhone, which showed the same.
+            text = .text(SkillPageModel.stripFrontMatter(detail.content))
         } catch {
             guard !Task.isCancelled else { return }
             text = StarMapAPI.isMissing(error) ? .missing : .failed

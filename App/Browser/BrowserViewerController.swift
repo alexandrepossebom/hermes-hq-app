@@ -287,7 +287,10 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         let guide = view.keyboardLayoutGuide
         guide.usesBottomSafeArea = false
         let safe = view.safeAreaLayoutGuide
-        let barBottom = bar.bottomAnchor.constraint(equalTo: guide.topAnchor, constant: -8)
+        // [macpass-tools] Mac full pass 2026-11-14: 8 pt put Take Control 6 px over the window's foot on the Mac (drawn at
+        // 77 %); it keeps the room the page's other edges have.
+        let foot: CGFloat = DeviceWord.isMac ? 16 : 8
+        let barBottom = bar.bottomAnchor.constraint(equalTo: guide.topAnchor, constant: -foot)
         barBottom.priority = .defaultHigh
         #if targetEnvironment(macCatalyst)
         // [mac] Stress test 2026-10-28 #78: centred on the stage (under the address field's room) the notice sat below
@@ -322,7 +325,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
             bar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             bar.leadingAnchor.constraint(greaterThanOrEqualTo: safe.leadingAnchor, constant: 16),
             bar.trailingAnchor.constraint(lessThanOrEqualTo: safe.trailingAnchor, constant: -16),
-            bar.bottomAnchor.constraint(lessThanOrEqualTo: safe.bottomAnchor, constant: -8),
+            bar.bottomAnchor.constraint(lessThanOrEqualTo: safe.bottomAnchor, constant: -foot),
             barBottom,
             empty.centerXAnchor.constraint(equalTo: stage.centerXAnchor),
             emptyMiddle,

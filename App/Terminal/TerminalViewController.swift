@@ -274,11 +274,14 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
         screen.alwaysBounceVertical = true
         #endif
         panel.insertSubview(screen, at: 0)
+        // [macpass-tools] Mac full pass 2026-11-14: the phone's 6 / 4 pt put the text 5 px from the pane's edge and the
+        // prompt 3 px over the window's foot. On the Mac the text has Terminal's margin all round.
+        let side: CGFloat = DeviceWord.isMac ? 12 : 6, end: CGFloat = DeviceWord.isMac ? 10 : 4
         NSLayoutConstraint.activate([
-            screen.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 6),
-            screen.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -6),
-            screen.topAnchor.constraint(equalTo: strip.bottomAnchor, constant: 4),
-            screen.bottomAnchor.constraint(equalTo: textBottom.topAnchor, constant: -4),
+            screen.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: side),
+            screen.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -side),
+            screen.topAnchor.constraint(equalTo: strip.bottomAnchor, constant: end),
+            screen.bottomAnchor.constraint(equalTo: textBottom.topAnchor, constant: -end),
         ])
     }
 

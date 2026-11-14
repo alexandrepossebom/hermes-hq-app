@@ -176,9 +176,12 @@ final class MoreWorkspace {
 
     /// The words for a file that could not be opened; the too-large words for a 413 or an answer past the app's limit.
     static func openFailure(_ error: Error) -> String {
-        if let failure = error as? GatewayFailure, failure == .responseTooLarge { return ArtifactFiles.tooLargeText }
-        if PagesREST.status(error) == 413 { return ArtifactFiles.tooLargeText }
-        return PagesREST.reason(error)
+        isTooLarge(error) ? ArtifactFiles.tooLargeText : PagesREST.reason(error)
+    }
+
+    /// A 413, or an answer past the app's limit.
+    static func isTooLarge(_ error: Error) -> Bool {
+        (error as? GatewayFailure) == .responseTooLarge || PagesREST.status(error) == 413
     }
 }
 
@@ -1207,10 +1210,18 @@ final class MoreWorkspaceController: UITableViewController {
         let space = self.space
         opening = Task { [weak self] in
             do {
+                // [macpass-tools] Mac full pass 2026-11-14: a text file past the gateway's text read (an 80 MB .sql
+                // answers 413) ended in "too large to open on this Mac" with no way on, though Save As… and a drag
+                // stream it. On the Mac it is downloaded and opened in Quick Look instead, as a file that isn't text is.
                 if MoreWorkspaceRoot.opening(name: entry.name) == .text {
-                    let file = try await space.workspace.readText(entry.path)
+                    let read: WorkspaceFileText?
+                    do {
+                        read = try await space.workspace.readText(entry.path)
+                    } catch where DeviceWord.isMac && MoreWorkspace.isTooLarge(error) {
+                        read = nil
+                    }
                     guard !Task.isCancelled, let self else { return }
-                    if !file.binary {
+                    if let file = read, !file.binary {
                         // A Markdown file reads formatted (Preview | Source), as in the chat's Files; one the gateway
                         // cut short is downloaded whole first when the viewer can take it (it read raw before); if that
                         // fails, its start reads as before.
@@ -1262,6 +1273,18 @@ final class MoreWorkspaceController: UITableViewController {
 }
 
 #if targetEnvironment(macCatalyst)
+/// [macpass-tools] Mac full pass 2026-11-14: a folder opened in place had no way up but the trail: View › Back, ⌘[ and
+/// Escape were dimmed or did nothing, as the list's stack has one page. They go up one folder, as Finder's Back does.
+extension MoreWorkspaceController: InPlaceBack {
+    var canGoBackInPlace: Bool { isTable && mode == .root && browsed != nil }
+
+    func goBackInPlace() {
+        guard canGoBackInPlace, let browsed, let root = space.root?.path else { return }
+        let parent = (browsed as NSString).deletingLastPathComponent
+        browse(Self.isUnder(parent, root) ? parent : root)
+    }
+}
+
 /// [mac-audit] Owner 2026-11-02 (Mac audit J2): a Files or Changes row dragged out of the app is its file, downloaded
 /// when the drop asks for it (FileSaver.dragProvider, as a chat's file card); folders and deleted files don't lift.
 extension MoreWorkspaceController: UITableViewDragDelegate {

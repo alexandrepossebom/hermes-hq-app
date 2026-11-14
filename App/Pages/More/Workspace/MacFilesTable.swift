@@ -293,3 +293,12 @@ final class MacFilesHeaderView: UIView {
             .font: HQFont.preferred(.subheadline), .foregroundColor: HQPalette.label]))
     }
 }
+
+// MARK: - Back in place
+
+/// [macpass-tools] A page that opens folders in place (Files' table): View › Back, ⌘[ and Escape go up one folder
+/// while it shows one under its root, before they go back on the page's stack (`KeyCommands.backStack`).
+@MainActor protocol InPlaceBack: AnyObject {
+    var canGoBackInPlace: Bool { get }
+    func goBackInPlace()
+}
