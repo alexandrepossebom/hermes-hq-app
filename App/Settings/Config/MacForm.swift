@@ -22,7 +22,13 @@ import UIKit
         return (720 * CGFloat(state.uiScalePercent) / 100 * CGFloat(ThemeState.macBase(desktopLook: false))).rounded()
     }
     /// The side inset that centres the readable column in a pane `width` wide (the cards' own 20 pt at the least).
-    static func side(in width: CGFloat) -> CGFloat { max(MacInset.side, ((width - readableWidth) / 2).rounded()) }
+    static func side(in width: CGFloat, least: CGFloat = MacInset.side) -> CGFloat {
+        max(least, ((width - readableWidth) / 2).rounded())
+    }
+    /// [macpass-settings2] The least side inset of a form page pushed inside a sheet (Bot Info › Brain's Default
+    /// Model, Context Window, Fallback Models and Auxiliary Models): the sheet's own inset-grouped cards sit this far
+    /// in (20 on the screen), where the form's 20 pt put the pushed page's cards 15 from the sheet's edge.
+    static let sheetSide: CGFloat = 26
     /// [mac] #8 (review): an inset-grouped UITableView page (More › Files and Changes) at the same readable width: its
     /// sections are inset by the table's layout margins. Call from `viewDidLayoutSubviews`; nothing off the Mac.
     static func capReadableWidth(_ table: UITableView) {
@@ -110,11 +116,21 @@ private struct MacSettingsFormKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct MacFormLeastSideKey: EnvironmentKey {
+    static let defaultValue: CGFloat = MacInset.side
+}
+
 extension EnvironmentValues {
     /// [mac] Stress test 2026-10-28 round 9: this row is on a Settings page (`hqMacForm(settings: true)`).
     var macSettingsForm: Bool {
         get { self[MacSettingsFormKey.self] }
         set { self[MacSettingsFormKey.self] = newValue }
+    }
+
+    /// [macpass-settings2] The least side inset of the form page this is on (`MacForm.sheetSide` inside a sheet).
+    var macFormLeastSide: CGFloat {
+        get { self[MacFormLeastSideKey.self] }
+        set { self[MacFormLeastSideKey.self] = newValue }
     }
 
     /// [mac] The label column of the form this row is in (0 outside one).
@@ -140,6 +156,12 @@ extension View {
 }
 
 extension View {
+    /// [macpass-settings2] A form page pushed on `navigation`: inside a sheet (Bot Info) its cards keep the sheet's
+    /// own side inset, as the sheet's first page does. Elsewhere, and off the Mac, nothing.
+    func hqMacFormSide(in navigation: UINavigationController?) -> some View {
+        environment(\.macFormLeastSide, DeviceWord.isMac && navigation?.presentingViewController != nil ? MacForm.sheetSide : MacInset.side)
+    }
+
     /// [mac-ten] Owner 2026-11-11 ("weird UI issues on the Mac app"): a page that is a list of cards but not a form (a
     /// job's page) at the readable width, centred in the pane, as the pages beside More's rows are. It was the iPhone's
     /// page stretched across the pane: "Repeats" at one edge and its value 1,000 pt away, Run Now and Pause as two
@@ -193,13 +215,14 @@ private struct MacFormPage: ViewModifier {
     var settings = false
     /// [mac] Round 9: set round the page by `hqMacSettingsRows()` (a `settingsList()` page of Settings).
     @Environment(\.macSettingsForm) private var settingsAround
+    @Environment(\.macFormLeastSide) private var least
     @State private var width: CGFloat = 0
 
     func body(content: Content) -> some View {
         let _ = Theme.touch()
         let readable = MacForm.readableWidth
         // The cards' own inset (20) stays the least; a wider pane centres the readable column.
-        let side = MacForm.side(in: width)
+        let side = MacForm.side(in: width, least: least)
         let column = width > 0 ? min(MacForm.labelWidth, (min(width, readable) - 80) * 0.45) : MacForm.labelWidth
         let settings = self.settings || settingsAround
         content

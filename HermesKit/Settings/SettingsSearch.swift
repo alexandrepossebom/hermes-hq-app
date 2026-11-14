@@ -53,7 +53,9 @@ nonisolated enum SettingsSearch {
     /// [desktoplook] The Theme row's search words: what its page shows. [theme-pages] Chat Bubbles' and the
     /// backgrounds' words are their own rows', which open their own pages: a search never leads to a page without what
     /// was typed. The Desktop Look's row is only there where its controls are shown.
-    static let themeKeywords = ["theme", "skin", "colours", "colors", "desktop themes"]
+    /// [macpass-settings2] And each skin's own name ("rose pine", "midnight" found nothing).
+    static let themeKeywords = ["theme", "skin", "colours", "colors", "desktop themes", "accent", "accent color", "rose pine"]
+        + SkinCatalog.all.map { $0.label.lowercased() }
 
     /// Row names the pages and this index share (UX study #68, #69, #71: they say what the row does, and the old names
     /// stay searchable as keywords).
@@ -72,6 +74,14 @@ nonisolated enum SettingsSearch {
     #endif
     /// [kanban-tab-one] The Kanban Tab picker's result: Settings › Appearance › Tabs, scrolled to the picker and marked.
     static let kanbanTabTarget = "tab-order:kanban"
+    /// [macpass-settings2] Status & Maintenance, found from Settings ("version", "update", "restart"): the page the
+    /// Gateway page links to for the Hermes version, Restart Gateway and Update Hermes. Listed only while the gateway
+    /// can open it (`SettingsRootModel.searchResults`).
+    static let statusTarget = "status-maintenance"
+    static let statusEntry = SettingsSearchEntry(id: "page:status-maintenance", label: CommandCenterNames.page, context: "Gateway",
+        keywords: ["version", "hermes version", "update", "update hermes", "upgrade", "restart", "restart gateway", "doctor",
+                   "recent logs", "maintenance", "status"],
+        target: .root(statusTarget), isPage: true)
     /// [live] Show Progress on Lock Screen is a row only in a build that carries the widget extension.
     static var liveActivities: Bool { LiveActivityBuild.extensionEmbedded }
 
@@ -83,16 +93,17 @@ nonisolated enum SettingsSearch {
 
     private static let appRowsAlways: [SettingsSearchEntry] = [
         .init(id: "app:diagnostics", label: "Diagnostics", context: "About", keywords: ["errors", "bug report", "debug", "logs", "connection details", "copy"], target: .root("diagnostics")),
-        .init(id: "app:perf-log", label: "Send Performance Logs to Hermes", context: "About", keywords: ["performance", "logs", "timings"], target: .root("about")),
-        .init(id: "app:detailed-log", label: "Detailed Logging", context: "About", keywords: ["logs", "debug", "diagnostics", "verbose"], target: .root("about")),
-        .init(id: "app:mark", label: markLabel, context: "About", keywords: ["janky", "lag", "slow", "stutter", "marker"], target: .root("about")),
+        // [macpass-settings2] About opens with the row itself scrolled to and marked ("about:<row>").
+        .init(id: "app:perf-log", label: "Send Performance Logs to Hermes", context: "About", keywords: ["performance", "logs", "timings"], target: .root("about:perf-log")),
+        .init(id: "app:detailed-log", label: "Detailed Logging", context: "About", keywords: ["logs", "debug", "diagnostics", "verbose"], target: .root("about:detailed-log")),
+        .init(id: "app:mark", label: markLabel, context: "About", keywords: ["janky", "lag", "slow", "stutter", "marker"], target: .root("about:mark")),
         .init(id: "app:share-logs", label: "Share Logs", context: "Diagnostics", keywords: ["crash", "logs", "zip"], target: .root("diagnostics")),
         // [desktoplook]
         .init(id: "app:theme", label: "Theme", context: "Appearance", keywords: themeKeywords, target: .root("theme")),
         // [density] On Theme, with UI Scale (both looks).
         .init(id: "app:density", label: "Density", context: "Theme", keywords: ["compact", "dense", "smaller rows", "fit more", "ui scale", "zoom", "smaller text"], target: .root("theme")),
         // [macpass-settings] The control's own name: "scale" found only Density and Desktop Look.
-        .init(id: "app:ui-scale", label: "UI Scale", context: "Theme", keywords: ["text size", "bigger text", "smaller text", "larger", "zoom", "make text bigger"], target: .root("theme")),
+        .init(id: "app:ui-scale", label: "UI Scale", context: "Theme", keywords: ["text size", "bigger text", "smaller text", "larger", "zoom", "make text bigger", "font", "font size", "type size"], target: .root("theme")),
         // [theme-pages] Rows of their own beside Theme (they were its tabs); a background opens its own page.
         .init(id: "app:chat-bubbles", label: "Chat Bubbles", context: "Appearance", keywords: ["bubble corners", "rounded corners", "message corners", "glass bubbles", "tinted bubbles"], target: .root("chat-bubbles")),
         // [message-colour] On Chat Bubbles; "color" as most people type it.
@@ -112,7 +123,7 @@ nonisolated enum SettingsSearch {
         .init(id: "app:new-chat-asks-project", label: "New Chat Asks for a Project", context: "Chat", keywords: ["new chat", "project", "no project", "ask", "choose project", "folder"], target: .root("row:new-chat-asks-project")),
         .init(id: "app:wait-for-models", label: "Favorites Wait for Models", context: "Chat", keywords: ["favorites", "favourites", "hide favorites", "starred models", "ghost", "removed provider", "model list"], target: .root("row:wait-for-models")),
         .init(id: "app:fewer-timestamps", label: "Fewer Timestamps", context: "Chat", keywords: ["timestamps", "times", "dates", "day line", "clock"], target: .root("row:fewer-timestamps")),
-        .init(id: "app:enable-notifications", label: "Enable Notifications", context: "Notifications", keywords: ["notifications", "alerts", "push", "turn off"], target: .root("notifications")),
+        .init(id: "app:enable-notifications", label: "Enable Notifications", context: "Notifications", keywords: ["notifications", "alerts", "push", "turn off", "notify"], target: .root("notifications")),
         .init(id: "app:previews", label: "Show Previews", context: "Notifications", keywords: ["previews", "alerts", "message text", "lock screen"], target: .root("notifications")),
         .init(id: "app:banners", label: "Bot Activity Banners", context: "Notifications", keywords: ["banners", "alerts", "peek", "in-app"], target: .root("notifications")),
         // [live] Only in a build with the widget extension (`liveActivities`, filtered in `index`).
@@ -143,15 +154,24 @@ nonisolated enum SettingsSearch {
         .init(id: "app:intro-splash", label: introSplashLabel, context: "Chat", keywords: ["intro splash", "intro", "greeting", "empty chat", "face", "welcome"], target: .root("row:intro-splash")),
         .init(id: "app:completion-sound", label: "Completion Sound", context: soundsSection, keywords: ["sound", "chime", "cue", "reply finished"], target: .root("row:completion-sound")),
         .init(id: "app:sound", label: "Sound", context: soundsSection, keywords: ["chime", "preset", "preview", "tone"], target: .root("sound-picker")),
-        .init(id: "app:thinking-drive", label: "Thinking Bar", context: soundsSection, keywords: ["lightspeed", "afterburner", "calm", "hyperspace", "warp", "thinking", "effort", "reasoning", "slider", "model panel", "animation"], target: .root("row:thinking-drive")),   // [thinking-drive]
+        .init(id: "app:thinking-drive", label: "Thinking Bar", context: hasHaptics ? soundsSection : "Appearance", keywords: ["lightspeed", "afterburner", "calm", "hyperspace", "warp", "thinking", "effort", "reasoning", "slider", "model panel", "animation"], target: .root("row:thinking-drive")),   // [thinking-drive]
         .init(id: "app:licenses", label: "Open-Source Licenses", context: "About", keywords: ["licence", "license", "open source"], target: .root("licenses")),
         .init(id: "app:default-folder", label: "Default Project Folder", context: sessionsPageTitle, keywords: ["folder", "directory", "project", "workspace", "cwd", "new chat"], target: .root("sessions")),
         .init(id: "app:auto-archive", label: "Auto-Archive Stale Chats", context: sessionsPageTitle, keywords: ["archive", "old chats", "retention", "inactive"], target: .root("sessions")),
-    ] + VoiceSettingsCatalog.searchRows   // [talk] Read Replies Aloud, Voice Diagnostics, Send Memo on Release, How Voice Works
+    ] + shareMenuRow + VoiceSettingsCatalog.searchRows
+
+    /// [macpass-settings2] The Mac's Share Menu row (General): "share" found only Share Logs.
+    #if targetEnvironment(macCatalyst)
+    private static let shareMenuRow: [SettingsSearchEntry] = [
+        .init(id: "app:share-menu", label: "Share Menu", context: "General", keywords: ["share", "share sheet", "share extension", "send to bot", "other apps"], target: .root("row:share-menu")),
+    ]
+    #else
+    private static let shareMenuRow: [SettingsSearchEntry] = []
+    #endif   // [talk] Read Replies Aloud, Voice Diagnostics, Send Memo on Release, How Voice Works
 
     /// The root's own pages.
     static let rootPages: [SettingsSearchEntry] = [
-        ("gateway", "Gateway", ["gateways", "connection", "address"]), ("notifications", "Notifications", ["alerts", "push"]),
+        ("gateway", "Gateway", ["gateways", "connection", "address"]), ("notifications", "Notifications", ["alerts", "push", "notify"]),
         ("providers", "Providers", ["api keys", "accounts", "sign in", "openai", "anthropic", "openrouter",
                                     // [provider-manager] What its pages do: rename a provider or a model, show or hide models.
                                     "models", "rename model", "hide model", "show model", "model names", "custom provider"]),
@@ -161,7 +181,10 @@ nonisolated enum SettingsSearch {
         ("sessions", sessionsPageTitle, ["sessions", "archive", "chats", "project folder", "chat folder", "retention"]),
         ("capabilities", "Capabilities", ["abilities", "what bots can do"]),   // [cap-pages]
         ("composio", "Composio", ["connect apps", "api key", "gmail", "slack", "apps"]),   // [composio-row]
-        ("about", "About", ["version", "support", "privacy"]),
+        ("about", "About", ["version", "support", "privacy", "build", "app version"]),
+        // [macpass-settings2] Device Access was not found at all ("contacts", "location", "health" found nothing).
+        ("device-access", "Device Access", ["device", "contacts", "calendar", "calendars", "reminders", "location", "health",
+                                            "photos", "permissions", "what bots can use"]),
     ].map { SettingsSearchEntry(id: "page:\($0.0)", label: $0.1, context: "", keywords: $0.2, target: .root($0.0), isPage: true) }
         + capabilitiesPages
 
@@ -185,7 +208,17 @@ nonisolated enum SettingsSearch {
 
     /// [context-window] The words people use for a page that its title doesn't have (owner 2026-11-01 had to ask where
     /// max context was).
+    /// [macpass-settings2] Fields' everyday words their labels lack: "thinking" found only the Thinking Bar, not
+    /// the reasoning settings that make a model think.
+    static let fieldKeywords: [String: [String]] = [
+        "agent.reasoning_effort": ["thinking", "think", "thinking level", "effort"],
+        "delegation.reasoning_effort": ["thinking", "think", "thinking level", "effort"],
+        "display.show_reasoning": ["thinking", "thoughts", "show thinking"],
+    ]
+
     static let pageKeywords: [String: [String]] = [
+        // [macpass-settings2] "default model" found Fallback Models only, not the page that sets it.
+        "model.main": ["default model", "change model", "which model"],
         "model.context": ["max context", "maximum context", "context length", "context size", "context limit", "token limit",
                           "tokens", "window", "num ctx"],
     ]
@@ -204,7 +237,7 @@ nonisolated enum SettingsSearch {
                 let label = ConfigCopy.labels[key] ?? ConfigText.pretty(String(key.split(separator: ".").last ?? Substring(key)))
                 let description = ConfigCopy.descriptions[key] ?? schema[key]?.description ?? ""
                 out.append(.init(id: "field:\(key)", label: label, context: page.title,
-                                 keywords: [key.replacingOccurrences(of: "_", with: " "), description], target: .field(page: page.key, key: key)))
+                                 keywords: [key.replacingOccurrences(of: "_", with: " "), description] + (fieldKeywords[key] ?? []), target: .field(page: page.key, key: key)))
             }
         }
         return out

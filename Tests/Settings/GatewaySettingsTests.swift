@@ -493,7 +493,8 @@ nonisolated private let defaults: JSONValue = [
         #expect(approval.contains { $0.label == "Approval Mode" })
         #expect(SettingsSearch.results("approval timeout", in: index).map(\.label) == ["Approval Timeout"])
         #expect(SettingsSearch.results("keychain", in: index).first?.label == "Saved Sign-In (iOS Keychain)")
-        #expect(SettingsSearch.results("janky", in: index).first?.target == .root("about"))
+        // "janky" opens About with the Mark a Moment row marked, not just the page top.
+        #expect(SettingsSearch.results("janky", in: index).first?.target == .root("about:mark"))
         #expect(SettingsSearch.results("export", in: index).first?.target == .action("export"))
         #expect(SettingsSearch.results("   ", in: index).isEmpty)
         #expect(SettingsSearch.results("zzzz", in: index).isEmpty)

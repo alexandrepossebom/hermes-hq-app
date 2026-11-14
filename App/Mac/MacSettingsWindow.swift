@@ -60,9 +60,18 @@ import UIKit
             pendingPage = then
         }
         AppLog.note("mac", scene == nil ? "settings window: open" : "settings window: to the front")
+        // [macpass-settings2] A hidden app (⌘H) shown again by the request below put its windows back as they were
+        // left, the main window over the Settings window just made: Settings seemed to take seconds to open. Shown
+        // first, the new window opens over it.
+        if let app = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
+           app.value(forKey: "hidden") as? Bool == true {
+            AppLog.note("mac", "settings window: the app was hidden, shown first")
+            app.perform(NSSelectorFromString("unhideWithoutActivation"))
+        }
         UIApplication.shared.requestSceneSessionActivation(scene?.session, userActivity: NSUserActivity(activityType: activityType), options: nil) { error in
             AppLog.note("mac", "settings window: couldn't open (\(error.localizedDescription))")
         }
+        if let window = scene?.keyWindow ?? scene?.windows.first { window.hqMacOrderFront(activating: true) }
         return true
     }
 
@@ -246,6 +255,9 @@ final class SettingsSceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.makeKeyAndVisible()
         self.window = window
         AppLog.note("mac", "settings window: shown")
+        // [macpass-settings2] Opened while the app was behind another app, the window was made in 0.3 s but could stay
+        // behind the main window: it takes the front once AppKit's window is up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak window] in window?.hqMacOrderFront(activating: false) }
         if let page = MacSettingsWindow.pendingPage {   // [provider-add]
             MacSettingsWindow.pendingPage = nil
             // Once the window is laid out: the page goes beside the categories (the pane's own stack), not over them.
@@ -308,6 +320,30 @@ final class SettingsSceneDelegate: UIResponder, UIWindowSceneDelegate {
 #endif
 
 #if targetEnvironment(macCatalyst)
+extension UIWindow {
+    /// [macpass-settings2] This window's AppKit window to the front with the keyboard (and the app forward when
+    /// `activating`). A scene activation request alone leaves an open window behind the one in front, and a window
+    /// opened while the app is hidden came up behind the main window. False when AppKit's window isn't found.
+    @discardableResult func hqMacOrderFront(activating: Bool) -> Bool {
+        guard let app = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
+              let windows = app.value(forKey: "windows") as? [NSObject],
+              let ns = windows.first(where: { $0.responds(to: NSSelectorFromString("uiWindows"))
+                  && ($0.value(forKey: "uiWindows") as? [UIWindow])?.contains(self) == true }) else {
+            AppLog.note("mac", "window to the front: no AppKit window")
+            return false
+        }
+        if activating {
+            let activate = NSSelectorFromString("activate")   // as the Dock menu brings the app forward
+            if app.responds(to: activate) { app.perform(activate) }
+        }
+        ns.perform(NSSelectorFromString("makeKeyAndOrderFront:"), with: nil)
+        // makeKeyAndOrderFront: alone did not lift it over the app's other window while the app was not active.
+        ns.perform(NSSelectorFromString("orderFrontRegardless"))
+        AppLog.note("mac", "window to the front: \(ns.value(forKey: "title") as? String ?? "-")")
+        return true
+    }
+}
+
 private extension UIView {
     /// The Settings page's list (SwiftUI's own scroll view, made a moment after the page).
     var settingsScroll: UIScrollView? {

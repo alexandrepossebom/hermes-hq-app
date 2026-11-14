@@ -45,7 +45,7 @@ struct ContextWindowView: View {
                     }
                     customRow
                 } header: { HQSectionLabel {
-                    Text(modelName.map { "\(whose)’s Default Model, \($0)" } ?? "\(whose)’s Default Model")
+                    Text(modelName.map { "\(SettingsWords.possessive(whose)) Default Model, \($0)" } ?? "\(SettingsWords.possessive(whose)) Default Model")
                 } } footer: { HQSectionFooter {
                     VStack(alignment: .leading, spacing: 6) {
                         if let problem { Text(problem).foregroundStyle(Color.hqRed).accessibilityIdentifier("context-window.problem") }
@@ -207,7 +207,7 @@ struct ContextWindowView: View {
 
     private func openCompression() {
         guard let page = ConfigCatalog.page("memory.context") else { return }
-        router.push(page.title, ConfigPageView(page: page, store: store, router: router), onDisappear: { [store] in store.flush() })
+        router.push(page.title, ConfigPageView(page: page, store: store, router: router).hqMacFormSide(in: router.navigation), onDisappear: { [store] in store.flush() })
     }
 
     private func loadModel() async {
@@ -253,7 +253,8 @@ extension BotModelPages {
         Haptics.play(.selection)
         let router = SettingsRouter(services: services, navigation: navigation)
         let page = SettingsPageController(title: "Context Window",
-                                          ContextWindowView(store: store, router: router, botName: isDefault(bot.id) ? nil : bot.name))
+                                          ContextWindowView(store: store, router: router, botName: isDefault(bot.id) ? nil : bot.name)
+                                            .hqMacFormSide(in: navigation))
         page.onDisappear = { store.flush() }
         router.push(page)
     }

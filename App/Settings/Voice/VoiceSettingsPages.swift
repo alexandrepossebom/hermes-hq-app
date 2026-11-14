@@ -344,7 +344,7 @@ struct VoiceFieldsPage: View {
             }
             if let botName, !botName.isEmpty {
                 Section {
-                    Text("These Text to Speech settings are \(botName)’s own.")
+                    Text("These Text to Speech settings are \(SettingsWords.possessive(botName)) own.")
                         .font(Font.hq(.footnote))
                         .foregroundStyle(Color.hqLabel2)
                         .padding(.vertical, 2)

@@ -449,7 +449,7 @@ final class BotDefaultModel {
             navigation?.popViewController(animated: true)
             self?.save(bot, provider: provider, model: model, baseURL: catalog.provider(provider)?.apiURL, confirm: false, from: navigation)
         }
-        navigation.pushViewController(SettingsPageController(title: "Default Model", chooser), animated: true)
+        navigation.pushViewController(SettingsPageController(title: "Default Model", chooser.hqMacFormSide(in: navigation)), animated: true)
     }
 
     func save(_ bot: Bot, provider: String, model: String, baseURL: String?, confirm: Bool, from navigation: UINavigationController?) {
@@ -502,7 +502,8 @@ final class BotDefaultModel {
         else { return }
         Haptics.play(.selection)
         let router = SettingsRouter(services: services, navigation: navigation)
-        let page = SettingsPageController(title: "Fallback Models", FallbackModelsView(store: store, router: router, botName: own ? nil : bot.name))
+        let page = SettingsPageController(title: "Fallback Models", FallbackModelsView(store: store, router: router, botName: own ? nil : bot.name)
+                                                                 .hqMacFormSide(in: navigation))
         page.onDisappear = { store.flush() }
         router.push(page)
     }
@@ -512,7 +513,8 @@ final class BotDefaultModel {
         Haptics.play(.selection)
         let own = isDefault(bot.id)
         let router = SettingsRouter(services: services, navigation: navigation)
-        router.push("Auxiliary Models", AuxiliaryModelsView(router: router, profile: own ? nil : bot.id, botName: own ? nil : bot.name))
+        router.push("Auxiliary Models", AuxiliaryModelsView(router: router, profile: own ? nil : bot.id, botName: own ? nil : bot.name)
+                                            .hqMacFormSide(in: navigation))
     }
 }
 

@@ -34,12 +34,15 @@ extension SettingsRouter {
     /// as before. A pick closes it with `closeChooser()`.
     func openChooser<V: View>(_ title: String, _ view: V) {
         guard DeviceWord.isMac, let presenter else { push(title, view); return }
-        let page = SettingsPageController(title: title, view)
+        // [macpass-settings2] A sheet: its cards sit the sheet's own inset in, as Bot Info's do (they were 15 pt in).
+        let page = SettingsPageController(title: title, view.environment(\.macFormLeastSide, MacForm.sheetSide))
         let sheet = UINavigationController(rootViewController: page)
         page.navigationItem.leftBarButtonItem = .hqClose(.cancel, action: UIAction { [weak sheet] _ in
             sheet?.dismiss(animated: true)
         })
-        SheetStyle.apply(sheet, from: presenter)
+        // [macpass-settings2] The window's tall size from the start: it followed its page, so it opened short on
+        // "Loading…", grew when the models came, and shrank again as Search Models narrowed the list.
+        SheetStyle.apply(sheet, from: presenter, fixed: .greatestFiniteMagnitude)
         presenter.present(sheet, animated: true)
         chooserSheet = sheet
     }

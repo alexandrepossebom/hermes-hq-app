@@ -124,7 +124,7 @@ nonisolated enum SettingsWords {
     static func gatewayFooter(defaultBot: String?, otherBots: Bool) -> String {
         var text = "Saved on \(HostWord.phrase), so they apply wherever you use Hermes."
         if let defaultBot, !defaultBot.isEmpty {
-            text = "\(defaultBot)’s settings, saved on \(HostWord.phrase) so they apply wherever you use Hermes."
+            text = "\(possessive(defaultBot)) settings, saved on \(HostWord.phrase) so they apply wherever you use Hermes."
             if otherBots { text += " Other bots keep their own." }
         }
         return text + " Voice’s Read Replies Aloud and Send Memo on Release, and the default project folder, are kept on this \(DeviceWord.name)."
@@ -135,7 +135,7 @@ nonisolated enum SettingsWords {
     /// Settings › Model › Main Model's section header: whose default model it is. `defaultBot`: the main bot's name.
     static func mainModelHeader(defaultBot: String?) -> String {
         guard let defaultBot = named(defaultBot) else { return "Default Profile’s Model" }
-        return "\(defaultBot)’s Default Model"
+        return "\(possessive(defaultBot)) Default Model"
     }
 
     /// Its footer: whose model it is, where each other bot's own is changed (`otherBots`: the roster has more), and that
@@ -177,7 +177,7 @@ nonisolated enum SettingsWords {
     /// Settings › Model's footer (it said "The models your bots use", which read as every bot's). Mac polish #134: it
     /// said Hermes three times ("…saved on the computer running Hermes so they apply wherever you use Hermes").
     static func modelSectionFooter(defaultBot: String?, otherBots: Bool) -> String {
-        let whose = named(defaultBot).map { "\($0)’s models" } ?? "The default profile’s models"
+        let whose = named(defaultBot).map { "\(possessive($0)) models" } ?? "The default profile’s models"
         let text = "\(whose). They’re kept on \(HostWord.phrase), so every device uses them."
         return otherBots ? "\(text) \(otherBotsModelsHint)" : text
     }
@@ -189,7 +189,7 @@ nonisolated enum SettingsWords {
         return isDefault ? "\(only.dropLast()), the same as Settings › Model. \(chatSwitchHint)" : "\(only) \(chatSwitchHint)"
     }
 
-    static func botModelFailureTitle(_ bot: String) -> String { "Couldn’t Change \(bot)’s Model" }
+    static func botModelFailureTitle(_ bot: String) -> String { "Couldn’t Change \(possessive(bot)) Model" }
 
     /// A model page's footer, then whose models it changes. `bot`: a bot's own page (its Fallback Models, its Auxiliary
     /// Models, from its Bot Info). Nil or blank: Settings' own page, the default bot's (`defaultBot`, and `otherBots`
@@ -236,6 +236,12 @@ nonisolated enum SettingsWords {
         default: what = "Unstars \(count(favorites, "model", "models")) and forgets \(count(recents, "recent model", "recent models"))."
         }
         return what + " Bots, chats and each bot’s default model stay."
+    }
+
+    /// [macpass-settings2] A name's possessive: "Hermes’", not "Hermes’s" (a name ending in s takes the apostrophe
+    /// alone); "Otto’s" otherwise.
+    static func possessive(_ name: String) -> String {
+        name.last.map { "sS".contains($0) } == true ? name + "’" : name + "’s"
     }
 
     private static func named(_ name: String?) -> String? {

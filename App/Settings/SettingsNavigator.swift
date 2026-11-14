@@ -49,13 +49,13 @@ enum SettingsNavigator {
         if id.hasPrefix("config:") || id.hasPrefix("background:") { return id.hasPrefix("config:") ? .gateway : .appearance }
         switch id {
         case "theme", "chat-bubbles", "backgrounds", "tab-order", SettingsSearch.kanbanTabTarget, "app-icon": return .appearance
-        case "notifications": return .general
+        case "notifications", "device-access": return .general
         case "tool-calls": return .chat
         case "attachment-limit": return DeviceWord.isMac ? .gateway : .chat   // a row of Chat Behavior on the Mac (below)
         case "sound-picker": return .sounds
         case "vault", "sessions", "providers", "keys", "billing", "auxiliary-models": return .gateway
         case "capabilities", "skills", "connectors", "tools", "plugins", ComposioRow.id: return .tools
-        case "about", "diagnostics", "licenses": return .about
+        case "about", "diagnostics", "licenses", "about:perf-log", "about:detailed-log", "about:mark": return .about
         default: return nil
         }
     }
@@ -80,6 +80,7 @@ enum SettingsNavigator {
         switch id {
         case "gateway": router.push(GatewayPageController(services: services, router: router))
         case "notifications": router.push(NotificationsSettingsController(app: services as? AppModel))
+        case "device-access": router.push(DeviceAccessSettingsController())   // [macpass-settings2]
         case "providers": router.push("Providers", ProvidersPageView(router: router))
         case "keys": router.push("Keys", KeysPageView(router: router))
         case "vault": router.push(PasswordsPageController(router: router))   // [passwords-page] the page More › Passwords opens
@@ -117,6 +118,21 @@ enum SettingsNavigator {
         case "background:app": router.push(BackgroundsSettings.make(opening: .app))
         case "background:chats": router.push(BackgroundsSettings.make(opening: .chats))
         case "about": router.push(AboutController(services: services, router: router))
+        // [macpass-settings2] About with the row a search result named scrolled to and marked.
+        case "about:perf-log", "about:detailed-log", "about:mark":
+            router.push(AboutController(services: services, router: router, reveal: "about." + id.dropFirst("about:".count)))
+        // [macpass-settings2] Status & Maintenance (the Hermes version, Restart Gateway, Update Hermes), over the
+        // Gateway page that links to it, so Back goes there.
+        case SettingsSearch.statusTarget:
+            guard let open = SettingsHooks.commandCenter?() else { return }
+            let gateway = GatewayPageController(services: services, router: router)
+            let status = open()
+            if let navigation = router.navigation {
+                for page in [gateway, status] { page.navigationItem.largeTitleDisplayMode = .never }
+                navigation.setViewControllers(navigation.viewControllers + [gateway, status], animated: true)
+            } else {
+                router.push(status)
+            }
         case "licenses":
             // [macpass-settings2] The search result "Open-Source Licenses" opened About and left the row to be found:
             // the list itself now, About under it so Back goes there.

@@ -7,8 +7,10 @@ import SwiftUI
 import UIKit
 
 final class AboutController: UIHostingController<HQScaledRoot<AboutView>> {
-    init(services: any AppServices, router: SettingsRouter) {
-        super.init(rootView: HQScaledRoot(AboutView(services: services, router: router)))
+    /// `reveal`: a row a search result leads to ("about.perf-log", "about.detailed-log", "about.mark"), scrolled to and
+    /// marked as the root's rows are.
+    init(services: any AppServices, router: SettingsRouter, reveal: String? = nil) {
+        super.init(rootView: HQScaledRoot(AboutView(services: services, router: router, reveal: reveal)))
         title = "About"
         navigationItem.largeTitleDisplayMode = .never
     }
@@ -19,6 +21,11 @@ final class AboutController: UIHostingController<HQScaledRoot<AboutView>> {
 struct AboutView: View {
     let services: any AppServices
     let router: SettingsRouter
+    /// [macpass-settings2] The row a search result opened About for: Detailed Logging and Send Performance Logs opened
+    /// About and left the person to find the row. Marked for a moment, as the root's rows are (`RevealMark`).
+    var reveal: String? = nil
+    @State private var revealed: String?
+    @State private var revealDone = false
     @State private var perfLog = LogUploader.isEnabled
     @State private var detailed = AppLog.detailed
     @State private var marked = false
@@ -31,6 +38,7 @@ struct AboutView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         List { Group {
             Section {
                 InfoRow("Version", value: Self.appVersion)
@@ -67,6 +75,7 @@ struct AboutView: View {
                 .padding(.vertical, DeviceWord.isMac ? 0 : 4)
                 .hqMacFormRowHeight()
                 .accessibilityIdentifier("about.perf-log")
+                .revealRow("about.perf-log", revealed)
                 // Detailed Logging writes this device's own log (Diagnostics' Share Logs), whether or not anything is sent,
                 // so it is always here (it was hidden, and still on, while Send Performance Logs was off).
                 Toggle(isOn: Binding(get: { detailed }, set: { on in
@@ -84,6 +93,7 @@ struct AboutView: View {
                 .padding(.vertical, DeviceWord.isMac ? 0 : 4)
                 .hqMacFormRowHeight(multiline: true)   // [mac] Stress test 2026-10-28 round 8
                 .accessibilityIdentifier("about.detailed-log")
+                .revealRow("about.detailed-log", revealed)
                 if perfLog {
                     if DeviceWord.isMac {
                         // [mac] Stress test 2026-10-28 #51 (review): a push button with its help under it, not a row
@@ -100,6 +110,7 @@ struct AboutView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .hqRowPadding(4)   // [mac] Stress test 2026-10-28 round 9: the list's one room on the Mac
+                        .revealRow("about.mark", revealed)
                     } else {
                         Button(action: markMoment) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -122,6 +133,16 @@ struct AboutView: View {
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
         .environment(\.openURL, LinkOpener.openURLAction)   // [links-browser]
+        .task {
+            guard let reveal, !revealDone else { return }
+            revealDone = true
+            try? await Task.sleep(for: .milliseconds(250))   // the page in place before it scrolls
+            revealed = reveal
+            HQMotion.withAnimation { proxy.scrollTo(reveal, anchor: .center) }
+            try? await Task.sleep(for: .seconds(1.4))
+            revealed = nil
+        }
+        }
     }
 
     private func markMoment() {

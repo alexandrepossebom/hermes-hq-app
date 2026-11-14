@@ -166,8 +166,10 @@ struct TabOrderPage: View {
         if DeviceWord.isMac {
             // [mac-layout] No More on the Mac: a page not placed opens from the sidebar's Tools or the Settings window.
             // Mac polish #135: `DeviceWord.hold`'s hyphen doesn't break, so a line never ends "Control-".
-            return "Turn a page on to give it a place in the sidebar. Until then it opens from Tools or Settings. "
-                + "You can also \(DeviceWord.hold) a row under Tools and choose Move to Places."
+            // [macpass-settings2] The list read as pages missing from the sidebar, though most are already there under
+            // Tools: it says so, and that turning one on moves it up.
+            return "These pages already show in the sidebar under Tools, or open from Settings. Turn one on to move it up "
+                + "to the places above. You can also \(DeviceWord.hold) a row under Tools and choose Move to Places."
         }
         return full ? "The \(Self.barWord) holds \(TabOrder.limit) tabs, then More. Turn one off to add another."
                     : "Turn a page on to give it a tab of its own. Until then it opens from More."

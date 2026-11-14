@@ -218,7 +218,8 @@ private func modelSets(_ gateway: ModelGateway) -> [(query: [URLQueryItem], body
     // MARK: The words
 
     @Test func settingsSaysWhoseModelItChanges() {
-        #expect(SettingsWords.mainModelHeader(defaultBot: "Hermes") == "Hermes’s Default Model")
+        #expect(SettingsWords.mainModelHeader(defaultBot: "Hermes") == "Hermes’ Default Model")   // [macpass-settings2] not "Hermes’s"
+        #expect(SettingsWords.possessive("Otto") == "Otto’s" && SettingsWords.possessive("Jules") == "Jules’")
         #expect(SettingsWords.mainModelHeader(defaultBot: "  ") == "Default Profile’s Model", "an honest label without a name")
         #expect(SettingsWords.mainModelHeader(defaultBot: nil) == "Default Profile’s Model")
         // [model-scope] Owner 2026-11-03: "Applies to <Bot> only", and where the other bots' are.
@@ -228,7 +229,7 @@ private func modelSets(_ gateway: ModelGateway) -> [(query: [URLQueryItem], body
                 == "Applies to Hermes only. A chat can still switch its own model.", "no other bots, no hint")
         #expect(SettingsWords.mainModelFooter(defaultBot: nil, otherBots: true).hasPrefix("Applies to the default bot only."))
         let section = SettingsWords.modelSectionFooter(defaultBot: "Hermes", otherBots: true)
-        #expect(section.hasPrefix("Hermes’s models. They’re kept on the computer running Hermes, so every device uses them.")
+        #expect(section.hasPrefix("Hermes’ models. They’re kept on the computer running Hermes, so every device uses them.")
                 && section.hasSuffix("change them in each bot’s Bot Info › Brain."))
         #expect(section.components(separatedBy: "Hermes").count - 1 == 2, "Mac polish #134: not Hermes three times")
         #expect(!section.contains("your bots"), "it said “The models your bots use”, which read as every bot's")

@@ -179,7 +179,8 @@ final class SettingsRootModel {
                 // [Mac UI check 2026-11-13] ⌘N Project is drawn only once there is a project to pick.
                 && ($0.id != "app:new-chat-project" || newChatKeyProjects.count > 1)
         }
-        return SettingsSearch.results(query, in: index + Self.movedFromMoreEntries())
+        let status = SettingsHooks.commandCenter?() != nil ? [SettingsSearch.statusEntry] : []   // [macpass-settings2]
+        return SettingsSearch.results(query, in: index + status + Self.movedFromMoreEntries())
     }
 
     /// [macpass-settings2] The Mac's Bots & Tools rows that More holds on the iPhone (Bot Profiles, Messaging,
@@ -223,7 +224,9 @@ final class SettingsRootModel {
     static func category(ofRow row: String) -> SettingsCategory? {
         switch row {
         case "row:appearance": .appearance
-        case "row:haptics", "row:completion-sound", "row:sound", "row:thinking-drive": .sounds
+        case "row:share-menu": .general   // [macpass-settings2]
+        case "row:thinking-drive": DeviceWord.isMac ? .appearance : .sounds   // [macpass-settings2]
+        case "row:haptics", "row:completion-sound", "row:sound": .sounds
         case "row:fewer-timestamps", "row:show-file-changes", "row:attachment-limit", "row:new-chat-asks-project", "row:wait-for-models",
              "row:send-while-busy", "row:open-links-in", "row:new-chat-mode", "row:new-chat-key", "row:new-chat-project",
              "row:resume-last-chat", "row:tips", "row:intro-splash", "row:file-browser", "row:message-reactions": .chat
@@ -699,7 +702,16 @@ struct SettingsRootView: View {
             else if DeviceWord.isMac, target == .root("sound-picker") { model.reveal(model.completionSound ? "row:sound" : "row:completion-sound") }
             // [macpass-settings2] Two columns: the gateway's page opens as the card does (the card marked, the page the
             // right side's root); a result ("keychain", "sign out") pushed it over the category shown, with Back to it.
-            else if target == .root("gateway"), let openGateway = model.openGateway { openGateway() } else {
+            else if target == .root("gateway"), let openGateway = model.openGateway { openGateway() }
+            // [macpass-settings2] Status & Maintenance over the Gateway page, opened as the card opens it.
+            else if target == .root(SettingsSearch.statusTarget), let openGateway = model.openGateway, let make = SettingsHooks.commandCenter?() {
+                openGateway()
+                DispatchQueue.main.async {
+                    let page = make()
+                    page.navigationItem.largeTitleDisplayMode = .never
+                    router.push(page)
+                }
+            } else {
                 SettingsNavigator.open(target, router: router, actions: actions)
             }
         }
@@ -801,6 +813,25 @@ struct SettingsRootView: View {
         }
     }
 
+    /// [thinking-drive] Thinking Bar on the Mac, in Appearance. [macpass-settings2] It sat under Sounds, where the
+    /// iPhone has it for its feel (a haptic rev); the Mac has no haptics and the drive makes no sound, so it is a look.
+    /// [mac] Not in the Desktop Look, where the bar draws calmly whatever the drive and it changes nothing (Mac polish #37).
+    @ViewBuilder private var macThinkingBarRow: some View {
+        if DeviceWord.isMac, model.thinkingBarShown {
+            HStack(spacing: 12) {
+                SettingsRowLabel(title: "Thinking Bar", systemImage: "gauge.with.dots.needle.67percent")
+                Spacer(minLength: 16)
+                MacPopUp(label: "Thinking Bar", selection: Binding(get: { model.thinkingDrive }, set: { (value: ThinkingDrive) in
+                    model.thinkingDrive = value
+                    ThinkingDrive.chosen = value
+                }), options: ThinkingDrive.allCases) { $0.title }
+                    .accessibilityIdentifier("settings.thinking-drive")
+                    .hqMacSettingsControl()
+            }
+            .revealRow("row:thinking-drive", model.revealed)
+        }
+    }
+
     @ViewBuilder
     private var mainSections: some View {
         if !model.moreBeside, !model.twoColumn {   // in two columns the gateway heads the category column
@@ -888,6 +919,7 @@ struct SettingsRootView: View {
             }
             // [chats-under] The line beside each bot's chats on the Bots page, in both looks (owner 2026-11-08).
             BotChatsStyleRow { router.push(BotChatsStyleSettings.make()) }
+            macThinkingBarRow
             // [taborder] A tester (2026-10-29): Sessions first for someone who lives in Sessions. [mac] Mac polish #131:
             // "Sidebar" on the Mac, which has no tab bar (the sidebar's own menu says Sidebar Settings…), with a sidebar's
             // glyph there, not the tab bar's.
@@ -901,11 +933,14 @@ struct SettingsRootView: View {
                 NavRow(title: "App Icon", systemImage: "app.badge", value: model.appIconTitle) { SettingsNavigator.openRoot("app-icon", router: router) }
                     .accessibilityIdentifier("settings.app-icon")
             }
-        } header: { categoryHeader("Appearance") } footer: { HQSectionFooter {
-            if AppearanceSetting.forcedBySkin != nil {
-                Text("\(Theme.shared.state.skin.label) has only a \(AppearanceSetting.forcedBySkin == .dark ? "dark" : "light") look")
-            }
-        } }
+        } header: { categoryHeader("Appearance") } footer: {
+            if AppearanceSetting.forcedBySkin != nil || (DeviceWord.isMac && model.thinkingBarShown) { HQSectionFooter {
+                Text([AppearanceSetting.forcedBySkin.map { "\(Theme.shared.state.skin.label) has only a \($0 == .dark ? "dark" : "light") look." },
+                      // [macpass-settings r2] Mac words: the bar is moved with the pointer or the arrow keys, not dragged up.
+                      DeviceWord.isMac && model.thinkingBarShown ? "Thinking Bar is how the model panel’s thinking bar looks as you raise the thinking level." : nil]
+                    .compactMap { $0 }.joined(separator: " "))
+            } }
+        }
         }
 
         if model.shows(.general) {
@@ -1223,17 +1258,8 @@ struct SettingsRootView: View {
                 model.thinkingDrive = value
                 ThinkingDrive.chosen = value
             })
-            // [mac] Not in the Desktop Look, where it changes nothing (Mac polish #37).
-            if DeviceWord.isMac, model.thinkingBarShown {
-                HStack(spacing: 12) {
-                    SettingsRowLabel(title: "Thinking Bar", systemImage: "gauge.with.dots.needle.67percent")
-                    Spacer(minLength: 16)
-                    MacPopUp(label: "Thinking Bar", selection: drive, options: ThinkingDrive.allCases) { $0.title }
-                        .accessibilityIdentifier("settings.thinking-drive")
-                        .hqMacSettingsControl()
-                }
-                .revealRow("row:thinking-drive", model.revealed)
-            } else if !DeviceWord.isMac {
+            // [macpass-settings2] On the Mac it is in Appearance (`macThinkingBarRow`): nothing there is heard or felt.
+            if !DeviceWord.isMac {
                 SettingsMenuRowFace(label: SettingsRowLabel(title: "Thinking Bar", systemImage: "gauge.with.dots.needle.67percent"), value: model.thinkingDrive.title)
                 .overlay {
                     Menu {
@@ -1251,8 +1277,6 @@ struct SettingsRootView: View {
             }
         } header: { categoryHeader(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics") } footer: { HQSectionFooter {
             Text(!SettingsSearch.hasHaptics ? "Completion Sound plays when a bot’s reply finishes."
-                    // [macpass-settings r2] Mac words: the bar is moved with the pointer or the arrow keys, not dragged up.
-                    + (model.thinkingBarShown ? " Thinking Bar is how the model panel’s thinking bar looks as you raise the thinking level." : "")
                  : SettingsHooks.completionCueWired
                  ? "Completion Sound plays when a bot’s reply finishes. Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up."
                  : "Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up.")
@@ -1352,6 +1376,7 @@ struct SettingsRootView: View {
                 .accessibilityIdentifier("settings.share-menu")
             }
             .hqMacFormRowHeight()
+            .revealRow("row:share-menu", model.revealed)
         } footer: { HQSectionFooter {
             Text("To send files, links and text to a bot from other apps' Share menus, switch on Hermes HQ in System Settings › General › Login Items & Extensions › Sharing.")
         } }
@@ -1473,6 +1498,7 @@ struct SettingsCategoryColumn: View {
     @FocusState private var searching: Bool
 
     var body: some View {
+        let _ = Theme.touch()   // drawn again when UI Scale changes
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -1516,8 +1542,10 @@ struct SettingsCategoryColumn: View {
                     }
                 } label: {
                     HStack(spacing: 10) {
+                        // [macpass-settings2] The column's pictures follow UI Scale as its words do (they stayed 20 and
+                        // 16 pt beside text that grew and shrank).
                         Image(systemName: "desktopcomputer")
-                            .font(.system(size: 20))   // a11y-font-ok: the Mac Settings window's column picture; the Mac has no Dynamic Type
+                            .font(.system(size: HQFont.scaled(20)))   // a11y-font-ok: the Mac Settings window's column picture; the Mac has no Dynamic Type
                             .foregroundStyle(Color.hqTintText)
                             .frame(width: 30)
                         VStack(alignment: .leading, spacing: 1) {
@@ -1547,7 +1575,7 @@ struct SettingsCategoryColumn: View {
                     Button { model.query = ""; model.category = category; model.columnChanged?() } label: {
                         HStack(spacing: 10) {
                             Image(systemName: category.symbol)
-                                .font(.system(size: 16))   // a11y-font-ok: as above
+                                .font(.system(size: HQFont.scaled(16)))   // a11y-font-ok: as above
                                 .foregroundStyle(Color.hqTintText)
                                 .frame(width: 30)
                             Text(category.title)

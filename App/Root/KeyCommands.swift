@@ -920,11 +920,34 @@ extension AppDelegate {
         return true
     }
 
+    /// [macpass-settings2] The main window's commands that go somewhere in it (a new chat, a sidebar place, Search
+    /// Sessions, Open Quickly): with the Settings window or a file window in front they stay on, as Mail's New Message
+    /// works with its Settings window in front, and bring the main window forward before they act. File › New Chat was
+    /// dimmed while Settings was in front. The rest (the chat on show's, the sidebar's) stay off there.
+    static let bringsMainForward: Set<Selector> = [
+        KeyCommands.newChat, KeyCommands.newChatWith, KeyCommands.newChatHere, KeyCommands.selectTab,
+        KeyCommands.searchSessions, KeyCommands.openQuickly,
+    ]
+
+    /// The main window to the front when another of the app's windows (Settings, a file) is (`bringsMainForward`).
+    func mainWindowForward() {
+        guard KeyCommands.settingsInFront != nil || KeyCommands.fileInFront != nil,
+              let window = KeyCommands.root?.view.window, let main = window.windowScene else { return }
+        AppLog.note("keys", "main window to the front")
+        // An activation request alone leaves an already-open window behind the one in front while the app is active
+        // (seen: the new chat started behind Settings). AppKit's own window takes the front and the keyboard.
+        UIApplication.shared.requestSceneSessionActivation(main.session, userActivity: nil, options: nil)
+        window.makeKey()
+        // Ordered inside the menu's action, the window the menu was chosen from took the front back after it.
+        DispatchQueue.main.async { [weak window] in window?.hqMacOrderFront(activating: false) }
+    }
+
     /// [mac] Mac polish #12: the app's commands while the Settings window is in front (`KeyCommands.settingsInFront`):
     /// the ones a window has work it; the main window's own are off, keeping their names. False for any other command
     /// (the Chat menu's dim through `ChatMenuBar.chat`).
     private func validateInSettings(_ command: UICommand, _ settings: UINavigationController) -> Bool {
         guard Self.ownActions.contains(command.action) else { return false }
+        if Self.bringsMainForward.contains(command.action) { return false }   // [macpass-settings2] as the main window's
         let top = KeyCommands.presented(settings)
         var enabled = false
         switch command.action {
@@ -979,6 +1002,7 @@ extension AppDelegate {
     /// it, Settings opens; the main window's own are off, keeping their names. False for any other command.
     private func validateInFileWindow(_ command: UICommand, _ scene: UIWindowScene) -> Bool {
         guard Self.ownActions.contains(command.action) else { return false }
+        if Self.bringsMainForward.contains(command.action) { return false }   // [macpass-settings2] as the main window's
         let covered = scene.keyWindow?.rootViewController.flatMap(KeyCommands.presented) != nil
         var enabled = false
         switch command.action {
@@ -1116,6 +1140,9 @@ extension AppDelegate {
     }
 
     @objc func hqNewChat(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()   // [macpass-settings2]
+        #endif
         whenUncovered { root in
             guard let organizer = root.sessionsViewController.organizer else { return }
             if NewChatKeyBot.mode == .botChat {
@@ -1135,6 +1162,9 @@ extension AppDelegate {
 
     /// [cmd-n] ⌥⌘N: a new chat like the one on show (its bot, its project).
     @objc func hqNewChatHere(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()   // [macpass-settings2]
+        #endif
         whenUncovered { root in
             guard let organizer = root.sessionsViewController.organizer,
                   let chat = root.chatOnShow?.session as? LiveChatSession else { return }
@@ -1145,6 +1175,9 @@ extension AppDelegate {
 
     /// [cmd-n] ⇧⌘N: New Chat's chooser (a bot, and a project under All), as the Sessions Compose button opens it.
     @objc func hqNewChatWith(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()   // [macpass-settings2]
+        #endif
         whenUncovered { root in
             guard let organizer = root.sessionsViewController.organizer else { return }
             AppLog.note("keys", "new chat with")
@@ -1237,6 +1270,9 @@ extension AppDelegate {
     #endif
 
     @objc func hqSearchSessions(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()   // [macpass-settings2]
+        #endif
         guard let root = uncovered else { return }
         #if targetEnvironment(macCatalyst)
         // [keys] Mac UI check 2026-11-13 (K1): with Sessions taken out of the sidebar its search had nowhere to show (the
@@ -1264,6 +1300,9 @@ extension AppDelegate {
 
     /// ⌘K: More's search, which finds sessions, pages and actions, opened with the caret in it.
     @objc func hqOpenQuickly(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()   // [macpass-settings2]
+        #endif
         guard let root = uncovered, let more = root.pages?.more, let stack = more.navigationController,
               let index = root.slotIndex(for: stack) else { return }
         AppLog.note("keys", "open quickly")
@@ -1343,6 +1382,9 @@ extension AppDelegate {
 
     @objc func hqSelectTab(_ sender: Any?) {
         guard let index = (sender as? UICommand)?.propertyList as? Int else { return }
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()   // [macpass-settings2]
+        #endif
         whenUncovered { root in
             let places = root.placedTabs   // [mac-sidebar] every sidebar place, ⌘9 the last of more than nine
             guard let place = KeyCommands.tabIndex(forShortcut: index, among: places.map { $0.tabBarItem.tag }) else { return }
