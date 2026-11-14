@@ -682,8 +682,9 @@ extension UISheetPresentationController {
 /// its UIKit and SwiftUI lists and anything laid out on the safe area or the layout margins follow.
 /// A page that is a picture or a web page edge to edge (`fullBleed`) keeps its edges. The iPhone and iPad are unchanged.
 @MainActor enum MacSheetEdges {
-    /// The sides: with the system's 20 pt margins, 26 pt in = 20 px on the Mac's screen.
-    static let side: CGFloat = 6
+    /// The sides: measured on the Mac, cards, fields and the bar's Cancel / Done sit at this + 16 pt, so 10 pt puts all
+    /// of them 26 pt in = 20 px on screen, one line (they sat at 16 px, Cancel / Done at 13 px).
+    static let side: CGFloat = 10
     /// The foot: the last row clear of the sheet's rounded bottom edge.
     static let foot: CGFloat = 8
     private static let fullBleedKey = malloc(1)!
