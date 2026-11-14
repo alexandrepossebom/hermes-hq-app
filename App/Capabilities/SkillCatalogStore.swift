@@ -27,7 +27,18 @@ final class SkillCatalogStore {
     }
 
     private var file: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("skill-catalog.json")
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent(keptName)
+    }
+
+    /// The kept copy's name. Each stand-in list keeps its own (Mac pass 2026-11-14: `-HQDebugSkillCatalogURL` was never read while
+    /// the public list's copy, shared by every Debug app on the Mac, was under six hours old).
+    private var keptName: String {
+        #if DEBUG
+        if let raw = UserDefaults.standard.string(forKey: "HQDebugSkillCatalogURL") {
+            return "skill-catalog-" + String(raw.unicodeScalars.filter(CharacterSet.alphanumerics.contains).map(Character.init)) + ".json"
+        }
+        #endif
+        return "skill-catalog.json"
     }
 
     func load(force: Bool = false) async {

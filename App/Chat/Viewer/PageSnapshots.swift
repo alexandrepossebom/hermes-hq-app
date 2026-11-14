@@ -76,6 +76,9 @@ import WebKit
     private var drawing = false
     /// [tiles] Each page's title and job, as its last read said (`TileNames.head`), by account, bot and path.
     private var heads: [String: TileNames.Head] = [:]
+    /// [tiles] Pages whose last read said the file is gone (`MediaLoadError.notFound`), by account, bot and path: a tile
+    /// over one wears the failed mark instead of a grey chart that looked like one still drawing (Mac pass 2026-11-14).
+    private var gone: Set<String> = []
     private var loaded: CheckedContinuation<Bool, Never>?
 
     override private init() {
@@ -104,6 +107,9 @@ import WebKit
     /// [tiles] What the page's head said when it was last read for a picture (nil before then).
     func head(path: String, context: MediaContext) -> TileNames.Head? { heads[Self.headKey(path, context)] }
 
+    /// [tiles] The page's last read said it isn't on the gateway any more.
+    func isGone(path: String, context: MediaContext) -> Bool { gone.contains(Self.headKey(path, context)) }
+
     private static func headKey(_ path: String, _ context: MediaContext) -> String { "\(context.accountId)|\(context.profile)|\(path)" }
 
     private static func readHead(_ url: URL) -> TileNames.Head {
@@ -131,13 +137,28 @@ import WebKit
         let job = queue.removeFirst()
         Task { [weak self] in
             var image: UIImage?
+            let headKey = Self.headKey(job.path, job.context)
+            var url: URL?
             do {
-                let url = try await MediaLoader.shared.file(path: job.path, name: job.name, context: job.context,
-                                                            progressKey: "page|" + job.path, fresh: job.fresh)
-                self?.heads[Self.headKey(job.path, job.context)] = Self.readHead(url)
-                image = await self?.draw(url, dark: job.dark, shape: job.shape)
+                // [tiles] The loader's own fall-back to the kept copy hid a page deleted on the gateway (Mac pass
+                // 2026-11-14: the tile kept drawing the old copy, with no mark): gone is said; any other failure
+                // still draws the kept copy.
+                url = try await MediaLoader.shared.file(path: job.path, name: job.name, context: job.context,
+                                                        progressKey: "page|" + job.path, fresh: job.fresh, keptOnFailure: false)
+                self?.gone.remove(headKey)
             } catch {
-                AppLog.swallowed("chatui", "page card download", error)
+                if error as? MediaLoadError == .notFound {
+                    self?.gone.insert(headKey)
+                } else if !(error is CancellationError) {
+                    let store = MediaLoader.shared.store(for: job.context.accountId)
+                    url = store.cachedFile(MediaStore.gatewayKey(accountId: job.context.accountId, profile: job.context.profile,
+                                                                 path: job.path), name: job.name)
+                }
+                AppLog.swallowed("chatui", "page card download\(url != nil ? ", the kept copy drawn" : "")", error)
+            }
+            if let url {
+                self?.heads[headKey] = Self.readHead(url)
+                image = await self?.draw(url, dark: job.dark, shape: job.shape)
             }
             guard let self else { return }
             if let image { self.cache.setObject(image, forKey: job.key as NSString) }

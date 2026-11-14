@@ -150,7 +150,7 @@ struct PluginRow: View {
             Button(action: open) {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("\(Text(plugin.name).font(Font.hq(.headline)).foregroundStyle(Color.hqLabel))\(Text(plugin.version.isEmpty ? "" : "  \(plugin.version)").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2))")
+                        Text("\(Text(plugin.title).font(Font.hq(.headline)).foregroundStyle(Color.hqLabel))\(Text(plugin.version.isEmpty ? "" : "  \(plugin.version)").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2))")
                         if !plugin.description.isEmpty {
                             Text(plugin.description).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
                                 .lineLimit(typeSize.isAccessibilitySize ? nil : Density.compact ? 1 : 2)   // [ui-sizing] Compact: one line
@@ -189,7 +189,7 @@ struct PluginRow: View {
                     .labelsHidden()
                     .hqMacRowSwitch()   // [mac] Stress test 2026-10-28 round 6
                     .disabled(busy)
-                    .accessibilityLabel(plugin.name)
+                    .accessibilityLabel(plugin.title)
                     .accessibilityIdentifier("plugin-switch-\(key)")
             }
         }
@@ -374,7 +374,7 @@ final class PluginPageController: UIHostingController<HQScaledRoot<PluginPageVie
     init(model: CapabilitiesModel, plugin: PluginInfo, router: SettingsRouter) {
         page = PluginPageModel(parent: model, plugin: plugin)
         super.init(rootView: HQScaledRoot(PluginPageView(page: page)))
-        title = plugin.name
+        title = plugin.title
         navigationItem.largeTitleDisplayMode = .never
         page.presenter = self
         page.router = router
@@ -425,7 +425,7 @@ struct PluginPageView: View {
                         .hqGlassProminentButtonStyle()
                         .accessibilityIdentifier("plugin.open-page")
                     } footer: { HQSectionFooter {
-                        Text("\(plugin.name) adds a page. It opens here, as it does in the Hermes dashboard.")
+                        Text("\(plugin.title) adds a page. It opens here, as it does in the Hermes dashboard.")
                     } }
                     .listRowBackground(Color.clear)
                 }

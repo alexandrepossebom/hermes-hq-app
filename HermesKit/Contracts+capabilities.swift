@@ -268,6 +268,9 @@ nonisolated struct PluginInfo: Sendable, Hashable, Identifiable {
 
     var isKanban: Bool { name == "kanban" }
     var canUninstall: Bool { source == "user" || source == "git" }
+    /// [tiles] The name as Marketplace shows it ("Weather Now" for weather-now): its own page said the folder name.
+    var title: String { DisplayName.title(name) }
+
     var sourceWords: String? {
         switch source {
         case "bundled": "Comes with Hermes"

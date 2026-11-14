@@ -28,7 +28,18 @@ final class PluginCatalogStore {
     }
 
     private var file: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("plugin-catalog.json")
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent(keptName)
+    }
+
+    /// The kept copy's name. Each stand-in list keeps its own (Mac pass 2026-11-14: `-HQDebugPluginCatalogURL` was never read while
+    /// the public list's copy, shared by every Debug app on the Mac, was under six hours old).
+    private var keptName: String {
+        #if DEBUG
+        if let raw = UserDefaults.standard.string(forKey: "HQDebugPluginCatalogURL") {
+            return "plugin-catalog-" + String(raw.unicodeScalars.filter(CharacterSet.alphanumerics.contains).map(Character.init)) + ".json"
+        }
+        #endif
+        return "plugin-catalog.json"
     }
 
     /// Reads the kept copy, then the published one when the copy is missing or stale (or `force`). Concurrent callers

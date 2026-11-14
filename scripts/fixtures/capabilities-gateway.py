@@ -474,7 +474,7 @@ def plugins_manage(profile, params):
         if by_name(name) is not None or any(p.get('catalog_name') == name for p in rows):
             raise RPCFailure(4090, f"plugin '{name}' is already installed")
         opts = X['install']
-        row = {'name': name, 'key': f'catalog:{name}', 'version': '1.0.0', 'description': f'From the Hermes catalog ({name}).',
+        row = {'name': name, 'key': f'catalog:{name}', 'version': '1.0.0', 'description': f'Adds {name} tools to Hermes.',
                'source': 'catalog', 'status': 'enabled' if params.get('enable', True) else 'disabled', 'portable': True,
                'has_desktop_half': False, 'servers': [], 'catalog_name': name, 'catalog_tier': 'community', 'update_available': False,
                'settings_schema': [{'key': 'token', 'type': 'secret', 'label': 'Token', 'description': '', 'required': True,

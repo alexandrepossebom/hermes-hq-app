@@ -34,6 +34,9 @@ struct PinCardView: View {
     /// Mac polish #46: a pinned picture that's gone wears Artifacts' broken-picture mark, in grey.
     static let goneGlyph = "photo.badge.exclamationmark"
 
+    /// [tiles] A page that's gone: a page's own broken mark, not a photo's.
+    static func goneGlyph(_ pin: ArtifactPin) -> String { pin.isPage ? "doc.questionmark" : goneGlyph }
+
     static func glyph(_ pin: ArtifactPin) -> String {
         if pin.isPage { return "chart.xyaxis.line" }
         if pin.kind == .image { return "photo" }
@@ -57,7 +60,7 @@ struct PinCardView: View {
                     } else if busy {
                         ProgressView()
                     } else {
-                        Image(systemName: failed ? Self.goneGlyph : Self.glyph(pin)).hqSymbolFont(30, weight: .light, cap: 44)
+                        Image(systemName: failed ? Self.goneGlyph(pin) : Self.glyph(pin)).hqSymbolFont(30, weight: .light, cap: 44)
                             .foregroundStyle(Color.hqLabel3)
                     }
                 }
@@ -70,7 +73,7 @@ struct PinCardView: View {
                 // At the accessibility sizes the name has the row (the picture above says what it is).
                 if !typeSize.isAccessibilitySize {
                     // Mac polish #46: a picture that's gone wears the broken mark here too, in grey, not the blue photo.
-                    Image(systemName: failed ? Self.goneGlyph : pin.isPage ? "safari" : Self.glyph(pin))
+                    Image(systemName: failed ? Self.goneGlyph(pin) : pin.isPage ? "safari" : Self.glyph(pin))
                         .hqSymbolFont(15, cap: 22).foregroundStyle(failed ? Color.hqLabel3 : Color.hqTint)
                 }
                 VStack(alignment: .leading, spacing: 1) {
@@ -205,7 +208,7 @@ struct PinTileView: View {
                         ProgressView()
                     } else {
                         VStack(spacing: 8) {
-                            Image(systemName: failed ? PinCardView.goneGlyph : PinCardView.glyph(pin)).hqSymbolFont(26, weight: .light, cap: 40)
+                            Image(systemName: failed ? PinCardView.goneGlyph(pin) : PinCardView.glyph(pin)).hqSymbolFont(26, weight: .light, cap: 40)
                                 .foregroundStyle(failed ? Color.hqLabel3 : Color.hqTint)
                             if !showsName && (failed || !pin.isPage && pin.kind != .image) {
                                 Text(pin.name)
@@ -342,10 +345,14 @@ struct TileHealthMark: View {
             .accessibilityIdentifier("tile.health.\(id)")
     }
 
+    /// [tiles] Why a page tile failed when its file is gone from the gateway (`PinPictures.pageGone`).
+    static let goneWords = "The page isn’t on your gateway anymore."
+
     /// Read out after the tile's name.
     static func words(_ health: TileJobs.Health) -> String? {
         switch health {
         case .none, .fine: nil
+        case .failed(let why) where why == goneWords: "page missing"
         case .failed: "last update failed"
         case .late: "not updated on time"
         case .paused: "updates paused"
@@ -422,6 +429,9 @@ final class PinPictures {
         return kept ?? thumbs.page(account, pageKey(pin, dark: !dark, shape: shape)) ?? latest[pin.id]
     }
 
+    /// [tiles] The picture the tile shows now (the last one drawn), if any.
+    func shown(_ pin: ArtifactPin) -> UIImage? { latest[pin.id] }
+
     /// Pages whose head was asked for this run (`readHead`).
     private var headsAsked: Set<String> = []
 
@@ -442,8 +452,16 @@ final class PinPictures {
 
     /// Mac polish #46: a pinned picture the gateway couldn't give (gone, or never readable): not one still loading.
     func failed(_ pin: ArtifactPin) -> Bool {
+        if pin.isPage, let path = pin.gatewayPath { return pageGone(pin, path: path) }
         guard pin.kind == .image, case .failed = previews.state(pin.record) else { return false }
         return true
+    }
+
+    /// [tiles] A pinned page whose file is gone from the gateway (Mac pass 2026-11-14: a grey chart with no mark, only
+    /// opening it said so). Its tile wears the failed mark and says why.
+    func pageGone(_ pin: ArtifactPin, path: String? = nil) -> Bool {
+        guard pin.isPage, let path = path ?? pin.gatewayPath else { return false }
+        return PageSnapshots.shared.isGone(path: path, context: context(pin))
     }
 
     /// Whether the picture is still coming (a spinner instead of the type glyph).

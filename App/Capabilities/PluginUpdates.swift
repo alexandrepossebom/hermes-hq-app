@@ -155,7 +155,8 @@ import UIKit
 
     /// Under the row: which ones.
     var footer: String? {
-        let names = names
+        // [tiles] The names as Marketplace shows them ("Web Clipper", not the folder name web-clipper).
+        let names = names.map(DisplayName.title)
         guard !names.isEmpty else { return nil }
         return names.count == 1 ? "\(names[0]) has a newer version." : "\(AddOnReminder.names(names)) have newer versions."
     }
@@ -213,11 +214,11 @@ nonisolated enum PluginUpdateWords {
     }
 
     static func couldnt(_ names: [String]) -> String {
-        names.count == 1 ? "Couldn’t Update \(names[0])" : "Couldn’t Update \(names.count) Plugins"
+        names.count == 1 ? "Couldn’t Update \(DisplayName.title(names[0]))" : "Couldn’t Update \(names.count) Plugins"
     }
 
     static func stillBehind(_ names: [String]) -> String {
-        names.count == 1 ? "\(names[0]) Still Needs Its Update" : "\(names.count) Plugins Still Need Their Update"
+        names.count == 1 ? "\(DisplayName.title(names[0])) Still Needs Its Update" : "\(names.count) Plugins Still Need Their Update"
     }
 
     static let scanBlocked = "Hermes’s security scan stopped the update, and nothing changed. Look at what it found on Hermes’s computer (hermes plugins update)."
@@ -475,10 +476,11 @@ nonisolated enum PluginUpdateWords {
         let cards = plugins.map { name -> AddOnUpdate.Changing in
             let copies = items.filter { $0.plugin.name == name }
             let from = copies.first?.plugin.version ?? ""
-            return AddOnUpdate.Changing(plugin: name, title: name, from: from.isEmpty ? nil : from, to: copies.first?.plugin.newVersion,
+            return AddOnUpdate.Changing(plugin: name, title: DisplayName.title(name), from: from.isEmpty ? nil : from, to: copies.first?.plugin.newVersion,
                                         loading: false, note: several ? "For " + AddOnReminder.names(copies.map(\.bot)) : nil)
         }
-        update.foundPlugins(plugins, why: PluginUpdateWords.why(plugins), bot: mainBot?.name ?? "the main bot", installNote: nil, cards: cards)
+        let titles = plugins.map(DisplayName.title)   // [tiles] the sheet's words say "Web Clipper", not the folder name
+        update.foundPlugins(titles, why: PluginUpdateWords.why(titles), bot: mainBot?.name ?? "the main bot", installNote: nil, cards: cards)
         let go = await update.ask()
         AppLog.note("plugins", go ? "update asked: \(items.count) cop\(items.count == 1 ? "y" : "ies") of \(plugins.count) plugin(s)" : "update declined")
         guard go else { return }
@@ -529,7 +531,7 @@ nonisolated enum PluginUpdateWords {
                 let name = item.plugin.name
                 var result = CopyResult.declined
                 if approved.contains(name) {
-                    update.detail(.install, AddOnUpdate.installing("\(several ? "\(name) for \(item.bot)" : name), with its packages", index + 1, of: held.count))
+                    update.detail(.install, AddOnUpdate.installing("\(several ? "\(DisplayName.title(name)) for \(item.bot)" : DisplayName.title(name)), with its packages", index + 1, of: held.count))
                     result = await PluginUpdateConsent.apply(profile: item.profile, name: name, acceptCapabilities: accepted.contains(name),
                                                              force: forced.contains(name))
                 }
@@ -791,7 +793,7 @@ nonisolated enum PluginUpdateWords {
         installTotal = items.count
         computerOnly = [:]
         if let first = items.first {
-            AddOnUpdate.shared.detail(.install, AddOnUpdate.installing(several ? "\(first.plugin.name) for \(first.bot)" : first.plugin.name, 1, of: items.count))
+            AddOnUpdate.shared.detail(.install, AddOnUpdate.installing(several ? "\(first.plugin.title) for \(first.bot)" : first.plugin.title, 1, of: items.count))
         }
         var byBot: [[Item]] = []
         for profile in Self.distinct(items.map(\.profile)) { byBot.append(items.filter { $0.profile == profile }) }
@@ -821,7 +823,7 @@ nonisolated enum PluginUpdateWords {
             if case .computer(let packages) = result { computerOnly[name] = packages }
             installed += 1
             if installed < installTotal {
-                AddOnUpdate.shared.detail(.install, AddOnUpdate.installing(several ? "\(name) for \(item.bot)" : name, installed + 1, of: installTotal))
+                AddOnUpdate.shared.detail(.install, AddOnUpdate.installing(several ? "\(item.plugin.title) for \(item.bot)" : item.plugin.title, installed + 1, of: installTotal))
             }
             out.append(Outcome(item: item, result: result))
         }
@@ -901,7 +903,7 @@ nonisolated enum PluginUpdateWords {
     private static func packagesConsent(_ name: String, packages: String) async -> Bool {
         let names = PluginUpdateWords.packageNames([packages])
         let list = names.isEmpty ? "The new version adds Python packages to Hermes." : "The new version adds to Hermes:\n" + names.joined(separator: "\n")
-        return await ask(title: "\(name) adds Python packages", message: "\(list)\nInstall \(names.count == 1 ? "it" : "them") only if you trust the plugin.",
+        return await ask(title: "\(DisplayName.title(name)) adds Python packages", message: "\(list)\nInstall \(names.count == 1 ? "it" : "them") only if you trust the plugin.",
                          yes: "Install and Update")
     }
 
@@ -910,7 +912,7 @@ nonisolated enum PluginUpdateWords {
         var shown = Array(findings.prefix(8))
         if findings.count > 8 { shown.append("and \(findings.count - 8) more") }
         let found = shown.isEmpty ? "" : ":\n" + shown.joined(separator: "\n")
-        return await ask(title: "Hermes’s scan flagged \(name)", message: "Its security scan of the new version said caution\(found)\nUpdate only if you trust the plugin.",
+        return await ask(title: "Hermes’s scan flagged \(DisplayName.title(name))", message: "Its security scan of the new version said caution\(found)\nUpdate only if you trust the plugin.",
                          yes: "Update Anyway")
     }
 
@@ -933,7 +935,7 @@ nonisolated enum PluginUpdateWords {
         if lines.count > 12 { shown.append("and \(lines.count - 12) more") }
         return await withCheckedContinuation { continuation in
             let answer = AlertAnswer(continuation, unanswered: false)
-            let alert = UIAlertController(title: "\(name) asks for more",
+            let alert = UIAlertController(title: "\(DisplayName.title(name)) asks for more",
                                           message: "The new version\(bot.map { " for \($0)" } ?? "") adds things the installed one does not have. Apply it only if you trust them:\n"
                                             + shown.joined(separator: "\n"), preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in answer.answer(false) })

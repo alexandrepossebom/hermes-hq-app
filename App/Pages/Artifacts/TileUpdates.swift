@@ -13,6 +13,8 @@ extension JobsStore {
 @MainActor
 final class TileUpdates {
     static let shared = TileUpdates()
+    /// [tiles] A tile's job has just run (object: the pin's id): an open tile reads its page again (`HTMLPageSheet`).
+    static let ran = Notification.Name("TileUpdates.ran")
 
     /// Each bot's jobs as last read for a tile, by account and bot (read again after `fresh`).
     private var lists: [String: (jobs: [CronJob], at: Date)] = [:]
@@ -81,6 +83,7 @@ final class TileUpdates {
             if let seen = lastRuns[pin.id], seen != last || (wasUpdating && health != .updating) { ran.append(pin.id) }
             lastRuns[pin.id] = last
         }
+        for id in ran { NotificationCenter.default.post(name: Self.ran, object: id) }   // an open tile reads its page again
         return (marks, ran)
     }
 

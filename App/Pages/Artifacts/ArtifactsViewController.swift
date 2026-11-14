@@ -314,6 +314,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         // [dashboard] Live tiles: a Job rewrites a tile's file on its schedule, so pages drawn over 10 minutes ago
         // are drawn again when the Dashboard opens (fresh ones are left alone).
         if pinnedOnly { pinPictures.redraw(pins.pins, drawnBefore: Date().addingTimeInterval(-600)) }
+        if pinnedOnly { HTMLPageSheet.prewarm(traits: traitCollection) }   // [tiles] a tile opens on a ready web view
         watchTiles(true)
         liveTiles?.watch(true)
         reload(animated: false)
@@ -1104,9 +1105,10 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         let bot = PagesNames.botName(pin.profile, bots: services?.bots ?? [])
         let subtitle = store.scope != "all" && !pin.sessionTitle.isEmpty ? pin.sessionTitle   // one bot: its name says nothing
             : pin.sessionTitle.isEmpty ? bot : "\(bot) · \(pin.sessionTitle)"
-        let health = TileUpdates.shared.health(pin.id)
-        let hover = pinHover(pin.id, cell: cell)
         let failed = pinPictures.failed(pin)   // Mac polish #46
+        // [tiles] A page whose file is gone wears the failed mark (Mac pass 2026-11-14: a grey chart, no mark).
+        let health = failed && pin.isPage ? .failed(TileHealthMark.goneWords) : TileUpdates.shared.health(pin.id)
+        let hover = pinHover(pin.id, cell: cell)
         // [tiles] Its bot working on it (Change…, a button), and the moment after a change is done.
         let working = TileMaker.working(on: pin.id, accountId: store.account.id)?.tileWords
         let ringed = justChanged.contains(pin.id)
@@ -1132,7 +1134,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         cell.accessibilityIdentifier = "pin-card-\(pin.label)"
         cell.isAccessibilityElement = true
         cell.accessibilityLabel = "\(pin.isPage ? "Page" : pin.kind == .image ? "Image" : pin.kind == .link ? "Link" : "File"), \(pin.name), \(subtitle)"
-            + (grid ? ", \(pin.tileSize.title)" : "") + (TileHealthMark.words(health).map { ", " + $0 } ?? "") + (failed ? ", unavailable" : "")
+            + (grid ? ", \(pin.tileSize.title)" : "") + (TileHealthMark.words(health).map { ", " + $0 } ?? "") + (failed && !pin.isPage ? ", unavailable" : "")
             + (working.map { ", " + $0 } ?? "")
         cell.accessibilityTraits = .button
         cell.accessibilityCustomActions = liveButtonActions(pin) + pinAccessibilityActions(pin)
@@ -2578,6 +2580,10 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             // [live-tiles] Its buttons go to the tile's bot, as on the Tiles page (a page opened from Tiles has no chat).
             tile.botName = PagesNames.botName(pin.profile, bots: services?.bots ?? [])
             tile.send = { [weak self] prompt, host, ended in self?.sendFromTile(pin.id, prompt, from: host, ended: ended) ?? false }
+            tile.id = pin.id   // [tiles] read again in place when its job runs
+            // [tiles] The sheet opens in the page's own colour, read off the tile's picture: no black sheet with white bar
+            // words before a white page draws (Mac pass 2026-11-14).
+            tile.backdrop = pinPictures.shown(pin).flatMap(PinPictures.edgeColor)
             // [tiles] At once, from the copy the Tiles page drew; read again behind it (HTMLPageSheet.openTile).
             HTMLPageSheet.openTile(path: path, name: pin.label, context: context, tile: tile, from: self)
             return

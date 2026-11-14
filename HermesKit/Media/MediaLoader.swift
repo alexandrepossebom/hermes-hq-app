@@ -359,8 +359,10 @@ actor AsyncLimiter {
 
     /// The file behind a path, downloaded (512 MB ceiling) into the media store, with progress under `progressKey`.
     /// `fresh` downloads again even when a copy is kept (a page a bot rewrites in place), and falls back to the copy
-    /// when the download fails.
-    func file(path: String, name: String, context: MediaContext, progressKey: String, fresh: Bool = false) async throws -> URL {
+    /// when the download fails, unless `keptOnFailure` is false: a caller already showing the copy (an opened tile) wants
+    /// the failure, to say the copy may be old.
+    func file(path: String, name: String, context: MediaContext, progressKey: String, fresh: Bool = false,
+              keptOnFailure: Bool = true) async throws -> URL {
         #if DEBUG
         if context.accountId == MediaContext.demoAccount {   // -HQDemoPage: this Mac's file, or a local server's (the Mac app's sandbox)
             guard path.hasPrefix("http"), let remote = URL(string: path) else { return URL(fileURLWithPath: path) }
@@ -377,6 +379,8 @@ actor AsyncLimiter {
                 return try await download(path: path, name: name, context: context, progressKey: progressKey, key: key, store: store)
             } catch is CancellationError {
                 throw CancellationError()
+            } catch where !keptOnFailure {
+                throw error
             } catch {
                 AppLog.swallowed("media", "fresh download of a kept file, using the kept copy", error)
                 return kept
