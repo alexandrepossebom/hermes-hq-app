@@ -91,6 +91,8 @@ nonisolated enum SettingsSearch {
         .init(id: "app:theme", label: "Theme", context: "Appearance", keywords: themeKeywords, target: .root("theme")),
         // [density] On Theme, with UI Scale (both looks).
         .init(id: "app:density", label: "Density", context: "Theme", keywords: ["compact", "dense", "smaller rows", "fit more", "ui scale", "zoom", "smaller text"], target: .root("theme")),
+        // [macpass-settings] The control's own name: "scale" found only Density and Desktop Look.
+        .init(id: "app:ui-scale", label: "UI Scale", context: "Theme", keywords: ["text size", "bigger text", "smaller text", "larger", "zoom", "make text bigger"], target: .root("theme")),
         // [theme-pages] Rows of their own beside Theme (they were its tabs); a background opens its own page.
         .init(id: "app:chat-bubbles", label: "Chat Bubbles", context: "Appearance", keywords: ["bubble corners", "rounded corners", "message corners", "glass bubbles", "tinted bubbles"], target: .root("chat-bubbles")),
         // [message-colour] On Chat Bubbles; "color" as most people type it.

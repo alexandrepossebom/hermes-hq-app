@@ -578,7 +578,7 @@ extension CloudCopy {
     static let deleteLead = "This can’t be undone. Its chats, memory, files, jobs and settings on Nous are deleted, and Nous stops billing for it."
     static func deleteType(_ name: String) -> String { "Type “\(name)” to confirm" }
     static var deleteAlsoGateway: String { "It’s removed from your gateways on this \(DeviceWord.name) too." }
-    static let deleteCurrent = "HQ is using it now. Afterwards, switch to another gateway from the name at the top of Bots."
+    static var deleteCurrent: String { "HQ is using it now. Afterwards, switch to another gateway from the name at the top of \(GatewaySwitchWords.whereSwitcher)." }
     static func renameTitle(_ name: String) -> String { "Rename \(name)" }
     static let renameMessage = "The name on Nous Portal and in HQ."
 

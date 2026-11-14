@@ -260,7 +260,7 @@ enum CloudCopy {
         return [("moon.stars.fill", "It never sleeps", "Jobs you schedule run on time, even with your phone and computer off."),
                 ("person.badge.key.fill", "Signs in with Nous", "Your Nous account is the key. There’s no password to keep."),
                 ("pause.circle.fill", "Stop it anytime", stopTip),
-                ("square.stack.3d.up.fill", "Beside your other gateways", "Switch between them from the name at the top of Bots.")]
+                ("square.stack.3d.up.fill", "Beside your other gateways", "Switch between them from the name at the top of \(GatewaySwitchWords.whereSwitcher).")]
     }
 
     /// What Nous says the agent is doing, in plain words (Portal's status words aren't documented: unknown ones show as

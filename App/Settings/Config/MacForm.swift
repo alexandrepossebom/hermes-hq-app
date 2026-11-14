@@ -927,7 +927,12 @@ struct MacPopUpFace: View {
     /// [mac] Stress test 2026-10-28 round 7: disabled, the value is in the secondary label colour and the chevrons in
     /// the third, readable (about 3:1 or better), not faded to near nothing.
     /// [mac] Round 8: both in the one dimmed colour (`MacField.dimmed`), which the button no longer fades again.
-    @Environment(\.isEnabled) private var enabled
+    @Environment(\.isEnabled) private var environmentEnabled
+    /// [macpass-settings] The enabled state of the button the face is drawn in. A menu's or button's label doesn't see
+    /// that button's `.disabled`: Mixture of Agents' Preset and model pop-ups, off, stayed at full strength beside their
+    /// dimmed titles.
+    var isEnabled: Bool? = nil
+    private var enabled: Bool { isEnabled ?? environmentEnabled }
 
     var body: some View {
         let _ = Theme.touch()
@@ -957,6 +962,7 @@ struct MacPopUp<Value: Hashable>: View {
     @Binding var selection: Value
     var options: [Value]
     var title: (Value) -> String
+    @Environment(\.isEnabled) private var enabled
 
     var body: some View {
         Menu {
@@ -966,7 +972,7 @@ struct MacPopUp<Value: Hashable>: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            MacPopUpFace(text: title(selection))
+            MacPopUpFace(text: title(selection), isEnabled: enabled)
         }
         .menuStyle(.button)
         .buttonStyle(MacPopUpButtonStyle())   // [mac] Stress test 2026-10-28 round 8
@@ -981,9 +987,10 @@ struct MacChooserButton: View {
     var label: String
     var value: String
     var action: () -> Void
+    @Environment(\.isEnabled) private var enabled
 
     var body: some View {
-        Button(action: action) { MacPopUpFace(text: value) }
+        Button(action: action) { MacPopUpFace(text: value, isEnabled: enabled) }
             .buttonStyle(MacPopUpButtonStyle())   // [mac] Stress test 2026-10-28 round 8
             .fixedSize()
             .accessibilityLabel(label)

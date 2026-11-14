@@ -1508,4 +1508,10 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(row?.label == "Density" && row?.target == .root("theme"))
         #expect(row?.keywords.contains("compact") == true)
     }
+
+    /// [macpass-settings] UI Scale is found by its own name and opens Theme, where the control is.
+    @Test func searchFindsUIScale() {
+        let row = SettingsSearch.appRows.first { $0.id == "app:ui-scale" }
+        #expect(row?.label == "UI Scale" && row?.target == .root("theme"))
+    }
 }

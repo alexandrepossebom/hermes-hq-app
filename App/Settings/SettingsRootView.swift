@@ -551,6 +551,15 @@ struct SettingsRootView: View {
     /// [mac-ui-issues] The right side of two columns (`SettingsRootController.paneStack`'s first page): the list alone.
     var pane = false
 
+    /// [macpass-settings] A section's header, left out in two columns when it only repeats the page's title (the
+    /// category's): "Sounds" sat under "Sounds", "Bots & Tools" under "Bots & Tools", while General and About had none.
+    /// Search results (every section at once) keep it.
+    @ViewBuilder private func categoryHeader(_ title: String) -> some View {
+        if !(model.twoColumn && model.category?.title == title) {
+            HQSectionLabel { Text(title) }
+        }
+    }
+
     var body: some View {
         if pane {
             list
@@ -816,7 +825,7 @@ struct SettingsRootView: View {
                 NavRow(title: "App Icon", systemImage: "app.badge", value: model.appIconTitle) { SettingsNavigator.openRoot("app-icon", router: router) }
                     .accessibilityIdentifier("settings.app-icon")
             }
-        } header: { HQSectionLabel { Text("Appearance") } } footer: { HQSectionFooter {
+        } header: { categoryHeader("Appearance") } footer: { HQSectionFooter {
             if AppearanceSetting.forcedBySkin != nil {
                 Text("\(Theme.shared.state.skin.label) has only a \(AppearanceSetting.forcedBySkin == .dark ? "dark" : "light") look")
             }
@@ -1061,9 +1070,7 @@ struct SettingsRootView: View {
             }
             .accessibilityIdentifier("settings.message-reactions")
             .revealRow("row:message-reactions", model.revealed)
-        } header: { HQSectionLabel {
-            Text("Chat")
-        } } footer: { HQSectionFooter {
+        } header: { categoryHeader("Chat") } footer: { HQSectionFooter {
             // UX study #69: the switches' names say what they do; the footer keeps only what a name can't say.
             Text("Fewer Timestamps shows a day line only when the date changes, and a time only under the bot’s replies."
                  + " Show File Changes puts a “files changed” card under a reply that edited files; with it off, ⋯ › Changes still lists them."
@@ -1166,9 +1173,7 @@ struct SettingsRootView: View {
                 }
                 .revealRow("row:thinking-drive", model.revealed)
             }
-        } header: { HQSectionLabel {
-            Text(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics")
-        } } footer: { HQSectionFooter {
+        } header: { categoryHeader(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics") } footer: { HQSectionFooter {
             Text(!SettingsSearch.hasHaptics ? "Completion Sound plays when a bot’s reply finishes."
                     + (model.thinkingBarShown ? " Thinking Bar is how the model panel’s thinking bar looks as you drag it up." : "")
                  : SettingsHooks.completionCueWired
@@ -1247,9 +1252,7 @@ struct SettingsRootView: View {
             #endif
             // [kanban-tab-one] Owner 2026-11-03 (one home per page): no Kanban Tab row here. Its one picker is on
             // Appearance › Tabs, with the other tab choices.
-        } header: { HQSectionLabel {
-            Text("Bots & Tools")
-        } }
+        } header: { categoryHeader("Bots & Tools") }
         }
 
         #if targetEnvironment(macCatalyst)
@@ -1281,19 +1284,27 @@ struct SettingsRootView: View {
             Section {
                 if DeviceWord.isMac {
                     // [mac] Stress test 2026-10-28 #51: push buttons at the row's trailing edge, not rows in link blue.
-                    HStack(spacing: 10) {
-                        Spacer(minLength: 0)
+                    // [macpass-settings] Four buttons don't fit one line of the Settings window's page: they squeezed
+                    // into two-line labels. One line when they fit, else two lines of two, each label on one line.
+                    let fileButtons = HStack(spacing: 10) {
                         Button("Export Settings…") { actions.export() }
                             .accessibilityIdentifier("settings.export")
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { actions.exportAnchor = $0 }   // [Mac UI check 2026-11-13]
                         Button("Import Settings…") { actions.pickImport() }
                             .accessibilityIdentifier("settings.import")
+                    }
+                    let resetButtons = HStack(spacing: 10) {
                         Button("Clear Model Favorites…") { actions.confirmClearModels() }
                             .accessibilityIdentifier("settings.clear-models")
                         Button("Reset to Defaults…", role: .destructive) { actions.confirmReset() }
                             .disabled(model.resetting)
                             .accessibilityIdentifier("settings.reset")
                     }
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) { fileButtons; resetButtons }.fixedSize()
+                        VStack(alignment: .leading, spacing: 8) { fileButtons; resetButtons }.fixedSize()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .hqMacBordered()   // [mac] Stress test 2026-10-28 #55 (round 6): the Mac push button; Reset keeps red words (its role)
                 } else {
                 Button("Export Settings…") { actions.export() }
@@ -1380,21 +1391,30 @@ struct SettingsCategoryColumn: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
-                    TextField("Search Settings", text: Binding(get: { model.query }, set: { model.query = $0; model.columnChanged?() }))
-                        .textFieldStyle(.plain)
-                        .font(Font.hq(.body))
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .accessibilityIdentifier("settings.search")
-                        .focused($searching)
-                        .onChange(of: model.focusSearch) { _, _ in searching = true }
-                    if !model.query.isEmpty {
-                        Button { model.query = ""; model.columnChanged?() } label: {
-                            Image(systemName: "xmark.circle.fill").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel3)
+                    // [macpass-settings] Only a real change: the field writes its words back when it loses focus (a sheet opening
+                    // over the window), and each write popped the pane to its root, so Add Gateway… closed the Gateway page.
+                    // [macpass-settings] One line of body text sets the field's height, the field laid over it: an
+                    // editing field is a point taller than a resting one, and the whole column jumped as you typed.
+                    Text(verbatim: " ").font(Font.hq(.body)).frame(maxWidth: .infinity).hidden().accessibilityHidden(true)
+                        .overlay {
+                            TextField("Search Settings", text: Binding(get: { model.query }, set: { guard $0 != model.query else { return }; model.query = $0; model.columnChanged?() }))
+                                .textFieldStyle(.plain)
+                                .font(Font.hq(.body))
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .accessibilityIdentifier("settings.search")
+                                .focused($searching)
+                                .onChange(of: model.focusSearch) { _, _ in searching = true }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Clear Search")
+                    // Always laid out, shown only with words in the field (it is laid out the same either way).
+                    Button { model.query = ""; model.columnChanged?() } label: {
+                        Image(systemName: "xmark.circle.fill").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel3)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear Search")
+                    .opacity(model.query.isEmpty ? 0 : 1)
+                    .disabled(model.query.isEmpty)
+                    .accessibilityHidden(model.query.isEmpty)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)

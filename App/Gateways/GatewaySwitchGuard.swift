@@ -30,3 +30,9 @@ import UIKit
         host.present(alert, animated: true)
     }
 }
+
+/// [macpass-settings] Where the gateway switcher is: the Bots title on the iPhone and iPad, the sidebar's top on the
+/// Mac (the Bots list folds into the sidebar there, so "the top of Bots" pointed at nothing).
+enum GatewaySwitchWords {
+    static var whereSwitcher: String { DeviceWord.isMac ? "the sidebar" : "Bots" }
+}

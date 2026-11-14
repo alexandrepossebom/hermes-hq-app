@@ -1091,6 +1091,10 @@ struct DesktopThemeRows: View {
     /// A bordered button pads its label by 7 pt above and below: 30 pt of label makes the 44 pt touch target in the
     /// Desktop Look. The iOS look uses small capsules like the App Store's Get (owner 2026-10-16: the card was too big).
     static var buttonLabelHeight: CGFloat { Theme.isDesktop ? 30 : 0 }
+    /// [macpass-settings] The iOS look pulls a row in by the capsule's 44 pt touch target. The Mac draws its own push
+    /// button there (`hqRowActionButtonStyle`), which has no such target, so pulling in left Copy Link touching the
+    /// card's bottom edge.
+    static var buttonOverhang: CGFloat { DeviceWord.isMac ? 0 : RowActionButtonStyle.targetOverhang }
     /// At the accessibility text sizes a title and its button no longer fit side by side (stress round 2: the title
     /// broke inside words and "Added" wrapped): the button goes under the title, as the skin grid goes to one column.
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -1138,7 +1142,7 @@ struct DesktopThemeRows: View {
                     .frame(minHeight: Theme.isDesktop ? 44 : 0)
                     // [compact] iOS look: the capsule's 44 pt touch target reaches into the List row's own padding
                     // instead of adding to it (owner 2026-10-17: a one-line computer row was ~80 pt tall).
-                    .padding(.vertical, Theme.isDesktop ? 6 : -RowActionButtonStyle.targetOverhang)
+                    .padding(.vertical, Theme.isDesktop ? 6 : -Self.buttonOverhang)
                 }
             }
 
@@ -1157,7 +1161,7 @@ struct DesktopThemeRows: View {
                     .hqRowActionButtonStyle()
                     .accessibilityLabel(model.copied ? "Copied" : "Copy Install from Git Link")
                     .accessibilityIdentifier("theme.desktop.copyLink")
-                    .padding(.vertical, Theme.isDesktop ? 0 : -RowActionButtonStyle.targetOverhang)
+                    .padding(.vertical, Theme.isDesktop ? 0 : -Self.buttonOverhang)
             }
             .padding(.vertical, Theme.isDesktop ? 8 : 2)
         }
