@@ -13,14 +13,14 @@ enum FailureAlert {
         guard let host = topmost(presenter) else { return }
         Haptics.play(.error)
         let alert = UIAlertController(title: title, message: whole ? reason : twoLines(reason), preferredStyle: .alert)
-        // The raw error can carry a failing URL's query: details (and Copy) never show a token or cookie.
-        let details = PageStates.scrubbed([reason, detail].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n"))
-        alert.addAction(UIAlertAction(title: "Show Details", style: .default) { [weak host] _ in
-            guard let host else { return }
-            // The shared sheet frame (✕ leading, no grabber, opaque grouped page; verify round 1).
-            let page = UIHostingController(rootView: HQScaledRoot(FailureDetailsView(title: title, text: details)))
-            host.present(ChatSheet.wrap(page, title: "Details"), animated: true)
-        })
+        if let details = details(reason: reason, detail: detail, whole: whole) {
+            alert.addAction(UIAlertAction(title: "Show Details", style: .default) { [weak host] _ in
+                guard let host else { return }
+                // The shared sheet frame (✕ leading, no grabber, opaque grouped page; verify round 1).
+                let page = UIHostingController(rootView: HQScaledRoot(FailureDetailsView(title: title, text: details)))
+                host.present(ChatSheet.wrap(page, title: "Details"), animated: true)
+            })
+        }
         if let retry, !SessionActionText.isRefusal(reason) {
             let again = UIAlertAction(title: "Try Again", style: .default) { _ in retry() }
             alert.addAction(again)
@@ -39,6 +39,17 @@ enum FailureAlert {
             present(title: fallbackTitle, reason: FailureReasonWords.reason(for: error), detail: "\(error)",
                     from: presenter, retry: retry)
         }
+    }
+
+    /// [macpass-popups] What Show Details shows, or nil when it would say nothing the alert doesn't: Show Details is
+    /// offered only for the error's own text (its code, the route that failed) or the end of a reason cut to two lines.
+    /// It used to be offered always, and for most failures its sheet repeated the alert's sentence word for word.
+    /// The raw error can carry a failing URL's query: details (and Copy) never show a token or cookie.
+    static func details(reason: String, detail: String?, whole: Bool) -> String? {
+        let extra = detail.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty || reason.contains($0) ? nil : $0 }
+        guard extra != nil || (!whole && twoLines(reason) != reason) else { return nil }
+        return PageStates.scrubbed([reason, extra].compactMap { $0 }.joined(separator: "\n\n"))
     }
 
     /// At most two lines' worth (the alert itself wraps; the full text is behind Show Details).
