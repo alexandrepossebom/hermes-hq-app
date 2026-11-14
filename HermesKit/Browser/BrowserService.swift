@@ -194,8 +194,26 @@ nonisolated final class BrowserCloseOnce: Sendable {
     /// nil when the plugin doesn't offer it (the phone hides the choice).
     func choice(profile: String) async throws -> BrowserChoice? {
         let found = try await plugin()
-        guard found.setup == .ready, BrowserHealth.offersChoice(found.health) else { return nil }
+        guard found.setup == .ready, BrowserHealth.offersChoice(found.health) || BrowserHealth.offersCloud(found.health) else { return nil }
         return BrowserChoice.parse(try await json("GET", found.base + "/choice", query: [URLQueryItem(name: "profile", value: profile)]))
+    }
+
+    // MARK: Browser Use Cloud (plugin 3.9+)
+
+    /// nil when the plugin doesn't offer it (the phone hides the choice).
+    func cloud() async throws -> BrowserCloud? {
+        let found = try await plugin()
+        guard found.setup == .ready, BrowserHealth.offersCloud(found.health) else { return nil }
+        return BrowserCloud.parse(try await json("GET", found.base + "/cloud"))
+    }
+
+    /// Saves the person's Browser Use API key on the computer once Browser Use accepts it; "" forgets it. The key is
+    /// sent to the person's own computer only, and never comes back (the answer carries its last four characters).
+    func saveCloudKey(_ key: String) async throws -> BrowserCloud {
+        let found = try await plugin()
+        let answer = try await json("POST", found.base + "/cloud", body: .object(["key": .string(key)]), timeout: 30)
+        guard let cloud = BrowserCloud.parse(answer) else { throw GatewayFailure.notHermes }
+        return cloud
     }
 
     func chromeProfiles() async throws -> ChromeProfiles {
@@ -213,6 +231,7 @@ nonisolated final class BrowserCloseOnce: Sendable {
         case .refresh: body["refresh"] = true
         case .window(let normal): body["window"] = normal ? "normal" : "hidden"
         case .takeOver: body["take_over"] = true
+        case .cloud: body["mode"] = "cloud"
         }
         let answer = try await json("POST", found.base + "/choice", body: .object(body), timeout: 600)
         guard let choice = BrowserChoice.parse(answer) else { throw GatewayFailure.notHermes }
@@ -240,7 +259,12 @@ nonisolated struct BrowserChoice: Sendable, Equatable {
         case window(normal: Bool)
         /// Hand a browser the plugin doesn't run to it (only when `canTakeOver`).
         case takeOver
+        /// Browse in Browser Use Cloud (plugin 3.9+; needs the person's API key saved first).
+        case cloud
     }
+
+    /// The bot browses in Browser Use Cloud (the plugin reports it as `blocked: "cloud"`: it runs no Chrome for it).
+    var cloud: Bool { blocked == "cloud" }
 
     static func parse(_ value: JSONValue) -> BrowserChoice? {
         guard value["schema"]?.string == "hermes-hq-browser.choice.v1", let profile = value["profile"]?.string else { return nil }
@@ -250,6 +274,18 @@ nonisolated struct BrowserChoice: Sendable, Equatable {
                              normalWindow: value["window"]?.string == "normal", changeable: value["changeable"]?.bool ?? false,
                              blocked: value["blocked"]?.string.flatMap { $0.isEmpty ? nil : String($0.prefix(40)) },
                              canTakeOver: value["can_take_over"]?.bool ?? false)
+    }
+}
+
+/// Browser Use Cloud on this computer: whether the person's API key is saved (never the key itself).
+nonisolated struct BrowserCloud: Sendable, Equatable {
+    var keySet: Bool
+    /// "…" and the key's last four characters, to tell two keys apart.
+    var keyHint: String?
+
+    static func parse(_ value: JSONValue) -> BrowserCloud? {
+        guard value["schema"]?.string == "hermes-hq-browser.cloud.v1" else { return nil }
+        return BrowserCloud(keySet: value["key_set"]?.bool ?? false, keyHint: value["key_hint"]?.string.map { String($0.prefix(8)) })
     }
 }
 

@@ -82,3 +82,24 @@ doesn't show the choice.
 
 Still to check on the Mac once installed (can't be tested here without touching your Chrome): that a Normal Chrome
 window really opens without stealing focus, and how a copied profile behaves on the sites you use.
+
+## Browser Use Cloud (2026-11-14, add-on 3.9.0)
+
+The owner asked for Browser Use's cloud browsers as a choice, mainly for gateways where a bot's browser can't be
+watched. Bot Info › Browser has an **In the Cloud** section when the add-on is 3.9.0 or newer:
+
+- **Browser Use Cloud** puts this bot on a cloud browser on the person's own Browser Use account
+  (`browser.cloud_provider: hq-browser-use`, served by the add-on's own provider, `cloud.py`). No key saved: choosing
+  it asks for the key first, and a key that works also switches the bot.
+- **API Key** adds or changes the key (the add-on asks Browser Use that it works before saving it, owner-only, on
+  the computer running Hermes). **Remove API Key** forgets it.
+- Each bot gets a Browser Use profile of its own, so its sign-ins stay between browsers. Sign in once with Take
+  Control.
+- Watch Browser and Take Control are the same stream as for a bot's own Chrome: the add-on connects to the cloud
+  browser's own address.
+- Choosing Its Own Profile (or a profile copy) brings the bot's Chrome on the computer back.
+
+Not in it: 1Password's approve-in-the-app flow (a partner preview that needs a 1Password Business account on our
+side; the owner chose to start without it). Not tested yet: a Hermes Cloud gateway, where the add-on is not installed
+and the bot's browser setting may be managed. Guards: `BrowserCloudTests`, `test3b_BrowserUseCloud`
+(`scripts/e2e-browser.sh`, also with `TEST_RUNNER_HQN_UI_DESKTOPLOOK=1`), the add-on's `test_cloud.py`.

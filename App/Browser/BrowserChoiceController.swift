@@ -22,6 +22,11 @@ import UIKit
     var confirmingTakeOver = false
     /// "Show as Normal Chrome" while the bot is using its browser: the restart closes its page, so it asks first.
     var confirmingWindow: Bool?
+    /// Browser Use Cloud on this computer (plugin 3.9+); nil hides it.
+    var cloud: BrowserCloud?
+    /// The page's controller, which the API key prompt is shown from.
+    weak var presenter: UIViewController?
+    var confirmingForget = false
 
     init(service: BrowserService, bot: Bot) {
         self.service = service
@@ -34,7 +39,11 @@ import UIKit
         defer { loading = false }
         do {
             choice = try await service.choice(profile: bot.id)
-            if choice != nil { profiles = try await service.chromeProfiles() }
+            if choice != nil {
+                cloud = try await service.cloud()
+                // A bot in the cloud has no Chrome on the computer to copy a profile into; the list loads when it's back.
+                if choice?.cloud != true { profiles = try? await service.chromeProfiles() }
+            }
         } catch {
             AppLog.swallowed("browser", "read this bot's browser choice", error)
             loadFailure = (error as? LocalizedError)?.errorDescription ?? "Couldn’t read this bot’s browser. Try again."
@@ -58,6 +67,7 @@ import UIKit
         case .own: "Switching back to its own profile…"
         case .window: "Restarting \(bot.name)’s browser…"
         case .takeOver: "Setting up \(bot.name)’s browser…"
+        case .cloud: "Switching to Browser Use Cloud…"
         }
         Task {
             defer { working = nil }
@@ -65,7 +75,7 @@ import UIKit
                 choice = try await service.setChoice(profile: bot.id, change: change)
                 AppLog.note("browser", Self.outcome(change, status: nil))
                 Haptics.play(.success)
-                if change == .takeOver { await settle() }
+                if change == .takeOver || change == .own { await settle() }
             } catch let error as HTTPError {
                 AppLog.note("browser", Self.outcome(change, status: error.status))
                 failure = Self.detail(error.body) ?? "\(HostWord.sentence) didn’t make that change. Try again."
@@ -88,6 +98,63 @@ import UIKit
         }
     }
 
+    /// Browser Use Cloud's row: with a key it switches the bot; without one it asks for the key first.
+    func chooseCloud() {
+        guard choice?.cloud != true else { return }
+        if cloud?.keySet == true {
+            apply(.cloud)
+        } else {
+            askKey(thenSwitch: true)   // no key saved: one that works also switches this bot
+        }
+    }
+
+    /// The API key prompt (the app's own typing alert), to add or change the key.
+    func askKey(thenSwitch: Bool) {
+        TextPrompt.present(
+            title: cloud?.keySet == true ? "Change the Browser Use API Key" : "Browser Use API Key",
+            message: "Paste a key from your Browser Use account (browser-use.com). It’s saved on \(HostWord.phrase) only, and bots there use it to open cloud browsers that Browser Use bills to you.",
+            placeholder: "API key", action: "Save", identifier: "browser.cloud.keyField",
+            autocapitalization: .none, autocorrection: .no, from: presenter) { [weak self] key in
+            self?.saveKey(key, thenSwitch: thenSwitch)
+        }
+    }
+
+    func saveKey(_ typed: String, thenSwitch switching: Bool) {
+        let key = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, working == nil else { return }
+        working = "Checking the key with Browser Use…"
+        Task {
+            do {
+                cloud = try await service.saveCloudKey(key)
+                AppLog.note("browser", "cloud key: saved")
+                working = nil
+                if switching { apply(.cloud) } else { Haptics.play(.success) }
+            } catch {
+                working = nil
+                let status = (error as? HTTPError)?.status ?? 0
+                AppLog.note("browser", status > 0 ? "cloud key: refused (HTTP \(status))" : "cloud key: failed")
+                failure = Self.detail((error as? HTTPError)?.body) ?? (error as? LocalizedError)?.errorDescription
+                    ?? "\(HostWord.sentence) couldn’t check the key. Try again."
+                Haptics.play(.warning)
+            }
+        }
+    }
+
+    func forgetKey() {
+        guard working == nil else { return }
+        working = "Removing the key…"
+        Task {
+            defer { working = nil }
+            do {
+                cloud = try await service.saveCloudKey("")
+                AppLog.note("browser", "cloud key: removed")
+            } catch {
+                AppLog.swallowed("browser", "remove the Browser Use key", error)
+                failure = "\(HostWord.sentence) couldn’t remove the key. Try again."
+            }
+        }
+    }
+
     /// The diagnostic line for a change: its kind and how it went (HTTP status on failure; 0 when there was none).
     /// Never names, paths, accounts, addresses or message text.
     static func outcome(_ change: BrowserChoice.Change, status: Int?) -> String {
@@ -97,6 +164,7 @@ import UIKit
         case .refresh: "refresh"
         case .window(let normal): normal ? "normal window" : "hidden window"
         case .takeOver: "take over"
+        case .cloud: "cloud"
         }
         guard let status else { return "choice \(kind): ok" }
         return status > 0 ? "choice \(kind): failed (HTTP \(status))" : "choice \(kind): failed"
@@ -104,7 +172,7 @@ import UIKit
 
     /// Why the page can't change this bot's browser, in plain words; nil when it can.
     static func explanation(_ choice: BrowserChoice, name: String) -> String? {
-        guard !choice.changeable else { return nil }
+        guard !choice.changeable, !choice.cloud else { return nil }
         return switch choice.blocked {
         case "real_profile": "\(name) is set to use your real Chrome profile through Hermes’s own setting, so Hermes HQ doesn’t run its browser."
         case "released": "\(name)’s browser was turned off in its Hermes settings."
@@ -122,6 +190,7 @@ import UIKit
     static func summary(_ choice: BrowserChoice) -> String {
         if choice.changeable { return choice.copy.map { "Copy of \($0.name)" } ?? "Its Own" }
         return switch choice.blocked {
+        case "cloud": "Browser Use Cloud"
         case "real_profile": "Real Chrome"
         case "released", "off": "Off"
         case "no_browser": "No Browser"
@@ -135,7 +204,7 @@ import UIKit
 
     /// The take-over button's title, when the plugin offers it.
     static func takeOverTitle(_ choice: BrowserChoice, name: String) -> String? {
-        choice.canTakeOver && !choice.changeable ? "Let Hermes HQ Run \(name)’s Browser" : nil
+        choice.canTakeOver && !choice.changeable && !choice.cloud ? "Let Hermes HQ Run \(name)’s Browser" : nil
     }
 
     /// What taking over changes, for the confirm alert.
@@ -192,7 +261,8 @@ struct BrowserChoiceView: View {
                     blockedSection(choice, explanation: explanation)
                 }
                 profileSection(choice)
-                windowSection(choice)
+                if model.cloud != nil { cloudSection(choice) }
+                if !choice.cloud { windowSection(choice) }
             } else {
                 Section {
                     Text("The browser add\u{2011}on on \(HostWord.phrase) doesn’t offer this yet. Once it’s updated you can choose a browser profile for each bot here.")
@@ -231,6 +301,12 @@ struct BrowserChoiceView: View {
         } message: { _ in
             Text("\(model.bot.name) is using its browser now. Restarting it closes the page it’s on.")
         }
+        .alert("Remove the Browser Use API Key?", isPresented: $model.confirmingForget) {
+            Button("Remove", role: .destructive) { model.forgetKey() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Bots set to Browser Use Cloud can’t open a browser until you add a key again or switch them back to their own.")
+        }
         .alert("Let Hermes HQ Run \(model.bot.name)’s Browser?", isPresented: $model.confirmingTakeOver,
                presenting: model.choice) { _ in
             Button("Let Hermes HQ Run It") { model.apply(.takeOver) }
@@ -259,9 +335,9 @@ struct BrowserChoiceView: View {
 
     @ViewBuilder private func profileSection(_ choice: BrowserChoice) -> some View {
         Section {
-            row(title: "Its Own Profile", subtitle: "Signed in only where \(model.bot.name) signed in", selected: choice.copy == nil,
-                enabled: choice.changeable, id: "browser.choice.own") { if choice.copy != nil { model.apply(.own) } }
-            if let profiles = model.profiles, profiles.supported {
+            row(title: "Its Own Profile", subtitle: "Signed in only where \(model.bot.name) signed in", selected: choice.copy == nil && !choice.cloud,
+                enabled: choice.changeable || choice.cloud, id: "browser.choice.own") { if choice.copy != nil || choice.cloud { model.apply(.own) } }
+            if !choice.cloud, let profiles = model.profiles, profiles.supported {
                 ForEach(profiles.profiles) { profile in
                     row(title: "Copy of \(profile.name)", subtitle: profile.account, selected: choice.copy?.dir == profile.dir,
                         enabled: choice.changeable, id: "browser.choice.profile.\(profile.dir)") {
@@ -276,7 +352,9 @@ struct BrowserChoiceView: View {
         } header: { HQSectionLabel {
             Text("Profile")
         } } footer: { HQSectionFooter {
-            if let profiles = model.profiles, !profiles.supported {
+            if choice.cloud {
+                Text("Its Own Profile brings back \(model.bot.name)’s Chrome on \(HostWord.phrase), with the sign-ins it had there.")
+            } else if let profiles = model.profiles, !profiles.supported {
                 Text(BrowserChoiceModel.unsupported(profiles.reason, program: profiles.program))
                     .textSelection(.enabled)
             } else if let copy = choice.copy {
@@ -285,7 +363,41 @@ struct BrowserChoiceView: View {
                 Text("A copy of one of your Chrome profiles opens sites already signed in, as you. Your own Chrome is never opened or changed.")
             }
         } }
-        .disabled(!choice.changeable)
+        .disabled(!choice.changeable && !choice.cloud)
+    }
+
+    /// Browser Use Cloud: the third choice, and the person's API key beside it. Offered to any bot with browser tools
+    /// (also one whose Chrome the add-on doesn't run), never to one whose add-on or browser is off.
+    @ViewBuilder private func cloudSection(_ choice: BrowserChoice) -> some View {
+        let offered = choice.cloud || !["off", "no_browser"].contains(choice.blocked ?? "")
+        Section {
+            row(title: "Browser Use Cloud", subtitle: "A cloud browser on your Browser Use account", selected: choice.cloud,
+                enabled: offered, id: "browser.choice.cloud") { model.chooseCloud() }
+                .disabled(!offered)
+            Button {
+                model.askKey(thenSwitch: false)
+            } label: {
+                HStack {
+                    Text("API Key").foregroundStyle(Color.hqLabel)
+                    Spacer()
+                    Text(model.cloud?.keySet == true ? (model.cloud?.keyHint ?? "Saved") : "Add").foregroundStyle(Color.hqLabel2)
+                }
+                .contentShape(Rectangle())
+            }
+            .accessibilityIdentifier("browser.cloud.key")
+            if model.cloud?.keySet == true {
+                Button("Remove API Key", role: .destructive) { model.confirmingForget = true }
+                    .accessibilityIdentifier("browser.cloud.forget")
+            }
+        } header: { HQSectionLabel {
+            Text("In the Cloud")
+        } } footer: { HQSectionFooter {
+            if choice.cloud {
+                Text("\(model.bot.name) browses in a cloud browser that Browser Use bills to your account by the minute. Sites it signs in to stay signed in. You can watch it and take over here as before.")
+            } else {
+                Text("\(model.bot.name) browses in a cloud browser instead of a Chrome on \(HostWord.phrase). Browser Use bills your account by the minute. Sites it signs in to stay signed in, and you can watch it and take over here as before.")
+            }
+        } }
     }
 
     @ViewBuilder private func windowSection(_ choice: BrowserChoice) -> some View {
@@ -320,7 +432,9 @@ struct BrowserChoiceView: View {
 
 final class BrowserChoiceController: UIHostingController<HQScaledRoot<BrowserChoiceView>> {
     init(service: BrowserService, bot: Bot) {
-        super.init(rootView: HQScaledRoot(BrowserChoiceView(model: BrowserChoiceModel(service: service, bot: bot))))
+        let model = BrowserChoiceModel(service: service, bot: bot)
+        super.init(rootView: HQScaledRoot(BrowserChoiceView(model: model)))
+        model.presenter = self
         title = "Browser"
         navigationItem.largeTitleDisplayMode = .never
     }

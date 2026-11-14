@@ -20,11 +20,11 @@ import Testing
 
     @Test func launchOfferOncePerBrowserVersion() {
         #expect(PushSetupOffer.shouldOffer(state: .ready, browser: true, account: "O", offered: nil, fromSettings: false))
-        #expect(!PushSetupOffer.shouldOffer(state: .ready, browser: true, account: "O", offered: nil, browserOffered: "3.8.1", fromSettings: false),
-                "said Not Now to 3.8.1: only the quiet reminder")
+        #expect(!PushSetupOffer.shouldOffer(state: .ready, browser: true, account: "O", offered: nil, browserOffered: "3.9.0", fromSettings: false),
+                "said Not Now to 3.9.0: only the quiet reminder")
         #expect(PushSetupOffer.shouldOffer(state: .ready, browser: true, account: "O", offered: nil, browserOffered: "3.7.0", fromSettings: false),
                 "a build that wants a newer one asks once more")
-        #expect(PushSetupOffer.shouldOffer(state: .ready, browser: true, account: "O", offered: nil, browserOffered: "3.8.1", fromSettings: true))
+        #expect(PushSetupOffer.shouldOffer(state: .ready, browser: true, account: "O", offered: nil, browserOffered: "3.9.0", fromSettings: true))
         #expect(!PushSetupOffer.shouldOffer(state: .ready, browser: false, account: "O", offered: nil, fromSettings: true), "nothing to do")
         #expect(!PushSetupOffer.shouldOffer(state: .ready, browser: true, account: nil, offered: nil, fromSettings: true))
         // The notification add-on's own level is kept apart: a Not Now to it doesn't hide the browser's offer.
@@ -44,8 +44,8 @@ import Testing
         }
         #expect(try read(["installed": true, "protocol": 3, "version": "3.7.0"]) == .need(.outdated))
         #expect(try read(["installed": false, "protocol": 3, "version": "3.7.0", "drift": ["browser tools unavailable"]]) == .need(.off))
-        #expect(try read(["installed": true, "protocol": 3, "version": "3.8.1"]) == .current)
-        #expect(try read(["installed": false, "protocol": 3, "version": "3.8.1", "drift": ["x"]]) == .other, "current and off: no update to offer")
+        #expect(try read(["installed": true, "protocol": 3, "version": "3.9.0"]) == .current)
+        #expect(try read(["installed": false, "protocol": 3, "version": "3.9.0", "drift": ["x"]]) == .other, "current and off: no update to offer")
         #expect(try read(["installed": false, "protocol": 2]) == .other, "the old test plugin keeps Watch Browser's own page")
         #expect(try read(["installed": true, "protocol": 3, "version": "3.0.0"], legacy: true) == .absent, "dispatch-browser: not this update")
         #expect(PushSetupOffer.BrowserRead.need(.off).need == .off && PushSetupOffer.BrowserRead.current.need == nil)
@@ -60,7 +60,7 @@ import Testing
         #expect(!reminder.badged && reminder.title == nil)
         reminder.reportBrowser(account: "A", need: .off)
         #expect(reminder.badged && reminder.title == "Add-on Update Available" && reminder.spoken == "Add-on update available")
-        #expect(reminder.footer == "Hermes’s browser add-on switched itself off after Hermes updated, so you can’t watch a bot’s browser. Add-on 3.8.1 turns it back on.")
+        #expect(reminder.footer == "Hermes’s browser add-on switched itself off after Hermes updated, so you can’t watch a bot’s browser. Add-on 3.9.0 turns it back on.")
         reminder.reportBrowser(account: "A", need: .outdated)
         #expect(reminder.footer == "Hermes’s browser add-on is out of date, so watching a bot’s browser may not work.")
 
@@ -103,7 +103,7 @@ import Testing
         update.found(setUp: false, why: AddOnUpdate.why(nil, browser: .off), bot: "Hermes", both: false, browserOnly: true)
         #expect(update.addOns == .browser && !update.both)
         #expect(update.steps.map(\.title) == ["Check Hermes", "Install the browser update", "Restart Hermes", "Check it’s on"])
-        #expect(AddOnUpdate.why(nil, browser: .off) == "The browser add-on in Hermes switched itself off after Hermes updated, so you can’t watch a bot’s browser. Add-on 3.8.1 turns it back on.")
+        #expect(AddOnUpdate.why(nil, browser: .off) == "The browser add-on in Hermes switched itself off after Hermes updated, so you can’t watch a bot’s browser. Add-on 3.9.0 turns it back on.")
         #expect(AddOnUpdate.why(nil, browser: .outdated).hasSuffix("This version of the app needs a newer one, or watching may not work."))
         #expect(AddOnUpdate.why(nil, browser: .off).count <= 160 && AddOnUpdate.why(nil, browser: .outdated).count <= 160)
         #expect(update.rowLabel == "Updating Browser Add-on…")
@@ -116,15 +116,15 @@ import Testing
         update.complete([.restart])
         update.step(.verify, .active, detail: AddOnUpdate.browserCheck)
         #expect(update.headline == "Almost Done…")
-        update.installed(browser: "3.8.1")
+        update.installed(browser: "3.9.0")
         update.end(.on(version: update.browserVersion))
-        #expect(update.headline == "Browser Add-on 3.8.1 Is On")
+        #expect(update.headline == "Browser Add-on 3.9.0 Is On")
         #expect(update.line == "Hermes has the browser add-on \(AppIdentity.current.displayName) needs, so you can watch your bots’ browsers.")
 
         // Not out yet, and still off after the restart.
-        #expect(AddOnUpdate.headline(.notOut(have: "3.7.0", want: "3.8.1", browser: true), setUp: false, addOns: .browser) == "Browser Add-on 3.8.1 Isn’t Out Yet")
-        #expect(AddOnUpdate.line(.notOut(have: "3.7.0", want: "3.8.1", browser: true), bot: "Hermes", addOns: .browser).contains("needs browser add-on 3.8.1, but the newest one out is 3.7.0"))
-        let drifted = try Self.health(["installed": false, "protocol": 3, "version": "3.8.1", "drift": ["tools moved"]])
+        #expect(AddOnUpdate.headline(.notOut(have: "3.7.0", want: "3.9.0", browser: true), setUp: false, addOns: .browser) == "Browser Add-on 3.9.0 Isn’t Out Yet")
+        #expect(AddOnUpdate.line(.notOut(have: "3.7.0", want: "3.9.0", browser: true), bot: "Hermes", addOns: .browser).contains("needs browser add-on 3.9.0, but the newest one out is 3.7.0"))
+        let drifted = try Self.health(["installed": false, "protocol": 3, "version": "3.9.0", "drift": ["tools moved"]])
         #expect(AddOnUpdate.browserStillOffReason(drifted, bot: "Hermes") == "Hermes restarted, but the browser add-on says: tools moved. Try again, or ask Hermes in its chat.")
         let old = try Self.health(["installed": true, "protocol": 3, "version": "3.7.0"])
         #expect(AddOnUpdate.browserStillOffReason(old, bot: "Hermes") == "Hermes restarted, but its browser add-on is still 3.7.0. Try again, or ask Hermes in its chat.")
@@ -154,11 +154,11 @@ import Testing
         #expect(update.rowStatus == "Install both updates: Hermes’s browser add-on · 4 of 4")
 
         update.installed(version: "0.9.40")
-        update.installed(browser: "3.8.1")
+        update.installed(browser: "3.9.0")
         update.complete([.install, .restart, .verify])
         update.end(.on(version: update.version))
         #expect(update.headline == "Both Add-ons Are On")
-        #expect(update.line == "Hermes has notification add-on 0.9.40 and browser add-on 3.8.1, and every bot has its own copy.")
+        #expect(update.line == "Hermes has notification add-on 0.9.40 and browser add-on 3.9.0, and every bot has its own copy.")
         #expect(AddOnUpdate.headline(.upToDate, setUp: false, addOns: .both) == "Add-ons Are Up to Date")
         #expect(AddOnUpdate.line(.upToDate, bot: "Hermes", addOns: .both).hasPrefix("Hermes and every bot have the add-ons"))
 
@@ -201,17 +201,17 @@ import Testing
 
         let both = PushSetupOffer.restartPrompt(browserUpdate: true)
         #expect(both.contains("has just installed both through Hermes's own plugin manager"))
-        #expect(both.contains("hermes-hq-browser at version 3.8.1 or newer"))
+        #expect(both.contains("hermes-hq-browser at version 3.9.0 or newer"))
         #expect(both.contains("don't update it per profile"))
         #expect(both.components(separatedBy: PushSetupOffer.restartStep).count == 2, "one restart in the request")
         #expect(both.hasSuffix("checks for the plugins itself."))
         let alone = PushSetupOffer.restartPrompt(browserUpdate: true, push: false)
         #expect(alone.hasPrefix(PushSetupOffer.browserWhoAsks))
-        #expect(alone.contains("has just updated it to version 3.8.1") && alone.contains("don't update it per profile"))
+        #expect(alone.contains("has just updated it to version 3.9.0") && alone.contains("don't update it per profile"))
         #expect(alone.components(separatedBy: PushSetupOffer.restartStep).count == 2)
         #expect(!alone.contains("hermes-hq-push,") && alone.hasSuffix("checks for the plugin itself."))
         #expect(PushSetupOffer.browserRestartTitle == "Restart Hermes so the \(AppIdentity.current.displayName) browser add-on loads.")
-        #expect(BrowserSetupPrompt.update.contains("version 3.8.1 or newer") && !BrowserSetupPrompt.update.contains("3.7.0"))
+        #expect(BrowserSetupPrompt.update.contains("version 3.9.0 or newer") && !BrowserSetupPrompt.update.contains("3.7.0"))
     }
 
     // MARK: The install (plugins.manage)
@@ -241,8 +241,8 @@ import Testing
     }
 
     @Test func updateInstallsTheMainCopyOnceForced() async {
-        let gateway = ManagerGateway(listed: "3.8.1")
-        #expect(await PushSetupOffer.updateBrowser(store: store(gateway)) == .installed("3.8.1"))
+        let gateway = ManagerGateway(listed: "3.9.0")
+        #expect(await PushSetupOffer.updateBrowser(store: store(gateway)) == .installed("3.9.0"))
         let installs = gateway.installs
         #expect(installs.count == 1, "one install: the other bots' copies come from the add-on itself")
         #expect(installs.first?["profile"]?.string == "default")
@@ -251,9 +251,9 @@ import Testing
     }
 
     @Test func updateFindsTheNewestOutTooOld() async {
-        #expect(await PushSetupOffer.updateBrowser(store: store(ManagerGateway(listed: "3.7.0"))) == .notOut(have: "3.7.0", want: "3.8.1"))
+        #expect(await PushSetupOffer.updateBrowser(store: store(ManagerGateway(listed: "3.7.0"))) == .notOut(have: "3.7.0", want: "3.9.0"))
         #expect(await PushSetupOffer.updateBrowser(store: store(ManagerGateway(listed: nil))) == .installed(nil), "no version listed: the restart's check decides")
-        #expect(await PushSetupOffer.updateBrowser(store: store(ManagerGateway(listed: "3.8.1", install: .object(["ok": false, "consent_required": true])))) == .unavailable)
+        #expect(await PushSetupOffer.updateBrowser(store: store(ManagerGateway(listed: "3.9.0", install: .object(["ok": false, "consent_required": true])))) == .unavailable)
         #expect(await PushSetupOffer.updateBrowser(store: nil) == .unavailable)
     }
 }

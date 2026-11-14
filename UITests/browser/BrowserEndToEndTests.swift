@@ -185,6 +185,57 @@ final class BrowserEndToEndTests: XCTestCase {
 
     // MARK: 3. Bot Info › Browser: a copy of a Chrome profile, the normal window; hidden on an older plugin
 
+    /// Browser Use Cloud (add-on 3.9): the third choice asks for the API key the first time, a key Browser Use refuses
+    /// changes nothing, a good one switches the bot, and Its Own Profile brings its own browser back.
+    @MainActor func test3b_BrowserUseCloud() throws {
+        launch()
+        openBotInfo()
+        let row = app.buttons["bot-info.browser.choice"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Bot Info offers the browser choice")
+        row.tap()
+        let cloud = app.buttons["browser.choice.cloud"]
+        XCTAssertTrue(cloud.waitForExistence(timeout: 10), "Browser Use Cloud is offered")
+        if !cloud.isHittable { app.swipeUp() }
+        attach("cloud-1-offered")
+        cloud.tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no key saved: the key is asked for first")
+        attach("cloud-2-key-asked")
+        field.typeText("bad-key-0000000000000000")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(app.alerts["Couldn’t Change the Browser"].waitForExistence(timeout: 10), "a refused key says so")
+        attach("cloud-3-key-refused")
+        app.alerts.buttons["OK"].tap()
+        XCTAssertEqual(try state()["cloud_key_set"] as? Bool, false)
+        XCTAssertEqual((try state()["choice"] as? [String: Any])?["mode"] as? String, "own", "nothing changed")
+
+        cloud.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("invented-key-00000000WXYZ")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "cloud" },
+                      "a key that works also switches the bot")
+        XCTAssertTrue(app.buttons["browser.cloud.forget"].waitForExistence(timeout: 10), "the saved key can be removed")
+        XCTAssertFalse(app.switches["browser.choice.window"].exists, "no Chrome window to show for a cloud browser")
+        XCTAssertFalse(app.staticTexts["browser.choice.blocked"].exists, "the cloud is a choice, not a problem")
+        attach("cloud-4-chosen")
+
+        app.swipeDown()
+        app.buttons["browser.choice.own"].tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "own" })
+        XCTAssertTrue(app.buttons["browser.choice.profile.Profile 2"].waitForExistence(timeout: 10), "its own browser's choices are back")
+        attach("cloud-5-back-to-own")
+
+        // An older add-on: no cloud section.
+        try account.control("/__fixture/browser", ["cloud_feature": false])
+        app.terminate()
+        launch()
+        openBotInfo()
+        app.buttons["bot-info.browser.choice"].tap()
+        XCTAssertTrue(app.buttons["browser.choice.own"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["browser.choice.cloud"].exists, "3.8 and older: hidden")
+    }
+
     @MainActor func test3_BotInfoBrowserChoice() throws {
         launch()
         openBotInfo()
@@ -356,7 +407,9 @@ final class BrowserEndToEndTests: XCTestCase {
 
     @MainActor private func launch(extra: [String] = []) {
         let app = XCUIApplication()
-        app.launchArguments = ["-HQDebugResetAccounts", "YES"] + extra
+        // HQN_UI_DESKTOPLOOK=1: the same run with Desktop Look on, for this launch only (nothing is saved).
+        let look = ProcessInfo.processInfo.environment["HQN_UI_DESKTOPLOOK"] == "1" ? ["-hqn.theme.desktopLook", "<true/>"] : []
+        app.launchArguments = ["-HQDebugResetAccounts", "YES"] + look + extra
         app.launchEnvironment = ["HQN_SIGNIN_URL": account.url, "HQN_SIGNIN_USERNAME": account.username,
                                  "HQN_SIGNIN_PASSWORD": account.password]
         app.launch()
@@ -425,6 +478,19 @@ final class BrowserEndToEndTests: XCTestCase {
         shot.name = name
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// Presses a button of the typing alert. On the iOS 27 simulator the first tap after typing into an alert's field
+    /// is swallowed (the alert stays up, nothing runs); the next one presses the button. So: tap, and once more if the
+    /// alert is still there.
+    @MainActor private func pressInTypingAlert(_ title: String) {
+        let alert = app.alerts.firstMatch
+        let button = alert.buttons[title]
+        button.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        if alert.textFields.firstMatch.exists, button.exists {
+            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
     }
 
     @MainActor @discardableResult

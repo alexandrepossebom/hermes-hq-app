@@ -219,12 +219,12 @@ struct BrowserWireTests {
         #expect(BrowserHealth.popupsUpdate(drifted, offered: nil) == nil, "no update offer for an add-on that is off")
         let copy = BrowserEmptyCopy.addOnOff(drifted)
         #expect(copy.title == "Browser Add\u{2011}on Is Off")
-        #expect(copy.body == "This version of Hermes changed something the browser add\u{2011}on needs: browser tools unavailable. Add\u{2011}on 3.8.1 fixes this. Update it to watch your bots’ browsers again.")
+        #expect(copy.body == "This version of Hermes changed something the browser add\u{2011}on needs: browser tools unavailable. Add\u{2011}on 3.9.0 fixes this. Update it to watch your bots’ browsers again.")
         #expect(copy.action == .update)
         #expect(BrowserEmptyCopy.updateButton == "Update the Add\u{2011}on")
 
-        // 3.8.1 off all the same: no update to offer, the old words stand.
-        let currentOff = try JSONValue.parse(json(["installed": false, "protocol": 3, "drift": ["x changed"], "version": "3.8.1"]))
+        // 3.9.0 off all the same: no update to offer, the old words stand.
+        let currentOff = try JSONValue.parse(json(["installed": false, "protocol": 3, "drift": ["x changed"], "version": "3.9.0"]))
         #expect(BrowserHealth.setup(currentOff) == .drift)
         #expect(BrowserEmptyCopy.addOnOff(currentOff).body == "This version of Hermes changed something the browser add\u{2011}on needs: x changed. Reinstalling won’t help \u{2014} an add\u{2011}on update for this Hermes is on the way.")
         #expect(BrowserEmptyCopy.addOnOff(currentOff).action == nil)
@@ -248,27 +248,27 @@ struct BrowserWireTests {
         // No words as text: still off, and the sentence stands without them.
         let quiet = try JSONValue.parse(json(["installed": false, "protocol": 3, "drift": [1]]))
         #expect(BrowserHealth.setup(quiet) == .drift && BrowserHealth.driftWords(quiet) == nil)
-        #expect(BrowserEmptyCopy.addOnOff(quiet).body.hasPrefix("This version of Hermes changed something the browser add\u{2011}on needs. Add\u{2011}on 3.8.1 fixes this."),
-                "no version: older than 3.8.1, so the update is offered")
+        #expect(BrowserEmptyCopy.addOnOff(quiet).body.hasPrefix("This version of Hermes changed something the browser add\u{2011}on needs. Add\u{2011}on 3.9.0 fixes this."),
+                "no version: older than 3.9.0, so the update is offered")
     }
 
     /// [browser-update] Which browser add-ons the update sheet offers to update, and what counts as on afterwards.
     @Test func browserAddOnNeedFromHealth() throws {
         func health(_ object: [String: Any]) throws -> JSONValue { try JSONValue.parse(json(object)) }
-        #expect(BrowserAddOn.wantedVersion == "3.8.1")
+        #expect(BrowserAddOn.wantedVersion == "3.9.0")
         let older = try health(["installed": true, "protocol": 3, "version": "3.7.0", "features": ["control": true]])
         #expect(BrowserAddOn.need(older) == .outdated)
         #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": "3.6.10"])) == .outdated)
-        #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": "3.8.0"])) == .outdated, "3.8.1 fixes the chip's site")
-        #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": "3.8.1"])) == nil)
+        #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": "3.8.0"])) == .outdated, "3.9.0 fixes the chip's site")
+        #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": "3.9.0"])) == nil)
         #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": "3.10.0"])) == nil, "numeric, not text, compare")
-        #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": " 3.8.2 "])) == nil)
+        #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": " 3.9.1 "])) == nil)
         #expect(BrowserAddOn.need(try health(["installed": true, "protocol": 3, "version": "4.0"])) == nil)
         // Drift on an older add-on: off, and the update turns it back on.
         let off = try health(["installed": false, "protocol": 3, "version": "3.7.0", "drift": ["browser tools unavailable"]])
         #expect(BrowserAddOn.need(off) == .off)
         // Drift on a current one: nothing an update can do.
-        #expect(BrowserAddOn.need(try health(["installed": false, "protocol": 3, "version": "3.8.1", "drift": ["x"]])) == nil)
+        #expect(BrowserAddOn.need(try health(["installed": false, "protocol": 3, "version": "3.9.0", "drift": ["x"]])) == nil)
         // Not this add-on's protocol (the old test plugin): Watch Browser's own page, not this update.
         #expect(BrowserAddOn.need(try health(["installed": false, "protocol": 2, "version": "1.0.0"])) == nil)
         #expect(BrowserAddOn.need(try health(["ok": true])) == nil)
@@ -276,16 +276,16 @@ struct BrowserWireTests {
         #expect(BrowserAddOn.need(try health(["installed": false, "protocol": 3, "version": "3.7.0", "missing": "websockets"])) == .outdated)
 
         // On: this version or newer, installed, no drift.
-        #expect(BrowserAddOn.isOn(try health(["installed": true, "protocol": 3, "version": "3.8.1", "drift": [String]()])))
-        #expect(BrowserAddOn.isOn(try health(["installed": true, "protocol": 3, "version": "3.8.2"])))
+        #expect(BrowserAddOn.isOn(try health(["installed": true, "protocol": 3, "version": "3.9.0", "drift": [String]()])))
+        #expect(BrowserAddOn.isOn(try health(["installed": true, "protocol": 3, "version": "3.9.1"])))
         #expect(!BrowserAddOn.isOn(try health(["installed": true, "protocol": 3, "version": "3.7.0"])), "still the old one")
-        #expect(!BrowserAddOn.isOn(try health(["installed": false, "protocol": 3, "version": "3.8.1"])), "not installed")
-        #expect(!BrowserAddOn.isOn(try health(["installed": true, "protocol": 3, "version": "3.8.1", "drift": ["x"]])), "drifted")
+        #expect(!BrowserAddOn.isOn(try health(["installed": false, "protocol": 3, "version": "3.9.0"])), "not installed")
+        #expect(!BrowserAddOn.isOn(try health(["installed": true, "protocol": 3, "version": "3.9.0", "drift": ["x"]])), "drifted")
         #expect(!BrowserAddOn.isOn(try health(["installed": true, "protocol": 3])), "no version")
-        // Restarted onto the new add-on: answering at 3.8.1, whatever else it says.
-        #expect(BrowserAddOn.restarted(try health(["installed": false, "protocol": 3, "version": "3.8.1", "drift": ["x"]])))
+        // Restarted onto the new add-on: answering at 3.9.0, whatever else it says.
+        #expect(BrowserAddOn.restarted(try health(["installed": false, "protocol": 3, "version": "3.9.0", "drift": ["x"]])))
         #expect(!BrowserAddOn.restarted(older))
-        #expect(BrowserAddOn.version(try health(["version": "  3.8.1 "])) == "3.8.1")
+        #expect(BrowserAddOn.version(try health(["version": "  3.9.0 "])) == "3.9.0")
         #expect(BrowserAddOn.version(try health([:])) == "")
     }
 
