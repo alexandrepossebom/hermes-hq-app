@@ -41,7 +41,7 @@ enum DraftsAccess: DeviceAccessHandler {
                                        createdAt: .now)
         DraftsStore.add(draft)
         let posted = await DraftsStore.notify(draft)
-        var note = "The draft is waiting on the user's \(DeviceWord.name); nothing is sent until they review it and tap Send."
+        var note = "The draft is waiting on the user's \(DeviceWord.name); nothing is sent until they review it and \(DeviceWord.tap) Send."
         if !posted { note += " They’ll find it in Settings › Device Access › \(DeviceAccess.Kind.drafts.title)." }
         return .done(["draft": "waiting", "kind": .string(plan.kind), "note": .string(note)])
     }

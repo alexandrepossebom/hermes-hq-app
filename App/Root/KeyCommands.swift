@@ -939,7 +939,10 @@ extension AppDelegate {
         case KeyCommands.back:
             enabled = top == nil && KeyCommands.canGoBack(settings)
         case KeyCommands.find:
-            enabled = KeyCommands.settingsSearchPage(settings) != nil
+            // A page with no search of its own takes ⌘F to the column's Search Settings field (`hqFind`).
+            let column = top == nil && MacSettingsWindow.root?.paneStack != nil
+                && settings.topViewController?.navigationItem.searchController == nil
+            enabled = column || KeyCommands.settingsSearchPage(settings) != nil
         case KeyCommands.refresh:
             enabled = (top != nil ? KeyCommands.sheetRefresh(settings) : settings.topViewController.flatMap(Self.refreshAction)) != nil
         case KeyCommands.send:

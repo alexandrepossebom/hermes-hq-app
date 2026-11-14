@@ -430,7 +430,7 @@ final class StarMapTouchView: UIView, UIGestureRecognizerDelegate {
         accessibilityIdentifier = "starmap.canvas"
         accessibilityLabel = "Star Map"
         accessibilityTraits = .adjustable
-        accessibilityHint = "Swipe up or down to zoom. The List shows every skill."
+        accessibilityHint = DeviceWord.isMac ? "Zooms in and out. The List shows every skill." : "Swipe up or down to zoom. The List shows every skill."
     }
 
     @MainActor required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }

@@ -39,7 +39,7 @@ final class StepScreenshotBlock: UIView {
         frameView.isAccessibilityElement = true
         frameView.accessibilityLabel = "Screenshot"
         frameView.accessibilityTraits = [.image, .button]
-        frameView.accessibilityHint = "Double tap to view larger"
+        frameView.accessibilityHint = "Opens it larger."
         frameView.accessibilityIdentifier = "step.screenshot"
         picture.contentMode = .scaleAspectFit
         picture.translatesAutoresizingMaskIntoConstraints = false

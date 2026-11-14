@@ -250,7 +250,7 @@ final class PhotoFramerController: UIViewController, UIGestureRecognizerDelegate
         cancelItem?.isEnabled = !rendering
         for recognizer in stage.gestureRecognizers ?? [] { recognizer.isEnabled = ready }
         stage.accessibilityLabel = photo == nil ? "Loading photo" : "Photo"
-        stage.accessibilityHint = photo == nil ? nil : "Pinch or use the zoom slider to size the photo, and drag it to place it in the frame."
+        stage.accessibilityHint = photo == nil ? nil : (DeviceWord.isMac ? "Use" : "Pinch or use") + " the zoom slider to size the photo, and drag it to place it in the frame."
     }
 
     // MARK: - Moving and sizing
