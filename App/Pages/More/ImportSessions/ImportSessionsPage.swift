@@ -81,12 +81,23 @@ final class ImportSessionsCoordinator: NSObject, UISearchResultsUpdating {
                                       ImportPreviewView(model: model))
         page.retained = [model]
         model.host = page
+        if DeviceWord.isMac { model.refreshBarButton() }   // [macpass-settings2] Import on the bar before the page goes up
         host?.navigationController?.pushViewController(page, animated: true)
         model.load()
     }
 
     /// The chat of an imported (or already imported) conversation, pushed over More as a notification opens a chat.
     func openChat(sessionId: String, title: String, from page: UIViewController?) {
+        #if targetEnvironment(macCatalyst)
+        // [macpass-settings2] From the Settings window the chat opens in the main window, where chats live: pushed on
+        // Settings' own stack it opened beside the categories, a chat with a composer inside Settings.
+        if let scene = MacSettingsWindow.scene, (page ?? host)?.view.window?.windowScene === scene,
+           let model = context.services as? AppModel, let main = MainTabController.current?.view.window?.windowScene {
+            model.openNotifiedChat(stored: sessionId, profile: store.profile)
+            UIApplication.shared.requestSceneSessionActivation(main.session, userActivity: nil, options: nil)
+            return
+        }
+        #endif
         let navigation = page?.navigationController ?? host?.navigationController
         if let listed = context.services.sessions.first(where: { $0.id == sessionId }) {
             MorePages.openChat(listed, on: navigation)
@@ -295,6 +306,7 @@ final class ImportPreviewModel {
     @ObservationIgnored weak var host: UIViewController?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var linkTask: Task<Void, Never>?
+    @ObservationIgnored private var macButton: UIButton?
     /// Audit 863 (08d-10): the link as it is now, followed while the preview shows (Import and the offline line had
     /// kept how it was when the preview loaded).
     private(set) var isOnline: Bool
@@ -323,6 +335,37 @@ final class ImportPreviewModel {
         } else if case .loaded = phase, canImport {
             title = importing ? "Importing…" : "Import"
             enabled = !importing && isOnline
+        }
+        if DeviceWord.isMac {
+            // [macpass-settings2] The Mac's bar never shows an item first set after the page went up: Import never came
+            // in Settings › Import Sessions, so nothing could be imported on the Mac. Here one item is on the bar from
+            // the start (Import, dimmed until the preview has answered) and only its words and state change. A bar
+            // item's own title and dimming are not redrawn there either (it read "Import" over a chat already in
+            // Hermes), so the item holds a button of its own, which redraws as any view does.
+            let button = macButton ?? {
+                // Its own fill: the Desktop Look greys a bar button view's tint (DesktopBars.quietGlyph), which made
+                // the one action of the page a grey pill.
+                var look = UIButton.Configuration.borderedProminent()
+                look.baseBackgroundColor = host.view.tintColor
+                look.baseForegroundColor = .white
+                let button = UIButton(configuration: look, primaryAction: UIAction { [weak self] _ in self?.act() })
+                button.accessibilityIdentifier = "import-sessions.import"
+                // One width that holds the longest words: in the Desktop Look the bar never re-measured it, and "Open in
+                // Hermes" wrapped in an "Import"-wide pill.
+                let sizes = ["Importing…", "Open in Hermes", "Import"].map { words -> CGSize in
+                    button.configuration?.title = words
+                    return button.sizeThatFits(CGSize(width: 1000, height: 100))
+                }
+                button.frame = CGRect(x: 0, y: 0, width: ceil(sizes.map(\.width).max() ?? 0) + 4,
+                                      height: ceil(sizes.map(\.height).max() ?? 0))
+                macButton = button
+                host.navigationItem.rightBarButtonItem = UIBarButtonItem(customView: button)
+                return button
+            }()
+            let words = title ?? "Import"
+            if button.configuration?.title != words { button.configuration?.title = words }
+            button.isEnabled = title != nil && enabled
+            return
         }
         guard let title else { host.navigationItem.rightBarButtonItem = nil; return }
         let item = UIBarButtonItem(title: title, primaryAction: UIAction(title: title) { [weak self] _ in self?.act() })

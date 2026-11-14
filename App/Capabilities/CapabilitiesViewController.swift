@@ -18,6 +18,7 @@ final class CapabilitiesViewController: UIHostingController<HQScaledRoot<Capabil
          settingsPage: Bool = false) {
         let model = CapabilitiesModel(services: services, profile: profile, tab: tab)
         model.focusServer = focus
+        model.settingsPage = settingsPage
         self.model = model
         let router = SettingsRouter(services: services, navigation: nil)
         super.init(rootView: HQScaledRoot(CapabilitiesView(model: model, router: router, botLocked: botLocked, settingsPage: settingsPage)))
@@ -176,7 +177,7 @@ struct CapabilitiesView: View {
                 }
             }
             switch model.tab {
-            case .skills: SkillsSections(model: model, router: router)
+            case .skills: SkillsSections(model: model, router: router, settingsPage: settingsPage)
             case .tools: ToolsetsSections(model: model, router: router)
             case .connectors: ConnectorsSections(model: model, router: router)
             case .plugins: PluginsSections(model: model, router: router)
@@ -358,6 +359,7 @@ struct WholeLabelSegmentsControl: UIViewRepresentable {
 struct SkillsSections: View {
     @Bindable var model: CapabilitiesModel
     let router: SettingsRouter
+    var settingsPage = false   // [macpass-settings2] a skill's page opens with the list's rows
 
     var body: some View {
         if let skills = model.skills {
@@ -392,7 +394,7 @@ struct SkillsSections: View {
                     ForEach(shown) { skill in
                         SkillRow(skill: skill, busy: model.toggling.contains(skill.name),
                                  toggle: { model.setSkill(skill, enabled: $0) },
-                                 open: { router.push(SkillPageController(model: model, skill: skill)) })
+                                 open: { router.push(SkillPageController(model: model, skill: skill, settingsPage: settingsPage)) })
                     }
                 } header: {
                     // No "Installed" over the empty state that says nothing is installed (UX study #99).
@@ -498,7 +500,7 @@ struct SkillRow: View {
                 .labelsHidden()
                 .hqMacRowSwitch()   // [mac] Stress test 2026-10-28 round 6
                 .disabled(busy)
-                .accessibilityLabel(skill.name)
+                .accessibilityLabel(DisplayName.title(skill.name))
                 .accessibilityIdentifier("skill-switch-\(skill.name)")
         }
         .padding(.vertical, SkillRowMetrics.pad) // [compact] iOS look: the list row's own inset only

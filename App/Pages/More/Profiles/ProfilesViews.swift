@@ -221,16 +221,16 @@ struct ProfileDetailView: View {
                 // Tester batch 3: the profile's own default model, changed here (Settings › Model is the default's).
                 if model.canChangeModel(row) {
                     ValueRow(title: "Default Model", value: model.modelValue(row)) { model.openDefaultModel(row, from: state.host) }
-                        .padding(.vertical, 6)
+                        .padding(.vertical, DeviceWord.isMac ? 0 : 6)   // [macpass-settings2] ValueRow has the Mac form's row height
                         .accessibilityIdentifier("profiles.detail.model")
                         .disabled(model.modelChange.switching != nil)
                     // Tester 2026-10-30: this profile's own, not only the default's under Settings › Model.
                     link("Context Window", id: "profiles.detail.context-window") { model.openContextWindow(row, from: state.host) }   // [context-window]
-                        .padding(.vertical, 6)
+                        .profileRowPadding()
                     link("Fallback Models", id: "profiles.detail.fallbacks") { model.openFallbacks(row, from: state.host) }
-                        .padding(.vertical, 6)
+                        .profileRowPadding()
                     link("Auxiliary Models", id: "profiles.detail.auxiliary") { model.openAuxiliary(row, from: state.host) }
-                        .padding(.vertical, 6)
+                        .profileRowPadding()
                 } else if let name = model.modelName(row) {
                     fact("Default Model", name, id: "model")
                 }
@@ -270,6 +270,27 @@ struct ProfileDetailView: View {
             } }
         } else {
             let renaming = model.renaming == row.name
+            if DeviceWord.isMac {
+                // [macpass-settings2] On the Mac, push buttons under the form (as Bot Info's Duplicate Bot and Delete Bot),
+                // not a card of blue and red link rows.
+                Section {
+                    HStack(spacing: 8) {
+                        Button(renaming ? "Renaming…" : "Rename Bot…") { model.rename(row, state: state, from: state.host) }
+                            .buttonStyle(MacPushButtonStyle(kind: .plain))
+                            .accessibilityIdentifier("profiles.detail.rename")
+                        Button("Delete Bot…", role: .destructive) { model.delete(row, state: state, from: state.host) }
+                            .buttonStyle(MacPushButtonStyle(kind: .destructive))
+                            .accessibilityIdentifier("profiles.detail.delete")
+                        if renaming { ProgressView().controlSize(.small) }
+                        Spacer(minLength: 0)
+                    }
+                    .disabled(model.renaming != nil)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 0, leading: MacInset.side, bottom: 0, trailing: 0))
+                    .hqDesktopBareRow()
+                }
+            } else {
             Section {
                 Button {
                     model.rename(row, state: state, from: state.host)
@@ -287,6 +308,7 @@ struct ProfileDetailView: View {
                 }
                 .disabled(model.renaming != nil)
                 .accessibilityIdentifier("profiles.detail.delete")
+            }
             }
         }
     }
@@ -319,7 +341,7 @@ struct ProfileDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(Font.hq(.body))
-        .padding(.vertical, 6)
+        .profileRowPadding()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label), \(value)")
         .accessibilityIdentifier("profiles.detail.fact.\(id)")
@@ -358,5 +380,14 @@ struct ProfileDetailView: View {
                 Label("Copy", systemImage: "doc.on.doc")
             }
         }
+    }
+}
+
+private extension View {
+    /// [macpass-settings2] On the Mac the form's one row height (`hqMacFormRowHeight`), as the Default Model row (a
+    /// `ValueRow`) already had: with 6 pt more above and under, Bot ID, Context Window and the rest stood 6 pt taller
+    /// than the Default Model row between them. Elsewhere the 6 pt as before.
+    @ViewBuilder func profileRowPadding() -> some View {
+        if DeviceWord.isMac { hqMacFormRowHeight() } else { padding(.vertical, 6) }
     }
 }

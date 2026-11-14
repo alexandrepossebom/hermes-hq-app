@@ -26,6 +26,9 @@ final class CapabilitiesModel {
     let managed: ManagedAppsModel?
     /// [cap-pages] The one list this page shows (each list is its own page now, so it never changes).
     let tab: CapabilitiesTab
+    /// [macpass-settings2] Opened under Settings: on the Mac the pages it opens (a connector's, a tool's, an app's) take
+    /// Settings' readable column and rows, as the list does. They ran the pane's whole width, 60 pt left of the list.
+    var settingsPage = false
     /// The search field filters the list of the tab showing (skills: name, description, category; connectors: name,
     /// plugin, transport). Its prompt follows the tab.
     var query = ""
@@ -336,7 +339,7 @@ final class CapabilitiesModel {
                 if profile == self.profile { flip(skill.name, !enabled) }
                 let reason = CapabilitiesStore.detail(error)
                 AppLog.note("plugins", "skill \(skill.name) set enabled \(enabled) failed: \(reason)")
-                FailureAlert.present(title: "Couldn’t Change \(skill.name)", reason: reason, detail: "\(error)",
+                FailureAlert.present(title: "Couldn’t Change \(DisplayName.title(skill.name))", reason: reason, detail: "\(error)",
                                      from: presenter) { self.setSkill(skill, enabled: enabled) }
             }
             if profile == self.profile { await reloadSkills() }
@@ -352,7 +355,7 @@ final class CapabilitiesModel {
     func install(_ skill: OfficialSkill) {
         guard !running.contains(skill.identifier) else { return }
         let bot = botName
-        TextPrompt.confirmPlain(title: "Install \(skill.name) for \(bot)?",
+        TextPrompt.confirmPlain(title: "Install \(DisplayName.title(skill.name)) for \(bot)?",
                                 message: "\(bot) can use it in new chats. The gateway downloads it and checks it before it is installed.",
                                 action: "Install", from: presenter) { [weak self] in self?.runInstall(skill) }
     }
@@ -406,7 +409,7 @@ final class CapabilitiesModel {
         let source = skill.isCommunity
             ? "It comes from the community (\(skill.sourceWord)), not from Nous. Read it before you trust the author. "
             : "It comes from \(skill.sourceWord). "
-        TextPrompt.confirmPlain(title: "Install \(skill.name) for \(bot)?",
+        TextPrompt.confirmPlain(title: "Install \(DisplayName.title(skill.name)) for \(bot)?",
                                 message: source + "The gateway downloads it and checks it before it is installed. \(bot) can use it in new chats.",
                                 action: "Install", from: presenter) { [weak self] in
             self?.runInstall(OfficialSkill(name: skill.name, description: skill.description, identifier: skill.identifier, category: nil,
@@ -447,7 +450,7 @@ final class CapabilitiesModel {
                 if case let http as HTTPError = error, http.status == 404, presenter?.view.window == nil { return }   // abandoned
                 let reason = CapabilitiesStore.detail(error)
                 AppLog.note("plugins", "skill install \(skill.name) failed after \(AppLog.ms(since: start)) ms: \(reason)")
-                FailureAlert.present(title: "Couldn’t Install \(skill.name)", reason: reason, detail: "\(error)",
+                FailureAlert.present(title: "Couldn’t Install \(DisplayName.title(skill.name))", reason: reason, detail: "\(error)",
                                      from: presenter)
                 return
             }
@@ -460,13 +463,13 @@ final class CapabilitiesModel {
                 if let blocked = CapabilitiesStore.installBlocked(last.lines) {
                     let reason = CapabilitiesStore.blockedMessage(findings: blocked.findings, unverified: blocked.unverified)
                     AppLog.note("plugins", "skill install \(skill.name) blocked after \(AppLog.ms(since: start)) ms: \(reason)")
-                    FailureAlert.present(title: "Couldn’t Install \(skill.name)", reason: reason,
+                    FailureAlert.present(title: "Couldn’t Install \(DisplayName.title(skill.name))", reason: reason,
                                          detail: last.lines.suffix(20).joined(separator: "\n"), from: presenter)
                 } else {
                     let tail = last.lines.suffix(3).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
                     let reason = tail.isEmpty ? "The install ended with code \(last.exitCode ?? -1)." : tail
                     AppLog.note("plugins", "skill install \(skill.name) failed after \(AppLog.ms(since: start)) ms, exit \(last.exitCode ?? -1): \(reason)")
-                    FailureAlert.present(title: "Couldn’t Install \(skill.name)", reason: reason,
+                    FailureAlert.present(title: "Couldn’t Install \(DisplayName.title(skill.name))", reason: reason,
                                          detail: last.lines.suffix(40).joined(separator: "\n"), from: presenter)
                 }
             } else {

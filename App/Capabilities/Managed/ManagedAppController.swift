@@ -339,6 +339,7 @@ struct ManagedAppView: View {
         .hqGroupedPage()
         .listStyle(.insetGrouped)
         .accessibilityIdentifier("managed.app")
+        .hqMacForm(settings: page.parent.settingsPage)   // [macpass-settings2] the list's column, not the pane's width
         .onChange(of: page.managed?.policy) { _, _ in page.applyRules() }
         .onChange(of: page.managed?.revision) { _, _ in Task { await page.readTools() } }
         .refreshable {

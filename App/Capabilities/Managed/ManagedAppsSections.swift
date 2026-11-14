@@ -194,8 +194,10 @@ struct ManagedLogo: View {
                 Color.clear
             }
         }
-        .frame(width: size, height: size)
-        .overlay(RoundedRectangle(cornerRadius: size * 0.24).strokeBorder(Color.hqFill3, lineWidth: image == nil ? 0 : 0.5))
+        // [macpass-settings2] × UI Scale, as CatalogLogo inside it: at a plain 34 pt frame the scaled tile spilled 3 pt
+        // past each side, so Managed Apps' logos and names sat left of the Connected rows' above them.
+        .frame(width: HQFont.scaled(size), height: HQFont.scaled(size))
+        .overlay(RoundedRectangle(cornerRadius: HQFont.scaled(size) * 0.24).strokeBorder(Color.hqFill3, lineWidth: image == nil ? 0 : 0.5))
         .accessibilityHidden(true)
         .task(id: app.logoURL) {
             image = await ManagedLogoStore.shared.image(app.logoURL)

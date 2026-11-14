@@ -144,7 +144,7 @@ nonisolated enum SettingsSearch {
         .init(id: "app:completion-sound", label: "Completion Sound", context: soundsSection, keywords: ["sound", "chime", "cue", "reply finished"], target: .root("row:completion-sound")),
         .init(id: "app:sound", label: "Sound", context: soundsSection, keywords: ["chime", "preset", "preview", "tone"], target: .root("sound-picker")),
         .init(id: "app:thinking-drive", label: "Thinking Bar", context: soundsSection, keywords: ["lightspeed", "afterburner", "calm", "hyperspace", "warp", "thinking", "effort", "reasoning", "slider", "model panel", "animation"], target: .root("row:thinking-drive")),   // [thinking-drive]
-        .init(id: "app:licenses", label: "Open-Source Licenses", context: "About", keywords: ["licence", "license", "open source"], target: .root("about")),
+        .init(id: "app:licenses", label: "Open-Source Licenses", context: "About", keywords: ["licence", "license", "open source"], target: .root("licenses")),
         .init(id: "app:default-folder", label: "Default Project Folder", context: sessionsPageTitle, keywords: ["folder", "directory", "project", "workspace", "cwd", "new chat"], target: .root("sessions")),
         .init(id: "app:auto-archive", label: "Auto-Archive Stale Chats", context: sessionsPageTitle, keywords: ["archive", "old chats", "retention", "inactive"], target: .root("sessions")),
     ] + VoiceSettingsCatalog.searchRows   // [talk] Read Replies Aloud, Voice Diagnostics, Send Memo on Release, How Voice Works
@@ -172,11 +172,15 @@ nonisolated enum SettingsSearch {
         ("plugins", "Plugins", ["plugins", "add-ons", "addons", "extensions", "find plugins", "install plugin", "catalog"]),   // [find-plugins]
     ].map { SettingsSearchEntry(id: "page:\($0.0)", label: $0.1, context: "Capabilities", keywords: $0.2, target: .root($0.0), isPage: true) }
 
+    /// [macpass-settings2] The file buttons are under About in the Mac's Settings window (a result said "Settings", and
+    /// Clear's label wasn't the button's).
+    private static var actionsContext: String { DeviceWord.isMac ? "About" : "Settings" }
+
     static let actions: [SettingsSearchEntry] = [
-        .init(id: "action:export", label: "Export Settings…", context: "Settings", keywords: ["export", "backup", "save settings", "download"], target: .action("export")),
-        .init(id: "action:import", label: "Import Settings…", context: "Settings", keywords: ["import", "restore", "load settings", "upload"], target: .action("import")),
-        .init(id: "action:clear-models", label: "Clear Favorite & Recent Models…", context: "Settings", keywords: ["favorites", "favourites", "starred models", "recent models", "unstar", "clear"], target: .action("clear-models")),
-        .init(id: "action:reset", label: "Reset to Defaults…", context: "Settings", keywords: ["reset", "defaults", "factory", "restore defaults"], target: .action("reset")),
+        .init(id: "action:export", label: "Export Settings…", context: actionsContext, keywords: ["export", "backup", "save settings", "download"], target: .action("export")),
+        .init(id: "action:import", label: "Import Settings…", context: actionsContext, keywords: ["import", "restore", "load settings", "upload"], target: .action("import")),
+        .init(id: "action:clear-models", label: DeviceWord.isMac ? "Clear Model Favorites…" : "Clear Favorite & Recent Models…", context: actionsContext, keywords: ["favorites", "favourites", "starred models", "recent models", "unstar", "clear"], target: .action("clear-models")),
+        .init(id: "action:reset", label: "Reset to Defaults…", context: actionsContext, keywords: ["reset", "defaults", "factory", "restore defaults"], target: .action("reset")),
     ]
 
     /// [context-window] The words people use for a page that its title doesn't have (owner 2026-11-01 had to ask where

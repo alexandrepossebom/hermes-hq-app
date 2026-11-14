@@ -163,6 +163,12 @@ nonisolated enum BotExtrasRules {
             do {
                 let id = try await editing.duplicate(bot)
                 Haptics.play(.success)
+                // [macpass-settings2] A bot still wearing its name's default head gave the copy a different face (the
+                // default follows the new name). The copy is given the original's face, saved (best effort).
+                if !editing.headState(bot).saved, let copy = services?.bots.first(where: { $0.id == id }) {
+                    let record = HeadRecord.defaultRecord(profile: bot.id).forSaving.stored
+                    _ = try? await editing.saveHead(copy, record: record, revision: editing.headState(copy).revision)
+                }
                 // The copy is named and brought into view (it lands in the original's section, perhaps off screen).
                 let name = services?.bots.first { $0.id == id }?.name
                 MenusHUD.show(name.map { "Duplicated as “\($0)”" } ?? "Duplicated \(bot.name)", in: host?.view)

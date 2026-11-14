@@ -357,6 +357,7 @@ struct CatalogBrowseView: View {
         .hqGroupedPage()
         .listStyle(.insetGrouped)
         .accessibilityIdentifier("catalog.all")
+        .hqMacForm(settings: model.settingsPage)   // [macpass-settings2] the list's column, not the pane's width
     }
 }
 
@@ -670,6 +671,7 @@ struct CatalogAppView: View {
         .hqGroupedPage()
         .listStyle(.insetGrouped)
         .accessibilityIdentifier("catalog-app.page")
+        .hqMacForm(settings: page.parent.settingsPage)   // [macpass-settings2] the list's column, not the pane's width
     }
 
     private var keysSection: some View {

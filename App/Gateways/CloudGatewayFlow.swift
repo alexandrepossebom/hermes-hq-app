@@ -34,7 +34,9 @@ import UIKit
         let root = page(CloudGatewayView(model: model), title: CloudCopy.title)
         (root as? CloudPage<HQScaledRoot<CloudGatewayView>>)?.keyRefresh = { [weak model] in Task { await model?.refresh() } }   // ⌘R, as a pull (the Mac has no pull)
         let nav = UINavigationController(rootViewController: root)
-        let close = UIBarButtonItem(systemItem: .cancel, primaryAction: UIAction { [weak nav, weak model] _ in
+        model.presenter = { [weak nav] in nav }
+        // [macpass-settings2] The word Cancel on the Mac, as Add Gateway… has (it was a bare ✕ there).
+        let close = UIBarButtonItem.hqClose(.cancel, action: UIAction { [weak nav, weak model] _ in
             // Once signed in to the new agent its gateway is saved: closing switches to it, as Open does.
             // While Nous builds, closing only stops the phone waiting: the agent carries on, and Hermes Cloud picks it up.
             if model?.phase == .success { model?.finish() } else { model?.leave(); nav?.dismiss(animated: true) }
@@ -345,6 +347,9 @@ enum CloudCopy {
     /// An agent's page scrolled its name out of sight (true) or back (false): the bar's title follows.
     var onTitleShown: ((_ id: String, _ shown: Bool) -> Void)?
     /// A system alert over the top page: title, message, the action's word, whether it's destructive, and what it does.
+    /// [macpass-settings2] Where a sheet this model opens goes (the Update sheet): the window the page is in. With none it
+    /// went to the main window, behind the Settings window the person clicked in.
+    var presenter: (() -> UIViewController?)?
     var onConfirm: ((_ title: String, _ message: String?, _ action: String, _ destructive: Bool, _ done: @escaping () -> Void) -> Void)?
     /// A one-field alert (Rename): title, message, starting text, the action's word, the longest text, and what it does.
     var onPrompt: ((_ title: String, _ message: String?, _ text: String, _ action: String, _ limit: Int, _ done: @escaping (String) -> Void) -> Void)?

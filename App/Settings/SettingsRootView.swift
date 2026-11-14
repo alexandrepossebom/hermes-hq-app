@@ -29,8 +29,18 @@ final class SettingsRootModel {
         // `-HQDebugSettingsCategory <appearance|chat|…>`: the category on show when Settings opens (pictures).
         if let asked = UserDefaults.standard.string(forKey: "HQDebugSettingsCategory").flatMap(SettingsCategory.init(rawValue:)) { return asked }
         #endif
+        // [macpass-settings2] The Mac's Settings window opens on the category it was closed on (it always came back
+        // on General), as the Mac's own System Settings does.
+        if DeviceWord.isMac, let last = UserDefaults.standard.string(forKey: SettingsRootModel.lastCategoryKey)
+            .flatMap(SettingsCategory.init(rawValue:)) { return last }
         return .general
-    }()
+    }() {
+        didSet {
+            guard DeviceWord.isMac, twoColumn, let category else { return }
+            UserDefaults.standard.set(category.rawValue, forKey: Self.lastCategoryKey)
+        }
+    }
+    static let lastCategoryKey = "hqn.settings.lastCategory"
     func shows(_ wanted: SettingsCategory) -> Bool { !twoColumn || category == nil || category == wanted }
     /// [mac-ui-issues] Two columns: the column picked a category or typed in its search field. The controller brings the
     /// right side back to the category's own page (a pushed page leaves) and names it.
@@ -169,17 +179,55 @@ final class SettingsRootModel {
                 // [Mac UI check 2026-11-13] ⌘N Project is drawn only once there is a project to pick.
                 && ($0.id != "app:new-chat-project" || newChatKeyProjects.count > 1)
         }
-        return SettingsSearch.results(query, in: index)
+        return SettingsSearch.results(query, in: index + Self.movedFromMoreEntries())
+    }
+
+    /// [macpass-settings2] The Mac's Bots & Tools rows that More holds on the iPhone (Bot Profiles, Messaging,
+    /// Webhooks, Import Sessions) as results: "webhook" found nothing although the row is on that page.
+    private static func movedFromMoreEntries() -> [SettingsSearchEntry] {
+        #if targetEnvironment(macCatalyst)
+        let words: [String: [String]] = [
+            "profiles": ["bots", "personas", "profiles"],
+            "messaging": ["telegram", "discord", "slack", "whatsapp", "signal", "email", "sms", "platforms", "gateway"],
+            "webhooks": ["webhook", "hooks", "http", "events"],
+            "import-sessions": ["import", "history", "claude code", "codex", "chats"],
+        ]
+        return SettingsRootView.movedFromMore().map {
+            SettingsSearchEntry(id: "more:\($0.id)", label: $0.title, context: "Bots & Tools", keywords: words[$0.id] ?? [],
+                                target: .root("more:\($0.id)"), isPage: true)
+        }
+        #else
+        return []
+        #endif
     }
 
     /// Scrolls the list to a root row and marks it for a second, as iOS Settings does.
     func reveal(_ row: String) {
         revealTask?.cancel()
-        if twoColumn { category = nil }   // the row may be in any category: every section shows while it is found
+        // [macpass-settings2] Two columns: the row's own category is marked in the column and names the page (a
+        // search result for ⌘N Bot showed Chat's rows under the title "General" with nothing marked in the column).
+        // A row not in the table: every section shows while it is found, as before.
+        if twoColumn {
+            category = Self.category(ofRow: row)
+            columnChanged?()
+        }
         revealed = row
         revealTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1.4))
             if !Task.isCancelled { self?.revealed = nil }
+        }
+    }
+
+    /// [macpass-settings2] The category whose section draws a root row (`row:<id>`, `SettingsRootView`'s
+    /// `shows(_:)` blocks); nil for one this table doesn't know.
+    static func category(ofRow row: String) -> SettingsCategory? {
+        switch row {
+        case "row:appearance": .appearance
+        case "row:haptics", "row:completion-sound", "row:sound", "row:thinking-drive": .sounds
+        case "row:fewer-timestamps", "row:show-file-changes", "row:attachment-limit", "row:new-chat-asks-project", "row:wait-for-models",
+             "row:send-while-busy", "row:open-links-in", "row:new-chat-mode", "row:new-chat-key", "row:new-chat-project",
+             "row:resume-last-chat", "row:tips", "row:intro-splash", "row:file-browser", "row:message-reactions": .chat
+        default: nil
         }
     }
 
@@ -633,7 +681,7 @@ struct SettingsRootView: View {
 
     #if targetEnvironment(macCatalyst)
     /// More's setup pages, as this gateway has them (a page its Hermes lacks shows dimmed in More; here it's left out).
-    private static func movedFromMore() -> [MoreRow] {
+    static func movedFromMore() -> [MoreRow] {
         let ids = ["profiles", "messaging", "webhooks", "import-sessions"]
         let rows = MainTabController.current?.pages?.moreSections().flatMap { $0.rows() } ?? []
         return ids.compactMap { id in rows.first { $0.id == id && !$0.dimmed } }
@@ -648,7 +696,10 @@ struct SettingsRootView: View {
             else if DeviceWord.isMac, target == .root("attachment-limit") { model.reveal("row:attachment-limit") }
             // [Mac UI check 2026-11-13] Sound is a pop-up in its row on the Mac, not the iPhone's page (the switch
             // above it when the sound is off and the row isn't drawn).
-            else if DeviceWord.isMac, target == .root("sound-picker") { model.reveal(model.completionSound ? "row:sound" : "row:completion-sound") } else {
+            else if DeviceWord.isMac, target == .root("sound-picker") { model.reveal(model.completionSound ? "row:sound" : "row:completion-sound") }
+            // [macpass-settings2] Two columns: the gateway's page opens as the card does (the card marked, the page the
+            // right side's root); a result ("keychain", "sign out") pushed it over the category shown, with Back to it.
+            else if target == .root("gateway"), let openGateway = model.openGateway { openGateway() } else {
                 SettingsNavigator.open(target, router: router, actions: actions)
             }
         }
@@ -1286,12 +1337,21 @@ struct SettingsRootView: View {
         // nothing said so. The row opens the System Settings page that does it.
         if model.shows(.general) {
         Section {
-            NavRow(title: "Share Menu", systemImage: "square.and.arrow.up") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences?extensionPointIdentifier=com.apple.share-services") {
-                    UIApplication.shared.open(url)
+            // [macpass-settings2] The row leaves the app for System Settings, so it is a push button that says so, not a
+            // page row (a click that seemed to open a page here brought System Settings forward instead).
+            HStack(spacing: 12) {
+                SettingsRowLabel(title: "Share Menu", systemImage: "square.and.arrow.up")
+                Spacer(minLength: 16)
+                Button("Open System Settings…") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences?extensionPointIdentifier=com.apple.share-services") {
+                        UIApplication.shared.open(url)
+                    }
                 }
+                .hqMacPushButton()
+                .fixedSize()
+                .accessibilityIdentifier("settings.share-menu")
             }
-            .accessibilityIdentifier("settings.share-menu")
+            .hqMacFormRowHeight()
         } footer: { HQSectionFooter {
             Text("To send files, links and text to a bot from other apps' Share menus, switch on Hermes HQ in System Settings › General › Login Items & Extensions › Sharing.")
         } }

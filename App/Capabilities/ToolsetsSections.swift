@@ -397,6 +397,7 @@ struct ToolsetPageView: View {
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
         .accessibilityIdentifier("toolset-page")
+        .hqMacForm(settings: page.parent.settingsPage)   // [macpass-settings2] the list's column, not the pane's width
         .sheet(item: $editing) { variable in
             SecretEntrySheet(title: variable.prompt, name: variable.key, isSet: variable.isSet, placeholder: variable.placeholder,
                              save: { await page.saveKey(variable.key, value: $0) },

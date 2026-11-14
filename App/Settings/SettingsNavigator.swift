@@ -12,6 +12,9 @@ enum SettingsNavigator {
     static func open(_ target: SettingsSearchEntry.Target, router: SettingsRouter, actions: SettingsFileActions) {
         switch target {
         case .field: router.jump?(.gateway)   // [Mac UI check 2026-11-13] config pages are Hermes' (ConfigScreens.open does so too)
+        // [macpass-settings2] Export, Import, Clear and Reset are About's buttons in two columns: About shows, so the
+        // share menu points at its button and the prompt is over the page that has it.
+        case .action: router.jump?(.about)
         default: break
         }
         switch target {
@@ -42,6 +45,7 @@ enum SettingsNavigator {
     /// [Mac UI check 2026-11-13] The category column's section a root page belongs to (the rows that open it are in
     /// that section of `SettingsRootView`); nil for a page with no one section (the gateway card heads the column).
     static func category(of id: String) -> SettingsCategory? {
+        if id.hasPrefix("more:") { return .tools }
         if id.hasPrefix("config:") || id.hasPrefix("background:") { return id.hasPrefix("config:") ? .gateway : .appearance }
         switch id {
         case "theme", "chat-bubbles", "backgrounds", "tab-order", SettingsSearch.kanbanTabTarget, "app-icon": return .appearance
@@ -51,7 +55,7 @@ enum SettingsNavigator {
         case "sound-picker": return .sounds
         case "vault", "sessions", "providers", "keys", "billing", "auxiliary-models": return .gateway
         case "capabilities", "skills", "connectors", "tools", "plugins", ComposioRow.id: return .tools
-        case "about", "diagnostics": return .about
+        case "about", "diagnostics", "licenses": return .about
         default: return nil
         }
     }
@@ -62,6 +66,13 @@ enum SettingsNavigator {
         // another page) marks its own section in the column and opens over that section's page, so the mark and Back
         // say where it is; it stayed on General with Back naming whatever page showed before.
         if let category = category(of: id) { router.jump?(category) }
+        #if targetEnvironment(macCatalyst)
+        // [macpass-settings2] A Bots & Tools row More holds on the iPhone (SettingsRootModel.movedFromMoreEntries).
+        if id.hasPrefix("more:") {
+            if let row = SettingsRootView.movedFromMore().first(where: { "more:\($0.id)" == id }), let page = row.make() { router.push(page) }
+            return
+        }
+        #endif
         if id.hasPrefix("config:"), let section = ConfigCatalog.section(String(id.dropFirst("config:".count))) {
             ConfigScreens.open(section: section, router: router)
             return
@@ -106,6 +117,17 @@ enum SettingsNavigator {
         case "background:app": router.push(BackgroundsSettings.make(opening: .app))
         case "background:chats": router.push(BackgroundsSettings.make(opening: .chats))
         case "about": router.push(AboutController(services: services, router: router))
+        case "licenses":
+            // [macpass-settings2] The search result "Open-Source Licenses" opened About and left the row to be found:
+            // the list itself now, About under it so Back goes there.
+            let about = AboutController(services: services, router: router)
+            let licenses = SettingsPageController(title: "Open-Source Licenses", LicensesView(router: router))
+            if let navigation = router.navigation {
+                for page in [about, licenses] { page.navigationItem.largeTitleDisplayMode = .never }
+                navigation.setViewControllers(navigation.viewControllers + [about, licenses], animated: true)
+            } else {
+                router.push(about)
+            }
         case "diagnostics": router.push("Diagnostics", DiagnosticsView(services: services, router: router))
         case "tool-calls": if let screen = SettingsHooks.toolCallsScreen { router.push(screen()) }
         case "sound-picker": router.push("Sound", CompletionSoundPicker())

@@ -11,7 +11,7 @@ struct InstallNotice: Identifiable, Hashable {
     var bot: String
     var done: Bool
     var id: String { "\(profile)|\(identifier)" }
-    var title: String { done ? "Installed \(name)" : "Installing \(name)…" }
+    var title: String { done ? "Installed \(DisplayName.title(name))" : "Installing \(DisplayName.title(name))…" }   // [macpass-settings2] the row's name, not the slug
     var message: String { done ? "\(bot) can use it in new chats." : "For \(bot). This can take a minute." }
 }
 

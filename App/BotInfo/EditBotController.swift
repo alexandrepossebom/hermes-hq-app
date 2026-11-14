@@ -10,6 +10,8 @@ import UIKit
 
 @MainActor @Observable
 final class EditBotModel {
+    /// [macpass-settings2] Return in Display Name saves on the Mac, as the default button of a Mac form does.
+    @ObservationIgnored var submit: (() -> Void)?
     let botId: String
     let originalTitle: String
     let originalDescription: String
@@ -154,6 +156,7 @@ final class EditBotController: UIHostingController<HQScaledRoot<EditBotView>>, E
         saveItem = UIBarButtonItem(title: "Save", style: .prominent, target: self, action: #selector(save))
         saveItem.accessibilityIdentifier = "edit-bot.save"
         navigationItem.rightBarButtonItem = saveItem
+        model.submit = { [weak self] in self?.save() }
         observe()
     }
 
@@ -316,6 +319,7 @@ struct EditBotView: View {
                 // Empty means no custom title, so the field is never filled with the name (that would save one).
                 TextField(model.defaultName, text: $model.title)
                     .textInputAutocapitalization(.words)
+                    .onSubmit { if DeviceWord.isMac { model.submit?() } }
                     .accessibilityIdentifier("edit-bot.title")
             } header: { HQSectionLabel { Text("Display Name") } } footer: { HQSectionFooter {   // UX study #184: the footer's own word
                 Text(BotInfoWords.titleFooter(defaultName: model.defaultName))

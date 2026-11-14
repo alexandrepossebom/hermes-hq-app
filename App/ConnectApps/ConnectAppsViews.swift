@@ -210,9 +210,10 @@ struct ConnectAppsSetupView: View {
                 Section {
                     Button { triedGatewayKey = true; pasteNotice = nil; model.setUp(typed: nil) } label: {
                         Text(model.settingUp ? "Setting Up…" : "Use the Key on Your Gateway").font(Font.hq(.body).weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 30)
+                            .frame(maxWidth: DeviceWord.isMac ? nil : .infinity, minHeight: DeviceWord.isMac ? nil : 30)
                     }
                     .hqProminentButtonStyle()
+                    .frame(maxWidth: .infinity)   // [macpass-settings2] on the Mac a push button at its own width, centred under the app
                     .disabled(model.settingUp)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
@@ -251,9 +252,12 @@ struct ConnectAppsSetupView: View {
                         if model.settingUp { ProgressView().accessibilityLabel("Checking your key") }
                         Text("Continue").font(Font.hq(.body).weight(.semibold))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .frame(maxWidth: DeviceWord.isMac ? nil : .infinity, minHeight: DeviceWord.isMac ? nil : 30)
                 }
                 .hqProminentButtonStyle()
+                // [macpass-settings2] On the Mac the form's default push button at its trailing edge, not a slab across
+                // the pane.
+                .frame(maxWidth: .infinity, alignment: DeviceWord.isMac ? .trailing : .center)
                 .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty || model.settingUp)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
@@ -279,6 +283,7 @@ struct ConnectAppsSetupView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .scrollDismissesKeyboard(.interactively)
         .accessibilityIdentifier("connect-apps.setup")
         .onChange(of: model.phase) { key = "" }
@@ -351,6 +356,7 @@ struct ConnectAppsHomeView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .searchable(text: $model.query, prompt: "Search apps")
         .refreshable { await model.loadHome(); await model.loadBots() }
         .accessibilityIdentifier("connect-apps.home")
@@ -543,6 +549,7 @@ struct ConnectCategoryView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .searchable(text: $filter, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search \(category.title)")
         .task { await load() }
     }
@@ -597,6 +604,7 @@ struct ConnectAllAppsView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search apps")
         .accessibilityIdentifier("connect-apps.all-list")
         .task { await load(reset: true) }
@@ -683,6 +691,7 @@ struct ConnectAppsBotsView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .accessibilityIdentifier("connect-apps.bots")
         .task { if model.botStates == nil { await model.loadBots() } }
     }
@@ -799,6 +808,7 @@ struct ConnectAppView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .accessibilityIdentifier("connect-app.page")
         .interactiveDismissDisabled(connect.phase == .signIn)
         .task {
@@ -840,9 +850,10 @@ struct ConnectAppView: View {
                         if connect.phase != .idle { ProgressView() }
                         Text(connect.label ?? (toolkit.needsSignIn ? "Sign In to \(name) Again" : "Connect \(name)")).font(Font.hq(.body).weight(.semibold))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .frame(maxWidth: DeviceWord.isMac ? nil : .infinity, minHeight: DeviceWord.isMac ? nil : 30)
                 }
                 .hqProminentButtonStyle()
+                .frame(maxWidth: .infinity)   // [macpass-settings2] on the Mac a push button at its own width, centred under the app
                 .disabled(connect.phase != .idle)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
@@ -855,7 +866,7 @@ struct ConnectAppView: View {
                 case .unfinished: Text("Sign-in not finished. \(DeviceWord.Tap) Connect to try again.").accessibilityIdentifier("connect-app.outcome")
                 case .needsOwnApp: ownAppNotice
                 default:
-                    Label("You sign in to \(name) in a secure Safari sheet. Composio keeps the sign-in; Hermes HQ never sees your password.", systemImage: "lock.fill")
+                    Label("You sign in to \(name) in a secure \(DeviceWord.isMac ? "browser window" : "Safari sheet"). Composio keeps the sign-in; Hermes HQ never sees your password.", systemImage: "lock.fill")
                         .font(Font.hq(.footnote))
                 }
             }
@@ -1072,6 +1083,7 @@ struct ConnectAppView: View {
                 }
             }
             .disabled(disconnecting)
+            .hqMacFormButton(destructive: true)   // [macpass-settings2] a red push button under the form, as Delete Bot
             .accessibilityIdentifier("connect-app.disconnect")
         } footer: { HQSectionFooter {
             if let disconnectError { Text("Couldn’t disconnect: \(disconnectError)").foregroundStyle(.red) }
@@ -1212,6 +1224,7 @@ struct ConnectAccountView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .accessibilityIdentifier("connect-account.page")
         .task {
             // Asked again on open: a renamed or re-signed account may have changed.
@@ -1250,9 +1263,10 @@ struct ConnectAccountView: View {
                         if connect.phase != .idle { ProgressView() }
                         Text(connect.label ?? "Sign In Again").font(Font.hq(.body).weight(.semibold))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .frame(maxWidth: DeviceWord.isMac ? nil : .infinity, minHeight: DeviceWord.isMac ? nil : 30)
                 }
                 .hqProminentButtonStyle()
+                .frame(maxWidth: .infinity)   // [macpass-settings2] on the Mac a push button at its own width, centred under the app
                 .disabled(connect.phase != .idle || busy)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
@@ -1260,7 +1274,7 @@ struct ConnectAccountView: View {
             } footer: { HQSectionFooter {
                 if case .failed(let reason) = connect.outcome { Text(reason).foregroundStyle(.red) }
                 else if connect.outcome == .needsOwnApp { Text(ComposioSignIn.ownAppMessage(toolkit.name)).foregroundStyle(.red) }
-                else { Text("You sign in to \(toolkit.name) again in a secure Safari sheet.") }
+                else { Text("You sign in to \(toolkit.name) again in a secure \(DeviceWord.isMac ? "browser window" : "Safari sheet").") }
             } }
         }
         Section {
@@ -1294,6 +1308,7 @@ struct ConnectAccountView: View {
         Section {
             Button(disconnecting ? "Disconnecting…" : "Disconnect This Account", role: .destructive) { disconnect(account, title: title) }
                 .disabled(disconnecting || busy)
+                .hqMacFormButton(destructive: true)   // [macpass-settings2] as the app page's Disconnect
                 .accessibilityIdentifier("connect-account.disconnect")
         } footer: { HQSectionFooter {
             Text("Your bots lose access to this \(toolkit.name) account. You can connect it again anytime.")
@@ -1353,6 +1368,7 @@ struct ConnectActionsView: View {
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
+        .hqMacForm(settings: true)   // [macpass-settings2] Settings' column and rows: it ran the pane's whole width
         .searchable(text: $filter, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search actions")
         .accessibilityIdentifier("connect-app.actions-list")
     }

@@ -501,6 +501,9 @@ extension UINavigationItem {
     private func hqKeepClose() {
         #if targetEnvironment(macCatalyst)
         SheetClose.keepTrailing(self)
+        // [macpass-settings2] The magnifier goes to the edge as soon as a page sets its items (#66), not at the bar's
+        // next layout: Settings › Skills and Plugins opened with ⋯ at the edge and swapped once a menu had opened.
+        DesktopBars.searchToEdge(self)
         #endif
     }
 

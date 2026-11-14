@@ -308,10 +308,22 @@ struct MessagingPlatformView: View {
             }
             if platform.id == "telegram", !platform.configured, !model.readOnly {
                 Section {
+                    if DeviceWord.isMac {
+                        // [macpass-settings2] The page's first step as the Mac's blue push button, not a bold link row.
+                        HStack {
+                            Button("Set Up with Telegram") { MessagingPages.openTelegram(model: model) }
+                                .buttonStyle(MacPushButtonStyle(kind: .prominent))
+                                .disabled(!model.canWrite)
+                                .accessibilityIdentifier("messaging.telegram.setup")
+                            Spacer(minLength: 0)
+                        }
+                        .macBareRow()
+                    } else {
                     Button("Set Up with Telegram") { MessagingPages.openTelegram(model: model) }
                         .fontWeight(.semibold)
                         .disabled(!model.canWrite)
                         .accessibilityIdentifier("messaging.telegram.setup")
+                    }
                 } footer: { HQSectionFooter {
                     Text("Hermes creates the bot and finds your Telegram user ID for you. You confirm it in Telegram.")
                 } }
@@ -356,6 +368,22 @@ struct MessagingPlatformView: View {
             }
             if !model.readOnly {
                 Section {
+                    if DeviceWord.isMac {
+                        // [macpass-settings2] On the Mac a push button under the form, not a blue link row in a card,
+                        // with its answer under it on the page.
+                        HStack(spacing: 8) {
+                            Button(model.tests[platform.id] == .running ? "Testing…" : "Test Connection") { model.test(platform.id) }
+                                .buttonStyle(MacPushButtonStyle(kind: .plain))
+                                .disabled(!model.online || model.tests[platform.id] == .running)
+                                .accessibilityIdentifier("messaging.test")
+                            if model.tests[platform.id] == .running { ProgressView().controlSize(.small) }
+                            Spacer(minLength: 0)
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: MacInset.side, bottom: 0, trailing: MacInset.side))
+                        .hqDesktopBareRow()
+                    } else {
                     Button {
                         model.test(platform.id)
                     } label: {
@@ -367,6 +395,7 @@ struct MessagingPlatformView: View {
                     }
                     .disabled(!model.online || model.tests[platform.id] == .running)
                     .accessibilityIdentifier("messaging.test")
+                    }
                     if case .done(let result) = model.tests[platform.id] {
                         Label {
                             Text(result.message).foregroundStyle(result.ok ? Color.green : Color.hqRed)
@@ -379,6 +408,7 @@ struct MessagingPlatformView: View {
                         .padding(.vertical, 6)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("messaging.test.result")
+                        .macBareRow()
                     }
                 }
             }
@@ -493,5 +523,20 @@ struct MessagingPlatformView: View {
         } } footer: { HQSectionFooter {
             if !approved.isEmpty, model.canWrite { Text(DeviceWord.isMac ? "Control\u{2011}click a person to remove them." : "Swipe a person to remove them.") }
         } }
+    }
+}
+
+private extension View {
+    /// [macpass-settings2] On the Mac a row drawn on the page (no card), on the form's text column: Test Connection's
+    /// answer under its push button.
+    @ViewBuilder func macBareRow() -> some View {
+        if DeviceWord.isMac {
+            listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 0, leading: MacInset.side, bottom: 0, trailing: MacInset.side))
+                .hqDesktopBareRow()
+        } else {
+            self
+        }
     }
 }

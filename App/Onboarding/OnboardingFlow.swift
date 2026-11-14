@@ -21,6 +21,13 @@ final class OnboardingStepController: UIHostingController<HQScaledRoot<AnyView>>
     }
 
     @available(*, unavailable) required dynamic init?(coder: NSCoder) { fatalError("not from a storyboard") }
+
+    #if targetEnvironment(macCatalyst)
+    // [macpass-settings2] The sign-in form's own Tab and Shift-Tab (SignInTabKeys).
+    override var keyCommands: [UIKeyCommand]? { step == .connect ? SignInTabKeys.commands : super.keyCommands }
+    @objc func hqSignInTab() { SignInTabKeys.move(back: false) }
+    @objc func hqSignInTabBack() { SignInTabKeys.move(back: true) }
+    #endif
 }
 
 /// The flow's stack. As a sheet it keeps its flow alive until the sheet is closed (nothing else holds it there).

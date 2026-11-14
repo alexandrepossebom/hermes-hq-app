@@ -22,6 +22,8 @@ final class GatewayPageModel {
     @ObservationIgnored let services: any AppServices
     @ObservationIgnored let router: SettingsRouter
     @ObservationIgnored private var token: UUID?
+    /// The rows' order as first shown, kept while the page is open (`refresh`).
+    @ObservationIgnored private var shownOrder: [GatewayAccountRow.ID] = []
     /// Verify round 3: where the Sign Out row is on screen (window coordinates), for its confirmation's arrow.
     @ObservationIgnored var signOutFrame: CGRect = .zero
     /// The page's title changes with the number of gateways (its controller sets it).
@@ -99,6 +101,14 @@ final class GatewayPageModel {
                                       hostAndPort: GatewayNaming.host($0.baseURL, port: true), accountName: name,
                                       isCurrent: true, hasSession: true, news: 0)]
         } ?? []
+        // [macpass-settings2] The rows keep the places they had while the page is open: the store puts the gateway in
+        // use first, so a click on a gateway made it jump to the top and the other one took its place under the pointer.
+        if !shownOrder.isEmpty {
+            let place = Dictionary(uniqueKeysWithValues: shownOrder.enumerated().map { ($1, $0) })
+            rows = rows.enumerated().sorted { (place[$0.element.id] ?? shownOrder.count + $0.offset, $0.offset)
+                < (place[$1.element.id] ?? shownOrder.count + $1.offset, $1.offset) }.map(\.element)
+        }
+        shownOrder = rows.map(\.id)
         switching = gateways?.switchingTo
         if let account = services.account {
             address = account.baseURL.absoluteString

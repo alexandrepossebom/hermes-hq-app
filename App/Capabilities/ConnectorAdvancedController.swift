@@ -79,8 +79,11 @@ struct ConnectorAdvancedView: View {
             }
             if !page.isPlugin, !page.readOnly, page.server != nil {
                 Section {
-                    Button("Remove \(page.name)", role: .destructive) {
-                        TextPrompt.confirm(title: "Remove \(page.name)?", message: "\(page.bot) stops using it. Nothing else is deleted from \(HostWord.phrase).",
+                    // [macpass-settings2] The name the page's title shows ("Test Web", not "test-web"), and on the Mac a red
+                    // push button under the form, as Delete Bot.
+                    let shown = page.server.map { page.parent.title(of: $0) } ?? page.name
+                    Button("Remove \(shown)", role: .destructive) {
+                        TextPrompt.confirm(title: "Remove \(shown)?", message: "\(page.bot) stops using it. Nothing else is deleted from \(HostWord.phrase).",
                                            action: "Remove", style: .actionSheet, from: router.presenter) {
                             page.remove {
                                 guard let navigation = router.navigation,
@@ -89,6 +92,7 @@ struct ConnectorAdvancedView: View {
                             }
                         }
                     }
+                    .hqMacFormButton(destructive: true)
                     .accessibilityIdentifier("connector-remove")
                 }
             }
@@ -96,6 +100,7 @@ struct ConnectorAdvancedView: View {
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
         .task { await load() }
+        .hqMacForm(settings: page.parent.settingsPage)   // [macpass-settings2] the list's column, not the pane's width
     }
 
     private func load() async {

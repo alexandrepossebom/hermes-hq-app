@@ -112,7 +112,7 @@ extension CloudGatewayModel {
     /// to the version it answers with afterwards.
     func askUpdate(_ agent: CloudAgent) {
         HermesUpdateCenter.shared.updateCloud(id: agent.id, name: agent.name, read: { [weak self] in await self?.hermesVersion(agent) },
-                                              go: { [weak self] run in self?.updateHermes(agent, run: run) }, from: nil)
+                                              go: { [weak self] run in self?.updateHermes(agent, run: run) }, from: presenter?())
     }
 
     /// [update-flow] The agent's Hermes version from its own `/api/status`: through its saved gateway's sign-in when

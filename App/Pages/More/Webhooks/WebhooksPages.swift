@@ -233,13 +233,27 @@ enum WebhooksPages {
             composeLabel: "New Webhook", composeSymbol: "plus"))
         capsule.install()
         search.capsule = capsule
-        capsule.composeItem?.isHidden = true
-        capsule.searchItem?.isHidden = true
+        // [macpass-settings2] The Mac's bar never shows an item that was hidden (or missing) when the page went up: in
+        // Settings › Webhooks neither + nor the magnifier ever came, with three webhooks and the receiver on, though
+        // both were unhidden and set again. On the Mac both stay on the bar, dimmed while they can't be used, as a Mac
+        // toolbar's items are; the iPhone hides them.
+        let mac = DeviceWord.isMac
+        capsule.composeItem?.isHidden = !mac
+        capsule.searchItem?.isHidden = !mac
+        capsule.composeItem?.isEnabled = !mac
+        capsule.searchItem?.isEnabled = !mac
         model.onChange = { [weak model, weak capsule] in
             // "+" shows only when a webhook can be made: a writable gateway with the receiver on.
-            capsule?.composeItem?.isHidden = !(model?.canCreate ?? false)
+            let compose = model?.canCreate ?? false
             // Search shows when there is something to search.
-            capsule?.searchItem?.isHidden = (model?.routes.isEmpty ?? true)
+            let search = !(model?.routes.isEmpty ?? true)
+            if mac {
+                capsule?.composeItem?.isEnabled = compose
+                capsule?.searchItem?.isEnabled = search
+            } else {
+                capsule?.composeItem?.isHidden = !compose
+                capsule?.searchItem?.isHidden = !search
+            }
         }
         page.retained = [model, search, capsule]
         page.keyRefresh = { [weak model] in Task { await model?.refresh() } }   // [Mac UI check 2026-11-13] ⌘R, as a pull (the Mac has no pull)
@@ -466,14 +480,26 @@ struct WebhookDetailView: View {
                     Text(!model.online && !model.readOnly ? MorePages.offlineFooter : "A webhook that is off rejects incoming events.")
                 } }
                 Section {
-                    Text(route.url.isEmpty ? "Not Known" : route.url)
+                    let url = Text(route.url.isEmpty ? "Not Known" : route.url)
                         .font(Font.hq(.footnote).monospaced())
                         .foregroundStyle(Color.hqLabel)
                         .textSelection(.enabled)
                         .padding(.vertical, 6)
                         .accessibilityIdentifier("webhooks.detail.url")
-                    if !route.url.isEmpty {
-                        Button("Copy URL") { model.copyURL(route) }.accessibilityIdentifier("webhooks.detail.copy")
+                    if DeviceWord.isMac, !route.url.isEmpty {
+                        // [macpass-settings2] On the Mac a small Copy push button in the URL's row, not a blue link row.
+                        HStack(spacing: 12) {
+                            url.frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Copy") { model.copyURL(route) }
+                                .buttonStyle(MacPushButtonStyle(kind: .plain)).fixedSize()
+                                .accessibilityLabel("Copy URL")
+                                .accessibilityIdentifier("webhooks.detail.copy")
+                        }
+                    } else {
+                        url
+                        if !route.url.isEmpty {
+                            Button("Copy URL") { model.copyURL(route) }.accessibilityIdentifier("webhooks.detail.copy")
+                        }
                     }
                 } header: { HQSectionLabel { Text("Webhook URL") } }
                 Section {
@@ -506,6 +532,7 @@ struct WebhookDetailView: View {
                             }
                         }
                         .disabled(!model.canWrite || model.isBusy(route.name))
+                        .hqMacFormButton(destructive: true)   // [macpass-settings2] a red push button under the form, as Delete Bot
                         .accessibilityIdentifier("webhooks.detail.delete")
                     }
                 }
@@ -530,7 +557,10 @@ struct WebhookDetailView: View {
                 Text(value).foregroundStyle(Color.hqLabel2).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.vertical, 4)
+        // [macpass-settings2] The Mac form's row height, as Bot Profiles' facts: the extra 4 pt made these rows a third
+        // taller than every other Settings row.
+        .padding(.vertical, DeviceWord.isMac ? 0 : 4)
+        .hqMacFormRowHeight()
         .accessibilityElement(children: .combine)
     }
 }
@@ -689,22 +719,14 @@ struct WebhookCreatedView: View {
             }
             if !created.url.isEmpty {
                 Section {
-                    Text(created.url).font(Font.hq(.footnote).monospaced()).foregroundStyle(Color.hqLabel).textSelection(.enabled)
-                        .padding(.vertical, 6)
-                        .accessibilityIdentifier("webhooks.created.url")
-                    Button(copied == "url" ? "Copied" : "Copy") { copy(created.url, "url") }
-                        .accessibilityIdentifier("webhooks.created.copy-url")
+                    copyable(created.url, what: "url")
                 } header: { HQSectionLabel { Text("Webhook URL") } }
             }
             Section {
                 if created.secret.isEmpty {
                     Text("Your gateway didn’t send a secret for this webhook.").foregroundStyle(Color.hqLabel2).padding(.vertical, 6)
                 } else {
-                    Text(created.secret).font(Font.hq(.footnote).monospaced()).foregroundStyle(Color.hqLabel).textSelection(.enabled)
-                        .padding(.vertical, 6)
-                        .accessibilityIdentifier("webhooks.created.secret")
-                    Button(copied == "secret" ? "Copied" : "Copy") { copy(created.secret, "secret") }
-                        .accessibilityIdentifier("webhooks.created.copy-secret")
+                    copyable(created.secret, what: "secret")
                 }
             } header: { HQSectionLabel { Text("Secret") } }
         }.hqMacSettingsRowInsets() }
@@ -713,6 +735,26 @@ struct WebhookCreatedView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done", action: done).keyboardShortcut(.return, modifiers: .command).fontWeight(.semibold).accessibilityIdentifier("webhooks.created.done")
             }
+        }
+    }
+
+    /// The value in monospaced type and its Copy: on the Mac a small push button at the value's trailing edge, in its
+    /// row ([macpass-settings2]: a blue "Copy" link row under each value read as the iPhone's); a row of its own elsewhere.
+    @ViewBuilder private func copyable(_ value: String, what: String) -> some View {
+        let text = Text(value).font(Font.hq(.footnote).monospaced()).foregroundStyle(Color.hqLabel).textSelection(.enabled)
+            .padding(.vertical, 6)
+            .accessibilityIdentifier("webhooks.created.\(what)")
+        let button = Button(copied == what ? "Copied" : "Copy") { copy(value, what) }
+            .accessibilityLabel(copied == what ? "Copied" : (what == "url" ? "Copy URL" : "Copy Secret"))
+            .accessibilityIdentifier("webhooks.created.copy-\(what)")
+        if DeviceWord.isMac {
+            HStack(spacing: 12) {
+                text.frame(maxWidth: .infinity, alignment: .leading)
+                button.buttonStyle(MacPushButtonStyle(kind: .plain)).fixedSize()
+            }
+        } else {
+            text
+            button
         }
     }
 

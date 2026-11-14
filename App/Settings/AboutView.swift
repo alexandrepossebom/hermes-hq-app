@@ -137,7 +137,7 @@ struct AboutView: View {
     }
 }
 
-/// A link that opens in Safari inside the app.
+/// A link out of the app: the Safari view on the iPhone, or the browser Settings › Open Links In chose.
 struct LinkRow: View {
     var title: String
     var url: URL
@@ -160,7 +160,15 @@ struct LinkRow: View {
             .padding(.vertical, DeviceWord.isMac ? 0 : 4)
         }
         .hqMacFormRowHeight()   // [mac] Stress test 2026-10-28 round 8
-        .accessibilityHint("Opens \(url.host() ?? "the page") in Safari.")
+        .accessibilityHint(hint)
+    }
+
+    /// [macpass-settings2] The help said "in Safari" on the Mac whatever browser opens it (Settings › Open Links In,
+    /// or the Mac's default browser): now the one that will.
+    private var hint: String {
+        let host = url.host() ?? "the page"
+        if case .inApp = LinkOpener.choice { return "Opens \(host) in the app." }
+        return "Opens \(host) in \(LinkOpener.outsideTitle.replacingOccurrences(of: "Open in ", with: ""))."
     }
 }
 
@@ -245,9 +253,12 @@ struct LicenseTextView: View {
                     .accessibilityIdentifier("license.text")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, DeviceWord.isMac ? 0 : 20)
             .padding(.vertical, 16)
         }
+        // [macpass-settings2] On the Mac the text ran the whole pane (~760 pt lines, from the sidebar's edge) while the
+        // list it opened from is the centred readable column: the same column now.
+        .hqMacReadableColumn()
         .background(Color.hqGroupedPage)
         .task {
             let raw = notice.text

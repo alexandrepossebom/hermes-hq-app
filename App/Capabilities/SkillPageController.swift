@@ -5,9 +5,10 @@ import SwiftUI
 import UIKit
 
 final class SkillPageController: UIHostingController<HQScaledRoot<SkillPageView>> {
-    init(model: CapabilitiesModel, skill: SkillInfo) {
+    /// `settingsPage`: opened under Settings, so on the Mac its rows are Settings' rows (as the list it came from).
+    init(model: CapabilitiesModel, skill: SkillInfo, settingsPage: Bool = false) {
         let page = SkillPageModel(model: model, skill: skill)
-        super.init(rootView: HQScaledRoot(SkillPageView(page: page)))
+        super.init(rootView: HQScaledRoot(SkillPageView(page: page, settingsPage: settingsPage)))
         title = DisplayName.title(skill.name)
         navigationItem.largeTitleDisplayMode = .never
         page.host = self
@@ -74,7 +75,7 @@ final class SkillPageModel {
     }
 
     func uninstall() {
-        TextPrompt.confirm(title: "Uninstall \(name)?", message: nil, action: "Uninstall", from: host) { [weak self] in
+        TextPrompt.confirm(title: "Uninstall \(DisplayName.title(name))?", message: nil, action: "Uninstall", from: host) { [weak self] in
             guard let self else { return }
             self.model.uninstall(self.name) { [weak self] in self?.host?.navigationController?.popViewController(animated: true) }
         }
@@ -83,6 +84,7 @@ final class SkillPageModel {
 
 struct SkillPageView: View {
     @Bindable var page: SkillPageModel
+    var settingsPage = false
 
     var body: some View {
         List {
@@ -109,12 +111,27 @@ struct SkillPageView: View {
             }
             if page.skill?.provenance == "hub" {
                 Section {
+                    // [macpass-settings2] While the gateway removes it (some seconds) the page says so: a greyed button
+                    // alone read as a dead click.
+                    if page.model.running.contains(page.name) {
+                        let busy = HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Uninstalling…").foregroundStyle(Color.hqLabel2) }
+                        if DeviceWord.isMac {   // where the push button stood, not in a card of its own
+                            busy.listRowBackground(Color.clear).listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 0, leading: MacInset.side, bottom: 0, trailing: 0)).hqDesktopBareRow()
+                        } else {
+                            busy
+                        }
+                    } else {
                     Button("Uninstall", role: .destructive) { page.uninstall() }
-                        .disabled(page.model.running.contains(page.name))
+                        .hqMacFormButton(destructive: true)   // [macpass-settings2] a red push button under the form, as Delete Bot
+                    }
                 }
             }
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
+        // [macpass-settings2] The readable column and small switch of the list it opens from: the skill's page ran the
+        // pane's whole width, its cards 60 pt further left than Skills' own.
+        .hqMacForm(settings: settingsPage)
         .listStyle(.insetGrouped)
         .onAppear { if page.content == nil { page.load() } }
     }

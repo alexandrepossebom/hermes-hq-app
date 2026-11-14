@@ -161,6 +161,7 @@ struct SkillCatalogEntryView: View {
         .hqGroupedPage()
         .listStyle(.insetGrouped)
         .accessibilityIdentifier("skill-catalog.page")
+        .hqMacForm(settings: page.parent.settingsPage)   // [macpass-settings2] the list's column, not the pane's width
     }
 
     // [marketplace] Install To stands in its own card: in the same section as the clear button row, the card ended

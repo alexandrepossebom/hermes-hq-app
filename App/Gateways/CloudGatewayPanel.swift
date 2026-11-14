@@ -44,6 +44,7 @@ extension CloudGatewayFlow {
                 controller.navigationItem.title = shown ? controller.title : ""
             }
         }
+        model.presenter = { [weak router] in router?.presenter }
         model.onConfirm = { [weak router] title, message, action, destructive, done in
             guard let host = FailureAlert.topmost(router?.presenter) else { return }
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
@@ -295,7 +296,23 @@ private struct CloudPanelAgent: View {
                 .disabled(!model.can(.updateEnv))
                 .accessibilityIdentifier("gateway.cloud.variables")
             if model.can(.setFeature) { teamGateway }
-            if model.can(.updateImage) {
+            if model.can(.updateImage), DeviceWord.isMac {
+                // [macpass-settings2] On the Mac a blue link-word row read as a web link: the words stay a plain row,
+                // and the action is a push button at its trailing end (it asks first, so "Update…").
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(CloudCopy.updateWord).font(Font.hq(.body)).foregroundStyle(Color.hqLabel)
+                        Text(CloudCopy.updateDetail(agent)).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Update…") { model.askUpdate(agent) }
+                        .hqMacPushButton()
+                        .fixedSize()
+                        .accessibilityLabel(CloudCopy.updateWord)
+                        .accessibilityIdentifier("gateway.cloud.update")
+                }
+            } else if model.can(.updateImage) {
                 Button { model.askUpdate(agent) } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(CloudCopy.updateWord).font(Font.hq(.body)).foregroundStyle(Color.hqTintText)

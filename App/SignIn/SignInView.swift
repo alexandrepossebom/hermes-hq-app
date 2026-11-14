@@ -13,7 +13,7 @@ enum SignInScreen {
         let model = SignInModel(driver: driver, address: initialAddress, onSignedIn: onSignedIn)
         model.username = initialUsername
         if let notice { model.showNotice(notice) }
-        let controller = UIHostingController(rootView: SignInView(model: model))
+        let controller = SignInHostController(rootView: SignInView(model: model))
         controller.view.backgroundColor = HQPalette.page
         return controller
     }
@@ -297,6 +297,8 @@ struct SignInView: View {
     @Bindable var model: SignInModel
     @FocusState private var focus: SignInModel.Field?
     @State private var nameText = ""
+    /// Return in the address before its answer came: the answer moves on to the username (`addressSubmitted`).
+    @State private var awaitingWays = false
     @AccessibilityFocusState private var spoken: SignInModel.Field?   // [a11y]
     @AccessibilityFocusState private var errorSpoken: Bool
     @ScaledMetric(relativeTo: .body) private var fieldHeight: CGFloat = 50
@@ -385,6 +387,19 @@ struct SignInView: View {
                     focus = next
                     return .handled
                 }
+                // [macpass-settings2] The handler above never hears Tab from inside a field (the field's own key loop
+                // takes it first, and went from Username back to the address): the controller's Tab key does it.
+                .onAppear {
+                    SignInTabKeys.mover = { back in
+                        if let next = tabTarget(back: back, from: SignInTabKeys.currentField()) { focus = next }
+                    }
+                    // [macpass-settings2] Add Gateway… and the first run opened with no field focused: typing the
+                    // address went nowhere until the field was clicked. A Mac form starts in its first field.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(400))
+                        if focus == nil, model.ways == nil { focus = .address }
+                    }
+                }
                 #endif
             }
             .padding(.horizontal, 24)
@@ -397,6 +412,13 @@ struct SignInView: View {
             .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: model.notice)
         }
         .scrollDismissesKeyboard(.interactively)
+        // [macpass-settings2] Return in the address before the address had been asked about left no field focused when
+        // the answer came: the username typed next went nowhere, and Tab then selected the address.
+        .onChange(of: model.ways) { _, ways in
+            guard awaitingWays, ways != nil else { return }
+            awaitingWays = false
+            if ways?.showsPassword == true, model.username.isEmpty { focus = .username }
+        }
         // [a11y] After a failure VoiceOver lands on the field at fault, or on the message when no field is.
         .onChange(of: model.error) { _, error in
             guard let error, !error.isEmpty else { return }
@@ -634,14 +656,17 @@ struct SignInView: View {
     }
 
     /// [macpass-settings r2] The fields on show, top to bottom: where Tab (Shift-Tab: `back`) goes from the focused one.
-    private func tabTarget(back: Bool) -> SignInModel.Field? {
+    /// `from`: the field being typed in, when known (`SignInTabKeys.currentField`); else the form’s focus.
+    private func tabTarget(back: Bool, from: SignInModel.Field? = nil) -> SignInModel.Field? {
         var order: [SignInModel.Field] = [.address]
         if model.accessOpen { order += [.accessId, .accessSecret] }
         if let ways = model.ways, !model.behindAccess {
             if ways == .nous { order.append(.name) }
             if ways.showsPassword { order += [.username, .password, .name] }
         }
-        guard let current = focus, let index = order.firstIndex(of: current) else { return order.first }
+        // Not knowing where Tab came from, it goes nowhere: going to the address selected it, so what was typed next
+        // (a password) replaced the address, on show.
+        guard let current = from ?? focus, let index = order.firstIndex(of: current) else { return nil }
         let next = back ? index - 1 : index + 1
         return order.indices.contains(next) ? order[next] : order[back ? order.count - 1 : 0]
     }
@@ -652,7 +677,8 @@ struct SignInView: View {
         model.ask()
         switch model.ways {
         case .nous where model.waysAreCurrent: focus = nil; model.signInWithNous()
-        case .nous, nil: focus = nil
+        case .nous: focus = nil
+        case nil: focus = nil; awaitingWays = true
         case .password, .both: focus = .username
         }
     }
@@ -701,3 +727,54 @@ struct NousOtherAccountLink: View {
         .accessibilityIdentifier(id)
     }
 }
+
+#if targetEnvironment(macCatalyst)
+/// [macpass-settings2] Tab and Shift-Tab in the sign-in form on the Mac. The fields' own key loop went from Username back
+/// to the address and selected it, so the password typed next replaced the address, on show. The controller hosting
+/// the form takes Tab first (`wantsPriorityOverSystemBehavior`) and the form moves its focus down or up its fields.
+@MainActor enum SignInTabKeys {
+    /// Set by the form on show: moves the focus from the field being typed in.
+    static var mover: ((_ back: Bool) -> Void)?
+
+    static let commands: [UIKeyCommand] = [false, true].map { back in
+        let command = UIKeyCommand(input: "\t", modifierFlags: back ? .shift : [],
+                                   action: back ? #selector(OnboardingStepController.hqSignInTabBack)
+                                                : #selector(OnboardingStepController.hqSignInTab))
+        command.wantsPriorityOverSystemBehavior = true
+        return command
+    }
+
+    static func move(back: Bool) { mover?(back) }
+
+    /// The field being typed in, from the first responder's placeholder (the fields' words are all different).
+    static func currentField() -> SignInModel.Field? {
+        FirstResponderFinder.found = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.hqSignInFindFirstResponder), to: nil, from: nil, for: nil)
+        guard let field = FirstResponderFinder.found as? UITextField, let placeholder = field.placeholder else { return nil }
+        switch placeholder {
+        case SignInCopy.Access.clientId: return .accessId
+        case SignInCopy.Access.clientSecret: return .accessSecret
+        case "Username": return .username
+        case "Password": return .password
+        case OnboardingCopy.namePlaceholder: return .name
+        case "my-mac.tail1234.ts.net": return .address
+        default: return nil
+        }
+    }
+}
+
+@MainActor private enum FirstResponderFinder { static weak var found: UIResponder? }
+
+extension UIResponder {
+    @objc fileprivate func hqSignInFindFirstResponder() { FirstResponderFinder.found = self }
+}
+
+/// The standalone sign-in screen's host, with the form's Tab keys.
+final class SignInHostController<Content: View>: UIHostingController<Content> {
+    override var keyCommands: [UIKeyCommand]? { SignInTabKeys.commands }
+    @objc func hqSignInTab() { SignInTabKeys.move(back: false) }
+    @objc func hqSignInTabBack() { SignInTabKeys.move(back: true) }
+}
+#else
+final class SignInHostController<Content: View>: UIHostingController<Content> {}
+#endif

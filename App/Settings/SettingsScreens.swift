@@ -89,7 +89,14 @@ enum KanbanTabOverride: String, CaseIterable, Identifiable {
         #if targetEnvironment(macCatalyst)
         // [mac] Settings has its own window (⌘,): Voice Settings…, Fix… and Manage Gateways… push their page there, as
         // Add Provider… does, not over a second Settings in a sheet that could disagree with it (Mac polish #35).
-        if MacSettingsWindow.open(then: { router in if let navigation = router.navigation { then?(navigation) } }) { return }
+        // [macpass-settings2] The window's own stack, whose first page is the Settings root the callers look for: in two
+        // columns `router.navigation` is the right side's stack (a hosting page first), so Voice Settings…, Fix… and
+        // Manage Gateways… only brought the window forward. The callers push through the root's router (that side).
+        // The pages they push (Voice, Text to Speech, Add Provider) are Hermes pages, so the column marks Hermes and
+        // Back names it, not whichever category was on show.
+        if MacSettingsWindow.open(category: then == nil ? nil : .gateway, then: { router in
+            if let navigation = MacSettingsWindow.root?.navigationController ?? router.navigation { then?(navigation) }
+        }) { return }
         #endif
         if openInPane(from: presenter, then: then) { return }   // [m9/ipad]
         let root = SettingsRootController(services: services)
@@ -131,6 +138,12 @@ enum KanbanTabOverride: String, CaseIterable, Identifiable {
 
     /// Settings with the Gateway page pushed (the title menu's Manage Gateways…).
     static func presentGateways(from presenter: UIViewController, services: any AppServices) {
+        #if targetEnvironment(macCatalyst)
+        // [macpass-settings2] As the gateway card opens it: the card marked, the page the right side's root.
+        if MacSettingsWindow.open(then: { router in
+            if let open = MacSettingsWindow.root?.model.openGateway { open() } else { router.push(GatewayPageController(services: services, router: router)) }
+        }) { return }
+        #endif
         presentSettings(from: presenter, services: services) { navigation in
             guard let root = navigation.viewControllers.first as? SettingsRootController else { return }
             root.router.push(GatewayPageController(services: services, router: root.router))

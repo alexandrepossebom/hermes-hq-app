@@ -228,14 +228,34 @@ struct AddConnectorView: View {
                 Text(draft.kind == .web ? "A service on the internet." : "A program on the computer running Hermes.")
             } }
             if draft.kind == .web { web } else { command }
+            if DeviceWord.isMac {
+                // [macpass-settings2] The Mac's default push button at the form's trailing edge, not an iPhone row
+                // button stretched across the sheet.
+                Section {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button(state.adding ? "Adding…" : "Add") { state.add() }
+                            .buttonStyle(MacPushButtonStyle(kind: .prominent))
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(!state.canAdd)
+                            .accessibilityIdentifier("add-connector.add")
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .hqDesktopBareRow()
+                }
+            } else {
             Section {
                 Button(state.adding ? "Adding…" : "Add") { state.add() }
                     .frame(maxWidth: .infinity)
                     .disabled(!state.canAdd)
                     .accessibilityIdentifier("add-connector.add")
             }
+            }
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
+        // [macpass-settings2] On the Mac Return in a field adds, as a sheet's default button does.
+        .onSubmit { if DeviceWord.isMac, state.canAdd, !state.adding { state.add() } }
         .disabled(state.adding)
         .scrollDismissesKeyboard(.interactively)
     }
@@ -287,7 +307,7 @@ struct AddConnectorView: View {
     }
 
     @ViewBuilder private func pairs(_ title: String, add: String, list: Binding<[ConnectorDraft.Pair]>, secretValues: Bool) -> some View {
-        Section(title) {
+        Section {   // [macpass-settings2] the small capitals header of the sheet's other sections, not "Headers" in body type
             ForEach(list) { $pair in
                 HStack(spacing: 10) {
                     TextField("KEY", text: $pair.key).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -303,6 +323,6 @@ struct AddConnectorView: View {
             }
             .onDelete { list.wrappedValue.remove(atOffsets: $0) }
             Button(add, systemImage: "plus") { list.wrappedValue.append(.init()) }
-        }
+        } header: { HQSectionLabel { Text(title) } }
     }
 }

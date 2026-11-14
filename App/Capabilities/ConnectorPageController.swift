@@ -496,6 +496,7 @@ struct ConnectorPageView: View {
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
         .accessibilityIdentifier("connector-page")
+        .hqMacForm(settings: page.parent.settingsPage)   // [macpass-settings2] the list's column, not the pane's width
         .safeAreaInset(edge: .bottom) {
             if page.dirty {
                 HStack(spacing: 12) {
