@@ -39,6 +39,8 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
         hasModes
         #endif
     }
+    /// [mac] Kept by itself: a chat's sheet (ChatSheet.wrap) puts Done first on the Mac's trailing side, so
+    /// `rightBarButtonItem` there is Done and Share stayed dimmed after the file had loaded.
     private var shareButton: UIBarButtonItem?
 
     /// The chat's layout manager draws the Preview's code: inline code in the chat's rounded box (the system text view
@@ -54,9 +56,6 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
     private let mode = ArtifactFilterChoice()
     private var text = ""
     private var loaded = false
-    /// [mac] Kept by itself: a chat's sheet (ChatSheet.wrap) puts Done first on the Mac's trailing side, so
-    /// `rightBarButtonItem` there is Done and Share stayed dimmed after the file had loaded.
-    private weak var shareButton: UIBarButtonItem?
     private var loadTask: Task<Void, Never>?
     /// Rendered Markdown Preview per text size and appearance (switching Preview / Source never renders again).
     private var previews: [String: NSAttributedString] = [:]
@@ -227,7 +226,13 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
     /// [mac] Preview | Source beside Share in the bar; gone while the file couldn't be read (nothing to switch).
     private func placeModesInBar(_ shown: Bool) {
         guard let share = shareButton else { return }
-        navigationItem.rightBarButtonItems = shown ? [share, modeItem].compactMap { $0 } : [share]
+        // Whatever else sits there stays (a chat's sheet has Done first): only the switch comes and goes, after Share.
+        var items = (navigationItem.rightBarButtonItems ?? [share]).filter { $0 !== modeItem }
+        if shown, let modeItem {
+            let at = items.firstIndex { $0 === share }.map { $0 + 1 } ?? items.count
+            items.insert(modeItem, at: at)
+        }
+        navigationItem.rightBarButtonItems = items
     }
 
     /// The HTML Preview: the page drawn live, its scripts running (`HTMLPageSheet`'s web view; Quick Look drew a
