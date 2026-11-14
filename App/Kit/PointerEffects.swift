@@ -152,6 +152,7 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
     private weak var hovered: UIView?
     private let fill = UIView()
     private var offset: NSKeyValueObservation?
+    private var size: NSKeyValueObservation?
     private weak var recognizer: UIHoverGestureRecognizer?
 
     static func rows(_ list: UIScrollView) {
@@ -226,6 +227,12 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
         // A wheel scroll under a still pointer moves the rows, not the pointer: the fill follows the row now under it.
         offset = list.observe(\.contentOffset) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.update() }
+        }
+        // [macpass-lists] A list laid out again under a still pointer (Tasks' table turning into its column as a task
+        // opens) gave the hovered cell to another row: the fill stayed on it, a grey row nothing pointed at. It goes
+        // to the row now under the pointer once the rows have settled.
+        size = list.observe(\.contentSize) { [weak self] _, _ in
+            MainActor.assumeIsolated { DispatchQueue.main.async { self?.update() } }
         }
     }
 
