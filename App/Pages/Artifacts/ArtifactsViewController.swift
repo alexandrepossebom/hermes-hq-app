@@ -241,6 +241,13 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 self.redrawTile(id)
             }
         }
+        // [tiles] Paused, resumed, run now or a new schedule from a tile's menu: its mark follows at once.
+        NotificationCenter.default.addObserver(forName: TileUpdates.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.pinnedOnly, self.viewIfLoaded?.window != nil else { return }
+                self.watchTiles(true)
+            }
+        }
         scopeObserver = scope.observe { [weak self] _ in self?.scopeChanged() }
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (vc: ArtifactsViewController, _) in vc.reload(animated: false) }
         // [mac] UI Scale (⌘+ / ⌘−) or the look changed: the Grid's cells and the pages in them follow the app's scale.
@@ -915,8 +922,17 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 }
             }
             cell.contentConfiguration = content
-            cell.accessories = [.outlineDisclosure(options: .init(style: .cell, tintColor: HQPalette.label3))]
+            // Mac pass round 3: an outline disclosure turns only for a section snapshot's own folding; this group folds
+            // by its own flag, so the arrow kept pointing right with the group open. Its own arrow, turned by that flag.
+            let arrow = UIImageView(image: UIImage(systemName: "chevron.right",
+                                                   withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote).applying(UIImage.SymbolConfiguration(weight: .semibold))))
+            arrow.tintColor = HQPalette.label3
+            arrow.isAccessibilityElement = false   // the row says open or closed
+            arrow.transform = Self.unavailableArrowTurn(open: self?.unavailableOpen ?? false)
+            cell.accessories = [.customView(configuration: .init(customView: arrow, placement: .leading(displayed: .always),
+                                                                 reservedLayoutWidth: .actual))]
             cell.accessibilityIdentifier = "artifacts.unavailable"
+            cell.accessibilityTraits = [.button]
             cell.accessibilityValue = (self?.unavailableOpen ?? false) ? "open" : "closed"
             cell.backgroundConfiguration = .clear()
         }
@@ -1210,12 +1226,15 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         // [tiles] Its name in words; the record (and so the file it opens) unchanged.
         var shown = pin.record
         shown.label = pins.name(pin)
+        // [tiles] Mac pass 2026-11-14: List showed no mark for a failed or paused tile (Grid and Cards did).
+        let health = failed && pin.isPage ? .failed(TileHealthMark.goneWords) : TileUpdates.shared.health(pin.id)
         cell.contentConfiguration = UIHostingConfiguration {
-            ArtifactRowView(record: shown, subtitle: subtitle, busy: busy, missing: failed, pinned: true) { [weak self, weak cell] in
+            ArtifactRowView(record: shown, subtitle: subtitle, busy: busy, missing: failed, pinned: true, health: health) { [weak self, weak cell] in
                 self?.pinMenu(pin, anchor: cell) ?? UIMenu(children: [])
             }
         }.margins(.all, 0)
         cell.accessibilityIdentifier = "pin-row-\(pin.label)"
+        cell.accessibilityValue = TileHealthMark.words(health)
         cell.accessibilityCustomActions = liveButtonActions(pin) + pinAccessibilityActions(pin)
         cell.configurationUpdateHandler = { cell, state in
             #if targetEnvironment(macCatalyst)
@@ -1607,6 +1626,10 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     private func openPinnedPage() {
         guard let services, let navigation = navigationController else { return }
         PagesHaptics.selection()
+        #if targetEnvironment(macCatalyst)
+        // [mac] Mac pass round 3: pushed, a second Pinned page sat in Artifacts' pane. Tiles is a sidebar place.
+        if openMacPlace("tab-page-pinned") { return }
+        #endif
         let page = ArtifactsViewController(store: store, scope: scope, services: services, pinnedOnly: true, fixedProfile: fixedProfile,
                                            makeChat: makeChat)
         page.showInChatOverride = showInChatOverride
@@ -1622,18 +1645,24 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         // [mac] Mac pass 2026-11-14: pushed, Artifacts landed in the right pane beside Tiles and stayed there after
         // other places were clicked (Tiles came back as a narrow list beside a second Artifacts, not No Tile Open).
         // Artifacts is a place in the sidebar: it opens as its row's click opens it.
-        if let root = view.window.flatMap({ AppRoot.tabs($0) }) ?? MainTabController.current,
-           let tab = root.placedTabs.first(where: { $0.tabBarItem.accessibilityIdentifier == "tab-page-artifacts" }) {
-            if let split = root.split { split.switchPlace(to: tab) { root.pick(tab) } } else { root.pick(tab) }
-            (tab as? UINavigationController)?.popToRootViewController(animated: false)
-            return
-        }
+        if openMacPlace("tab-page-artifacts") { return }
         #endif
         let page = ArtifactsViewController(store: store, scope: scope, services: services, fixedProfile: fixedProfile, makeChat: makeChat)
         page.showInChatOverride = showInChatOverride
         page.navigationItem.largeTitleDisplayMode = .never
         navigation.pushViewController(page, animated: true)
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// [mac] Selects a sidebar place (its tab's identifier) as its row's click does, at its root. False when absent.
+    private func openMacPlace(_ identifier: String) -> Bool {
+        guard let root = view.window.flatMap({ AppRoot.tabs($0) }) ?? MainTabController.current,
+              let tab = root.placedTabs.first(where: { $0.tabBarItem.accessibilityIdentifier == identifier }) else { return false }
+        if let split = root.split { split.switchPlace(to: tab) { root.pick(tab) } } else { root.pick(tab) }
+        (tab as? UINavigationController)?.popToRootViewController(animated: false)
+        return true
+    }
+    #endif
 
     /// [pins] The Dashboard page's header: "1 Item", "3 Items".
     static func itemCount(_ count: Int) -> String { count == 1 ? "1 Item" : "\(count) Items" }
@@ -2083,21 +2112,24 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         // the middle with its title held there. One taller than the room under the title is centred whole instead.
         let whole = parts.above + parts.title + parts.below
         margins.top = max(40, min(margins.top, (visible - whole) / 2 - above))
-        stateMarginsHeight = collectionView.bounds.height
+        stateMarginsSize = collectionView.bounds.size
         return margins
     }
-    /// [mac] The list height the state cell was last laid out for: a resize lays it out again.
-    private var stateMarginsHeight: CGFloat = 0
+    /// [mac] The list size the state cell was last laid out for: a resize lays it out again. The width too (Mac pass
+    /// round 3): Tiles empty, a chat opened beside it narrowed the list, and the state kept the wide list's side margins,
+    /// which left it no room at all: the column went blank, New Tile with it.
+    private var stateMarginsSize: CGSize = .zero
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if barFilterHost, dataSource != nil { placeBarFilter() }
         // [mac] Stress test 2026-10-28 #9: the window grew or shrank under an empty state; centre it again.
         guard DeviceWord.isMac, let collectionView, let dataSource,
-              abs(collectionView.bounds.height - stateMarginsHeight) > 1 else { return }
+              abs(collectionView.bounds.height - stateMarginsSize.height) > 1
+                || abs(collectionView.bounds.width - stateMarginsSize.width) > 1 else { return }
         var snapshot = dataSource.snapshot()
         guard snapshot.itemIdentifiers.contains(.state) else { return }
-        stateMarginsHeight = collectionView.bounds.height
+        stateMarginsSize = collectionView.bounds.size
         snapshot.reconfigureItems([.state])
         dataSource.apply(snapshot, animatingDifferences: false)
     }
@@ -2159,6 +2191,11 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         return true
     }
 
+    /// The Unavailable group's arrow: right when folded, down when open.
+    static func unavailableArrowTurn(open: Bool) -> CGAffineTransform {
+        open ? CGAffineTransform(rotationAngle: .pi / 2) : .identity
+    }
+
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: !isGrid)
         if isGrid { restoreMark() }
@@ -2179,7 +2216,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         case .unavailableToggle?:
             PagesHaptics.selection()
             unavailableOpen.toggle()
-            reload(animated: true)
+            reload(animated: true)   // the toggle row is drawn again there (its arrow turns)
         default: break
         }
     }
@@ -2840,6 +2877,8 @@ struct ArtifactRowView: View {
     var missing: Bool
     /// [pins] A pin after the count, before ⋯.
     var pinned: Bool = false
+    /// [tiles] A tile's mark (failed, late, paused, updating), as its Grid tile and card wear it.
+    var health: TileJobs.Health = .none
     /// [mac-tools] A card of the Mac's grid: its own edges, so less room at the sides.
     var card: Bool = false
     /// [artifact-rows] The chat and the time apart, for the edged row.
@@ -2911,6 +2950,7 @@ struct ArtifactRowView: View {
             }
             // Mac polish #117: the pin after the count, beside ⋯, so the pins stand in one column whether a row has a
             // count or not.
+            TileHealthMark(health: health)
             if pinned {
                 Image(systemName: "pin.fill").hqSymbolFont(12, cap: 18).foregroundStyle(Color.hqOrange)
                     .accessibilityLabel("Pinned").accessibilityIdentifier("artifact-pinned")

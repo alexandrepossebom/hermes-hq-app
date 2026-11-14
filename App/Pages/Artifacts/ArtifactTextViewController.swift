@@ -30,6 +30,16 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
     private var previewWeb: WKWebView?
     private var linkGuard: PageLinkGuard?
     private var hasModes: Bool { markdown || htmlPreview != nil }
+    /// The page's own toolbar holds Preview | Source (the iPhone and iPad). On the Mac it sits in the bar beside Share,
+    /// as a Mac window's segmented choice does, not a floating capsule at the window's foot (Mac pass round 3).
+    private var modesUnder: Bool {
+        #if targetEnvironment(macCatalyst)
+        false
+        #else
+        hasModes
+        #endif
+    }
+    private var shareButton: UIBarButtonItem?
 
     /// The chat's layout manager draws the Preview's code: inline code in the chat's rounded box (the system text view
     /// drew a square block the line's height), a code block as one padded box.
@@ -122,12 +132,12 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if hasModes, contentUnavailableConfiguration == nil { navigationController?.setToolbarHidden(false, animated: animated) }
+        if modesUnder, contentUnavailableConfiguration == nil { navigationController?.setToolbarHidden(false, animated: animated) }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if hasModes { navigationController?.setToolbarHidden(true, animated: animated) }
+        if modesUnder { navigationController?.setToolbarHidden(true, animated: animated) }
     }
 
     private func reload() {
@@ -142,7 +152,8 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
                 let text = try await self.load()
                 self.text = text
                 self.loaded = true
-                if self.hasModes, self.viewIfLoaded?.window != nil { self.navigationController?.setToolbarHidden(false, animated: false) }
+                if self.modesUnder, self.viewIfLoaded?.window != nil { self.navigationController?.setToolbarHidden(false, animated: false) }
+                if self.hasModes, !self.modesUnder { self.placeModesInBar(true) }
                 self.loadingLabel.isHidden = true
                 self.spinner.stopAnimating()
                 self.shareButton?.isEnabled = true
@@ -173,7 +184,8 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
         }
         contentUnavailableConfiguration = config
         // [morepages] Nothing to preview: Preview | Source would do nothing.
-        if hasModes { navigationController?.setToolbarHidden(true, animated: false) }
+        if modesUnder { navigationController?.setToolbarHidden(true, animated: false) }
+        if hasModes, !modesUnder { placeModesInBar(false) }
     }
 
     private var showsSource: Bool { mode.index == 1 }
@@ -202,7 +214,20 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
         // The control is its own capsule: without this the bar's glass drew a second ring around it.
         let item = UIBarButtonItem(customView: control)
         item.hidesSharedBackground = true
-        toolbarItems = [.flexibleSpace(), item, .flexibleSpace()]
+        modeItem = item
+        if modesUnder {
+            toolbarItems = [.flexibleSpace(), item, .flexibleSpace()]
+        } else {
+            placeModesInBar(loaded && contentUnavailableConfiguration == nil)
+        }
+    }
+
+    private var modeItem: UIBarButtonItem?
+
+    /// [mac] Preview | Source beside Share in the bar; gone while the file couldn't be read (nothing to switch).
+    private func placeModesInBar(_ shown: Bool) {
+        guard let share = shareButton else { return }
+        navigationItem.rightBarButtonItems = shown ? [share, modeItem].compactMap { $0 } : [share]
     }
 
     /// The HTML Preview: the page drawn live, its scripts running (`HTMLPageSheet`'s web view; Quick Look drew a
@@ -217,7 +242,7 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
             web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             web.accessibilityIdentifier = "artifact.page"
             view.insertSubview(web, belowSubview: spinner)
-            web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            web.loadPageFile(url)
             previewWeb = web
         }
         previewWeb?.isHidden = !shown

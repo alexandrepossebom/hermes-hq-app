@@ -189,7 +189,7 @@ import WebKit
         defer { web.removeFromSuperview() }
         let ok = await withCheckedContinuation { continuation in
             loaded = continuation
-            web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            web.loadPageFile(url)
         }
         guard ok else { return nil }
         try? await Task.sleep(for: Self.settle)
@@ -198,14 +198,28 @@ import WebKit
             // The layout viewport (clientWidth/Height), not innerWidth: a page sized "device-width" lays out at the
             // phone's width (402 on a Pro) and WebKit shrinks it into the 390 pt window. The height is kept to
             // innerHeight too: a page with no <!doctype> (quirks mode) reports its whole height as clientHeight.
-            let fits = (try? await web.evaluateJavaScript(
-                "(function(){var d=document.documentElement;return d.scrollHeight<=Math.min(d.clientHeight,innerHeight)+1&&d.scrollWidth<=d.clientWidth+1})()")) as? Bool
+            let fitsScript = "(function(){var d=document.documentElement;return d.scrollHeight<=Math.min(d.clientHeight,innerHeight)+1&&d.scrollWidth<=d.clientWidth+1})()"
+            let fits = (try? await web.evaluateJavaScript(fitsScript)) as? Bool
             if fits == true {
                 let config = WKSnapshotConfiguration()
                 config.rect = web.bounds
                 if zoom != 1 { config.snapshotWidth = NSNumber(value: Double(shape.size.width)) }
                 config.afterScreenUpdates = true
                 return try? await web.takeSnapshot(configuration: config)
+            }
+            // [mac] Mac pass 2026-11-14: in the Desktop Look (UI Scale over 1) a Small page tile's page didn't fit the
+            // tile's size over its zoom, so it fell to the phone's width below and its words came out half size, where
+            // the same tile in the iOS look (zoom 1) read at full size. A page that fits the tile's own size is pictured
+            // at that size before falling back.
+            if zoom != 1 {
+                web.frame.size = shape.size
+                try? await Task.sleep(for: .milliseconds(150))
+                if (try? await web.evaluateJavaScript(fitsScript)) as? Bool == true {
+                    let config = WKSnapshotConfiguration()
+                    config.rect = web.bounds
+                    config.afterScreenUpdates = true
+                    return try? await web.takeSnapshot(configuration: config)
+                }
             }
             // A page not made for its tile (it scrolls at the tile's own size) lays out as it did before: a phone's
             // width, in the tile's shape, with the part worth showing found below.
@@ -272,4 +286,40 @@ import WebKit
 final class ContextBox: NSObject {
     let context: MediaContext
     init(_ context: MediaContext) { self.context = context }
+}
+
+// MARK: - [utf8-pages] Loading a page's file
+
+extension WKWebView {
+    /// Loads a page's local file, reading it as UTF-8 when it says nothing of its encoding. WebKit reads a local file
+    /// that declares no charset as Latin-1, so a bot's "·" or "—" showed as "Â·" / "â€”" in tiles and opened pages.
+    /// Every page file the app shows (tile pictures, live tiles, the opened page, an HTML preview) loads here.
+    func loadPageFile(_ file: URL) {
+        let folder = file.deletingLastPathComponent()
+        if let data = PageEncoding.utf8Undeclared(file) {
+            // The file's own address stays its base: its pictures and scripts beside it load, and the page's link guard
+            // still sees the page itself.
+            load(data, mimeType: "text/html", characterEncodingName: "UTF-8", baseURL: file)
+            return
+        }
+        loadFileURL(file, allowingReadAccessTo: folder)
+    }
+}
+
+enum PageEncoding {
+    /// An HTML file's bytes when they are valid UTF-8, hold some non-ASCII and declare no encoding (no BOM, no
+    /// "charset" in the first 1024 bytes, as the HTML prescan reads); nil when WebKit's own reading is right.
+    nonisolated static func utf8Undeclared(_ file: URL) -> Data? {
+        guard ["html", "htm", "xhtml"].contains(file.pathExtension.lowercased()),
+              let data = try? Data(contentsOf: file, options: .mappedIfSafe) else { return nil }
+        return needsUTF8(data) ? data : nil
+    }
+
+    nonisolated static func needsUTF8(_ data: Data) -> Bool {
+        guard data.contains(where: { $0 >= 0x80 }) else { return false }                  // ASCII reads the same either way
+        if data.starts(with: [0xEF, 0xBB, 0xBF]) || data.starts(with: [0xFE, 0xFF]) || data.starts(with: [0xFF, 0xFE]) { return false }
+        let head = String(decoding: data.prefix(1024), as: UTF8.self).lowercased()
+        if head.contains("charset") || head.contains("encoding=") { return false }   // <meta charset>, http-equiv, <?xml encoding?>
+        return String(data: data, encoding: .utf8) != nil
+    }
 }

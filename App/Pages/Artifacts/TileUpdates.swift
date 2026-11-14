@@ -15,6 +15,9 @@ final class TileUpdates {
     static let shared = TileUpdates()
     /// [tiles] A tile's job has just run (object: the pin's id): an open tile reads its page again (`HTMLPageSheet`).
     static let ran = Notification.Name("TileUpdates.ran")
+    /// [tiles] A tile's updates were changed from its menu (paused, resumed, run now, how often): the Tiles page reads
+    /// the jobs again at once, so the mark follows the choice (it waited up to a minute for the next read).
+    static let changed = Notification.Name("TileUpdates.changed")
 
     /// Each bot's jobs as last read for a tile, by account and bot (read again after `fresh`).
     private var lists: [String: (jobs: [CronJob], at: Date)] = [:]
@@ -177,6 +180,7 @@ final class TileUpdates {
             guard let host else { return }
             if case .done = result {
                 AppLog.trace("pages", "tile updates every \(frequency.minutes) min")
+                NotificationCenter.default.post(name: Self.changed, object: pin.id)
                 PagesHUD.show("Updates \(frequency.title)", symbol: "clock.arrow.circlepath", from: host)
             } else {
                 AppLog.note("pages", "tile updates change failed: \(result)")
@@ -194,6 +198,7 @@ final class TileUpdates {
             self?.forget(pin, accountId: accountId)
             guard let host else { return }
             if result == .done {
+                NotificationCenter.default.post(name: Self.changed, object: pin.id)
                 PagesHUD.show(pause ? "Updates Paused" : "Updates Resumed", symbol: pause ? "pause.fill" : "play.fill", from: host)
             } else {
                 PagesHaptics.error()
@@ -213,6 +218,7 @@ final class TileUpdates {
             case .started, .stillRunning, .alreadyRunning:
                 // The job rewrites the file as it ends: the picture is drawn again then (a bot's run takes a while).
                 AppLog.trace("pages", "tile update now: \(result)")
+                NotificationCenter.default.post(name: Self.changed, object: pin.id)
                 for wait in [20, 60, 180] {
                     try? await Task.sleep(for: .seconds(wait))
                     redraw()

@@ -111,7 +111,12 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
         ])
         host.didMove(toParent: self)
         status = host
-        state.changed = { [weak host] phase in host?.view.isHidden = phase == .ready }
+        // Mac pass round 3: a reload that failed drew its notice over the last page, which VoiceOver still read out
+        // ("Notes Board, 3 notes" under "Couldn't Open Notes Board"): the page under a notice is hidden from it.
+        state.changed = { [weak host, weak self] phase in
+            host?.view.isHidden = phase == .ready
+            self?.web?.accessibilityElementsHidden = phase != .ready
+        }
 
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (self: PluginWebPageController, _) in
             self.restyle()
@@ -185,6 +190,7 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
             web.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         self.web = web
+        web.accessibilityElementsHidden = state.phase != .ready
         web.load(URLRequest(url: URL(string: "\(Self.scheme)://page\(pageURLPath)")!))
         watchdog = Task { [weak self] in
             try? await Task.sleep(for: .seconds(20))

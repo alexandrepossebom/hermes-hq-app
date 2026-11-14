@@ -598,15 +598,20 @@ struct MarketplaceView: View {
             : plugin?.title ?? category.flatMap { key in skillCategories.first { $0.key == key }?.title }
             ?? (state.kind == .plugins ? "All Plugins" : state.kind == .skills ? "All Skills" : "Plugins and Skills")
         let blurb = state.trimmed.isEmpty ? (plugin?.blurb ?? (category == nil && state.kind == .skills ? "Ready-made know-how your bots load when a task needs it." : nil)) : nil
+        // [mac] Mac pass round 3: beside an open plugin at 900 pt the column is ~250 pt, and Sort beside the heading
+        // squeezed "Memory" to "Mem-ory" over two lines with its blurb four lines deep. There Sort goes under it.
+        let stacked = Self.titleLines(wide: wide) > 1 && pageWidth > 0 && pageWidth < 420
+        let row = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(alignment: .lastTextBaseline, spacing: 16))
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .lastTextBaseline, spacing: 16) {
+            row {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(Font.hq(.title).weight(.bold)).foregroundStyle(Color.hqLabel).lineLimit(Self.titleLines(wide: wide))
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
                     if let blurb { Text(blurb).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2) }
                 }
-                Spacer(minLength: 12)
+                if !stacked { Spacer(minLength: 12) }
                 Menu {
                     Picker("Sort By", selection: $state.sort) {
                         ForEach(MarketplaceSort.allCases) { Text($0.title).tag($0) }
@@ -1146,8 +1151,28 @@ struct MarketplaceView: View {
         let tiers = state.tierRows(base)
         let categories = withCategories ? state.categoryRows(base) : []
         let tags = state.tagRows(base)
+        #if targetEnvironment(macCatalyst)
+        // [mac] Mac pass round 3 (FEEL D32): a sideways strip can't be wheeled with a plain mouse, and the chips past
+        // the window's edge were out of reach. On the Mac they wrap onto a second line instead.
+        return PagesFlowLayout(spacing: 8, lineSpacing: 8) {
+            chipItems(tiers: tiers, categories: categories, tags: tags, withCategories: withCategories)
+        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        #else
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                chipItems(tiers: tiers, categories: categories, tags: tags, withCategories: withCategories)
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollClipDisabled()
+        #endif
+    }
+
+    /// The tier, category and tag chips, then Clear: in a sideways strip (iPhone, iPad) or wrapped (the Mac).
+    @ViewBuilder private func chipItems(tiers: [(tier: MarketplaceTier, count: Int)], categories: [(key: String, title: String, count: Int)],
+                                        tags: [(tag: String, count: Int)], withCategories: Bool) -> some View {
                 if state.kind == .skills { sourceMenu }
                 ForEach(tiers, id: \.tier) { row in
                     MarketplaceChip(title: row.tier.title, count: row.count, on: state.tiers.contains(row.tier)) {
@@ -1155,14 +1180,14 @@ struct MarketplaceView: View {
                     }
                     .accessibilityIdentifier("marketplace.tier.\(row.tier.rawValue)")
                 }
-                if !tiers.isEmpty, !categories.isEmpty { Divider().frame(height: 18) }
+                if !tiers.isEmpty, !categories.isEmpty { chipDivider }
                 ForEach(categories, id: \.key) { row in
                     MarketplaceChip(title: row.title, count: row.count, on: state.categories.contains(row.key)) {
                         state.toggle(category: row.key)
                     }
                     .accessibilityIdentifier("marketplace.category.\(row.key)")
                 }
-                if !tags.isEmpty, !(tiers.isEmpty && categories.isEmpty) { Divider().frame(height: 18) }
+                if !tags.isEmpty, !(tiers.isEmpty && categories.isEmpty) { chipDivider }
                 ForEach(tags, id: \.tag) { row in
                     MarketplaceChip(title: row.tag, count: row.count, on: state.tags.contains(row.tag)) {
                         state.toggle(tag: row.tag)
@@ -1177,12 +1202,19 @@ struct MarketplaceView: View {
                         }
                     }
                         .font(Font.hq(.subheadline)).foregroundStyle(Color.hqTint).buttonStyle(.plain)
+                        // The chips' own height: wrapped lines line up from the top, so Clear sat high beside them.
+                        .padding(.vertical, 8).contentShape(Rectangle())
                         .accessibilityIdentifier("marketplace.clear")
                 }
-            }
-            .padding(.vertical, 2)
-        }
-        .scrollClipDisabled()
+    }
+
+    /// The upright line between the chips' groups (a bare Divider lies flat outside an HStack, as in the Mac's wrap).
+    @ViewBuilder private var chipDivider: some View {
+        #if targetEnvironment(macCatalyst)
+        Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 1, height: 18).padding(.vertical, 6)
+        #else
+        Divider().frame(height: 18)
+        #endif
     }
 
     private var sourceMenu: some View {
@@ -1761,16 +1793,58 @@ struct MarketplaceCarousel: View {
     /// [mac-tools] The Mac's grid: the picks side by side in a row that scrolls, not one card a page.
     var row = false
     @State private var page = 0
+    /// [mac] The row's first card in view, moved by its arrows.
+    @State private var shown: PluginCatalogEntry.ID?
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// [mac] Mac pass round 3 (FEEL D32): a plain mouse's wheel doesn't scroll a sideways row, so the cards past the
+    /// window's edge were out of reach. Round ‹ › buttons at its two ends step it a card at a time.
+    @ViewBuilder private var rowArrows: some View {
+        #if targetEnvironment(macCatalyst)
+        if entries.count > 1 {
+            let at = entries.firstIndex { $0.id == shown } ?? 0
+            HStack {
+                rowArrow("chevron.left", label: "Previous", enabled: at > 0) { step(to: at - 1) }
+                Spacer()
+                rowArrow("chevron.right", label: "Next", enabled: at < entries.count - 1) { step(to: at + 1) }
+            }
+            .padding(.horizontal, -12)
+        }
+        #endif
+    }
+
+    private func step(to index: Int) {
+        guard entries.indices.contains(index) else { return }
+        HQMotion.withAnimation(.snappy) { shown = entries[index].id }
+    }
+
+    private func rowArrow(_ symbol: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(Font.hq(.body).weight(.semibold)).foregroundStyle(Color.hqLabel)
+                .frame(width: 34, height: 34)
+                .background(.regularMaterial, in: Circle())
+                .overlay { Circle().strokeBorder(Color(uiColor: HQPalette.separator)) }
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("marketplace.featured.\(label.lowercased())")
+    }
 
     var body: some View {
         if row {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
-                    ForEach(entries) { entry in card(entry).frame(width: 340, height: 318) }
+                    ForEach(entries) { entry in card(entry).frame(width: 340, height: 318).id(entry.id) }
                 }
+                .scrollTargetLayout()
             }
+            .scrollPosition(id: $shown, anchor: .leading)
             .scrollClipDisabled()
+            .overlay { rowArrows }
             .accessibilityIdentifier("marketplace.featured")
         } else {
             pages

@@ -591,9 +591,11 @@ final class TileMaker {
         guard let page, page.viewIfLoaded?.window != nil else { return }
         let alert = UIAlertController(title: title ?? "\(bot.name) Needs You", message: words, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Not Now", style: .cancel))
-        let open = UIAlertAction(title: "Open Chat", style: .default) { [weak self, weak page] _ in
-            guard let self, let page else { return }
-            (page as? ArtifactsViewController)?.openTileChat(self.chat)
+        // The chat is held, not the maker: a finished maker leaves `active` before this alert shows, so a weak maker was
+        // gone by the time Open Chat was pressed and the button did nothing (Mac pass round 3).
+        let open = UIAlertAction(title: "Open Chat", style: .default) { [chat, weak page] _ in
+            guard let page else { return }
+            (page as? ArtifactsViewController)?.openTileChat(chat)
         }
         alert.addAction(open)
         if let retry, let tiles = page as? ArtifactsViewController {

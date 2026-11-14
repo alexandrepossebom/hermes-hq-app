@@ -153,6 +153,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         let kept = store.cachedFile(MediaStore.gatewayKey(accountId: context.accountId, profile: context.profile, path: path), name: name)
         let page = show(kept, source: FilePreviewPresenter.pageSource(path, context, from: vc), tile: tile, title: tile.name, from: vc)
         page.tileRead = { [weak page] in
+            if let page, !page.painted, let backdrop = tile.backdrop { page.view.backgroundColor = backdrop; page.inkBar(for: backdrop) }
             page?.spinner.startAnimating()
             page?.readTile(path: path, name: name, context: context)
         }
@@ -186,6 +187,10 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                 }
                 AppLog.note("chatui", "tile page could not be read: \((error as? MediaLoadError).map { String(describing: $0) } ?? "\(type(of: error))")")
                 self.spinner.stopAnimating()
+                // [tiles] Mac pass round 3: the notice sat on the tile's own colour (a light page in dark mode), its
+                // words in the app's light ink, all but unreadable. Nothing of the page shows: the sheet's own colour.
+                self.view.backgroundColor = ChatPalette.page
+                self.navigationController?.navigationBar.overrideUserInterfaceStyle = .unspecified
                 var notice = UIContentUnavailableConfiguration.empty()
                 notice.image = UIImage(systemName: "exclamationmark.triangle")
                 notice.text = "Couldn’t Open \(self.tile?.name ?? name)"
@@ -403,12 +408,12 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     private func load() {
         // The first load waits for the theme (`handTheme`); a tile still being read loads when it lands (`readTile`).
         guard handedPrelude != nil, let file, let webView else { return }
-        guard painted else { webView.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent()); return }
+        guard painted else { webView.loadPageFile(file); return }
         // [tiles] Drawn again in place: where it was scrolled is put back once it has drawn (`didFinish`).
         webView.evaluateJavaScript("[scrollX, scrollY]") { [weak self, weak webView] value, _ in
             guard let self, let webView, let file = self.file else { return }
             if let at = value as? [Double], at.contains(where: { $0 > 0 }) { self.keptScroll = at }
-            webView.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
+            webView.loadPageFile(file)
         }
     }
 

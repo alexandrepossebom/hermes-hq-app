@@ -15,6 +15,7 @@ default 60; 0 = off), --hermes-cookies (inherited session gating).
 Test hooks (no auth):
   GET  /__fixture/state      {"rest":[{method,path,query,body}],"rpc":[...],"dispatch":n,"beacon":n}
   POST /__fixture/fail       {"method","path","status","detail","count"} or {"method","path","delay"}
+  POST /__fixture/rpc-fail   {"method","action","delay","error","count"}: that RPC waits and/or fails (a plugin install)
   POST /__fixture/reset      forget the logs and failures, re-seed every table
   POST /__fixture/tile-job   a job of deploys that rewrites site/tile.html hourly, last run 5 minutes ago ([tiles])
                              ({"status": "error", "error": …, "model": …}: its last run failed, the model it names)
@@ -472,6 +473,29 @@ NO_TASKS = False
 TASKS_CHAT = False
 TASKS_JSON = None   # --tasks-json: a list exported from a real tasks.db (kept out of git), shown first
 TASKS_ROUTE = '/api/plugins/hermes-hq-push/tasks'
+
+# [plugin-pages] The "notes" page plugin's bundle: the dashboard SDK's components, its own API.
+NOTES_PAGE_JS = r"""
+(function () {
+  const SDK = window.__HERMES_PLUGIN_SDK__;
+  const h = SDK.React.createElement;
+  const { useState, useEffect } = SDK.hooks;
+  const { Card, CardHeader, CardTitle, CardContent, Button, Badge } = SDK.components;
+  function Notes() {
+    const [items, setItems] = useState(null);
+    const [error, setError] = useState(null);
+    const load = () => SDK.fetchJSON('/api/plugins/notes/items').then(r => setItems(r.items)).catch(e => setError(String(e.message || e)));
+    useEffect(() => { load(); }, []);
+    if (error) return h('div', { className: 'p-4' }, 'Error: ' + error);
+    if (!items) return h('div', { className: 'p-4' }, 'Loading…');
+    return h('div', { className: 'flex flex-col gap-3 p-4' },
+      h('div', { className: 'flex items-center gap-2' }, h('h1', { className: 'text-xl font-semibold' }, 'Notes Board'), h(Badge, null, items.length + ' notes')),
+      items.map((n, i) => h(Card, { key: i }, h(CardHeader, null, h(CardTitle, null, n.title)), h(CardContent, null, n.body))),
+      h(Button, { onClick: load }, 'Refresh'));
+  }
+  window.__HERMES_PLUGINS__.register('notes', Notes);
+})();
+"""
 TMODE = {'older_addon': False}   # [task-ideas] POST /__fixture/tasks-mode: act as an add-on before 0.9.39 (no Ideas)
 IDEAS = {}    # [task-ideas] hermes-hq-push 0.9.39's task_ideas: suggested tasks, newest first; off until turned on
 ISTATE = {'ran_at': None, 'asked_at': None}
@@ -1020,7 +1044,7 @@ def make_files(port):
                                      '<style>html,body{margin:0;height:100vh;overflow:hidden;background:#f4f4f4}'
                                      'body{display:flex;flex-direction:column;justify-content:space-between;font:16px -apple-system}'
                                      '</style></head><body><h1 style="margin:0">Revenue $12K</h1>'
-                                     '<p style="margin:0">Updated Tue 1:30 PM</p></body></html>')
+                                     '<p style="margin:0">Updated Tue · 1:30 PM</p></body></html>')   # no <meta charset>: "·" must not read "Â·"
     # [live-tiles] A live tile: read again every 30 s, a button that asks its bot (the lower half, for a tap test).
     (FILES / 'live.html').write_text(live_page(12))
     (FILES / 'App.swift').write_text('import SwiftUI\n\n@main\nstruct ReleaseApp: App {\n    var body: some Scene {\n'
@@ -1072,8 +1096,16 @@ def resumed(sid):
     return {'session_id': runtime(sid), 'resumed': sid, 'session_key': sid, 'stored_session_id': sid, 'messages': [],
             'messages_omitted': True, 'message_count': len(s['messages']), 'status': 'idle', 'running': False, 'inflight': None, 'info': info}
 
+RPC_FAILS = []   # [tiles] POST /__fixture/rpc-fail {"method","action","delay","error","count"}: a slow or failing RPC (a plugin install)
+
 def rpc(method, params):
     with lock: state['rpc'].append({'method': method, 'params': {k: v for k, v in params.items() if k != 'data_url'}})
+    fail = next((f for f in RPC_FAILS if f.get('method') == method and f.get('count', 1) > 0
+                 and f.get('action') in (None, params.get('action'))), None)
+    if fail:
+        fail['count'] = fail.get('count', 1) - 1
+        if fail.get('delay'): time.sleep(float(fail['delay']))
+        if fail.get('error'): raise ValueError(fail['error'])
     profile = params.get('profile') or 'default'
     if method == 'profiles.list': return roster()
     if method == 'session.list':
@@ -1212,6 +1244,33 @@ def handler(gateway):
                 with lock: return tasks_route(method, path, query, body)
             if path == '/api/plugins/hermes-hq-push/status' and method == 'GET':
                 return addon_status()
+            # [plugin-pages] Page plugins (HermesKit/Plugins/DashboardPages.swift): "notes" works and calls its own API,
+            # "broken" sends no files (404), "crashy" throws while it runs, "silent" never registers. Slow or down:
+            # /__fixture/fail with that page's bundle path and a delay or a status.
+            if path == '/api/dashboard/plugins' and method == 'GET':
+                def page(name, label, icon, description):
+                    return {'name': name, 'label': label, 'description': description, 'icon': icon, 'tab': {'path': '/' + name},
+                            'entry': 'dist/index.js', 'css': None, 'has_api': name == 'notes', 'source': 'user', 'version': '1.0.0'}
+                return 200, [page('notes', 'Notes Board', 'NotebookPen', 'Short notes your bots keep.'),
+                             page('broken', 'Broken Page', 'Bug', 'A page whose files are missing.'),
+                             page('crashy', 'Crashy Page', 'Flame', 'A page that throws while it starts.'),
+                             page('silent', 'Silent Page', 'Moon', 'A page that never shows itself.')]
+            if path == '/api/dashboard/plugins/rescan' and method == 'GET':
+                return 200, {'ok': True}
+            if path.startswith('/dashboard-plugins/') and method == 'GET':
+                name = path.split('/')[2].lstrip('@')
+                if path.split('/')[2].startswith('@'): name = path.split('/')[3]
+                if name == 'notes' and path.endswith('/dist/index.js'):
+                    return 200, ('application/javascript', NOTES_PAGE_JS.encode())
+                if name == 'crashy' and path.endswith('/dist/index.js'):
+                    return 200, ('application/javascript', b"throw new Error('the chart library is missing');")
+                if name == 'silent' and path.endswith('/dist/index.js'):
+                    return 200, ('application/javascript', b"console.log('loaded, never registers');")
+                return 404, {'detail': 'Not Found'}
+            if path == '/api/plugins/notes/items' and method == 'GET':
+                return 200, {'items': [{'title': 'Renew the domain', 'body': 'gethermes.example runs out on Dec 2.'},
+                                       {'title': 'Café order', 'body': 'Two crème brûlées for Friday — naïve test of UTF-8.'},
+                                       {'title': 'A long note', 'body': 'This one is long on purpose so the narrow window has to wrap it across several lines without cutting words off or running past the edge.'}]}
             if path.startswith('/api/plugins/kanban'):
                 with lock: return kanban(method, path, query, body)
             if path == '/api/cron/jobs' and method == 'GET':
@@ -1322,6 +1381,9 @@ def handler(gateway):
             if path == '/__fixture/fail':
                 fail = self.body_json()
                 with lock: fails.append(fail)
+                return self.reply(200, {'ok': True})
+            if path == '/__fixture/rpc-fail':
+                with lock: RPC_FAILS.append(self.body_json())
                 return self.reply(200, {'ok': True})
             if path == '/__fixture/reset':
                 self.body_json()

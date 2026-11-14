@@ -76,7 +76,7 @@ final class LiveTiles: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard isLive(pin) else { return nil }
         if var live = tiles[pin.id] {
             live.shownAt = Date()
-            if live.dark != dark { live.dark = dark; handTheme(live.web, dark: dark); live.web.loadFileURL(live.file, allowingReadAccessTo: live.file.deletingLastPathComponent()) }
+            if live.dark != dark { live.dark = dark; handTheme(live.web, dark: dark); live.web.loadPageFile(live.file) }
             tiles[pin.id] = live
             return live.web
         }
@@ -110,7 +110,7 @@ final class LiveTiles: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 live.file = url
                 live.readAt = Date()
                 self.tiles[pin.id] = live
-                live.web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+                live.web.loadPageFile(url)
                 return
             }
             self.make(pin.id, file: url)
@@ -140,7 +140,7 @@ final class LiveTiles: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         web.accessibilityIdentifier = "live-tile"
         handTheme(web, dark: dark)
         tiles[id] = Live(web: web, file: file, dark: dark)
-        web.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
+        web.loadPageFile(file)
         AppLog.trace("pages", "live tile started (\(tiles.count) live)")
         onChange?(id)
     }
@@ -353,4 +353,15 @@ final class LiveTileBox: UIView {
             web.center = CGPoint(x: bounds.midX, y: bounds.midY)
         }
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// [mac] A right-click (or Control-click) on a live tile is the tile's, not its page's: the web view's own menu
+    /// (Cut, Copy, Paste, Speech) came up where the tile's (Open, Size, Move to Page…) belongs. The box takes the click,
+    /// so the Tiles page's context menu answers it; left clicks still reach the page's buttons.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        if let event, event.buttonMask.contains(.secondary) || event.modifierFlags.contains(.control), hit != nil { return self }
+        return hit
+    }
+    #endif
 }
