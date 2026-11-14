@@ -430,10 +430,15 @@ struct JobDetailView: View {
             }
             HStack(spacing: 8) {
                 let status = model.store.showsRunning(job) ? "Running" : JobWords.statusWord(job)
-                Text(status)
-                    .font(Font.hq(.subheadline))
-                    .foregroundStyle(status == "Last run failed" ? Color.hqRed : Color.hqLabel2)
-                    .accessibilityIdentifier("job.status")
+                // [Mac full pass 2026-11-14] The red card under the buttons already says "Last run failed: …" with the
+                // reason; the same words under the title said it twice. The line stays for every other state.
+                let cardSaysIt = status == "Last run failed" && !(job.lastError ?? "").isEmpty
+                if !cardSaysIt {
+                    Text(status)
+                        .font(Font.hq(.subheadline))
+                        .foregroundStyle(status == "Last run failed" ? Color.hqRed : status == "Overdue" ? Color.hqOrange : Color.hqLabel2)
+                        .accessibilityIdentifier("job.status")
+                }
                 if JobWords.jobIsScriptOnly(job) {
                     Text("Script")
                         .font(Font.hq(.caption).weight(.semibold))

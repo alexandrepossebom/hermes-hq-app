@@ -46,8 +46,9 @@ final class SessionsHeaderModel {
     }
 
     var isEmpty: Bool { !hasRail && strip == nil }
-    /// The rail shows with a second bot, or (not on the Mac, which keeps its bot menu) a status chip.
-    var hasRail: Bool { !bots.isEmpty || (!DeviceWord.isMac && !shownStatus.isEmpty) }
+    /// The rail shows with a second bot, or a status chip. Not on the Mac: its bots are the bar's "All Bots ⌄"
+    /// ([Mac full pass 2026-11-14], `SessionsViewController.placeBotsItem`), where every other list has it.
+    var hasRail: Bool { !DeviceWord.isMac && (!bots.isEmpty || !shownStatus.isEmpty) }
 }
 
 struct SessionsHeaderView: View {
@@ -135,48 +136,7 @@ struct SessionsHeaderView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.strip)
     }
 
-    @ViewBuilder private var rail: some View {
-        if DeviceWord.isMac {
-            botMenu
-        } else {
-            pillRail
-        }
-    }
-
-    /// [mac-audit] Owner 2026-11-02 (#20): on the Mac the bots are an "All Bots ⌄" pop-up, the words-and-chevron control
-    /// Jobs and Artifacts have (`ScopeBarItem`), not a rail of faces paged by small ‹ › arrows. It sits here, under the
-    /// bar where the rail was, not in the bar: a fourth item beside Filter, New and Search left no room in the 320 pt
-    /// list pane, and UIKit dropped the "Sessions" title (with one gateway; two kept it by its subtitle).
-    private var botMenu: some View {
-        let ink = DeviceWord.isMac && !Theme.isDesktop ? Color.hqLabel : Color.hqLabel2
-        let title = model.picked.flatMap { id in model.bots.first { $0.id == id }?.name } ?? "All Bots"
-        return Menu {
-            Picker("Bot", selection: Binding(get: { model.picked }, set: { model.onPick($0) })) {
-                Text("All Bots").tag(String?.none)
-                Section {
-                    ForEach(model.bots) { bot in Text(bot.name).tag(Optional(bot.id)) }
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            HStack(spacing: 4) {
-                Text(title).font(Font.hq(.subheadline))
-                Image(systemName: "chevron.down").font(Font.hq(.caption2).weight(.semibold)).imageScale(.small)
-            }
-            .foregroundStyle(ink)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityLabel("Showing \(title). Change")
-        .accessibilityIdentifier("sessions.bots")
-        .padding(.leading, DesktopRows.gutter)   // the rows' and the bar title's leading edge
-        .padding(.bottom, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
+    @ViewBuilder private var rail: some View { pillRail }
 
     /// The Mac's faces rail with ‹ › arrows, unused since the pop-up took its place (#20); kept until the owner has seen it.
     @ViewBuilder private var macRail: some View {

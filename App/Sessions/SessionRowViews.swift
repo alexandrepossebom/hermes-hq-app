@@ -1042,3 +1042,18 @@ private extension View {
         if hide { hidden().accessibilityHidden(true) } else { self }
     }
 }
+
+#if targetEnvironment(macCatalyst)
+/// [Mac full pass 2026-11-14] A list row's mark on the Mac (Sessions, Jobs, Kanban, Tasks), with the keyboard's focus
+/// drawn the list's way. After ↓ (or Tab) UIKit drew its own square blue ring round the focused row, running past the
+/// pane's edge, beside the rounded mark of the selected row. The ring is off; a focused row that isn't the selected one
+/// gets the same rounded box inset in its row, in the grey a press and an unfocused selection use.
+@MainActor enum MacListFocus {
+    static func background(_ cell: UICollectionViewCell, _ state: UICellConfigurationState) -> UIBackgroundConfiguration {
+        if cell.focusEffect != nil { cell.focusEffect = nil }
+        var state = state
+        if state.isFocused, !state.isSelected { state.isHighlighted = true }
+        return MacSelection.listRow(state)
+    }
+}
+#endif

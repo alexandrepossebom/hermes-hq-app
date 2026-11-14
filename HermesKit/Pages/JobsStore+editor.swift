@@ -42,6 +42,7 @@ extension JobsStore {
     nonisolated static let writeTimeout: TimeInterval = 15
     nonisolated static let slowAnswer = "The gateway is taking a while. Check the list before trying again."
     nonisolated static let noReason = "The gateway did not say why."
+    nonisolated static let missingRoute = "This Hermes can’t do that yet. Update Hermes, then try again."
 
     /// The profile the page's blueprints are read for: the scope's bot, the default bot under All.
     var listProfile: String { scope == "all" ? "default" : scope }
@@ -59,6 +60,9 @@ extension JobsStore {
         let detail = PagesREST.detail(http) ?? ""
         let line = detail.split(whereSeparator: \.isNewline).first.map(String.init)?.pgTrim ?? ""
         if line.isEmpty { return noReason }
+        // [Mac full pass 2026-11-14] A Hermes without the route answers the web server's bare "Not Found", which the
+        // editor showed as the whole reason. (Update's own 404, the job deleted elsewhere, is handled before this.)
+        if http.status == 404, line.lowercased() == "not found" { return missingRoute }
         return line.count > 200 ? String(line.prefix(199)).pgTrim + "…" : line
     }
 

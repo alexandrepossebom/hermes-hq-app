@@ -780,9 +780,12 @@ nonisolated enum JobWords {
 
     /// The detail's status line: "Scheduled", "Running", "Paused", "Completed", "Off", or "Last run failed". A run
     /// out says Running over an earlier failure, as the row's lead does.
-    static func statusWord(_ job: CronJob) -> String {
+    static func statusWord(_ job: CronJob, now: Date = Date()) -> String {
         if isRunning(job) { return "Running" }
         if lastRunFailed(job) { return "Last run failed" }
+        // [Mac full pass 2026-11-14] The list files an overdue job under Needs Attention with "Overdue" as its lead;
+        // its page said "Scheduled".
+        if jobState(job) != "error", nextRunOverdue(job, now: now) != nil { return "Overdue" }
         switch jobState(job) {
         case "paused": return "Paused"
         case "completed": return "Completed"

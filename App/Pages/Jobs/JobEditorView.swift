@@ -18,6 +18,8 @@ struct JobEditorView: View {
     @ScaledMetric(relativeTo: .caption) private var botCell: CGFloat = 76
     @Environment(\.hqGlassSheet) private var onGlass
     @State private var pageWidth: CGFloat = 0
+    /// The sheet's own side inset (the Mac's sheets add some: `MacSheetEdges`), which the strips' rows follow.
+    @State private var sideInset: CGFloat = 0
     var pickModel: () -> Void
     var pickBlueprint: () -> Void
     /// A bot's head (the Bot row).
@@ -51,6 +53,7 @@ struct JobEditorView: View {
             }
             .hqGroupedPage()   // [desktoplook] the page follows the skin
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.leading } action: { sideInset = $0 }
             .scrollDismissesKeyboard(.interactively)
             .disabled(model.saving)
             .refreshable {
@@ -80,6 +83,17 @@ struct JobEditorView: View {
     /// The cards' distance from the sheet's edges, set on every section, so a strip running edge to edge starts in line
     /// with the cards: iOS's own 16 pt (20 on the widest phones); the Desktop Look's 20.
     private var gutter: CGFloat { Theme.isDesktop || pageWidth >= 414 ? 20 : 16 }
+    /// The cards' section margins. [Mac full pass 2026-11-14] A Mac sheet's page sits a little further in
+    /// (`MacSheetEdges`): the strips' rows and headers follow that inset, a card's section margins don't, so the bots,
+    /// the frequency chips and the Bot and Schedule headings stood 8 px further in than the cards and the Prompt and
+    /// Send Results To headings. The cards take the inset too, so everything starts on one line.
+    private var cardGutter: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        gutter + sideInset
+        #else
+        gutter
+        #endif
+    }
     /// A field's placeholder: `HQPalette.cardNote`, label 2 on the solid card (the system's placeholder read 1.7:1).
     private static var placeholderInk: Color { Color(uiColor: HQPalette.cardNote) }
 
@@ -101,63 +115,80 @@ struct JobEditorView: View {
             .accessibilityIdentifier("job.editor.failure")
             .listRowBackground(Color(uiColor: HQPalette.sheetCard).overlay(Color.hqRed.opacity(0.12)))
         }
-        .jobCard(gutter)
+        .jobCard(cardGutter)
         .id("job.editor.failure")
     }
 
     /// The bot that runs the job (create, two or more bots): the faces in a row, as New Task's "Who Does It".
+    @ViewBuilder private var botPicks: some View {
+        ForEach(model.bots, id: \.id) { bot in
+            let chosen = model.form.profile == bot.id
+            Button {
+                guard !chosen else { return }
+                PagesHaptics.selection()
+                model.chooseProfile(bot.id)
+            } label: {
+                let shape = RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : 20, style: .continuous)
+                VStack(spacing: 6) {
+                    HeadImage(raw: head(bot.id), profile: bot.id, size: 44)
+                        .frame(width: 44, height: 44)
+                        .padding(3)
+                    // The largest sizes: one line that shrinks, never a name broken mid-word.
+                    Text(bot.name)
+                        .font(Font.hq(.caption).weight(chosen ? .semibold : .regular))
+                        // On the glass the names are in full ink, the chosen one too (the grey read 3:1 over
+                        // the blur, the tint on the chosen tile's tinted glass 2.2:1 in the dark).
+                        .foregroundStyle(Theme.isDesktop ? (chosen ? Color.hqTintText : Color.hqLabel2) : Color.hqLabel)
+                        .lineLimit(typeSize.isAccessibilitySize ? 1 : 2)
+                        .minimumScaleFactor(typeSize.isAccessibilitySize ? 0.6 : 1)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(width: min(HQFont.scaled(botCell), 150))   // [ui-sizing] UI Scale too, not only the text size
+                .padding(.vertical, Theme.isDesktop ? 4 : 8)
+                .padding(.horizontal, Theme.isDesktop ? 0 : 2)
+                .background(shape.fill(chosen && Theme.isDesktop ? Color.hqTint.opacity(0.14) : .clear))
+                .hqPickGlass(chosen, in: shape)
+                .contentShape(shape)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(bot.name)
+            .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+            .accessibilityIdentifier("job.editor.bot.\(bot.id)")
+            .id(bot.id)
+        }
+    }
+
     private var botSection: some View {
         Section {
-            ScrollViewReader { strip in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: Theme.isDesktop ? 4 : 8) {
-                        ForEach(model.bots, id: \.id) { bot in
-                            let chosen = model.form.profile == bot.id
-                            Button {
-                                guard !chosen else { return }
-                                PagesHaptics.selection()
-                                model.chooseProfile(bot.id)
-                            } label: {
-                                let shape = RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : 20, style: .continuous)
-                                VStack(spacing: 6) {
-                                    HeadImage(raw: head(bot.id), profile: bot.id, size: 44)
-                                        .frame(width: 44, height: 44)
-                                        .padding(3)
-                                    // The largest sizes: one line that shrinks, never a name broken mid-word.
-                                    Text(bot.name)
-                                        .font(Font.hq(.caption).weight(chosen ? .semibold : .regular))
-                                        // On the glass the names are in full ink, the chosen one too (the grey read 3:1 over
-                                        // the blur, the tint on the chosen tile's tinted glass 2.2:1 in the dark).
-                                        .foregroundStyle(Theme.isDesktop ? (chosen ? Color.hqTintText : Color.hqLabel2) : Color.hqLabel)
-                                        .lineLimit(typeSize.isAccessibilitySize ? 1 : 2)
-                                        .minimumScaleFactor(typeSize.isAccessibilitySize ? 0.6 : 1)
-                                        .multilineTextAlignment(.center)
-                                }
-                                .frame(width: min(HQFont.scaled(botCell), 150))   // [ui-sizing] UI Scale too, not only the text size
-                                .padding(.vertical, Theme.isDesktop ? 4 : 8)
-                                .padding(.horizontal, Theme.isDesktop ? 0 : 2)
-                                .background(shape.fill(chosen && Theme.isDesktop ? Color.hqTint.opacity(0.14) : .clear))
-                                .hqPickGlass(chosen, in: shape)
-                                .contentShape(shape)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(bot.name)
-                            .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
-                            .accessibilityIdentifier("job.editor.bot.\(bot.id)")
-                            .id(bot.id)
-                        }
-                    }
+            if DeviceWord.isMac {
+                // [Mac full pass 2026-11-14] FEEL-LIST #32: a sideways strip doesn't scroll with a plain mouse wheel on
+                // the Mac, so a bot past the sheet's edge was out of reach. The faces wrap to a second line instead,
+                // as the frequency chips do.
+                PagesFlowLayout(spacing: Theme.isDesktop ? 4 : 8, lineSpacing: 8) { botPicks }
                     .hqPickGlassRow()
-                    .jobStripRoom()
+                    .padding(.horizontal, gutter)
+                    .padding(.vertical, 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .jobStripRow()
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Bot")
+                    .accessibilityIdentifier("job.editor.bot")
+            } else {
+                ScrollViewReader { strip in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: Theme.isDesktop ? 4 : 8) { botPicks }
+                            .hqPickGlassRow()
+                            .jobStripRoom()
+                    }
+                    .contentMargins(.horizontal, gutter, for: .scrollContent)
+                    .jobStripRoomOutside()
+                    .onAppear { strip.scrollTo(model.form.profile, anchor: .center) }
                 }
-                .contentMargins(.horizontal, gutter, for: .scrollContent)
-                .jobStripRoomOutside()
-                .onAppear { strip.scrollTo(model.form.profile, anchor: .center) }
+                .jobStripRow()
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Bot")
+                .accessibilityIdentifier("job.editor.bot")
             }
-            .jobStripRow()
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Bot")
-            .accessibilityIdentifier("job.editor.bot")
         } header: { JobHeader {
             Text("Bot").jobEditorTop(top == .bot)
         }.padding(.horizontal, gutter) }
@@ -165,21 +196,36 @@ struct JobEditorView: View {
     }
 
     /// "Start From" (create): Write Your Own, then every template as a card; See All opens the searchable list.
+    @ViewBuilder private var templateCards: some View {
+        JobTemplateCard(title: "Write Your Own", symbol: "square.and.pencil", selected: model.blueprint == nil,
+                        identifier: "job.editor.card.custom") { choose(nil) }
+            .id("custom")
+        ForEach(model.blueprints) { blueprint in
+            JobTemplateCard(title: blueprint.title, symbol: JobTemplateSymbol.name(blueprint),
+                            selected: model.form.blueprintKey == blueprint.key,
+                            identifier: "job.editor.card.\(blueprint.key)") { choose(blueprint.key) }
+                .id(blueprint.key)
+        }
+    }
+
     private var templateSection: some View {
         Section {
+            if DeviceWord.isMac {
+                // [Mac full pass 2026-11-14] FEEL-LIST #32: no sideways strip a plain mouse wheel can't move; the cards
+                // wrap, as the bots and the frequency chips do.
+                PagesFlowLayout(spacing: 10, lineSpacing: 10) { templateCards }
+                    .hqPickGlassRow()
+                    .padding(.horizontal, gutter)
+                    .padding(.vertical, 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .jobStripRow()
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Start from")
+                    .accessibilityIdentifier("job.editor.start")
+            } else {
             ScrollViewReader { strip in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 10) {
-                        JobTemplateCard(title: "Write Your Own", symbol: "square.and.pencil", selected: model.blueprint == nil,
-                                        identifier: "job.editor.card.custom") { choose(nil) }
-                            .id("custom")
-                        ForEach(model.blueprints) { blueprint in
-                            JobTemplateCard(title: blueprint.title, symbol: JobTemplateSymbol.name(blueprint),
-                                            selected: model.form.blueprintKey == blueprint.key,
-                                            identifier: "job.editor.card.\(blueprint.key)") { choose(blueprint.key) }
-                                .id(blueprint.key)
-                        }
-                    }
+                    HStack(alignment: .top, spacing: 10) { templateCards }
                     .fixedSize(horizontal: false, vertical: true)   // every card as tall as the tallest
                     .hqPickGlassRow()
                     .jobStripRoom()
@@ -196,6 +242,7 @@ struct JobEditorView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Start from")
             .accessibilityIdentifier("job.editor.start")
+            }
         } header: { JobHeader {
             // The largest sizes: See All under the title (beside it, it was cut to "See…").
             ViewThatFits(in: .horizontal) {
@@ -278,7 +325,7 @@ struct JobEditorView: View {
                 Text("Leave the name blank and it’s named after the prompt.").accessibilityIdentifier("job.editor.name.hint")
             }
         }.jobGlassInk() }
-        .jobCard(gutter)
+        .jobCard(cardGutter)
     }
 
     // MARK: Schedule
@@ -452,7 +499,7 @@ struct JobEditorView: View {
                 }
             }
         }.jobGlassInk() }
-        .jobCard(gutter)
+        .jobCard(cardGutter)
     }
 
     // MARK: Delivery, model, run once
@@ -504,7 +551,7 @@ struct JobEditorView: View {
                 Text("Every result is also kept in the job’s Run History.")
             }
         }.jobGlassInk() }
-        .jobCard(gutter)
+        .jobCard(cardGutter)
         if !groups.bots.isEmpty {
             Section {
                 ForEach(groups.bots) { deliveryRow($0) }
@@ -513,7 +560,7 @@ struct JobEditorView: View {
             } } footer: { HQSectionFooter {
                 Text("The bot gets each result in its chat and can act on it.")
             }.jobGlassInk() }
-            .jobCard(gutter)
+            .jobCard(cardGutter)
         }
     }
 
@@ -558,7 +605,7 @@ struct JobEditorView: View {
             // [model-scope] Owner 2026-11-03: a job's model is its own; Default is its bot's.
             Text(JobWords.modelScope(bot: model.botNames[model.form.profile])).accessibilityIdentifier("job.editor.model-scope")
         }.jobGlassInk() }
-        .jobCard(gutter)
+        .jobCard(cardGutter)
     }
 
     /// Create only: the first run starts as soon as the job exists, so its result can be checked right away.
@@ -572,7 +619,7 @@ struct JobEditorView: View {
         } footer: { HQSectionFooter {
             Text("Runs it as soon as it’s created, so you can check the result.")
         }.jobGlassInk() }
-        .jobCard(gutter)
+        .jobCard(cardGutter)
     }
 
     // MARK: Blueprint fields
@@ -660,7 +707,7 @@ struct JobEditorView: View {
                 Text(help)
             }
         }.jobGlassInk() }
-        .jobCard(gutter)
+        .jobCard(cardGutter)
     }
 }
 

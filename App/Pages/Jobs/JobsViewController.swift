@@ -219,7 +219,7 @@ final class JobsViewController: UIViewController, UICollectionViewDelegate, UISe
             cell.accessibilityIdentifier = "job-row-\(key)"
             cell.configurationUpdateHandler = { cell, state in
                 #if targetEnvironment(macCatalyst)
-                if DeviceWord.isMac { cell.backgroundConfiguration = MacSelection.listRow(state); return }   // [mac] Stress test 2026-10-28 #54
+                if DeviceWord.isMac { cell.backgroundConfiguration = MacListFocus.background(cell, state); return }   // [mac] Stress test 2026-10-28 #54
                 #endif
                 if Theme.isDesktop { cell.backgroundConfiguration = DesktopLayout.rowBackground(state); return }   // [desktoplook2]
                 var background = UIBackgroundConfiguration.clear()
@@ -262,7 +262,7 @@ final class JobsViewController: UIViewController, UICollectionViewDelegate, UISe
             cell.accessibilityIdentifier = "blueprint-row-\(key)"
             cell.configurationUpdateHandler = { cell, state in
                 #if targetEnvironment(macCatalyst)
-                if DeviceWord.isMac { cell.backgroundConfiguration = MacSelection.listRow(state); return }   // [mac] Stress test 2026-10-28 #54
+                if DeviceWord.isMac { cell.backgroundConfiguration = MacListFocus.background(cell, state); return }   // [mac] Stress test 2026-10-28 #54
                 #endif
                 var background = UIBackgroundConfiguration.clear()
                 background.backgroundColor = state.isHighlighted || state.isSelected ? HQPalette.cellPressed : .clear

@@ -288,6 +288,18 @@ final class ScopeBarItem {
         if item.customView !== lookButton { item.customView = lookButton }
     }
 
+    /// [Mac full pass 2026-11-14] A page that keeps its own bot choice (Sessions' bot filter): its words and menu, drawn
+    /// as every other page's "All Bots ⌄". Rebuilt only when `signature` changes, so an open menu is never replaced.
+    func show(title: String, menu: UIMenu, signature: String) {
+        guard signature != self.signature else { return }
+        self.signature = signature
+        item.title = title
+        item.image = nil
+        item.menu = menu
+        item.accessibilityLabel = "Showing \(title). Change"
+        applyLook()
+    }
+
     /// Puts the item left of the search magnifier (or takes it away). `extra` (New Job +) goes at the trailing edge, as
     /// Kanban's New Task does.
     /// [morepages] `search`: the page's own magnifier (`PageBarCapsule.searchItem`).

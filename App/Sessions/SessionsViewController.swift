@@ -124,6 +124,10 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// Rows whose Delete is on its way (dimmed, a spinner).
     private var busy: Set<String> = []
     private var barCapsule: PageBarCapsule?
+    /// [Mac full pass 2026-11-14] The Mac's "All Bots ⌄", in the bar where Jobs, Artifacts and Tasks have theirs (it
+    /// stood in a row of its own under the bar, the one list that put it there).
+    private lazy var botsScope = ScopeBarItem()
+    private var botWordsShown: Bool?
     /// [ipad-polish] The bar's compose button while this list is the page on show: New Chat hangs off it in two panes.
     /// The bar and the compose button's place in it (the trailing-most item): a pop-over given the bar's item itself
     /// grows out of the button and covers the page's title.
@@ -339,6 +343,12 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutHeader()
+        // [Mac full pass 2026-11-14] The bots' words or glyph follow the pane's width (`placeBotsItem`).
+        let words = view.bounds.width >= Self.botWordsAt
+        if DeviceWord.isMac, view.bounds.width > 0, words != botWordsShown {
+            botWordsShown = words
+            refreshChrome()
+        }
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -450,7 +460,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                     return
                 }
                 #if targetEnvironment(macCatalyst)
-                if DeviceWord.isMac { cell.backgroundConfiguration = MacSelection.listRow(state); return }   // [mac] Stress test 2026-10-28 #54
+                if DeviceWord.isMac { cell.backgroundConfiguration = MacListFocus.background(cell, state); return }   // [mac] Stress test 2026-10-28 #54
                 #endif
                 if Theme.isDesktop { cell.backgroundConfiguration = DesktopLayout.rowBackground(state); return }   // [desktoplook2]
                 var background = UIBackgroundConfiguration.clear()
@@ -467,7 +477,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             cell.accessibilityIdentifier = "sessions.otherApps"
             cell.configurationUpdateHandler = { cell, state in
                 #if targetEnvironment(macCatalyst)
-                if DeviceWord.isMac { cell.backgroundConfiguration = MacSelection.listRow(state); return }   // [mac] Stress test 2026-10-28 #54
+                if DeviceWord.isMac { cell.backgroundConfiguration = MacListFocus.background(cell, state); return }   // [mac] Stress test 2026-10-28 #54
                 #endif
                 if Theme.isDesktop { cell.backgroundConfiguration = DesktopLayout.rowBackground(state); return }
                 var background = UIBackgroundConfiguration.clear()
@@ -1896,8 +1906,33 @@ extension SessionsViewController {
     }
 
     private func filterElements(_ state: SessionFilterState) -> [UIMenuElement] {
-        SessionFilterMenu.elements(SessionFilterMenuModel.nodes(state, end: menuEnd)) { [weak self] action, item in
+        let elements = SessionFilterMenu.elements(SessionFilterMenuModel.nodes(state, end: menuEnd)) { [weak self] action, item in
             self?.perform(action, item)
+        }
+        return botsInFilter ? withBotPicker(elements, picked: state.botFilter) : elements
+    }
+
+    /// [Mac full pass 2026-11-14] The list pane too narrow for "All Bots ⌄" beside Filter, New and Search (UIKit then
+    /// drops the "Sessions" title): the bots move into Filter, a Bot › submenu where its All Bots ✓ was.
+    private var botsInFilter: Bool { DeviceWord.isMac && botWordsShown == false && chipBots.count > 1 }
+
+    private func withBotPicker(_ elements: [UIMenuElement], picked: String?) -> [UIMenuElement] {
+        elements.map { element in
+            if let action = element as? UIAction, action.identifier.rawValue == "sessions.filter.allbots" {
+                let bots = chipBots
+                let all = UIAction(title: "All Bots", state: picked == nil ? .on : .off) { [weak self] _ in self?.pickBot(nil) }
+                let each = bots.map { bot in
+                    UIAction(title: bot.name, state: picked == bot.id ? .on : .off) { [weak self] _ in self?.pickBot(bot.id) }
+                }
+                let name = picked.flatMap { id in bots.first { $0.id == id }?.name } ?? "All Bots"
+                let menu = UIMenu(title: "Bot", subtitle: name, image: UIImage(systemName: "person.2"),
+                                  identifier: UIMenu.Identifier("sessions.filter.bots"), options: .singleSelection,
+                                  children: [all, UIMenu(options: .displayInline, children: each)])
+                menu.accessibilityIdentifier = "sessions.filter.bots"
+                return menu
+            }
+            if let menu = element as? UIMenu { return menu.replacingChildren(withBotPicker(menu.children, picked: picked)) }
+            return element
         }
     }
 
@@ -2038,7 +2073,9 @@ extension SessionsViewController {
         let bots = chipBots
         if let picked = store.botFilter, !bots.contains(where: { $0.id == picked }) { store.setBotFilter(nil) }
         let state = store.filterState(order: bots.map(\.id), botCount: bots.count)
-        barCapsule?.setFilterActive(SessionFilterWords.filterCount(state) > 0, token: SessionFilterWords.token(state),
+        // Narrow on the Mac the picked bot is one of Filter's choices, so it lights the button as they do.
+        let botInFilter = botsInFilter && state.botFilter != nil
+        barCapsule?.setFilterActive(SessionFilterWords.filterCount(state) > 0 || botInFilter, token: SessionFilterWords.token(state),
                                     label: SessionFilterWords.buttonLabel(state))
         // [perf] The header is measured again only when what it draws changed, not on every roster tick.
         var headerChanged = false
@@ -2046,6 +2083,7 @@ extension SessionsViewController {
         let chips = SessionChipBot.chips(from: bots)
         if headerModel.bots != chips { headerModel.bots = chips; headerChanged = true }
         if headerModel.picked != state.botFilter { headerModel.picked = state.botFilter; headerChanged = true }
+        if DeviceWord.isMac { placeBotsItem(bots, picked: state.botFilter) }
         // [sessions-fresh] New and Working after All, with their counts under the bot chip.
         let counts = store.chipCounts
         if headerModel.statusChips != counts { headerModel.statusChips = counts; headerChanged = true }
@@ -2060,6 +2098,30 @@ extension SessionsViewController {
         let strip = searching ? nil : SessionFilterWords.stripText(state)
         if headerModel.strip != strip { headerModel.strip = strip; headerChanged = true }
         if headerChanged { view.setNeedsLayout() }
+    }
+
+    /// [Mac full pass 2026-11-14] "All Bots ⌄" (or the picked bot's name) at the bar's leading end, left of Filter, as
+    /// Jobs' sits left of +: with a second bot only, as the other pages show theirs.
+    /// The list pane's least width (points) for "All Bots ⌄" beside Filter, New, Search and the title; narrower, a
+    /// fourth item (words or a glyph) made UIKit drop the title, and the bots are in Filter (`botsInFilter`).
+    private static let botWordsAt: CGFloat = 400
+
+    private func placeBotsItem(_ bots: [Bot], picked: String?) {
+        var items = navigationItem.rightBarButtonItems ?? []
+        let shown = items.contains { $0 === botsScope.item }
+        guard bots.count > 1, botWordsShown != false else {
+            if shown { items.removeAll { $0 === botsScope.item }; navigationItem.rightBarButtonItems = items }
+            return
+        }
+        let title = picked.flatMap { id in bots.first { $0.id == id }?.name } ?? "All Bots"
+        let all = UIAction(title: "All Bots", state: picked == nil ? .on : .off) { [weak self] _ in self?.pickBot(nil) }
+        let each = bots.map { bot in
+            UIAction(title: bot.name, state: picked == bot.id ? .on : .off) { [weak self] _ in self?.pickBot(bot.id) }
+        }
+        let menu = UIMenu(options: .singleSelection, children: [all, UIMenu(options: .displayInline, children: each)])
+        let signature = ([picked ?? ""] + bots.map { "\($0.id)\u{1F}\($0.name)" }).joined(separator: "\u{1E}")
+        botsScope.show(title: title, menu: menu, signature: signature)
+        if !shown { items.append(botsScope.item); navigationItem.rightBarButtonItems = items }
     }
 
     /// Mark All as Read (§5.6): both unread sources of every listed chat, and (as the web does) every bot's own chat.

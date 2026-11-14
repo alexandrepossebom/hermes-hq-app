@@ -377,7 +377,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
             // Verify round 3: the group's card shows on the page colour (the default white card had no edge in light).
             cell.configurationUpdateHandler = { cell, state in
                 #if targetEnvironment(macCatalyst)
-                if DeviceWord.isMac { cell.backgroundConfiguration = MacSelection.listRow(state); return }   // [mac] Stress test 2026-10-28 #54
+                if DeviceWord.isMac { cell.backgroundConfiguration = MacListFocus.background(cell, state); return }   // [mac] Stress test 2026-10-28 #54
                 #endif
                 if Theme.isDesktop { cell.backgroundConfiguration = DesktopLayout.rowBackground(state); return }   // [desktoplook2]
                 var background = UIBackgroundConfiguration.listCell().updated(for: state)

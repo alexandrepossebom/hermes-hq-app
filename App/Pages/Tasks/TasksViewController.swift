@@ -333,7 +333,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
 
     private static func rowBackground(_ cell: UICollectionViewListCell, _ state: UICellConfigurationState) {
         #if targetEnvironment(macCatalyst)
-        if DeviceWord.isMac { cell.backgroundConfiguration = MacSelection.listRow(state); return }
+        if DeviceWord.isMac { cell.backgroundConfiguration = MacListFocus.background(cell, state); return }
         #endif
         if Theme.isDesktop { cell.backgroundConfiguration = DesktopLayout.rowBackground(state); return }
         var background = UIBackgroundConfiguration.clear()

@@ -393,6 +393,18 @@ struct JobSectionsTests {
         #expect(JobWords.nextRunOverdue(job, now: now) == nil)
     }
 
+    /// [Mac full pass 2026-11-14] The page's status line says what the list's lead says for an overdue job.
+    @MainActor @Test func anOverdueJobSaysSoOnItsPage() throws {
+        let json = try JSONValue.parse(Data(#"""
+        {"id":"o1","name":"disk","enabled":true,"state":"scheduled",
+         "schedule":{"kind":"interval","minutes":15},"next_run_at":"2026-10-26T13:00:00-05:00"}
+        """#.utf8))
+        let job = try #require(CronJob(json: json))
+        let next = try #require(PagesDate.parse(job.nextRunAt))
+        #expect(JobWords.statusWord(job, now: next.addingTimeInterval(3600)) == "Overdue")
+        #expect(JobWords.statusWord(job, now: next.addingTimeInterval(-60)) == "Scheduled")
+    }
+
     /// Hermes never stores "running": a run the scheduler started shows through the job's latest attempt.
     @MainActor @Test func aRunTheSchedulerStartedIsRunning() throws {
         let json = try JSONValue.parse(Data(#"""

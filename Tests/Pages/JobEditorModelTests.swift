@@ -156,6 +156,8 @@ struct JobEditorModelTests {
         #expect(JobsStore.editReason(HTTPError(status: 400, body: #"{"detail":{"code":7}}"#)) == "The gateway did not say why.")
         let long = JobsStore.editReason(httpError(400, String(repeating: "word ", count: 80)))
         #expect(long.count <= 200 && long.hasSuffix("…"))
+        #expect(JobsStore.editReason(httpError(404, "Not Found")) == JobsStore.missingRoute, "a Hermes without the route")
+        #expect(JobsStore.editReason(httpError(404, "Job not found")) == "Job not found", "the gateway's own words stay")
         #expect(JobsStore.editReason(GatewayFailure.timeout) == JobsStore.slowAnswer)
         #expect(!JobsStore.editReason(URLError(.networkConnectionLost)).isEmpty)
         #expect(!JobsStore.editReason(URLError(.networkConnectionLost)).contains("NSURL"))
