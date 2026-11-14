@@ -355,6 +355,10 @@ final class MediaTileView: UIView {
         }
     }
 
+    /// [mac] The Mac's accessibility press (VoiceOver, Voice Control, Full Keyboard Access) does not reach a tap
+    /// recognizer as the iPhone's synthesized tap does: "Opens the photo" opened nothing. The press is the tap.
+    override func accessibilityActivate() -> Bool { tapped(); return true }
+
     @objc private func tapped() {
         switch phase {
         case .failed where !opensAsLink: start()

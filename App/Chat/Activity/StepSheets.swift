@@ -148,6 +148,13 @@ final class StepDetailViewController: UIViewController {
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(stack)
+        // [mac] The sheet's safe area holds the Mac's sheet edges (`MacSheetEdges`): the cards sat 12 px from the sides
+        // while Done sat 20 px in. The iPhone and iPad keep the scroll view's frame.
+        #if targetEnvironment(macCatalyst)
+        let sides: UILayoutGuide = view.safeAreaLayoutGuide
+        #else
+        let sides: UILayoutGuide = scroll.frameLayoutGuide
+        #endif
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -155,8 +162,8 @@ final class StepDetailViewController: UIViewController {
             scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 8),
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -24),
-            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -16),
+            stack.leadingAnchor.constraint(equalTo: sides.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: sides.trailingAnchor, constant: -16),
         ])
         build()
         if detail?.payloadRef != nil, source != nil { loadServerPage(offset: 0) }

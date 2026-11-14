@@ -177,7 +177,10 @@ enum MenusHUD {
 
     /// `seconds` nil: it stays until `hide(_:)` (a "Preparing to Share…" HUD that the answer takes down).
     @discardableResult
-    static func show(_ text: String, symbol: String? = "checkmark", in view: UIView? = nil, seconds: Double? = 1.5) -> UIView? {
+    /// `atFoot`: at the bottom of the view instead of its top, for a sheet whose top holds fixed controls (Bot Info's
+    /// tabs, which "Duplicated as …" covered).
+    static func show(_ text: String, symbol: String? = "checkmark", in view: UIView? = nil, seconds: Double? = 1.5,
+                     atFoot: Bool = false) -> UIView? {
         guard let host = view else { return nil }
         current?.removeFromSuperview()
         let glass = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
@@ -211,7 +214,8 @@ enum MenusHUD {
             row.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 16),
             row.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -16),
             glass.centerXAnchor.constraint(equalTo: host.centerXAnchor),
-            glass.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor, constant: 8),
+            atFoot ? glass.bottomAnchor.constraint(equalTo: host.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+                : glass.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor, constant: 8),
         ])
         current = glass
         glass.alpha = 0

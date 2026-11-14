@@ -54,8 +54,8 @@ import UIKit
     }
 
     #if targetEnvironment(macCatalyst)
-    /// [mac] A full-height sheet's height: as tall as the window allows, at least 700 pt, at most 1,100. [macpass-popups]
-    /// Never taller than the window it opens over, less 40 pt above and below: the 700 pt floor made a sheet over a
+    /// [mac] A full-height sheet's height: as tall as the window allows, at most 1,100 pt. [macpass-popups]
+    /// Never taller than the window it opens over, less 60 pt above and below: the 700 pt floor made a sheet over a
     /// smaller window (Add Gateway over the Settings window) taller than the window, over its close, minimise and zoom
     /// buttons, with Sign In cut off at the foot.
     static func macTallHeight(_ window: UIWindow) -> CGFloat {
@@ -80,8 +80,10 @@ import UIKit
                height: min(room.height - 80, max(480, min(room.height - 180, 1100))))
     }
 
-    /// [macpass-popups r3] A sheet's height in a window `room` pt tall (`macTallHeight`).
-    static func macTallHeight(room: CGFloat) -> CGFloat { max(320, min(room - 80, max(700, min(room - 120, 1100)))) }
+    /// [macpass-popups r3] A sheet's height in a window `room` pt tall (`macTallHeight`). [macpass-chat r5] 60 pt of the
+    /// window stay clear above and below at every size: in a window under 820 pt (900 x 600) the 700 pt floor left 40,
+    /// and Bot Info's top ran up against the window's top edge (18 px from it).
+    static func macTallHeight(room: CGFloat) -> CGFloat { max(320, min(room - 120, 1100)) }
     #endif
 
     static func inTwoPanes(_ presenter: UIViewController?) -> Bool { twoPanes(presenter) }

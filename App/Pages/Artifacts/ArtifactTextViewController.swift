@@ -254,6 +254,19 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
         textView.isHidden = shown
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// [macpass-chat r5] On a Mac sheet (a chat's .md or code file) the text view runs edge to edge, so the sheet's
+    /// extra side room (`MacSheetEdges`) never reached the text: it sat 16 px in while Done sat 20 px. The text takes
+    /// that room into its own inset (5 pt line padding + 21 = 26 pt = 20 px, Done's line); a pushed page keeps 16.
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        var inset = textView.textContainerInset
+        inset.left = max(16, view.safeAreaInsets.left + 11)
+        inset.right = max(16, view.safeAreaInsets.right + 11)
+        if inset != textView.textContainerInset { textView.textContainerInset = inset }
+    }
+    #endif
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if let web = previewWeb, web.frame != view.bounds { web.frame = view.bounds }

@@ -342,7 +342,7 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         AppLog.trace("chatui", "model panel opened \(AppLog.tag(logScope))")
         modelPanel = ModelPanelView.present(in: host, under: composer, from: composer.modelChip, floor: floor,
                                             face: (screen.session.head, screen.session.profile), actions: actions)
-        if modelPanel == nil { composer.holdsRows = false }
+        if let modelPanel { screen.tuckJumpButton(under: modelPanel) } else { composer.holdsRows = false }
         // A context window models.dev lists shows on the next open once its copy is fetched (a day old at most).
         Task { _ = await ModelsDevCache.shared.load() }
     }

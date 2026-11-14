@@ -24,6 +24,11 @@ enum TextPrompt {
             let changed = trimmed != text.trimmingCharacters(in: .whitespacesAndNewlines)
             let reason = problem?(trimmed)
             confirm.isEnabled = (allowBlank || !trimmed.isEmpty) && (!requireChange || changed) && reason == nil
+            #if targetEnvironment(macCatalyst)
+            // [mac] A preferred action draws full blue even while disabled (New Section with an empty name looked
+            // ready to press). Only an enabled confirm is the default; Return still runs it then.
+            shown?.preferredAction = confirm.isEnabled ? confirm : nil
+            #endif
             if problem != nil, shown?.message != (reason ?? message) { shown?.message = reason ?? message }
         }
         alert.addTextField { field in

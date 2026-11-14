@@ -182,6 +182,9 @@ final class FileRowView: UIControl {
         }
     }
 
+    /// [mac] The Mac's accessibility press does not send a plain control's touch-up: "Opens the file" opened nothing.
+    override func accessibilityActivate() -> Bool { tapped(); return true }
+
     @objc private func tapped() { host?.fileRowTapped(self) }
 
     // MARK: Menu

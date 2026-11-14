@@ -90,8 +90,14 @@ final class ChatBlocksViewController: UIViewController {
             stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor).isActive = true
             stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor).isActive = true
         } else {
-            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 16).isActive = true
-            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -16).isActive = true
+            // [mac] The sheet's safe area holds the Mac's sheet edges (`MacSheetEdges`): 12 px from the sides otherwise.
+            #if targetEnvironment(macCatalyst)
+            let sides: UILayoutGuide = view.safeAreaLayoutGuide
+            #else
+            let sides: UILayoutGuide = scroll.frameLayoutGuide
+            #endif
+            stack.leadingAnchor.constraint(equalTo: sides.leadingAnchor, constant: 16).isActive = true
+            stack.trailingAnchor.constraint(equalTo: sides.trailingAnchor, constant: -16).isActive = true
         }
         if let heading, !heading.isEmpty {
             let title = UILabel()

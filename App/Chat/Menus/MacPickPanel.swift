@@ -333,7 +333,15 @@ import UIKit
         guard bounds.width > 0 else { return }
         let pad = Self.pad
         let inset = Self.inset
-        let w = min(width, bounds.width - 2 * pad)
+        // [macpass-chat r5] The panel stays over the column its composer is in: at a 900-wide window the 500-wide
+        // Commands panel reached 23 px into the inspector and covered its Copy Chat Info. `lane` is the composer's
+        // column (the composer spans it; a pad in from either side), or the window's without one.
+        let clearFrame = clearOf.flatMap { $0.window != nil ? $0.convert($0.bounds, to: view) : nil }
+        let window = bounds.insetBy(dx: pad, dy: 0)
+        let column = clearFrame.map { CGRect(x: $0.minX + pad, y: 0, width: $0.width - 2 * pad, height: bounds.height) }
+            .map { $0.intersection(window) }
+        let lane = column.flatMap { $0.width >= 240 ? $0 : nil } ?? window
+        let w = min(width, lane.width)
         var y = inset
         // Field (and the accessory beside it); none while there is nothing to search.
         let fieldH = fieldBox.isHidden ? -inset : Self.fieldHeight
@@ -412,7 +420,7 @@ import UIKit
         // [Mac UI check 2026-11-13] V22: a button in the window's trailing half (the box's model pill) has the panel's
         // trailing edge at its own, so the panel hangs off it rather than off the far side of the box.
         var x = anchorFrame.midX > bounds.midX ? anchorFrame.maxX + pad - w : anchorFrame.minX - pad
-        x = min(max(pad, x), bounds.width - pad - w)
+        x = min(max(lane.minX, x), lane.maxX - w)
         let top = above ? edges.minY - gap - h : edges.maxY + gap
         panel.frame = CGRect(x: x, y: max(view.safeAreaInsets.top + pad, top), width: w, height: h)
         glassBack.frame = panel.bounds

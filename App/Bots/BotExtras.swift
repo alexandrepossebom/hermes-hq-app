@@ -171,7 +171,9 @@ nonisolated enum BotExtrasRules {
                 }
                 // The copy is named and brought into view (it lands in the original's section, perhaps off screen).
                 let name = services?.bots.first { $0.id == id }?.name
-                MenusHUD.show(name.map { "Duplicated as “\($0)”" } ?? "Duplicated \(bot.name)", in: host?.view)
+                // Over a sheet (Bot Info) the line sits at its foot: at the top it covered the sheet's tabs.
+                MenusHUD.show(name.map { "Duplicated as “\($0)”" } ?? "Duplicated \(bot.name)", in: host?.view,
+                              atFoot: host?.navigationController?.presentingViewController != nil)
                 MainTabController.current?.botsViewController.reveal(id)
                 done?()
             } catch {

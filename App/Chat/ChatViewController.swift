@@ -3368,6 +3368,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         trimTimer = nil
     }
 
+    /// [macpass-chat r5] The model panel opens under the composer, so the jump arrow (added after the composer) drew on
+    /// top of the panel's corner, over its YOLO switch. The arrow goes under the panel; it never overlaps the composer.
+    func tuckJumpButton(under panel: UIView) {
+        guard panel.superview === view else { return }
+        view.insertSubview(jumpButton, belowSubview: panel)
+    }
+
     private func updateJumpButton() {
         defer { voice.talkTipCheck() }   // [talk] the Talk tip steps aside for the jump button
         if streamLink != nil || lift != nil { jumpButton.setShown(false); return }

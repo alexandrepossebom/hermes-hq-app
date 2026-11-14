@@ -10,6 +10,9 @@ import UIKit
         let page = NewBotController(services: services, settings: settings)
         let navigation = UINavigationController(rootViewController: page)
         SheetStyle.apply(navigation, from: presenter)   // [m9/ipad] a centred form sheet in two panes (§4.8)
+        // [macpass-chat r5] Typed words held the sheet (`isModalInPresentation`) with nothing to ask, so Escape and a
+        // pull down did nothing at all. They ask Discard Changes? as New Task and New Tile do.
+        SheetEditGuard.install(on: navigation)
         presenter.present(navigation, animated: true)
     }
 
@@ -46,6 +49,12 @@ final class NewBotModel {
     var creating = false
     var inlineError: String?
     @ObservationIgnored let editing: any BotEditing
+    /// [macpass-chat r5] Set by the form on show: Tab (back: Shift-Tab) moves to the next field (`NewBotController`).
+    @ObservationIgnored var tabMover: ((_ back: Bool) -> Void)?
+    /// The field last typed in (the form's focus read from the mover is always empty, as on the sign-in form).
+    @ObservationIgnored var lastField: NewBotView.Field = .name
+
+    var typed: Bool { !name.isEmpty || !title.isEmpty || !description.isEmpty }
 
     init(editing: any BotEditing) { self.editing = editing }
 
@@ -56,7 +65,7 @@ final class NewBotModel {
     var canCreate: Bool { valid && !taken && !creating }
 }
 
-final class NewBotController: UIHostingController<HQScaledRoot<NewBotView>> {
+final class NewBotController: UIHostingController<HQScaledRoot<NewBotView>>, EditingPage {
     let model: NewBotModel
     let services: any AppServices
     let settings: any SettingsServices
@@ -71,7 +80,9 @@ final class NewBotController: UIHostingController<HQScaledRoot<NewBotView>> {
         title = "New Bot"
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.leftBarButtonItem = UIBarButtonItem.hqClose(.cancel, action: UIAction { [weak self] _ in
-            self?.dismiss(animated: true)
+            guard let self else { return }
+            self.view.endEditing(true)
+            self.confirmLeaving { [weak self] in self?.dismiss(animated: true) }
         })
         createItem = UIBarButtonItem(title: "Create", style: .prominent, target: self, action: #selector(create))
         createItem.accessibilityIdentifier = "new-bot.create"
@@ -81,11 +92,16 @@ final class NewBotController: UIHostingController<HQScaledRoot<NewBotView>> {
 
     @MainActor required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    var hasChanges: Bool { model.typed }
+    var isSaving: Bool { model.creating }
+
     private func observe() {
         withObservationTracking {
             _ = model.canCreate
             _ = model.creating
             _ = model.name
+            _ = model.title
+            _ = model.description
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -100,11 +116,30 @@ final class NewBotController: UIHostingController<HQScaledRoot<NewBotView>> {
         createItem.title = model.creating ? "Creating…" : "Create"
         createItem.setProminentEnabled(model.canCreate)
         navigationItem.leftBarButtonItem?.isEnabled = !model.creating
-        let typed = !model.name.isEmpty || !model.title.isEmpty || !model.description.isEmpty
-        navigationController?.isModalInPresentation = typed || model.creating
+        if let navigation = navigationController { EditingGuard.refreshLock(navigation) }
     }
 
-    override var keyCommands: [UIKeyCommand]? { (super.keyCommands ?? []) + (createItem?.isEnabled == true ? [.save("Create", #selector(create))] : []) }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        refreshBar()   // the lock is set on the sheet's own navigation, there only once it is on screen
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        var commands = (super.keyCommands ?? []) + (createItem?.isEnabled == true ? [.save("Create", #selector(create))] : [])
+        #if targetEnvironment(macCatalyst)
+        // [macpass-chat r5] The Mac's own Tab never left Display Name for Description (a many-line field), so a
+        // second Tab stayed put and the next words joined the display name. The form moves the focus itself.
+        for back in [false, true] {
+            let tab = UIKeyCommand(input: "\t", modifierFlags: back ? .shift : [],
+                                   action: back ? #selector(tabBack) : #selector(tabForward))
+            tab.wantsPriorityOverSystemBehavior = true
+            commands.append(tab)
+        }
+        #endif
+        return commands
+    }
+    @objc private func tabForward() { model.tabMover?(false) }
+    @objc private func tabBack() { model.tabMover?(true) }
     override var canBecomeFirstResponder: Bool { true }
 
     @objc private func create() {
@@ -134,7 +169,8 @@ final class NewBotController: UIHostingController<HQScaledRoot<NewBotView>> {
 
 struct NewBotView: View {
     @Bindable var model: NewBotModel
-    @FocusState private var focused: Bool
+    @FocusState private var focused: Field?
+    enum Field: CaseIterable { case name, title, description }
 
     var body: some View {
         Form {
@@ -161,7 +197,7 @@ struct NewBotView: View {
                 TextField("inbox-triage", text: $model.name)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .focused($focused)
+                    .focused($focused, equals: .name)
                     .accessibilityIdentifier("new-bot.name")
                 if model.taken {
                     Text("A bot named “\(model.slug)” already exists.")
@@ -179,6 +215,7 @@ struct NewBotView: View {
             Section {
                 TextField("Inbox Triage", text: $model.title)
                     .textInputAutocapitalization(.words)
+                    .focused($focused, equals: .title)
                     .accessibilityIdentifier("new-bot.title")
             } header: { HQSectionLabel { Text("Display Name") } } footer: { HQSectionFooter {   // Edit Bot's word for the same field (UX study #184)
                 Text("The name shown in lists. Leave it blank to use the Name.")
@@ -186,12 +223,21 @@ struct NewBotView: View {
             Section {
                 TextField("What should this bot help with?", text: $model.description, axis: .vertical)
                     .lineLimit(3...8)
+                    .focused($focused, equals: .description)
                     .accessibilityIdentifier("new-bot.description")
             } header: { HQSectionLabel { Text("Description") } }
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .contentMargins(.top, 0, for: .scrollContent)
         .disabled(model.creating)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = .name
+            model.tabMover = { back in
+                let all = Field.allCases
+                let at = all.firstIndex(of: model.lastField) ?? 0
+                focused = all[(at + (back ? all.count - 1 : 1)) % all.count]
+            }
+        }
+        .onChange(of: focused) { _, field in if let field { model.lastField = field } }
     }
 }

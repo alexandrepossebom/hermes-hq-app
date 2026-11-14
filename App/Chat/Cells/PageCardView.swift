@@ -184,6 +184,9 @@ final class PageCardView: UIControl {
         return UIColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
     }
 
+    /// [mac] The Mac's accessibility press does not send a plain control's touch-up: "Opens the page" opened nothing.
+    override func accessibilityActivate() -> Bool { tapped(); return true }
+
     @objc private func tapped() {
         if let ref { onOpen?(ref) }
     }
