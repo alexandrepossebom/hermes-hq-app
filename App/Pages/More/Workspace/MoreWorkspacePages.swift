@@ -573,6 +573,12 @@ final class MoreWorkspaceController: UITableViewController {
     private func browse(_ path: String) {
         guard isTable, mode == .root, let root = space.root?.path, Self.isUnder(path, root) else { return }
         PagesHaptics.selection()
+        // [macpass-tools] Mac full pass 2026-11-14 (round 2): the file shown beside the table stayed there after going to
+        // another folder, beside rows it no longer belonged to. Going elsewhere closes it, as Finder's preview does.
+        if markedPage != nil {
+            MainTabController.current?.split?.closeDetail(animated: false)
+            mark(nil, page: nil)
+        }
         browsed = path == root ? nil : path
         content = .loading
         tableView.reloadData()

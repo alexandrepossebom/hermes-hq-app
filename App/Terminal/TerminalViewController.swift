@@ -114,6 +114,28 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = HQPalette.page
+        #if targetEnvironment(macCatalyst)
+        // [macpass-tools] Mac full pass 2026-11-14 (round 2): in dark the bar (the page's black) stood over the shell's
+        // dark grey as a band of its own. In dark the page is the shell's colour, so the bar (`MacWindow.pageBar`
+        // takes the page's colour) and the shell are one surface, as Terminal's own window is. Light keeps its bar.
+        let page = HQPalette.page, shell = Self.background
+        view.backgroundColor = UIColor { @Sendable traits in
+            traits.userInterfaceStyle == .dark ? shell : page.resolvedColor(with: traits)
+        }
+        if !Theme.isDesktop {
+            // The page brings its own bar in that colour: `MacWindow.pageBar` reads a page's colour off its biggest
+            // scroll view, and the shell's is clear (SwiftTerm paints its cells itself), so it fell back to black.
+            let bar = UINavigationBarAppearance()
+            bar.configureWithOpaqueBackground()
+            bar.backgroundColor = view.backgroundColor
+            bar.shadowColor = .clear
+            bar.titleTextAttributes[.font] = MacType.pageTitle
+            navigationItem.standardAppearance = bar
+            navigationItem.scrollEdgeAppearance = bar
+            navigationItem.compactAppearance = bar
+            navigationItem.compactScrollEdgeAppearance = bar
+        }
+        #endif
         view.accessibilityIdentifier = "terminal.page"
 
         panel.translatesAutoresizingMaskIntoConstraints = false
@@ -942,6 +964,15 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
         }
         if let secondary {
             var style = UIButton.Configuration.plain()
+            #if targetEnvironment(macCatalyst)
+            // [macpass-tools] Mac full pass 2026-11-14 (round 2): Not Now was bare words under the Turn On push button;
+            // every other Mac empty state's second button is a push button too. The panel is always dark, so the
+            // button takes the dark look's fill and edge whatever the app's appearance.
+            style = MacPush.configuration(.plain)
+            let dark = UITraitCollection(userInterfaceStyle: .dark)
+            style.background.backgroundColor = MacPush.fill.resolvedColor(with: dark)
+            style.background.strokeColor = MacPush.stroke.resolvedColor(with: dark)
+            #endif
             style.title = secondary.title
             style.baseForegroundColor = UIColor(white: 0.85, alpha: 1)
             config.secondaryButton = style

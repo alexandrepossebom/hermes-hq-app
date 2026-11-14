@@ -184,7 +184,8 @@ struct StarMapCanvas: View {
                 #endif
             }
             .overlay(alignment: .topTrailing) {
-                if DeviceWord.isMac { StarMapZoomButtons(stage: stage).padding(12) }
+                // [macpass-tools] Mac full pass 2026-11-14 (round 2): the page's side inset (12 pt sat 9 px from the window's edge).
+                if DeviceWord.isMac { StarMapZoomButtons(stage: stage).padding(.top, 12).padding(.trailing, MacInset.side) }
             }
             .frame(width: size.width, height: size.height)
             .clipped()

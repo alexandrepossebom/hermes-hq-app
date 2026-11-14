@@ -347,12 +347,11 @@ struct StarMapNodeSheet: View {
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("starmap.node.loading")
         case .text(let content):
-            Text(content)
-                .font(Font.hq(.callout))
-                .foregroundStyle(Color.hqLabel)
-                .textSelection(.enabled)
+            // [macpass-tools] Mac full pass 2026-11-14 (round 2): a skill is Markdown; the sheet showed its marks as
+            // words ("# Trace Changelogs", "1."). It reads formatted, as a job's prompt and a file's Preview do.
+            AttributedTextView(text: PagesMarkdown.attributed(content, category: UIContentSizeCategory(typeSize)),
+                               identifier: "starmap.node.text")
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("starmap.node.text")
         case .failed:
             VStack(alignment: .leading, spacing: 10) {
                 Text("Couldn’t load this.").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)

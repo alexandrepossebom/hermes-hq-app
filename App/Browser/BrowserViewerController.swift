@@ -147,6 +147,12 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         if DeviceWord.isMac { appearance.titleTextAttributes[.font] = MacType.pageTitle }
         navigationItem.standardAppearance = appearance
         navigationItem.scrollEdgeAppearance = appearance
+        #if targetEnvironment(macCatalyst)
+        // [macpass-tools] Mac full pass 2026-11-14 (round 2): the title leads the bar, as Files', Terminal's and every
+        // other page's in the main window do (it stood centred over the pane, the one viewer that did).
+        MacPlaceTitle.mark(self)
+        MacPlaceTitle.leadIfMarked(self)
+        #endif
 
         stage.host = self
         stage.translatesAutoresizingMaskIntoConstraints = false
