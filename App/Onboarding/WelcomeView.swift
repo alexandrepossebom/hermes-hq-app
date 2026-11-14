@@ -15,7 +15,7 @@ struct WelcomeView: View {
                     WornAppIcon(side: 72)
                         .padding(.top, 12)
                     Text(OnboardingCopy.Welcome.headingLine1 + "\n" + OnboardingCopy.Welcome.headingLine2)
-                        .font(Font.hq(.largeTitle).weight(.bold))
+                        .font(Font.hq(.largeTitle).weight(.hqBold))
                         .foregroundStyle(Color.hqLabel)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)

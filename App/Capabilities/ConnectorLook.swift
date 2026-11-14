@@ -105,7 +105,7 @@ struct ConnectorHeader<Logo: View>: View {
                 HStack(alignment: .center, spacing: 14) {
                     logo()
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(title).font(Font.hq(.title3).weight(.bold)).foregroundStyle(Color.hqLabel)
+                        Text(title).font(Font.hq(.title3).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                             .fixedSize(horizontal: false, vertical: true)
                         if state != nil || kind != nil {
                             // A long kind goes under the badge rather than squeezing it.

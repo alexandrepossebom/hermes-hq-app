@@ -94,7 +94,7 @@ final class TalkIntroSheet: UIViewController {
 
         let title = UILabel()
         title.text = form == .intro ? "Talk with \(name)" : "How Voice Works"
-        title.font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: HQFont.system(ofSize: 22, weight: .bold))
+        title.font = UIFontMetrics(forTextStyle: .title2).scaledFont(for: HQFont.system(ofSize: 22, weight: .hqBold))
         title.textColor = HQPalette.label
         title.adjustsFontForContentSizeCategory = true
         title.numberOfLines = 0

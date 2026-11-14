@@ -424,7 +424,7 @@ struct SignInView: View {
         VStack(spacing: 10) {
             WornAppIcon(side: 72)
             Text(model.heading ?? "Hermes HQ")
-                .font(Font.hq(.largeTitle).weight(.bold))
+                .font(Font.hq(.largeTitle).weight(.hqBold))
                 .foregroundStyle(Color.hqLabel)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)

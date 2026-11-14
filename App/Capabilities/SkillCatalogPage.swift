@@ -102,7 +102,7 @@ struct SkillCatalogEntryView: View {
                     HStack(alignment: .center, spacing: 14) {
                         ConnectorSymbolTile(name: entry.name, symbol: SkillCatalogRow.symbol(entry), size: 56)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(entry.name).font(Font.hq(.title3).weight(.bold)).foregroundStyle(Color.hqLabel)
+                            Text(entry.name).font(Font.hq(.title3).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                                 .fixedSize(horizontal: false, vertical: true)
                             HStack(spacing: 6) {
                                 PluginTierBadge(words: entry.badge)

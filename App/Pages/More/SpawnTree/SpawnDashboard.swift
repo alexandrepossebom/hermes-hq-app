@@ -52,7 +52,7 @@ struct SpawnDashboard: View {
             Image(systemName: "arrow.triangle.branch").font(Font.hq(.largeTitle))
                 .foregroundStyle(tree.active > 0 ? Color.hqTint : Color.hqLabel2).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(words).font(Font.hq(.title2).weight(.bold)).foregroundStyle(Color.hqLabel)
+                Text(words).font(Font.hq(.title2).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("spawn-tree.header")
                 Text(detail).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)

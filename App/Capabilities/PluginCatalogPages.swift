@@ -457,7 +457,7 @@ struct PluginCatalogEntryView: View {
                 HStack(alignment: .center, spacing: 14) {
                     ConnectorSymbolTile(name: entry.name, symbol: entry.category.symbol, size: 56)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(entry.title).font(Font.hq(.title3).weight(.bold)).foregroundStyle(Color.hqLabel)
+                        Text(entry.title).font(Font.hq(.title3).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                             .fixedSize(horizontal: false, vertical: true)
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: 6) { badge; kindText }

@@ -877,7 +877,7 @@ struct TaskTeammate: View {
         TaskBand()
         HStack(alignment: .center, spacing: 8) {
             HeadImage(raw: model.head(profile), profile: profile, size: 20).frame(width: 20, height: 20).accessibilityHidden(true)
-            Text(name).font(Font.hq(.callout).weight(.bold)).foregroundStyle(Color.hqLabel).lineLimit(1)
+            Text(name).font(DeviceWord.isMac ? Font.hq(.subheadline).weight(.semibold) : Font.hq(.callout).weight(.hqBold)).foregroundStyle(Color.hqLabel).lineLimit(1)
             if let since = task.isDone ? nil : TodoWords.stateTime(task, now: Date()) {
                 Text(since).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).lineLimit(1)
             }
@@ -1054,7 +1054,7 @@ struct TaskSectionHead<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title).font(Font.hq(.callout).weight(.bold)).foregroundStyle(Color.hqLabel).lineLimit(1)
+            Text(title).font(DeviceWord.isMac ? Font.hq(.subheadline).weight(.semibold) : Font.hq(.callout).weight(.hqBold)).foregroundStyle(Color.hqLabel).lineLimit(1)
             if let count { Text(count).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).lineLimit(1) }
             Spacer(minLength: 8)
             trailing()

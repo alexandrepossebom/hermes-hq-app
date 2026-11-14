@@ -262,7 +262,7 @@ final class ModelPanelView: UIView {
 
     private func restyle() {
         // Words on the glass itself take the primary ink (label 2 measured 3.2:1 over the blurred chat).
-        nameLabel.font = Self.font(.title2, .bold)
+        nameLabel.font = Self.font(.title2, .hqBold)
         nameLabel.textColor = ChatPalette.label
         makerLabel.font = Self.font(.subheadline, .medium)
         makerLabel.textColor = ChatPalette.label
@@ -285,7 +285,7 @@ final class ModelPanelView: UIView {
 
     /// The model's name in bold; with `tagInline`, its tag after it in lighter words (when the pill won't fit beside).
     private func nameText(tagInline: Bool) -> NSAttributedString {
-        let text = NSMutableAttributedString(string: state.name, attributes: [.font: Self.font(.title2, .bold), .foregroundColor: ChatPalette.label])
+        let text = NSMutableAttributedString(string: state.name, attributes: [.font: Self.font(.title2, .hqBold), .foregroundColor: ChatPalette.label])
         if tagInline, let tag = state.tag {
             text.append(NSAttributedString(string: " " + tag, attributes: [.font: Self.font(.title2, .regular), .foregroundColor: ChatPalette.label2]))
         }
@@ -527,7 +527,7 @@ final class ModelPanelView: UIView {
                                width: tagSize.width, height: tagSize.height)
         makerLabel.frame = CGRect(x: pad, y: y + nameH + 3, width: textW, height: makerH)   // [ui-sizing] 3 pt under the name (was 1)
         // The chevrons on the name's first line, after the name (or its tag).
-        let lineH = ceil(Self.font(.title2, .bold).lineHeight)
+        let lineH = ceil(Self.font(.title2, .hqBold).lineHeight)
         let chevronX = (pillShown ? tagPill.frame.maxX : nameLabel.frame.maxX) + 6
         switchChevrons.frame = CGRect(x: chevronX, y: y, width: chevronW, height: min(nameH, lineH))
         switchSpinner.center = CGPoint(x: switchChevrons.frame.midX, y: switchChevrons.frame.midY)

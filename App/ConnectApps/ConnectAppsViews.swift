@@ -196,7 +196,7 @@ struct ConnectAppsSetupView: View {
                     HStack(spacing: 10) {
                         ForEach(ComposioCatalog.hero, id: \.self) { AppLogo(slug: $0, name: $0, size: 48) }
                     }
-                    Text("Let your bots use your apps").font(Font.hq(.title2).weight(.bold)).foregroundStyle(Color.hqLabel).multilineTextAlignment(.center)
+                    Text("Let your bots use your apps").font(Font.hq(.title2).weight(.hqBold)).foregroundStyle(Color.hqLabel).multilineTextAlignment(.center)
                     // [connect-find] Owner 2026-11-11: say first that a Composio API key is all this takes.
                     Text(Self.blurb)
                         .font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
@@ -772,7 +772,7 @@ struct ConnectAppView: View {
                         .overlay(alignment: .bottomTrailing) {
                             if fine { badge("checkmark.circle.fill", .green) } else if toolkit.needsSignIn { badge("exclamationmark.triangle.fill", .orange) }
                         }
-                    Text(name).font(Font.hq(.title2).weight(.bold)).foregroundStyle(Color.hqLabel)
+                    Text(name).font(Font.hq(.title2).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                     if fine {
                         Text("Connected").font(Font.hq(.headline)).foregroundStyle(Color.hqGreen).accessibilityIdentifier("connect-app.connected")
                         Text(model.allBots ? "All your bots can use it now."
@@ -1227,7 +1227,7 @@ struct ConnectAccountView: View {
         Section {
             VStack(spacing: 8) {
                 AppLogo(slug: toolkit.slug, name: toolkit.name, logo: toolkit.logo, size: 64)
-                Text(title).font(Font.hq(.title3).weight(.bold)).foregroundStyle(Color.hqLabel).multilineTextAlignment(.center)
+                Text(title).font(Font.hq(.title3).weight(.hqBold)).foregroundStyle(Color.hqLabel).multilineTextAlignment(.center)
                     .lineLimit(2).truncationMode(.middle).accessibilityIdentifier("connect-account.title")
                 if account.needsSignIn {
                     Text("Needs a new sign-in").font(Font.hq(.headline)).foregroundStyle(Color.hqOrange)

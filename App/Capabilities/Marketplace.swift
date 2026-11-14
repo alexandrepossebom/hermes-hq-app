@@ -606,7 +606,7 @@ struct MarketplaceView: View {
         return VStack(alignment: .leading, spacing: 12) {
             row {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(Font.hq(.title).weight(.bold)).foregroundStyle(Color.hqLabel).lineLimit(Self.titleLines(wide: wide))
+                    Text(title).font(Font.hq(.title).weight(.hqBold)).foregroundStyle(Color.hqLabel).lineLimit(Self.titleLines(wide: wide))
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
                     if let blurb { Text(blurb).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2) }
@@ -840,7 +840,7 @@ struct MarketplaceView: View {
                         .frame(minHeight: 26)
                 } else {
                     Button(action: install) {
-                        Text("Install").font(Font.hq(.caption).weight(.bold)).foregroundStyle(Color.hqTint)
+                        Text("Install").font(Font.hq(.caption).weight(.hqBold)).foregroundStyle(Color.hqTint)
                             .padding(.horizontal, 14).frame(minHeight: 26)
                             .background(Color.hqTint.opacity(0.14), in: Capsule())
                             .contentShape(Capsule())
@@ -1719,8 +1719,8 @@ struct MarketplaceHero: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("FEATURED THIS WEEK").font(Font.hq(.caption).weight(.bold)).foregroundStyle(Color.hqTint)
-                Text(entry.title).font(Font.hq(.largeTitle).weight(.bold)).foregroundStyle(Color.hqLabel)
+                Text("FEATURED THIS WEEK").font(Font.hq(.caption).weight(.hqBold)).foregroundStyle(Color.hqTint)
+                Text(entry.title).font(Font.hq(.largeTitle).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                     .lineLimit(2).minimumScaleFactor(0.7)
                 HStack(spacing: 6) {
                     if let tier = entry.tierWord { PluginTierBadge(words: tier) }
@@ -1944,7 +1944,7 @@ struct MarketplaceCarousel: View {
                     if let tier = entry.tierWord { PluginTierBadge(words: tier) }
                     Text("by \(entry.maintainer)").font(Font.hq(.caption)).foregroundStyle(Color.hqLabel2).lineLimit(1)
                 }
-                Text(entry.title).font(Font.hq(.title3).weight(.bold)).foregroundStyle(Color.hqLabel).lineLimit(1)
+                Text(entry.title).font(Font.hq(.title3).weight(.hqBold)).foregroundStyle(Color.hqLabel).lineLimit(1)
                 Text(PluginCatalogEntry.styled(entry.summary)).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                     .frame(maxWidth: .infinity, alignment: .topLeading)

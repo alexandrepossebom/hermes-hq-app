@@ -893,7 +893,7 @@ struct MacAppUpdateView: View {
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(update.headline)
-                    .font(Font.hq(.title3).weight(.bold))
+                    .font(Font.hq(.title3).weight(.hqBold))
                     .foregroundStyle(Color.hqLabel)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("mac-update.headline")

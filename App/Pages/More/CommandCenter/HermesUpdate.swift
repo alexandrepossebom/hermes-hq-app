@@ -979,7 +979,7 @@ struct HermesUpdateView: View {
             .frame(height: symbolSize + 4)
             .accessibilityHidden(true)
             Text(update.headline)
-                .font(Font.hq(.title2).weight(.bold))
+                .font(Font.hq(.title2).weight(.hqBold))
                 .foregroundStyle(Color.hqLabel)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)

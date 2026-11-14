@@ -46,7 +46,7 @@ struct OfflineView: View {
             WornAppIcon(side: 72)
                 .padding(.bottom, 6)
             Text(model.screen.title)
-                .font(Font.hq(.title).weight(.bold))
+                .font(Font.hq(.title).weight(.hqBold))
                 .foregroundStyle(Color.hqLabel)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)

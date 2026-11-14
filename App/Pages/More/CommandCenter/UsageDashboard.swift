@@ -51,7 +51,7 @@ struct UsageDashboard: View {
     private var headline: some View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Last \(model.shownDays) Days").font(Font.hq(.title2).weight(.bold)).foregroundStyle(Color.hqLabel)
+                Text("Last \(model.shownDays) Days").font(Font.hq(.title2).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                     .accessibilityAddTraits(.isHeader)
                 Text("Every bot on this gateway, together.").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
                 if model.refreshFailed {

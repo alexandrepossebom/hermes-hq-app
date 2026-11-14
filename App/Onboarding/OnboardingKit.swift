@@ -150,7 +150,7 @@ struct GuidePage<Content: View, Footer: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text(heading)
-                    .font(Font.hq(.title).weight(.bold))
+                    .font(Font.hq(.title).weight(.hqBold))
                     .foregroundStyle(Color.hqLabel)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
@@ -224,7 +224,7 @@ struct GuideStepRow<Content: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(number)")
-                .font(Font.hq(.subheadline).weight(.bold))
+                .font(Font.hq(.subheadline).weight(.hqBold))
                 .foregroundStyle(.white)
                 .frame(width: badge, height: badge)
                 .background(Circle().fill(Color.hqTint))

@@ -417,7 +417,7 @@ struct JobDetailView: View {
     private func header(_ job: CronJob, title: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(Font.hqSystem(.title, design: .default, weight: .bold))
+                .font(DeviceWord.isMac ? Font.hq(.title3).weight(.semibold) : Font.hqSystem(.title, design: .default, weight: .bold))
                 .foregroundStyle(Color.hqLabel)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)

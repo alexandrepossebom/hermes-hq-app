@@ -154,7 +154,7 @@ final class CommandsSheetViewController: UIViewController, UITableViewDataSource
                                                                         actions: [retry])
                 #else
                 contentUnavailableConfiguration = PageStates.sheetState(symbol: "slash.circle", title: Self.emptyTitle, text: Self.emptyText,
-                                                                        desktopTitleFont: HQFont.preferred(.title3).pagesWeight(.bold),
+                                                                        desktopTitleFont: HQFont.preferred(.title3).pagesWeight(.hqBold),
                                                                         actions: [retry])
                 #endif
             } else if shown.isEmpty {

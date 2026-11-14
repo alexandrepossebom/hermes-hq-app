@@ -1491,7 +1491,7 @@ struct SettingsCategoryColumn: View {
                                 .foregroundStyle(Color.hqTintText)
                                 .frame(width: 30)
                             Text(category.title)
-                                .font(Font.hq(.body).weight(on ? .semibold : .regular))
+                                .font(Font.hq(.body).weight(on && !DeviceWord.isMac ? .semibold : .regular))
                                 .foregroundStyle(Color.hqLabel)
                                 .lineLimit(1)
                             Spacer(minLength: 0)

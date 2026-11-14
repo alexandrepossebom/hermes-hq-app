@@ -180,7 +180,7 @@ struct StatusDashboard: View {
         return HStack(alignment: .center, spacing: 14) {
             Image(systemName: summary.symbol).font(Font.hq(.largeTitle)).foregroundStyle(summary.color).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(summary.words).font(Font.hq(.title2).weight(.bold)).foregroundStyle(Color.hqLabel)
+                Text(summary.words).font(Font.hq(.title2).weight(.hqBold)).foregroundStyle(Color.hqLabel)
                     .accessibilityAddTraits(.isHeader)
                 if !summary.detail.isEmpty {
                     Text(summary.detail).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).lineLimit(2)

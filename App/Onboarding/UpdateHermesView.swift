@@ -102,7 +102,7 @@ struct UpdateHermesView: View {
         VStack(spacing: 0) {
             WornAppIcon(side: 72)
             Text(OutdatedCopy.title)
-                .font(Font.hq(.title2).weight(.bold))
+                .font(Font.hq(.title2).weight(.hqBold))
                 .foregroundStyle(Color.hqLabel)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)

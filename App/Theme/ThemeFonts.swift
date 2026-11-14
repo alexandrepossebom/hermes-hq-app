@@ -341,3 +341,14 @@ extension View {
         #endif
     }
 }
+
+// [mac] One heading weight on the Mac. The Mac's own scale stops at semibold for titles and section heads (MacType,
+// and the Desktop Look's cap in HQFont.face), but SwiftUI `.weight(.bold)` slipped past that cap, so a few heroes and
+// heads drew bold beside semibold siblings of the same role. `.hqBold` is bold on iPhone and semibold on the Mac.
+extension Font.Weight {
+    static var hqBold: Font.Weight { DeviceWord.isMac ? .semibold : .bold }
+}
+
+extension UIFont.Weight {
+    static var hqBold: UIFont.Weight { DeviceWord.isMac ? .semibold : .bold }
+}
