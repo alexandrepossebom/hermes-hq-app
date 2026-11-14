@@ -385,9 +385,9 @@ struct ArtifactCandidateTests {
     }
 
     @Test func cutOffURLs() {
-        #expect(ArtifactCollector.urlCutOff("https://telnyx.po…"))
-        #expect(ArtifactCollector.urlCutOff("https://telnyx.po"))
-        #expect(ArtifactCollector.urlCutOff("https://telnyx.po..."))
+        #expect(ArtifactCollector.urlCutOff("https://samplehost.po…"))
+        #expect(ArtifactCollector.urlCutOff("https://samplehost.po"))
+        #expect(ArtifactCollector.urlCutOff("https://samplehost.po..."))
         #expect(!ArtifactCollector.urlCutOff("https://example.org/papers/open-planning"))
         #expect(!ArtifactCollector.urlCutOff("https://github.com/a/b/compare/main...feature"))
         #expect(!ArtifactCollector.urlCutOff("http://127.0.0.1:9119/x"))
@@ -404,7 +404,7 @@ struct ArtifactCandidateTests {
             tool("write_file", json(["path": "/home/hermes/app/release-notes.md"])),
             tool("terminal", json(["output": "Saved /home/hermes/data/export.csv\nDownloading https://files.pythonhosted.org/packages/x/y/pkg-1.0-py3-none-any.whl"])),
             tool("read_file", json(["path": "/home/hermes/app/CHANGELOG.md"])),
-            assistant("see https://telnyx.po…"),
+            assistant("see https://samplehost.po…"),
             assistant("/home/hermes/gone/old.png"),
             assistant("/home/hermes/big/log.txt"),
             // `.swift` is not one of the collector's file extensions (`FILE_EXT_RE`): a bare path in prose is never

@@ -667,8 +667,59 @@ extension UISheetPresentationController {
     @objc dynamic func hqGlassContainerViewDidLayoutSubviews() {
         hqGlassContainerViewDidLayoutSubviews()   // the original (the implementations were exchanged)
         SheetGlass.layout(self)
+        #if targetEnvironment(macCatalyst)
+        MacSheetEdges.apply(self)
+        #endif
     }
 }
+
+#if targetEnvironment(macCatalyst)
+/// [macpass-popups] Owner 2026-11-14: "not enough padding on edges of pop up windows". Every Mac sheet laid its page
+/// out with the iPad's margins, which the Mac draws at 77 %: the cards and fields 16 px from the sheet's sides, the bar's
+/// Done and Cancel 13 px, the last row flush on the rounded foot. A Mac sheet keeps its content about 20 px in. One
+/// place puts every sheet's page that far in (Bot Info, New Bot, the Update sheets, Keyboard Shortcuts, a Kanban task,
+/// the system-styled sheets that never pass `SheetStyle`): extra safe area on the presented controller, which its bar,
+/// its UIKit and SwiftUI lists and anything laid out on the safe area or the layout margins follow.
+/// A page that is a picture or a web page edge to edge (`fullBleed`) keeps its edges. The iPhone and iPad are unchanged.
+@MainActor enum MacSheetEdges {
+    /// The sides: with the system's 20 pt margins, 26 pt in = 20 px on the Mac's screen.
+    static let side: CGFloat = 6
+    /// The foot: the last row clear of the sheet's rounded bottom edge.
+    static let foot: CGFloat = 8
+    private static let fullBleedKey = malloc(1)!
+    private static let appliedKey = malloc(1)!
+    private static let module = String(String(reflecting: MacSheetEdges.self).prefix { $0 != "." })
+
+    /// Hooks every sheet's layout (`SheetGlass`'s hook), at launch.
+    static func install() { SheetGlass.install() }
+
+    /// A sheet whose page fills it edge to edge (a live page or tile, a picture): no extra edges.
+    static func fullBleed(_ controller: UIViewController) {
+        objc_setAssociatedObject(controller, fullBleedKey, true, .OBJC_ASSOCIATION_RETAIN)
+        guard objc_getAssociatedObject(controller, appliedKey) != nil else { return }
+        objc_setAssociatedObject(controller, appliedKey, nil, .OBJC_ASSOCIATION_RETAIN)
+        controller.additionalSafeAreaInsets.left -= side
+        controller.additionalSafeAreaInsets.right -= side
+        controller.additionalSafeAreaInsets.bottom -= foot
+    }
+
+    static func apply(_ sheet: UISheetPresentationController) {
+        let page = sheet.presentedViewController
+        guard objc_getAssociatedObject(page, appliedKey) == nil, objc_getAssociatedObject(page, fullBleedKey) == nil,
+              !(page is UIAlertController), page.modalPresentationStyle != .popover else { return }
+        // Only the app's own pages: the system's (Quick Look, pickers, Share) lay themselves out.
+        let first = (page as? UINavigationController)?.viewControllers.first ?? page
+        // (A SwiftUI page's hosting controller is SwiftUI's class, named for the app's view inside it.)
+        guard Bundle(for: type(of: first)) == Bundle.main || NSStringFromClass(type(of: first)).contains(module) else { return }
+        // A navigation controller whose first page is full bleed.
+        if objc_getAssociatedObject(first, fullBleedKey) != nil { return }
+        objc_setAssociatedObject(page, appliedKey, true, .OBJC_ASSOCIATION_RETAIN)
+        page.additionalSafeAreaInsets.left += side
+        page.additionalSafeAreaInsets.right += side
+        page.additionalSafeAreaInsets.bottom += foot
+    }
+}
+#endif
 
 extension UITableViewCell {
     /// [glass] Keeps a grouped row's card solid while its sheet sits on glass (`HQPalette.sheetCard`); a pressed or

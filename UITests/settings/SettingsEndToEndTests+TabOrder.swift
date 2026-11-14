@@ -118,28 +118,9 @@ extension SettingsEndToEndTests {
         let more = app.tabBars.buttons["More"]
         more.tap()
         more.tap()   // back to More's list (the Tabs page was on its stack)
-        XCTAssertTrue(app.cells["more-row-settings"].waitForExistence(timeout: 5), "More's list")
+        XCTAssertTrue(app.cells["more-row-jobs"].waitForExistence(timeout: 5), "a hidden Jobs tab is a More row")
         XCTAssertFalse(app.cells["more-row-capabilities"].exists, "a page that is a tab leaves More")
         shot(app, "tabs-more")
-        // [more-bots] A hidden Bots tab is a More row too, first under Bots (above Bot Profiles): the list opens on More,
-        // a bot's chat on it, and Back goes to the list and then to More.
-        let botsRow = app.cells["more-row-bots"]
-        XCTAssertTrue(botsRow.waitForExistence(timeout: 5), "a hidden Bots tab is a More row")
-        XCTAssertLessThan(botsRow.frame.minY, app.cells["more-row-profiles"].frame.minY, "Bots is above Bot Profiles")
-        botsRow.tap()
-        XCTAssertTrue(app.navigationBars["Bots"].waitForExistence(timeout: 5), "More opens the Bots list")
-        let ivy = app.cells["bot-row-ivy"]
-        XCTAssertTrue(ivy.waitForExistence(timeout: 5), "the list shows the bots")
-        shot(app, "tabs-more-bots")
-        ivy.tap()
-        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "a bot's chat opens from More's Bots list")
-        shot(app, "tabs-more-bots-chat")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(ivy.waitForExistence(timeout: 5), "Back goes to the Bots list")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(botsRow.waitForExistence(timeout: 5), "and then to More")
-        m9ScrollTo(app.cells["more-row-jobs"], in: app)   // under the Bots group, which is a row longer now
-        XCTAssertTrue(app.cells["more-row-jobs"].waitForExistence(timeout: 5), "a hidden Jobs tab is a More row")
         app.cells["more-row-jobs"].tap()
         XCTAssertTrue(app.navigationBars["Jobs"].waitForExistence(timeout: 5), "More opens Jobs")
 
@@ -160,51 +141,7 @@ extension SettingsEndToEndTests {
         m9ScrollTo(app.buttons["tab-order.default"], in: app)
         app.buttons["tab-order.default"].tap()
         XCTAssertTrue(waitUntil(timeout: 3) { self.tabTitles(app) == start }, "the default tabs again: \(tabTitles(app))")
-        // [more-bots] With the Bots tab back, More doesn't list Bots.
-        let moreTab = app.tabBars.buttons["More"]
-        moreTab.tap()
-        moreTab.tap()
-        XCTAssertTrue(app.cells["more-row-profiles"].waitForExistence(timeout: 5), "More's list")
-        XCTAssertFalse(app.cells["more-row-bots"].exists, "the Bots tab is back: no Bots row in More")
     }
-
-    /// [more-bots] More › Bots with the Bots tab off, in whichever look the run uses (S40 reads the system bar, so it
-    /// skips in the Desktop Look): the row leads the Bots group, its list opens on More, and a bot's chat on that.
-    @MainActor func testS40b_HiddenBotsListIsInMore() throws {
-        // The tabs for this launch only (the argument domain): Bots off, nothing saved.
-        // (Not `launchSignedIn`: it waits for the Bots tab's list.)
-        let app = XCUIApplication()
-        app.launchArguments = ["-HQDebugResetAccounts", "YES"] + appearanceArguments
-            + ["-HQDebugResetTabs", "YES", "-\(Self.tabOrderKey)", "(sessions, jobs, workspace)", "-HQDebugNoDrag", "YES"]
-        app.launch()
-        signIn(app, a)
-        let more = app.tabButton(id: "tab-more", label: "More")
-        XCTAssertTrue(more.waitForExistence(timeout: 20), "signed in, on Sessions")
-        dismissSavePassword(app, wait: 2)
-        XCTAssertFalse(app.tabButton(id: "tab-bots", label: "Bots").exists, "the Bots tab is off")
-        let botsRow = app.cells["more-row-bots"]
-        for _ in 0..<4 {
-            dismissSavePassword(app)
-            more.tap()
-            if botsRow.waitForExistence(timeout: 2), botsRow.isHittable { break }
-        }
-        XCTAssertTrue(botsRow.exists, "a hidden Bots tab is a More row")
-        XCTAssertLessThan(botsRow.frame.minY, app.cells["more-row-profiles"].frame.minY, "Bots is above Bot Profiles")
-        shot(app, "more-bots-row")
-        botsRow.tap()
-        let ivy = app.cells["bot-row-ivy"]
-        XCTAssertTrue(ivy.waitForExistence(timeout: 5), "More opens the Bots list")
-        shot(app, "more-bots-list")
-        ivy.tap()
-        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "a bot's chat opens from More's Bots list")
-        shot(app, "more-bots-chat")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(ivy.waitForExistence(timeout: 5), "Back goes to the Bots list")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(botsRow.waitForExistence(timeout: 5), "and then to More")
-    }
-
-    static let tabOrderKey = "hqn.tabOrder"
 
     /// [kanban-tab-one] Settings › Appearance › Tabs › Kanban Tab › `choice` (the Menu over the row).
     @MainActor func chooseKanbanTab(_ choice: String, in app: XCUIApplication) {

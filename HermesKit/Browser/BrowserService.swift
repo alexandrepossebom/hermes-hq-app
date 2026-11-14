@@ -98,9 +98,6 @@ nonisolated final class BrowserCloseOnce: Sendable {
     private var ready: (plugin: Plugin, at: Date)?
     static let healthReuse: TimeInterval = 5 * 60
     private(set) lazy var activity = BrowserActivityChannel(service: self)
-    /// [cloud-hosted] The gateway is one Nous hosts (Hermes Cloud). The add-on is told (3.11+), so it starts no Chrome
-    /// there and leaves each bot on the browser Hermes Cloud gives it until the person chooses Browser Use Cloud.
-    var hostedGateway = false
 
     init(rest: any GatewayClient, sockets: any GatewayPluginSockets) {
         self.rest = rest
@@ -141,13 +138,8 @@ nonisolated final class BrowserCloseOnce: Sendable {
         let first = base
         for candidate in [first, first == BrowserWire.plugin ? BrowserWire.legacyPlugin : BrowserWire.plugin] {
             do {
-                var health = try await json("GET", candidate + "/health", timeout: timeout)
+                let health = try await json("GET", candidate + "/health", timeout: timeout)
                 base = candidate
-                if hostedGateway, BrowserHealth.knowsHosted(health), !BrowserHealth.hosted(health) {
-                    // [cloud-hosted] It hasn't worked out that it is hosted (its address didn't reach it): said here.
-                    _ = try? await json("POST", candidate + "/cloud", body: .object(["hosted": true]), timeout: timeout)
-                    health = (try? await json("GET", candidate + "/health", timeout: timeout)) ?? health
-                }
                 let found = Plugin(base: candidate, health: health, legacy: candidate == BrowserWire.legacyPlugin)
                 ready = found.setup == .ready ? (found, Date()) : nil
                 return found
@@ -202,47 +194,8 @@ nonisolated final class BrowserCloseOnce: Sendable {
     /// nil when the plugin doesn't offer it (the phone hides the choice).
     func choice(profile: String) async throws -> BrowserChoice? {
         let found = try await plugin()
-        guard found.setup == .ready, BrowserHealth.offersChoice(found.health) || BrowserHealth.offersCloud(found.health) else { return nil }
+        guard found.setup == .ready, BrowserHealth.offersChoice(found.health) else { return nil }
         return BrowserChoice.parse(try await json("GET", found.base + "/choice", query: [URLQueryItem(name: "profile", value: profile)]))
-    }
-
-    // MARK: Browser Use Cloud (plugin 3.9+)
-
-    /// nil when the plugin doesn't offer it (the phone hides the choice).
-    func cloud() async throws -> BrowserCloud? {
-        let found = try await plugin()
-        guard found.setup == .ready, BrowserHealth.offersCloud(found.health) else { return nil }
-        return BrowserCloud.parse(try await json("GET", found.base + "/cloud"))
-    }
-
-    /// Saves the person's Browser Use API key on the computer once Browser Use accepts it; "" forgets it. The key is
-    /// sent to the person's own computer only, and never comes back (the answer carries its last four characters).
-    func saveCloudKey(_ key: String) async throws -> BrowserCloud {
-        let found = try await plugin()
-        let answer = try await json("POST", found.base + "/cloud", body: .object(["key": .string(key)]), timeout: 30)
-        guard let cloud = BrowserCloud.parse(answer) else { throw GatewayFailure.notHermes }
-        return cloud
-    }
-
-    /// "Use for All Bots" (plugin 3.10+): every bot on the computer browses in Browser Use Cloud, new bots too; off gives
-    /// each its own browser back. The answer's `skipped` names the bots the computer couldn't change.
-    func setCloudForAll(_ on: Bool) async throws -> BrowserCloud {
-        let found = try await plugin()
-        let answer = try await json("POST", found.base + "/cloud", body: .object(["all": .bool(on)]), timeout: 120)
-        guard let cloud = BrowserCloud.parse(answer) else { throw GatewayFailure.notHermes }
-        return cloud
-    }
-
-    /// Browser Use Cloud for Settings, with whether the plugin has "Use for All Bots" (3.10+) and whether Hermes is
-    /// hosted (3.11+); nil when it has no cloud.
-    /// Throws `HTTPError` 404 when the add-on isn't there at all (only the old dispatch-browser answers, or nothing is
-    /// installed): Settings offers to set it up.
-    func cloudSettings() async throws -> (cloud: BrowserCloud, offersAll: Bool, hosted: Bool)? {
-        let found = try await plugin()
-        if found.legacy || found.setup == .missing { throw HTTPError(status: 404, body: nil) }
-        guard found.setup == .ready, BrowserHealth.offersCloud(found.health) else { return nil }
-        guard let cloud = BrowserCloud.parse(try await json("GET", found.base + "/cloud")) else { return nil }
-        return (cloud, BrowserHealth.offersCloudForAll(found.health), BrowserHealth.hosted(found.health))
     }
 
     func chromeProfiles() async throws -> ChromeProfiles {
@@ -260,7 +213,6 @@ nonisolated final class BrowserCloseOnce: Sendable {
         case .refresh: body["refresh"] = true
         case .window(let normal): body["window"] = normal ? "normal" : "hidden"
         case .takeOver: body["take_over"] = true
-        case .cloud: body["mode"] = "cloud"
         }
         let answer = try await json("POST", found.base + "/choice", body: .object(body), timeout: 600)
         guard let choice = BrowserChoice.parse(answer) else { throw GatewayFailure.notHermes }
@@ -280,9 +232,6 @@ nonisolated struct BrowserChoice: Sendable, Equatable {
     var blocked: String? = nil
     /// The plugin can safely take this bot's browser over (`POST /choice {take_over: true}`, 3.6.2+).
     var canTakeOver = false
-    /// [cloud-hosted] A hosted Hermes (Hermes Cloud, plugin 3.11+): the bot has no Chrome there. It uses the browser
-    /// Hermes Cloud gives it (`blocked: "hosted"`) or Browser Use Cloud.
-    var hosted = false
 
     enum Change: Sendable, Equatable {
         case own
@@ -291,12 +240,7 @@ nonisolated struct BrowserChoice: Sendable, Equatable {
         case window(normal: Bool)
         /// Hand a browser the plugin doesn't run to it (only when `canTakeOver`).
         case takeOver
-        /// Browse in Browser Use Cloud (plugin 3.9+; needs the person's API key saved first).
-        case cloud
     }
-
-    /// The bot browses in Browser Use Cloud (the plugin reports it as `blocked: "cloud"`: it runs no Chrome for it).
-    var cloud: Bool { blocked == "cloud" }
 
     static func parse(_ value: JSONValue) -> BrowserChoice? {
         guard value["schema"]?.string == "hermes-hq-browser.choice.v1", let profile = value["profile"]?.string else { return nil }
@@ -305,25 +249,7 @@ nonisolated struct BrowserChoice: Sendable, Equatable {
                              copiedAt: value["copied_at"]?.double.map { Date(timeIntervalSince1970: $0) },
                              normalWindow: value["window"]?.string == "normal", changeable: value["changeable"]?.bool ?? false,
                              blocked: value["blocked"]?.string.flatMap { $0.isEmpty ? nil : String($0.prefix(40)) },
-                             canTakeOver: value["can_take_over"]?.bool ?? false, hosted: value["hosted"]?.bool ?? false)
-    }
-}
-
-/// Browser Use Cloud on this computer: whether the person's API key is saved (never the key itself).
-nonisolated struct BrowserCloud: Sendable, Equatable {
-    var keySet: Bool
-    /// "…" and the key's last four characters, to tell two keys apart.
-    var keyHint: String?
-    /// "Use for All Bots" is on (plugin 3.10+): every bot browses in the cloud, new bots too.
-    var all = false
-    /// After switching it: the bots the computer couldn't change (browser tools off, a config that won't save).
-    var skipped: [String] = []
-
-    static func parse(_ value: JSONValue) -> BrowserCloud? {
-        guard value["schema"]?.string == "hermes-hq-browser.cloud.v1" else { return nil }
-        return BrowserCloud(keySet: value["key_set"]?.bool ?? false, keyHint: value["key_hint"]?.string.map { String($0.prefix(8)) },
-                            all: value["all"]?.bool ?? false,
-                            skipped: (value["skipped"]?.array ?? []).prefix(50).compactMap { $0.string.map { String($0.prefix(60)) } })
+                             canTakeOver: value["can_take_over"]?.bool ?? false)
     }
 }
 

@@ -1041,7 +1041,7 @@ except one cron run session with `cwd: ""`. Transcripts that must index to exact
 | tool `write_file` `{"path":"/home/hermes/app/release-notes.md"}` | file release-notes.md | — |
 | tool `terminal` `{"output":"Saved /home/hermes/data/export.csv\nDownloading https://files.pythonhosted.org/packages/x/y/pkg-1.0-py3-none-any.whl"}` | file export.csv | the `.whl` |
 | tool `read_file` `{"path":"/home/hermes/app/CHANGELOG.md"}` | — | CHANGELOG.md (not a producer) |
-| assistant: "see https://telnyx.po…" | — | the cut URL |
+| assistant: "see https://samplehost.po…" | — | the cut URL |
 | assistant in the `cwd:""` session: "wrote ./out/summary.md" | — | the relative path |
 | assistant: "/home/hermes/gone/old.png" (file absent) | image old.png → 404 → Unavailable (1) | — |
 | assistant: "/home/hermes/big/log.txt" (3 MiB) | file log.txt → Quick Look (over 2 MiB) | — |

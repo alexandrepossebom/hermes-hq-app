@@ -20,8 +20,6 @@ extension PagesTests {
         // Ideas is off until you turn it on: one line at Inbox's foot, and one button.
         inbox.tap()
         let turnOn = app.buttons["tasks.ideas.turn-on"].firstMatch
-        // [task-lists] Inbox holds every unfiled task now, so its foot is a scroll away.
-        for _ in 0..<6 where !turnOn.exists || !turnOn.isHittable { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(turnOn.waitForExistence(timeout: 10), "Ideas starts off and offers Turn On")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "can suggest tasks from your chats")).firstMatch.exists,
                       "it says what it does")
@@ -34,7 +32,6 @@ extension PagesTests {
 
         // The ideas, newest first, under who suggested them: a short row each.
         let registration = app.descendants(matching: .any)["tasks.idea.Renew the car registration"].firstMatch
-        for _ in 0..<4 where !registration.exists { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(registration.waitForExistence(timeout: 10), "the ideas show once on")
         let status = app.staticTexts["tasks.ideas.status"].firstMatch
         XCTAssertTrue(status.exists)
@@ -50,11 +47,8 @@ extension PagesTests {
         app.buttons["tasks.idea.add.Renew the car registration"].firstMatch.tap()
         XCTAssertTrue(waitUntil(10) { !registration.exists }, "an added idea leaves the ideas")
         XCTAssertTrue(waitUntil(5) { !self.restCalls("POST", suffix: "/ideas/i_registration/add").isEmpty }, "the add is sent")
-        // [task-lists] The new task heads Inbox, a scroll above its foot now: up to see it, and back down to the ideas.
-        let added = app.descendants(matching: .any)["task-row-Renew the car registration"].firstMatch
-        for _ in 0..<6 where !added.exists { app.swipeDown(velocity: .slow) }
-        XCTAssertTrue(added.waitForExistence(timeout: 10), "the added idea is a task")
-        for _ in 0..<6 where !status.exists || !status.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(app.descendants(matching: .any)["task-row-Renew the car registration"].firstMatch.waitForExistence(timeout: 10),
+                      "the added idea is a task")
         XCTAssertTrue(waitUntil(5) { status.label.hasSuffix("2") }, "two ideas left: \(status.label)")
 
         // A tap opens an idea's card: why now, where it came from, and Add & Let Finance Start.

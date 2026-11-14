@@ -47,21 +47,6 @@ nonisolated enum ActivityRowKind {
     case diffPreview(DiffPreviewRow)
     /// [tasks] "Added to Tasks" under a reply whose bot put tasks on your list (mockup 4-chat).
     case tasksAdded(TasksAddedRow)
-    /// [task-lists] A bot's offer of a list or a batch of tasks, with its buttons (board 4).
-    case tasksOffer(TasksOfferRow)
-}
-
-/// [task-lists] What a reply's `tasks_offer` offered. What became of it (accepted, undone) is the cell's to show:
-/// the row is the same height in every state.
-nonisolated struct TasksOfferRow {
-    var messageId: String
-    var offer: TodoOffer
-    var title: String
-    /// Each line's words and when it's due ("Tomorrow"), at most `shown`, then "+4 more".
-    var lines: [(title: String, due: String)]
-    var more: Int
-
-    static let shown = 6
 }
 
 /// [tasks] The tasks a reply's `tasks_add` calls added, each with its "You & Hermes · Tomorrow" line.
@@ -405,28 +390,6 @@ nonisolated enum ActivityRows {
                        gapAbove: 8, variant: 0)
     }
 
-    // MARK: A bot's offer ([task-lists], board 4)
-
-    /// Under a settled reply whose bot offered a list or a batch of tasks: one card per offer.
-    static func tasksOfferRows(_ m: ChatMessage, calls: [ToolCall], input: ChatRowBuilder.Input) -> [ChatRow] {
-        guard !m.isStreaming else { return [] }
-        var seen: Set<String> = []
-        return calls.compactMap { call -> ChatRow? in
-            guard call.state == .done, case .tasksOffer(let offer)? = call.card, seen.insert(offer.id).inserted else { return nil }
-            let title = TodoLists.chatTitle(offer, botName: { _ in input.speakerName })
-            let all: [(title: String, due: String)] = offer.tasks.isEmpty
-                ? offer.move.map { ($0.title, "") }
-                : offer.tasks.map { task in (task.title, TodoDates.due(task.due).map { TodoWords.day($0.date, now: input.now) } ?? "") }
-            let lines = Array(all.prefix(TasksOfferRow.shown))
-            var h = Hasher()
-            h.combine(offer); h.combine(title); h.combine(lines.map(\.due))
-            return ChatRow(id: "\(m.id)|offer|\(offer.id)", messageId: m.id, scope: input.scope, fingerprint: h.finalize(),
-                           kind: .activity(.tasksOffer(TasksOfferRow(messageId: m.id, offer: offer, title: title, lines: lines,
-                                                                     more: all.count - lines.count))),
-                           gapAbove: 8, variant: 0)
-        }
-    }
-
     // MARK: Runs (tool bubbles join the bot bubbles around them)
 
     /// After the bubbles' own pass: tool bubbles join adjacent bot bubbles of the same run (square corners where they
@@ -629,32 +592,6 @@ nonisolated struct TasksAddedLayout: @unchecked Sendable {
     var helpFrame: CGRect?
 }
 
-/// [task-lists] A bot's offer: the title, why, a row per task, "+4 more", then the foot (a filled button or one line
-/// of words, and a row of quiet buttons), the same in every state.
-nonisolated struct TasksOfferLayout: @unchecked Sendable {
-    nonisolated struct Line: @unchecked Sendable {
-        var frame: CGRect
-        var circleFrame: CGRect
-        var titleFrame: CGRect
-        var title: String
-        var dueFrame: CGRect
-        var due: String
-    }
-    var cardFrame: CGRect
-    var badgeFrame: CGRect
-    var titleFrame: CGRect
-    var title: String
-    var whyFrame: CGRect?
-    var lines: [Line]
-    var moreFrame: CGRect?
-    var more = 0
-    var mainFrame: CGRect
-    var footFrame: CGRect
-    var font: UIFont
-    var detailFont: UIFont
-    var offer: TodoOffer
-}
-
 nonisolated enum ActivityLayout: @unchecked Sendable {
     case toolBubble(ToolBubbleLayout)
     case delegate(DelegateCardLayout)
@@ -662,7 +599,6 @@ nonisolated enum ActivityLayout: @unchecked Sendable {
     case changedFiles(ChangedFilesLayout)
     case diffPreview(DiffPreviewLayout)
     case tasksAdded(TasksAddedLayout)
-    case tasksOffer(TasksOfferLayout)
 }
 
 nonisolated enum ActivityLayouts {
@@ -674,71 +610,7 @@ nonisolated enum ActivityLayouts {
         case .changedFiles(let c): return changedFiles(c, row: row, width: width, style: style)
         case .diffPreview(let d): return diffPreview(d, row: row, width: width, style: style)
         case .tasksAdded(let t): return tasksAdded(t, row: row, width: width, style: style)
-        case .tasksOffer(let t): return tasksOffer(t, row: row, width: width, style: style)
         }
-    }
-
-    // MARK: A bot's offer ([task-lists])
-
-    private static func height(_ text: String, font: UIFont, width: CGFloat, lines: Int) -> CGFloat {
-        let box = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
-                                                  options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil)
-        return min(ceil(box.height), ceil(font.lineHeight) * CGFloat(lines))
-    }
-
-    private static func tasksOffer(_ t: TasksOfferRow, row: ChatRow, width: CGFloat, style: ChatStyle) -> RowLayout {
-        let columnW = min(TextLayout.replyWidth(width), 360)
-        let font = HQFont.face(ofSize: (16 * style.body.pointSize / 17).rounded())
-        let headFont = HQFont.face(ofSize: font.pointSize, weight: .semibold)
-        let detailFont = HQFont.face(ofSize: (13 * style.body.pointSize / 17).rounded())
-        let lineH = ceil(font.lineHeight), detailH = ceil(detailFont.lineHeight)
-        let pad: CGFloat = 14
-        let left = ChatMetrics.sideInset
-        let top = max(0, row.gapAbove)
-        let badge = ceil(headFont.pointSize * 1.15)
-        let titleW = max(40, columnW - 2 * pad - badge - 8)
-        let titleH = height(t.title, font: headFont, width: titleW, lines: 2)
-        var y = top + 12
-        let titleFrame = CGRect(x: left + pad + badge + 8, y: y, width: titleW, height: titleH)
-        let badgeFrame = CGRect(x: left + pad, y: y + ((ceil(headFont.lineHeight) - badge) / 2).rounded(), width: badge, height: badge)
-        y += titleH
-        var whyFrame: CGRect?
-        let why = t.offer.why.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !why.isEmpty {
-            let whyH = height(why, font: detailFont, width: columnW - 2 * pad, lines: 3)
-            whyFrame = CGRect(x: left + pad, y: y + 4, width: columnW - 2 * pad, height: whyH)
-            y += 4 + whyH
-        }
-        y += 8
-        let circle = ceil(detailFont.pointSize * 1.25)
-        let rowH = max(34, lineH + 12)
-        let dueFont = detailFont
-        var lines: [TasksOfferLayout.Line] = []
-        for line in t.lines {
-            let dueW = line.due.isEmpty ? 0 : ceil((line.due as NSString).size(withAttributes: [.font: dueFont]).width)
-            let textX = left + pad + circle + 10
-            let textW = max(40, left + columnW - pad - textX - (dueW > 0 ? dueW + 10 : 0))
-            lines.append(.init(frame: CGRect(x: left, y: y, width: columnW, height: rowH),
-                               circleFrame: CGRect(x: left + pad, y: y + ((rowH - circle) / 2).rounded(), width: circle, height: circle),
-                               titleFrame: CGRect(x: textX, y: y + ((rowH - lineH) / 2).rounded(), width: textW, height: lineH), title: line.title,
-                               dueFrame: CGRect(x: left + columnW - pad - dueW, y: y + ((rowH - detailH) / 2).rounded(), width: dueW, height: detailH),
-                               due: line.due))
-            y += rowH
-        }
-        var moreFrame: CGRect?
-        if t.more > 0 {
-            moreFrame = CGRect(x: left + pad + circle + 10, y: y + 2, width: columnW - 2 * pad - circle - 10, height: detailH)
-            y += detailH + 6
-        }
-        y += 8
-        let mainFrame = CGRect(x: left + pad, y: y, width: columnW - 2 * pad, height: max(38, lineH + 16))
-        y = mainFrame.maxY
-        let footFrame = CGRect(x: left, y: y, width: columnW, height: 44)
-        y += 44
-        return RowLayout(height: ceil(y + 2), content: .activity(.tasksOffer(TasksOfferLayout(
-            cardFrame: CGRect(x: left, y: top, width: columnW, height: y - top), badgeFrame: badgeFrame, titleFrame: titleFrame,
-            title: t.title, whyFrame: whyFrame, lines: lines, moreFrame: moreFrame, more: t.more, mainFrame: mainFrame,
-            footFrame: footFrame, font: font, detailFont: detailFont, offer: t.offer))))
     }
 
     // MARK: Added to Tasks ([tasks])

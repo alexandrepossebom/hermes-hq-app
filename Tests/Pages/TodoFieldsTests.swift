@@ -63,8 +63,7 @@ struct TodoFieldsTests {
         #expect(upcoming.first { $0.0 == .day("2026-11-09") }?.1 == ["someday"])
         #expect(upcoming.first { $0.0 == .day("2026-11-20") }?.1 == ["plain"], "one that has started is in Today, not here")
         let inbox = groups(tasks, .inbox).flatMap(\.1)
-        // [task-lists] Inbox is what isn't in a list, whatever its dates (owner 2026-11-14).
-        #expect(Set(inbox) == Set(tasks.map(\.id)), "none of them is filed in a list")
+        #expect(inbox == ["loose"], "a task with a start day has a place in your day")
     }
 
     /// What its row says when: under Today, when it's due; under the day it starts, "Due" and the day.

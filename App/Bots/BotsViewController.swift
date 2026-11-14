@@ -125,23 +125,13 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     /// Settings stream (1x-settings §4.6): the gateway switcher on the title.
     private var titleSwitcher: GatewayTitleSwitcher?
 
-    /// [more-bots] A tester, 2026-11-14: with the Bots tab turned off (Settings › Tabs) there was no way back to
-    /// the list, and the main bot's chat (where a plugin update's restart is asked) could only be reached from it. More
-    /// then lists Bots, and this is that page: the same list, pushed on More's stack, where its chats open too. The
-    /// tab's own list stays the one the roster and the rooms report to (`services.onBotsChange` has one listener) and
-    /// the one everything else opens chats through; it passes each change on to the copies (`setNeedsReload`).
-    let inMore: Bool
-    private static let moreCopies = NSHashTable<BotsViewController>.weakObjects()
-
-    init(services: any AppServices, makeChat: @escaping (any ChatSessionModel) -> UIViewController, inMore: Bool = false) {
+    init(services: any AppServices, makeChat: @escaping (any ChatSessionModel) -> UIViewController) {
         self.services = services
         self.makeChat = makeChat
-        self.inMore = inMore
         super.init(nibName: nil, bundle: nil)
         title = "Bots"
         // Inline: the large title sits on the bar row beside its buttons (owner: the separate title row put the list too low).
-        // [more-bots] A page pushed on More has the bar's own title beside Back, as Jobs there.
-        navigationItem.largeTitleDisplayMode = inMore ? .never : .inline
+        navigationItem.largeTitleDisplayMode = .inline
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -210,12 +200,10 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
             #else
             collectionView.dragInteractionEnabled = true
             #endif
-            if !inMore {   // [more-bots] the gateway switcher is on the tabs' titles; a page under More has Back
-                let switcher = GatewayTitleSwitcher(host: self, services: services, settings: settings, baseTitle: "Bots")
-                switcher.onDeactivate = { [weak self] in self?.updateSubtitle() }
-                titleSwitcher = switcher
-            }
-        } else if !inMore {
+            let switcher = GatewayTitleSwitcher(host: self, services: services, settings: settings, baseTitle: "Bots")
+            switcher.onDeactivate = { [weak self] in self?.updateSubtitle() }
+            titleSwitcher = switcher
+        } else {
             let account = UIBarButtonItem(image: UIImage(systemName: "person.crop.circle"),
                                           primaryAction: UIAction { [weak self] _ in self?.showAccount() })
             account.accessibilityLabel = "Account"
@@ -223,21 +211,16 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         }
 
         configureDataSource()
-        if inMore {
-            Self.moreCopies.add(self)   // [more-bots] the tab's list hears the roster and the rooms, and tells this one
-        } else {
-            services.onBotsChange = { [weak self] in
-                self?.onDataChange?()
-                self?.setNeedsReload()
-                self?.openPendingIfReady()      // [botslist] a pick that waited for the roster
-                for copy in Self.moreCopies.allObjects { copy.openPendingIfReady() }   // [more-bots]
-            }
-            groups?.onGroupsChange = { [weak self] in
-                self?.setNeedsReload()   // [groups] a room changed
-                #if targetEnvironment(macCatalyst)
-                self?.onRoomsChange?()   // [bots-rail] the folded rail's rooms too
-                #endif
-            }
+        services.onBotsChange = { [weak self] in
+            self?.onDataChange?()
+            self?.setNeedsReload()
+            self?.openPendingIfReady()      // [botslist] a pick that waited for the roster
+        }
+        groups?.onGroupsChange = { [weak self] in
+            self?.setNeedsReload()   // [groups] a room changed
+            #if targetEnvironment(macCatalyst)
+            self?.onRoomsChange?()   // [bots-rail] the folded rail's rooms too
+            #endif
         }
         // A mute set or ended (here, in Bot Info, or by its time running out): the rows' bells.
         muteObserver = BotMuteCenter.shared.observe { [weak self] in self?.setNeedsReload(animated: false) }
@@ -693,8 +676,6 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     /// `isWorking`, previews) becomes one reload. Off screen (another tab, or a chat pushed over the list) the reload
     /// waits for `viewWillAppear`, so it never competes with a streaming chat.
     func setNeedsReload(animated: Bool = true) {
-        // [more-bots] What the tab's list is told (the roster, a room, the Sessions list's chats) More's copy is told too.
-        if !inMore { for copy in Self.moreCopies.allObjects { copy.setNeedsReload(animated: animated) } }
         guard isViewLoaded else { return }
         guard view.window != nil else { needsReload = true; return }
         // [perf] Mid-slide (a pop, or a swipe back that can last seconds) the change folds into one reload at its end.

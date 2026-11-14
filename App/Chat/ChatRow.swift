@@ -730,7 +730,6 @@ nonisolated enum ChatRowBuilder {
         var editCalls: [(call: ToolCall, args: [String: JSONValue], diff: String?)] = []
         // [tasks] Its `tasks_add` (and `tasks_update`) calls: "Added to Tasks" under the settled reply, however its steps draw.
         var addedTasks: [ToolCall] = []
-        var offeredTasks: [ToolCall] = []   // [task-lists]
         // Index of the last part that draws something (a tool run is live only while it is the message's tail).
         let lastVisiblePart = m.parts.lastIndex(where: { part in
             switch part {
@@ -848,7 +847,6 @@ nonisolated enum ChatRowBuilder {
                     editCalls.append((call: call, args: ToolArgs.parse(call.argsText), diff: input.diffs[call.id]))
                 }
                 if call.name == "tasks_add" || call.name == "tasks_update" { addedTasks.append(call) }
-                if call.name == "tasks_offer" { offeredTasks.append(call) }   // [task-lists]
                 if call.name == BotDMs.tool, let sent = BotDMRows.sent(m, call: call, part: i, input: input) {
                     flushRun(endingAt: i - 1)                                                              // [botdm]
                     rows.append(sent)
@@ -916,7 +914,6 @@ nonisolated enum ChatRowBuilder {
         // other rows end in, so it reads as the turn's own last word.
         if let card = ActivityRows.changedFilesRow(m, edits: editCalls, input: input) { rows.append(card) }
         if let card = ActivityRows.tasksAddedRow(m, calls: addedTasks, input: input) { rows.append(card) }   // [tasks]
-        rows += ActivityRows.tasksOfferRows(m, calls: offeredTasks, input: input)                             // [task-lists]
         let produced = rows.count > before
         let name = input.speakerName
         if let error = m.error, !input.expanded.contains(ChatRowBuilder.dismissedErrorKey(m.id)) {

@@ -582,7 +582,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
             emptyState = EmptyState(false, false, "Couldn’t Reach \(name)", message, EmptyAction("Try Again", { [weak self] in self?.check(preferCache: false) }))
         case .missing where cloudGateway:
             emptyState = EmptyState(false, true, "Bots Browse in the Cloud Here",
-                          "On Hermes Cloud, a bot uses a cloud browser that can’t be shown live. To watch your bots and take over, switch them to your own Browser Use account in Settings › Browser Use Cloud. You can still follow each page a bot visits in its steps.", nil)
+                          "On Hermes Cloud, a bot’s browser runs on Browser Use’s servers, not on this gateway, so it can’t be shown live yet. You can still follow each page it visits in its steps.", nil)
         case .missing, .update:
             let update = setup == .update
             emptyState = EmptyState(false, true, update ? "Update Browser Watching" : "Watch Your Bots Browse",

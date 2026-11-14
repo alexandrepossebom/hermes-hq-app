@@ -194,7 +194,7 @@ import UserNotifications
     /// `needsIdeas`: the Ideas page's Update Add-on. An add-on the app otherwise calls current (0.9.32+) but without
     /// Ideas (before 0.9.39) is updated too; it used to say Up to Date and change nothing.
     @discardableResult
-    func check(model: AppModel, fromSettings: Bool, confirm: Bool = true, needsIdeas: Bool = false, browserSetup: Bool = false,
+    func check(model: AppModel, fromSettings: Bool, confirm: Bool = true, needsIdeas: Bool = false,
                from presenter: UIViewController?) async -> Bool {
         guard PushRegistrar.available else { return false }
         let update = AddOnUpdate.shared
@@ -246,14 +246,11 @@ import UserNotifications
         }
         // [browser-update] The browser add-on's own answer (not asked when Hermes didn't answer the first read).
         let browserRead = answer.state == .unknown ? BrowserRead.unknown : await Self.readBrowser(model.browser)
-        // [cloud-hosted] `browserSetup` (Settings › Browser Use Cloud › Set Up the Browser Add-on): a browser add-on that
-        // isn't there goes in the way its update does. Never on its own: Hermes Cloud's first setup leaves it out.
-        let browserAbsent = browserSetup && browserRead == .absent
-        let browserNeed = browserRead.need ?? (browserAbsent ? .outdated : nil)
+        let browserNeed = browserRead.need
         // [addon-reminder] The quiet reminder follows every answer, whether or not the alert shows.
         if let id = model.account?.id {
             AddOnReminder.shared.report(account: id, state: answer.state, without: without.map(\.name))
-            if browserRead != .unknown { AddOnReminder.shared.reportBrowser(account: id, need: browserRead.need) }
+            if browserRead != .unknown { AddOnReminder.shared.reportBrowser(account: id, need: browserNeed) }
         }
         let pushWork = state == .missing || state == .outdated
         // [addon-progress] Nothing to do, or no answer: said in the sheet, not left to the person to guess.
@@ -286,9 +283,8 @@ import UserNotifications
         // [addon-progress] Asked in the sheet, from Settings and at launch alike: one line on what the add-on is and why,
         // and the steps saying what will happen (the launch alert was a paragraph the owner found too much to read).
         if !fromSettings { update.begin(model: model) }
-        let why = browserAbsent && need == nil ? AddOnUpdate.whyBrowserSetUp
-            : browserNeed.map { AddOnUpdate.why(need, browser: $0) } ?? need.map { AddOnUpdate.why($0, both: browser) } ?? ""
-        update.found(setUp: (pushWork && !outdated) || (browserAbsent && !pushWork), why: why, bot: bot.name, both: browser || (pushWork && browserUpdate), browserOnly: !pushWork,
+        let why = browserNeed.map { AddOnUpdate.why(need, browser: $0) } ?? need.map { AddOnUpdate.why($0, both: browser) } ?? ""
+        update.found(setUp: pushWork && !outdated, why: why, bot: bot.name, both: browser || (pushWork && browserUpdate), browserOnly: !pushWork,
                      installNote: AddOnUpdate.installPlan(bots: without.map(\.name), all: model.bots.count, browser: pushWork && browserUpdate))
         update.loadChanges(store: store)   // [addon-whats-new] which versions, and what they bring
         if confirm {

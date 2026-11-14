@@ -64,14 +64,12 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
     var alert: Int?
     /// The day it joins your day ("2026-11-20"); nil: by its due date alone.
     var starts: String?
-    /// [task-lists] A bot's offer to close it (hermes-hq-push 0.9.55); nil when none.
-    var offer: TodoCloseOffer?
 
     enum CodingKeys: String, CodingKey {
         case id, rev, title, notes, who, bot, status, due, prep, steps, made, source, log, section, position, watch, chat
         case statusNote = "status_note", repeatRule = "repeat", createdAt = "created_at", updatedAt = "updated_at"
         case doneAt = "done_at", createdBy = "created_by", pageAt = "page_at", page, nextCheck = "next_check", choices
-        case priority, tags, alert, starts, offer
+        case priority, tags, alert, starts
         // App-only: kept in the disk cache and edit merges so a reopened list still knows the gateway said "no chat".
         case chatKnown = "chat_known"
     }
@@ -125,7 +123,6 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         alert = (try? c.decodeIfPresent(Int.self, forKey: .alert)).flatMap { $0 }.flatMap { $0 >= 0 ? $0 : nil }
         starts = (try? c.decodeIfPresent(String.self, forKey: .starts)).flatMap { $0?.isEmpty == true ? nil : $0 }
-        offer = (try? c.decodeIfPresent(TodoCloseOffer.self, forKey: .offer)).flatMap { $0 }
     }
 
     /// Where it sits in its section: its position, or when it was added on an older add-on.
@@ -247,10 +244,8 @@ nonisolated struct TodoSource: Codable, Hashable, Sendable {
     var profile: String?
     var sessionId: String?
     var reminderId: String?
-    /// [task-lists] Where a bot found it (hermes-hq-push 0.9.55); nil when it said nothing.
-    var from: TodoFrom?
 
-    enum CodingKeys: String, CodingKey { case kind, profile, sessionId = "session_id", reminderId = "reminder_id", from }
+    enum CodingKeys: String, CodingKey { case kind, profile, sessionId = "session_id", reminderId = "reminder_id" }
 
     init(kind: String, profile: String? = nil, sessionId: String? = nil, reminderId: String? = nil) {
         self.kind = kind; self.profile = profile; self.sessionId = sessionId; self.reminderId = reminderId
@@ -262,7 +257,6 @@ nonisolated struct TodoSource: Codable, Hashable, Sendable {
         profile = try? c.decodeIfPresent(String.self, forKey: .profile)
         sessionId = try? c.decodeIfPresent(String.self, forKey: .sessionId)
         reminderId = try? c.decodeIfPresent(String.self, forKey: .reminderId)
-        from = (try? c.decodeIfPresent(TodoFrom.self, forKey: .from)).flatMap { $0 }
     }
 }
 
@@ -343,50 +337,6 @@ nonisolated struct TodoSettings: Codable, Hashable, Sendable {
 nonisolated struct TodoUserSection: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var name: String
-    /// [task-lists] hermes-hq-push 0.9.55: its colour (`TodoListColor`) and icon (an SF Symbol), nil until picked.
-    var color: String?
-    var icon: String?
-    /// The bot (profile) that keeps it: it files what belongs there and offers to close what looks settled.
-    var bot: String?
-    /// Its bot asks before adding a task to it ("Ask First"); false: "Add Without Asking".
-    var asksFirst = false
-    /// Today shows its next few tasks under the dated ones.
-    var inToday = true
-    /// When its bot last looked at the list.
-    var checkedAt: String?
-
-    enum CodingKeys: String, CodingKey { case id, name, color, icon, bot, adds, today, checkedAt = "checked_at" }
-
-    init(id: String, name: String, color: String? = nil, icon: String? = nil, bot: String? = nil, asksFirst: Bool = false,
-         inToday: Bool = true, checkedAt: String? = nil) {
-        self.id = id; self.name = name; self.color = color; self.icon = icon; self.bot = bot
-        self.asksFirst = asksFirst; self.inToday = inToday; self.checkedAt = checkedAt
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        func text(_ key: CodingKeys) -> String? {
-            ((try? c.decodeIfPresent(String.self, forKey: key)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }
-        }
-        color = text(.color); icon = text(.icon); bot = text(.bot); checkedAt = text(.checkedAt)
-        asksFirst = text(.adds) == "ask"
-        inToday = (try? c.decodeIfPresent(Bool.self, forKey: .today)) ?? true
-    }
-
-    /// As `PUT /tasks/sections` takes it: every field, an unset one sent empty so the gateway clears it.
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(name, forKey: .name)
-        try c.encode(color ?? "", forKey: .color)
-        try c.encode(icon ?? "", forKey: .icon)
-        try c.encode(bot ?? "", forKey: .bot)
-        try c.encode(asksFirst ? "ask" : "auto", forKey: .adds)
-        try c.encode(inToday, forKey: .today)
-        try c.encodeIfPresent(checkedAt, forKey: .checkedAt)
-    }
 }
 
 /// `GET /tasks`: the list, or `unchanged` when `?since=` matched the list's rev.
@@ -405,11 +355,8 @@ nonisolated struct TodoListAnswer: Decodable, Sendable {
     /// (hermes-hq-push 0.9.53); `files`: it takes your own files and links.
     var fields = false
     var files = false
-    /// [task-lists] The add-on keeps a list's colour, icon, bot and rules, and bots' offers (hermes-hq-push 0.9.55).
-    var lists = false
-    var offers: [TodoOffer] = []
 
-    enum CodingKeys: String, CodingKey { case rev, tasks, settings, sections, unchanged, pages, ideas, fields, files, lists, offers }
+    enum CodingKeys: String, CodingKey { case rev, tasks, settings, sections, unchanged, pages, ideas, fields, files }
 
     init(rev: Int, tasks: [TodoTask]?, settings: TodoSettings? = nil, sections: [TodoUserSection]? = nil, unchanged: Bool = false) {
         self.rev = rev; self.tasks = tasks; self.settings = settings; self.sections = sections; self.unchanged = unchanged
@@ -437,11 +384,6 @@ nonisolated struct TodoListAnswer: Decodable, Sendable {
         ideas = try? c.decodeIfPresent(Int.self, forKey: .ideas)
         fields = (try? c.decodeIfPresent(Bool.self, forKey: .fields)) ?? false
         files = (try? c.decodeIfPresent(Bool.self, forKey: .files)) ?? false
-        lists = (try? c.decodeIfPresent(Bool.self, forKey: .lists)) ?? false
-        // Each offer on its own, as the tasks and sections are.
-        if let raw = try? c.decodeIfPresent([JSONValue].self, forKey: .offers) {
-            offers = raw.compactMap { value in (try? value.encoded()).flatMap { try? JSONDecoder().decode(TodoOffer.self, from: $0) } }
-        }
     }
 }
 

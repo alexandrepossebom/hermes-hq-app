@@ -367,7 +367,6 @@ final class PagesTabs {
             (page is KanbanViewController && !rows.contains("kanban"))
                 || ((page as? ArtifactsViewController)?.pinnedOnly == false && !rows.contains("artifacts"))
                 || (page is JobsViewController && !rows.contains("jobs"))   // [customtabs] the Jobs tab is back
-                || ((page as? BotsViewController)?.inMore == true && !rows.contains(Self.botsRowID))   // [more-bots] and Bots
         }), index > 0 else { return }
         moreNav.setViewControllers(Array(moreNav.viewControllers.prefix(index)), animated: false)
     }
@@ -510,13 +509,6 @@ final class PagesTabs {
         return page
     }
 
-    /// [more-bots] More › Bots, while the Bots tab is hidden: the list on More's stack (`BotsViewController.inMore`).
-    static let botsRowID = "bots"
-
-    func makeBots() -> UIViewController {
-        BotsViewController(services: appServices, makeChat: makeChat, inMore: true)
-    }
-
     func makeArtifacts() -> UIViewController {
         guard let artifactsStore, let scope, let services else { return UIViewController() }
         return ArtifactsViewController(store: artifactsStore, scope: scope, services: services, makeChat: makeChat)
@@ -558,16 +550,7 @@ final class PagesTabs {
             let extra = sections["workspace"]
             sections["workspace"] = MoreSection(id: "workspace", header: "Workspace") { (extra?.rows() ?? []) + workspace }
         }
-        var all = Self.merged(sections)   // [morepages] appended rows
-        // [more-bots] A tester, 2026-11-14: a hidden Bots tab is a page in More too, first under Bots (above
-        // Bot Profiles). The Mac has no More; its bots are in the sidebar.
-        if !DeviceWord.isMac, !shown.contains(.main(.bots)) {
-            let rest = all["bots"]
-            let bots = MoreRow(id: Self.botsRowID, title: "Bots", symbol: nil, image: TabIcons.bot,
-                               tile: UIColor(red: 0x32 / 255, green: 0xAD / 255, blue: 0xE6 / 255, alpha: 1)) { [weak self] in self?.makeBots() }
-            all["bots"] = MoreSection(id: "bots", header: rest?.header ?? "Bots") { [bots] + (rest?.rows() ?? []) }
-        }
-        return all.values.sorted { a, b in
+        return Self.merged(sections).values.sorted { a, b in   // [morepages] appended rows
             (Self.sectionOrder.firstIndex(of: a.id) ?? 99, a.id) < (Self.sectionOrder.firstIndex(of: b.id) ?? 99, b.id)
         }
     }

@@ -68,18 +68,16 @@ struct TodoViewsTests {
 
     // MARK: Views
 
-    /// Today is your day: what's late, what's due, then what a bot is stuck on you for, then what's next in each
-    /// list ([task-lists]), then what you finished.
+    /// Today is your day: what's late, what's due, then what a bot is stuck on you for, then what you finished.
     @Test func todayIsYourDayThenWhatWaitsOnYou() {
         let today = groups(list, .today)
-        #expect(today.map(\.0) == [.overdue, .today, .waiting, .next("home"), .done])
+        #expect(today.map(\.0) == [.overdue, .today, .waiting, .done])
         #expect(today[0].1 == ["late"])
         // By time; a day with no time comes first, in the order they were added.
         #expect(today[1].1 == ["dentist", "passport", "apps", "cleaning"])
         // The newest news first; one due today stays under Today, not here.
         #expect(today[2].1 == ["venues", "contract"])
-        #expect(today[3].1 == ["desk"], "Home's next task; Work's only one is due today, and shows once")
-        #expect(today[4].1 == ["water"], "finished today, and not a bot's own")
+        #expect(today[3].1 == ["water"], "finished today, and not a bot's own")
     }
 
     /// A bot's own task is the bot's until it waits on you.
@@ -113,17 +111,15 @@ struct TodoViewsTests {
         #expect(TodoViews.dayEmptyText("2026-11-04", now: Self.now, calendar: Self.calendar) == "Nothing due today.")
     }
 
-    /// Inbox: no list yet, dated or not ([task-lists], owner 2026-11-14: a date doesn't file a task). A task whose
-    /// list was deleted counts as having none.
-    @Test func inboxIsWhatHasNoList() {
-        let loose: Set<String> = ["late", "cleaning", "dentist", "passport", "contract", "gift", "porch"]
+    /// Inbox: no date and no list yet. A task whose list was deleted counts as having none.
+    @Test func inboxIsWhatHasNoDateAndNoList() {
         // Its Done is what was finished with no list.
-        #expect(groups(list, .inbox).map { Set($0.1) } == [loose, ["water"]])
+        #expect(groups(list, .inbox).map(\.1) == [["porch"], ["water"]])
         let orphan = task("orphan", section: "gone")
         let stale = task("stale", updated: "2026-10-10T08:00:00-05:00", created: "2026-10-10T08:00:00-05:00", by: "default")
         let inbox = groups(list + [orphan, stale], .inbox)
         #expect(inbox.map(\.0) == [.open, .stale, .done])
-        #expect(Set(inbox[0].1) == loose.union(["orphan"]))
+        #expect(Set(inbox[0].1) == ["porch", "orphan"])
         #expect(inbox[1].1 == ["stale"], "a bot added it and nobody touched it for two weeks")
     }
 
@@ -161,7 +157,7 @@ struct TodoViewsTests {
         func count(_ view: TodoView) -> Int { TodoViews.openCount(list, view: view, sections: lists, now: Self.now, calendar: Self.calendar) }
         #expect(count(.today) == 7)
         #expect(count(.upcoming) == 3)
-        #expect(count(.inbox) == 7, "everything of yours in no list: what's left to file")
+        #expect(count(.inbox) == 1)
         #expect(count(.list("work")) == 1)
         #expect(count(.bots) == 3)
     }

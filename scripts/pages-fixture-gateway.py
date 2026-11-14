@@ -468,10 +468,6 @@ def kanban(method, path, query, body):
 TASKS = {}
 TPAGES = {}   # [tasks] what a bot wrote on each task's Task Page (hermes-hq-push 0.9.38's task_pages)
 TSTATE = {'rev': 0, 'settings': {}, 'sections': []}
-OFFERS = []   # [task-lists] hermes-hq-push 0.9.55: what bots offered (a list with tasks for it); nothing changes until you tap
-TASK_LISTS = False   # --task-lists: start with lists, a kept list, a waiting offer and its chat (seed_task_lists)
-LIST_COLORS = ('blue', 'green', 'orange', 'red', 'purple', 'pink', 'teal', 'yellow', 'gray')
-LIST_KEYS = ('color', 'icon', 'bot', 'adds', 'today')
 NO_TASKS = False
 TASKS_CHAT = False
 TASKS_JSON = None   # --tasks-json: a list exported from a real tasks.db (kept out of git), shown first
@@ -487,7 +483,6 @@ def seed_tasks():
     TSTATE['settings'] = {'enabled': True, 'capture': 'ask', 'prep_per_day': 6, 'quiet_start': '22:00', 'quiet_end': '08:00', 'prep_every_hours': 3,
                           'group': 'smart', 'sort': 'smart', 'ideas': False, 'ideas_bot': 'default', 'ideas_at': '07:30', 'ideas_max': 3}
     TSTATE['sections'] = []
-    OFFERS.clear()
     t0 = local(T0)
     today = t0.date()
     def day(n): return (today + datetime.timedelta(days=n)).isoformat()
@@ -642,130 +637,6 @@ def seed_tasks():
     task('t_recipes', 'Collect the soup recipes from the group chat', who='together', bot='research', source=chat('research'),
          created=15 * 1440, steps=[step(1, 'Gather the recipes into one note', 'bot'), step(2, 'Pick two to try', 'me')])
     seed_ideas()
-    if TASK_LISTS: seed_task_lists()
-
-def seed_task_lists():
-    """[task-lists] hermes-hq-push 0.9.55, the six boards the owner agreed to (2026-11-14): a Work list Hermes keeps,
-    a Home list, tasks in drag order with no dates, one with where Hermes found it, one Hermes offers to close, and a
-    list Hermes offers in a chat ('s-lists'). Every name and figure is invented."""
-    t0 = local(T0)
-    today = t0.date()
-    def ago(minutes): return iso(t0 - datetime.timedelta(minutes=minutes))
-    def day(n): return (today + datetime.timedelta(days=n)).isoformat()
-    checked = iso(datetime.datetime.combine(today, datetime.time(8, 2)).astimezone())
-    TSTATE['sections'] = [{'id': 'sec_work', 'name': 'Work', 'color': 'blue', 'icon': 'briefcase', 'bot': 'default', 'checked_at': checked},
-                          {'id': 'sec_home', 'name': 'Home', 'color': 'green', 'icon': 'house'}]
-    def mine(tid, title, section, place, by='you', source=None, **more):
-        TASKS[tid] = {'id': tid, 'rev': 2, 'title': title, 'notes': '', 'who': 'me', 'bot': None, 'status': 'open', 'status_note': '',
-                      'due': None, 'repeat': None, 'prep': False, 'steps': [], 'made': [], 'source': source or {'kind': 'app'},
-                      'created_at': ago(3000 + place), 'updated_at': ago(3000 + place), 'done_at': None, 'created_by': by,
-                      'log': [], 'section': section, 'position': float(place), 'watch': '', 'chat': {},
-                      'priority': 0, 'tags': [], 'alert': None, 'starts': None}
-        TASKS[tid].update(more)
-    found = lambda who, n, ref: {'kind': 'chat', 'profile': 'default', 'session_id': bot_chat_id('default'),
-                                 'from': {'app': 'Email', 'who': who, 'at': day(n), 'ref': ref, 'link': f'https://mail.example.com/t/{ref}'}}
-    mine('t_w_deck', 'Send Wren the revised deck', 'sec_work', 1, by='default', source=found('Wren', -1, 'deck-41'))
-    mine('t_w_budget', 'Approve the Q1 budget sheet', 'sec_work', 2, by='default', source=found('Juno', -2, 'budget-7'),
-         offer={'kind': 'done', 'by': 'default', 'text': 'Juno wrote back that the sheet is approved', 'at': ago(40)})
-    mine('t_w_review', 'Write Otto’s review notes', 'sec_work', 3)
-    mine('t_w_vendor', 'Call the print vendor back', 'sec_work', 4, by='default', source=found('Herald', -3, 'print-12'))
-    mine('t_w_roadmap', 'Draft the roadmap update', 'sec_work', 5)
-    mine('t_w_expenses', 'File October expenses', 'sec_work', 6)
-    mine('t_h_filter', 'Change the air filter', 'sec_home', 1)
-    mine('t_h_gutters', 'Get a quote for the gutters', 'sec_home', 2)
-    for tid, section in (('t_apps', 'sec_work'), ('t_porch', 'sec_home'), ('t_cleaning', 'sec_home')):
-        if tid in TASKS: TASKS[tid]['section'] = section
-    offer = {'id': 'of_party', 'bot': 'default', 'session_id': 's-lists', 'at': ago(6), 'list': 'Party', 'section': None, 'new': True,
-             'why': 'Four things came up for the party while we talked, and two tasks you already have belong with them.',
-             'tasks': [{'title': 'Send the invitations', 'due': day(3)}, {'title': 'Order the cake', 'due': day(6)},
-                       {'title': 'Book the DJ'}, {'title': 'Make a playlist'}],
-             'move': [{'id': tid, 'title': TASKS[tid]['title']} for tid in ('t_gift', 't_ivy') if tid in TASKS],
-             'state': 'new', 'move_state': None, 'listed': None, 'added': [], 'answered_at': None}
-    OFFERS[:] = [o for o in OFFERS if o['id'] != offer['id']] + [offer]   # asked twice: still one offer
-    call = {'list': 'Party', 'why': offer['why'], 'tasks': offer['tasks'], 'move': [m['id'] for m in offer['move']]}
-    add_session('s-lists', 'default', 'Party planning', [
-        {'role': 'user', 'content': 'Help me keep the party planning on track. Invitations, cake, a DJ and a playlist are all still open.'},
-        {'role': 'assistant', 'content': '', 'tool_calls': [
-            {'id': 'call_o1', 'type': 'function', 'function': {'name': 'tasks_offer', 'arguments': json.dumps(call)}}]},
-        {'role': 'tool', 'tool_call_id': 'call_o1', 'tool_name': 'tasks_offer', 'content': json.dumps({
-            'offer': offer_shown(offer), 'say': 'Offered. Nothing is added until they tap the card.'})},
-        {'role': 'assistant', 'content': 'I can keep those together in a Party list. Nothing is added until you tap the card.'},
-    ], T0 - 360)
-
-def offer_shown(offer):
-    out = {k: copy.deepcopy(v) for k, v in offer.items() if k != 'made'}
-    if out.get('move_state') is None: out.pop('move_state', None)
-    if out.get('listed') is None: out.pop('listed', None)
-    if out.get('answered_at') is None: out.pop('answered_at', None)
-    return out
-
-def offers_shown():
-    since = iso(local(now() - 86400))
-    return [offer_shown(o) for o in OFFERS if o['state'] == 'new' or (o.get('answered_at') or '') >= since]
-
-def answer_offer(oid, body, stamp):
-    """POST /tasks/offers/{id} (hermes-hq-push 0.9.55): accept (the list is made, kept by the bot, and the tasks go on;
-    `list: false` adds them to no list), decline, move / leave (the tasks already on the page), undo."""
-    action = body.get('action')
-    if action not in ('accept', 'decline', 'move', 'leave', 'undo'): return 400, {'detail': 'action must be accept, decline, move, leave or undo.'}
-    offer = next((o for o in OFFERS if o['id'] == oid), None)
-    if offer is None: return 404, {'detail': 'No such offer.'}
-    made = offer.setdefault('made', {})
-    def home():
-        wanted = offer.get('section') or made.get('section')
-        if wanted and any(x['id'] == wanted for x in TSTATE['sections']): return wanted
-        named = next((x for x in TSTATE['sections'] if x['name'].casefold() == offer['list'].casefold()), None)
-        if named: return named['id']
-        used = {x.get('color') for x in TSTATE['sections']}
-        fresh = {'id': 'sec_' + hashlib.sha256(f"{offer['list']}{now()}".encode()).hexdigest()[:8], 'name': offer['list'],
-                 'color': next((c for c in LIST_COLORS if c not in used), LIST_COLORS[0]), 'bot': offer['bot']}
-        TSTATE['sections'].append(fresh); made['section'] = fresh['id']
-        return fresh['id']
-    if action == 'decline':
-        if offer['state'] != 'new': return 409, {'detail': 'That offer was already answered.'}
-        offer.update(state='declined', answered_at=stamp)
-    elif action == 'accept':
-        if offer['state'] != 'new': return 409, {'detail': 'That offer was already answered.'}
-        target = home() if (body.get('list', True) is not False or not offer.get('new')) else None
-        added = []
-        for index, item in enumerate(offer['tasks']):
-            tid = 't_' + hashlib.sha256(f"{item['title']}{now()}{index}".encode()).hexdigest()[:10]
-            source = {'kind': 'chat', 'profile': offer['bot'], 'session_id': offer.get('session_id') or ''}
-            if item.get('source'): source['from'] = item['source']
-            TASKS[tid] = {'id': tid, 'rev': 1, 'title': item['title'], 'notes': item.get('notes') or '', 'who': 'me', 'bot': None,
-                          'status': 'open', 'status_note': '', 'due': item.get('due'), 'repeat': None, 'prep': False, 'steps': [],
-                          'made': [], 'source': source, 'created_at': stamp, 'updated_at': stamp, 'done_at': None,
-                          'created_by': offer['bot'], 'log': [{'at': stamp, 'by': offer['bot'], 'text': 'Added'}], 'section': target,
-                          'position': now() + index / 1000, 'watch': '', 'chat': {}, 'priority': 0, 'tags': [], 'alert': None, 'starts': None}
-            added.append(tid)
-        made['added'] = added
-        offer.update(state='accepted', answered_at=stamp, listed=target is not None, added=added)
-        if offer.get('move'): offer['move_state'] = 'new' if target is not None else 'left'
-    elif action in ('move', 'leave'):
-        if offer['state'] != 'accepted' or offer.get('move_state') != 'new': return 409, {'detail': 'Nothing is waiting to be moved.'}
-        if action == 'move':
-            target, moved = home(), made.setdefault('moved', {})
-            for row in offer['move']:
-                task = TASKS.get(row['id'])
-                if task and task['status'] != 'done' and task.get('section') != target:
-                    moved[row['id']] = task.get('section'); task['section'] = target; task['rev'] += 1
-            offer['move_state'] = 'moved'
-        else:
-            offer['move_state'] = 'left'
-        offer['answered_at'] = stamp
-    else:
-        if offer['state'] != 'accepted': return 409, {'detail': 'There is nothing to undo.'}
-        for tid in made.get('added') or []: TASKS.pop(tid, None)
-        kept = {x['id'] for x in TSTATE['sections']}
-        for tid, old in (made.get('moved') or {}).items():
-            if tid in TASKS: TASKS[tid]['section'] = old if old in kept else None; TASKS[tid]['rev'] += 1
-        mine = made.get('section')
-        if mine and not any(t.get('section') == mine for t in TASKS.values()):
-            TSTATE['sections'] = [x for x in TSTATE['sections'] if x['id'] != mine]
-        offer.update(state='undone', answered_at=stamp, added=[], made={})
-        if offer.get('move'): offer['move_state'] = None
-    TSTATE['rev'] += 1
-    return 200, {'rev': TSTATE['rev'], 'offer': offer_shown(offer), 'sections': copy.deepcopy(TSTATE['sections'])}
 
 def idea_row(iid, title, why='', source='', who='me', bot='default', help='', created=None):
     return {'id': iid, 'created_at': created or iso(local(now())), 'bot': bot, 'title': title, 'why': why, 'source': source,
@@ -865,12 +736,10 @@ def tasks_list(since):
     rows = sorted(TASKS.values(), key=lambda t: t['created_at'], reverse=True)
     answer = {'rev': rev, 'tasks': [tshown(t) for t in rows], 'settings': dict(TSTATE['settings']),
               'sections': copy.deepcopy(TSTATE['sections']), 'pages': True, 'ideas': len(ideas_new()) if ideas_on() else 0,
-              'fields': True, 'files': True,   # [tasks-first] 0.9.53
-              'lists': True, 'offers': offers_shown()}   # [task-lists] 0.9.55
+              'fields': True, 'files': True}   # [tasks-first] 0.9.53
     if TMODE['older_addon']:
-        answer.pop('ideas'); answer.pop('fields'); answer.pop('files'); answer.pop('lists'); answer.pop('offers')
-        answer['sections'] = [{'id': x['id'], 'name': x['name']} for x in answer['sections']]
-        hide = ('priority', 'tags', 'alert', 'starts', 'offer', 'edited')
+        answer.pop('ideas'); answer.pop('fields'); answer.pop('files')
+        hide = ('priority', 'tags', 'alert', 'starts')
         answer['tasks'] = [{k: v for k, v in t.items() if k not in hide} for t in answer['tasks']]
         answer['settings'] = {k: v for k, v in answer['settings'].items() if not k.startswith('ideas')}
     return 200, answer
@@ -904,26 +773,15 @@ def tasks_route(method, path, query, body):
         return 200, {'ok': True}
     if rest == 'sections':   # hermes-hq-push 0.9.36: the whole list in order; a deleted one's tasks go to no section
         if method == 'PUT':
-            clean, was = [], {x['id']: x for x in TSTATE['sections']}
+            clean = []
             for i, x in enumerate(body.get('sections') or []):
                 name = (x.get('name') or '').strip()[:60]
-                if not name: continue
-                sid = x.get('id') or 'sec_' + hashlib.sha256(f'{name}{now()}{i}'.encode()).hexdigest()[:8]
-                # [task-lists] 0.9.55: a field left out is kept, an empty one is cleared; `today` is stored only when off
-                row = dict(was.get(sid) or {}, id=sid, name=name)
-                for key in LIST_KEYS if not TMODE['older_addon'] else ():
-                    if key not in x: continue
-                    if x[key] in (None, '') or (key == 'today' and x[key] is not False): row.pop(key, None)
-                    else: row[key] = x[key]
-                clean.append(row)
+                if name: clean.append({'id': x.get('id') or 'sec_' + hashlib.sha256(f'{name}{now()}{i}'.encode()).hexdigest()[:8], 'name': name})
             kept = {x['id'] for x in clean}
             for t in TASKS.values():
                 if t.get('section') and t['section'] not in kept: t['section'] = None; t['rev'] += 1
             TSTATE['sections'] = clean; TSTATE['rev'] += 1
         return 200, {'rev': TSTATE['rev'], 'sections': copy.deepcopy(TSTATE['sections'])}
-    if rest.startswith('offers/') and method == 'POST':   # [task-lists] 0.9.55
-        if TMODE['older_addon']: return 404, {'detail': 'Not Found'}
-        return answer_offer(unquote(rest[len('offers/'):]), body, stamp)
     if rest == 'settings':
         if method == 'PUT':
             TSTATE['settings'].update({k: v for k, v in body.items() if k in TSTATE['settings']}); TSTATE['rev'] += 1
@@ -975,11 +833,8 @@ def tasks_route(method, path, query, body):
     if method == 'PATCH':
         if int(body.get('rev', -1)) != task['rev']: return 409, {'detail': {'task': tshown(task)}}
         for key, value in body.items():
-            if key in ('rev', 'id', 'created_at', 'created_by', 'log', 'keep_open'): continue
+            if key in ('rev', 'id', 'created_at', 'created_by', 'log'): continue
             task[key] = value
-        if body.get('keep_open') and task.get('offer'): task['offer']['kept'] = True   # [task-lists] the bot isn't to ask again
-        if body.get('status') == 'done': task.pop('offer', None)
-        if any(k in body for k in ('title', 'notes', 'due')): task['edited'] = True
         if 'status' in body:
             task['done_at'] = stamp if body['status'] == 'done' else None
             task['log'].append({'at': stamp, 'by': 'you', 'text': 'Marked done' if body['status'] == 'done' else f"Status: {body['status']}"})
@@ -1089,7 +944,7 @@ def seed_sessions():
     ], base - 3 * 3600)
     add_session('s-cut', 'inbox', 'A cut-off link', [
         {'role': 'user', 'content': 'Where is the telephony doc?'},
-        {'role': 'assistant', 'content': 'see https://telnyx.po…'},
+        {'role': 'assistant', 'content': 'see https://samplehost.po…'},
     ], base - 26 * 3600)
     add_session('s-cron-nofolder', 'inbox', 'Morning inbox triage · run without a folder', [
         {'role': 'user', 'content': '[CRON] Summarize.'},
@@ -1476,7 +1331,6 @@ def handler(gateway):
                 mode = self.body_json()
                 with lock:
                     TMODE['older_addon'] = bool(mode.get('older_addon'))
-                    if mode.get('lists'): seed_task_lists()   # [task-lists] what --task-lists starts with
                     if mode.get('empty'): TASKS.clear()
                     # "keep_rev": as an add-on update does (before 0.9.40), the list's rev stays, so `?since=` says unchanged
                     if not mode.get('keep_rev'): TSTATE['rev'] += 1
@@ -1601,7 +1455,7 @@ def ticker(seconds):
         broadcast()
 
 def main():
-    global NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS, FILES, NO_TASKS, TASKS_CHAT, TASKS_JSON, TASK_LISTS
+    global NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS, FILES, NO_TASKS, TASKS_CHAT, TASKS_JSON
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=9735)
     parser.add_argument('--credentials', required=True)
@@ -1609,7 +1463,6 @@ def main():
     parser.add_argument('--no-kanban', action='store_true')
     parser.add_argument('--no-tasks', action='store_true')   # [tasks] an add-on older than 0.9.32
     parser.add_argument('--tasks-chat', action='store_true')   # [tasks] Hermes's Bot Chat ends with the tasks_add exchange
-    parser.add_argument('--task-lists', action='store_true')   # [task-lists] lists, a kept list, an offer and its chat
     parser.add_argument('--tasks-json')   # [tasks] add tasks exported from a real tasks.db (a private file, never committed)
     parser.add_argument('--empty-kanban', action='store_true')
     parser.add_argument('--trigger-seconds', type=float, default=3)
@@ -1619,7 +1472,6 @@ def main():
     args = parser.parse_args()
     NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS = args.no_kanban, args.empty_kanban, args.trigger_seconds
     NO_TASKS, TASKS_CHAT, TASKS_JSON = args.no_tasks, args.tasks_chat, args.tasks_json
-    TASK_LISTS = args.task_lists
     FILES = pathlib.Path(args.files)
     make_files(args.port)
     reseed()

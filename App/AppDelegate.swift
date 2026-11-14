@@ -37,6 +37,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         #if targetEnvironment(macCatalyst)
         MacUpdater.start()                                // [mac] the website's download updates itself (logged: after the log)
         MacTrail.install()                                // [mac] sleep and wake in the log
+        MacSheetEdges.install()                           // [macpass-popups] every sheet's page 20 px in from its edges
         Task.detached(priority: .utility) {                // [mac] Mac polish #34: the voices read before a reply needs them
             try? await Task.sleep(for: .seconds(8))
             _ = await PhoneVoiceList.load()

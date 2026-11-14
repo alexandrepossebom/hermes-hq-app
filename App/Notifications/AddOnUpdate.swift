@@ -403,7 +403,7 @@ import UIKit
 
     nonisolated static let checkTitle = "Check Hermes"
     nonisolated static func installTitle(setUp: Bool, both: Bool, addOns: AddOns = .push) -> String {
-        if addOns == .browser { return setUp ? "Install the browser add\u{2011}on" : "Install the browser update" }   // [browser-update]
+        if addOns == .browser { return "Install the browser update" }   // [browser-update]
         if both { return setUp ? "Install the add-ons" : "Install both updates" }
         return setUp ? "Install the add-on" : "Install the update"
     }
@@ -479,10 +479,6 @@ import UIKit
             let one = names.count == 1
             return "\(AddOnReminder.names(names)) \(one ? "doesn’t" : "don’t") have the add-on yet, so \(one ? "its" : "their") alerts can’t reach you, and the browser add-on needs an update."
         }
-    }
-    /// [cloud-hosted] The browser add-on isn't there and was asked for (Settings › Browser Use Cloud).
-    static var whyBrowserSetUp: String {
-        "\(AppIdentity.current.displayName) runs Browser Use Cloud through its small browser add\u{2011}on in Hermes, which isn’t on \(HostWord.phrase) yet."
     }
     /// [browser-update] Hermes restarted, but the browser add-on isn't on at the version this build needs.
     nonisolated static let browserStillOff = "Browser Add-on Is Still Off"

@@ -82,7 +82,6 @@ enum TasksHub {
     static func signedOut() {
         store?.forget()
         store = nil
-        TodoOfferStates.forget()
         TaskReminders.removeAll()
     }
 
@@ -164,28 +163,6 @@ enum TasksHub {
             do { try await api.delete(id) } catch { if PagesREST.status(error) != 404 { all = false } }
         }
         return all
-    }
-
-    /// [task-lists] A chat card's answer to a bot's offer. Through the page's store when the chat is on its gateway (the
-    /// Tasks page shows the same at once), else straight to that gateway.
-    static func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool, client: (any GatewayClient)?) async -> Bool {
-        if let context = MorePages.context, client == nil || client === context.client {
-            let store = store(context)
-            if !store.offers.contains(where: { $0.id == id }) { await store.refresh(force: true) }
-            if store.offers.contains(where: { $0.id == id }) { return await store.answerOffer(id, action, list: list) }
-        }
-        guard let client = client ?? MorePages.context?.client else { return false }
-        do {
-            let answer = try await TasksAPI(client: client).answerOffer(id, action: action, list: list)
-            if TodoOfferStates.note([answer.offer], whole: false) {
-                NotificationCenter.default.post(name: TodoOfferStates.changed, object: nil)
-            }
-            await current?.refresh(force: true)
-            return true
-        } catch {
-            AppLog.note("tasks", "offer not answered: \(PagesREST.reason(error))")
-            return false
-        }
     }
 
     // MARK: The task's own chat

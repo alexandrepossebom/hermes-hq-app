@@ -18,9 +18,6 @@ nonisolated enum ToolCard: Hashable, Sendable {
     /// [tasks] `tasks_add`: the tasks a bot put on your list ("Added to Tasks" under the reply). Not a card tool: its
     /// step draws as any other; the card goes under the settled reply.
     case tasksAdded([AddedTask])
-    /// [task-lists] `tasks_offer`: a list, or a batch of tasks, the bot offers; its card (with the buttons) goes under
-    /// the settled reply. Nothing is on your list until you tap.
-    case tasksOffer(TodoOffer)
 }
 
 /// [tasks] One task a bot added, as the chat card shows it.
@@ -164,21 +161,9 @@ nonisolated enum ToolCards {
             else if case .object(let one)? = record["task"] { rows = [one] }
             let added = rows.prefix(maxGoals).compactMap { AddedTask($0) }
             return added.isEmpty ? nil : .tasksAdded(added)
-        case "tasks_offer":
-            // [task-lists] `{offer: {...}, say: …}` (hermes-hq-push 0.9.55); a refusal is `{error: …}`.
-            guard var offer = offer(ActivityJSON.object(result)["offer"]) else { return nil }
-            offer.tasks = Array(offer.tasks.prefix(TodoOffer.cardTasks))
-            return .tasksOffer(offer)
         default:
             return nil
         }
-    }
-
-    /// [task-lists] An offer from a tool result or a saved card; nil without an id or a list's name.
-    static func offer(_ value: JSONValue?) -> TodoOffer? {
-        guard let value, let data = try? value.encoded(), let offer = try? JSONDecoder().decode(TodoOffer.self, from: data),
-              !offer.id.isEmpty, !offer.list.isEmpty else { return nil }
-        return offer
     }
 
     /// `numberValue`: a number or a numeric string.
@@ -429,9 +414,6 @@ nonisolated extension ToolCard {
             return .object(o)
         case .tasksAdded(let tasks):
             return .object(["kind": "tasks", "tasks": .array(tasks.map(\.json))])
-        case .tasksOffer(let offer):
-            let value = (try? JSONEncoder().encode(offer)).flatMap { try? JSONValue.parse($0) } ?? .null
-            return .object(["kind": "offer", "offer": value])
         }
     }
 
@@ -456,9 +438,6 @@ nonisolated extension ToolCard {
             let tasks = (json["tasks"]?.array ?? []).compactMap { AddedTask(ActivityJSON.object($0)) }
             guard !tasks.isEmpty else { return nil }
             self = .tasksAdded(tasks)
-        case "offer":
-            guard let offer = ToolCards.offer(json["offer"]) else { return nil }
-            self = .tasksOffer(offer)
         default:
             return nil
         }

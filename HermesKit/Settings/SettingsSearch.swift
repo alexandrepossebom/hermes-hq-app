@@ -156,7 +156,6 @@ nonisolated enum SettingsSearch {
         ("keys", "Keys", ["api keys", "tools", "tokens", "environment", "env"]),
         ("vault", "Passwords", ["vault", "passwords", "logins", "cards", "addresses", "keychain", "1password", "bitwarden"]),
         ("billing", "Billing", ["balance", "credits", "plan", "nous portal", "usage"]),
-        ("browser-use-cloud", "Browser Use Cloud", ["browser use", "cloud browser", "api key", "all bots", "watch", "take over"]),
         ("sessions", sessionsPageTitle, ["sessions", "archive", "chats", "project folder", "chat folder", "retention"]),
         ("capabilities", "Capabilities", ["abilities", "what bots can do"]),   // [cap-pages]
         ("composio", "Composio", ["connect apps", "api key", "gmail", "slack", "apps"]),   // [composio-row]
