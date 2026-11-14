@@ -257,7 +257,7 @@ enum CloudCopy {
         #else
         let stopTip = "In Settings › Gateways or on Nous Portal. Stopped, it costs \(CloudPrices.dollars(CloudPrices.stoppedPerDay)) a day and keeps everything."
         #endif
-        return [("moon.stars.fill", "It never sleeps", "Jobs you schedule run on time, even with your phone and computer off."),
+        return [("moon.stars.fill", "It never sleeps", DeviceWord.isMac ? "Jobs you schedule run on time, even with your Mac off." : "Jobs you schedule run on time, even with your phone and computer off."),
                 ("person.badge.key.fill", "Signs in with Nous", "Your Nous account is the key. There’s no password to keep."),
                 ("pause.circle.fill", "Stop it anytime", stopTip),
                 ("square.stack.3d.up.fill", "Beside your other gateways", "Switch between them from the name at the top of \(GatewaySwitchWords.whereSwitcher).")]

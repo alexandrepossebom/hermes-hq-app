@@ -772,6 +772,9 @@ struct MacAddRemoveButtons: View {
     var remove: () -> Void
     var addIdentifier: String
     var removeIdentifier: String
+    /// [macpass-settings r2] A section switched off (Mixture of Agents off) dims both cells: the + drew full-strength
+    /// words though it did nothing.
+    @Environment(\.isEnabled) private var sectionEnabled
 
     var body: some View {
         let _ = Theme.touch()
@@ -802,7 +805,7 @@ struct MacAddRemoveButtons: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(Font.hq(.footnote).weight(.medium))
-                .foregroundStyle(enabled ? Color.hqLabel : Color.hqLabel3)
+                .foregroundStyle(enabled && sectionEnabled ? Color.hqLabel : Color.hqLabel3)
                 .frame(width: side, height: side)
                 .contentShape(Rectangle())
         }

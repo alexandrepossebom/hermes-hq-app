@@ -859,6 +859,7 @@ struct BotInfoSettingsTab: View {
             .accessibilityIdentifier("bot-info.section")
             Button("Duplicate Bot") { model.duplicate() }
                 .accessibilityIdentifier("bot-info.duplicate")
+                .hqMacPushButton(leading: true)   // [macpass-settings r2] the Mac's push button, not a blue link row
         } header: { HQSectionLabel {
             Text("Organize")
         } } footer: { HQSectionFooter {
@@ -871,6 +872,7 @@ struct BotInfoSettingsTab: View {
             Section {
                 Button("Delete Bot", role: .destructive) { model.delete(source: nil) }
                     .accessibilityIdentifier("bot-info.delete")
+                    .hqMacFormButton(destructive: true)   // [macpass-settings r2] a red push button under the form, as Sign Out
             }
             .disabled(!model.online)
         }

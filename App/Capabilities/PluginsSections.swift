@@ -30,6 +30,8 @@ struct PluginsSections: View {
                                 Label("Install from Git…", systemImage: "plus")
                             }
                             .accessibilityIdentifier("plugins.install")
+                            .hqMacPushButton(leading: true)   // [macpass-settings r2] the Mac's push button, as Add Gateway…
+                            .hqMacSettingsControl()
                         }
                     } header: { HQSectionLabel {
                         Text("Plugins for \(model.botName)")
@@ -69,6 +71,8 @@ struct PluginsSections: View {
                             Label("Install from Git…", systemImage: "plus")
                         }
                         .accessibilityIdentifier("plugins.install")
+                        .hqMacPushButton(leading: true)   // [macpass-settings r2] the Mac's push button, as Add Gateway…
+                        .hqMacSettingsControl()
                     }
                 } header: { HQSectionLabel {
                     Text("Plugins for \(model.botName)")

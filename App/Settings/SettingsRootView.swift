@@ -35,6 +35,10 @@ final class SettingsRootModel {
     /// [mac-ui-issues] Two columns: the column picked a category or typed in its search field. The controller brings the
     /// right side back to the category's own page (a pushed page leaves) and names it.
     @ObservationIgnored var columnChanged: (() -> Void)?
+    /// [macpass-settings r2] Two columns: the gateway card's page is the right side's own page (no "‹ Appearance" Back
+    /// to the category shown before), and the column marks the card instead of that category.
+    var gatewayMarked = false
+    @ObservationIgnored var openGateway: (() -> Void)?
     var gatewayName = ""
     var host = ""
     var connection: ConnectionState = .connecting
@@ -394,7 +398,8 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
     /// instead of replacing the whole pane with a Back button. The pane's own bar (Settings, the magnifier) is hidden:
     /// the column has the search field, and each page on the right has its own title.
     private(set) var paneStack: UINavigationController?
-    private weak var paneRoot: UIViewController?
+    /// Kept: the gateway card's page stands in for it as the stack's root while the card is marked.
+    private var paneRoot: UIViewController?
 
     private func followColumns() {
         guard isViewLoaded else { return }
@@ -412,6 +417,7 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
                 paneStack = stack
                 paneRoot = page
                 model.columnChanged = { [weak self] in self?.columnChanged() }
+                model.openGateway = { [weak self] in self?.showGateway() }
                 router.jump = { [weak self] category in self?.jump(to: category) }
                 namePane()
                 MacWindow.pageBar(page)
@@ -426,7 +432,10 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
             stack.view.removeFromSuperview()
             stack.removeFromParent()
             paneStack = nil
+            paneRoot = nil
+            model.gatewayMarked = false
             model.columnChanged = nil
+            model.openGateway = nil
             router.jump = nil
             router.navigation = navigationController
             navigationController?.setNavigationBarHidden(false, animated: false)
@@ -455,7 +464,7 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
     /// [Mac UI check 2026-11-13] A page of `category` opening from elsewhere (`SettingsRouter.jump`): the column marks
     /// it, and a page of another category leaves first, so Back names the category's page, not the page shown before.
     private func jump(to category: SettingsCategory) {
-        guard model.category != category else { return }
+        guard model.category != category || model.gatewayMarked else { return }
         model.query = ""
         model.category = category
         columnChanged()
@@ -463,7 +472,23 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
 
     private func columnChanged() {
         namePane()
-        if let stack = paneStack, stack.viewControllers.count > 1 { stack.popToRootViewController(animated: false) }
+        model.gatewayMarked = false
+        guard let stack = paneStack else { return }
+        if let paneRoot, stack.viewControllers.first !== paneRoot {
+            stack.setViewControllers([paneRoot], animated: false)
+        } else if stack.viewControllers.count > 1 {
+            stack.popToRootViewController(animated: false)
+        }
+    }
+
+    /// [macpass-settings r2] The gateway card in two columns: its page is the right side's root (no Back to the
+    /// category shown before) and the card carries the column's mark until a category is picked.
+    private func showGateway() {
+        guard let stack = paneStack else { return }
+        model.gatewayMarked = true
+        let page = GatewayPageController(services: model.services, router: router)
+        stack.setViewControllers([page], animated: false)
+        MacWindow.pageBar(page)
     }
 
     override func viewDidLayoutSubviews() {
@@ -1175,7 +1200,8 @@ struct SettingsRootView: View {
             }
         } header: { categoryHeader(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics") } footer: { HQSectionFooter {
             Text(!SettingsSearch.hasHaptics ? "Completion Sound plays when a bot’s reply finishes."
-                    + (model.thinkingBarShown ? " Thinking Bar is how the model panel’s thinking bar looks as you drag it up." : "")
+                    // [macpass-settings r2] Mac words: the bar is moved with the pointer or the arrow keys, not dragged up.
+                    + (model.thinkingBarShown ? " Thinking Bar is how the model panel’s thinking bar looks as you raise the thinking level." : "")
                  : SettingsHooks.completionCueWired
                  ? "Completion Sound plays when a bot’s reply finishes. Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up."
                  : "Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up.")
@@ -1422,8 +1448,12 @@ struct SettingsCategoryColumn: View {
                 .padding(.bottom, 10)
                 Button {
                     model.query = ""
-                    model.columnChanged?()
-                    router.push(GatewayPageController(services: model.services, router: router))
+                    if let open = model.openGateway {
+                        open()
+                    } else {
+                        model.columnChanged?()
+                        router.push(GatewayPageController(services: model.services, router: router))
+                    }
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "desktopcomputer")
@@ -1445,14 +1475,15 @@ struct SettingsCategoryColumn: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
-                    .hqPointerFill(Self.markRadius)   // [mac] Feel list B: the column's rows light under the pointer
+                    .background(model.gatewayMarked ? Self.mark : Color.clear, in: RoundedRectangle(cornerRadius: Self.markRadius, style: .continuous))
+                    .hqPointerFill(Self.markRadius, on: !model.gatewayMarked)   // [mac] Feel list B: the column's rows light under the pointer
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("settings.gateway-card")
                 .padding(.bottom, 10)
                 ForEach(SettingsCategory.allCases) { category in
-                    let on = model.category == category && model.query.isEmpty
+                    let on = model.category == category && model.query.isEmpty && !model.gatewayMarked
                     Button { model.query = ""; model.category = category; model.columnChanged?() } label: {
                         HStack(spacing: 10) {
                             Image(systemName: category.symbol)

@@ -379,6 +379,15 @@ struct SignInView: View {
                     }
                 }
                 .frame(maxWidth: 440)
+                #if targetEnvironment(macCatalyst)
+                // [macpass-settings r2] Tab and Shift-Tab go down and up the form's fields in order. The Mac's own Tab
+                // went from Username back to the address (and selected it, so the password typed next replaced it).
+                .onKeyPress(keys: [.tab], phases: .down) { press in
+                    guard let next = tabTarget(back: press.modifiers.contains(.shift)) else { return .ignored }
+                    focus = next
+                    return .handled
+                }
+                #endif
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
@@ -624,6 +633,19 @@ struct SignInView: View {
                 .accessibilityIdentifier("sign-in-name")
         }
         .disabled(model.busy != nil)
+    }
+
+    /// [macpass-settings r2] The fields on show, top to bottom: where Tab (Shift-Tab: `back`) goes from the focused one.
+    private func tabTarget(back: Bool) -> SignInModel.Field? {
+        var order: [SignInModel.Field] = [.address]
+        if model.accessOpen { order += [.accessId, .accessSecret] }
+        if let ways = model.ways, !model.behindAccess {
+            if ways == .nous { order.append(.name) }
+            if ways.showsPassword { order += [.username, .password, .name] }
+        }
+        guard let current = focus, let index = order.firstIndex(of: current) else { return order.first }
+        let next = back ? index - 1 : index + 1
+        return order.indices.contains(next) ? order[next] : order[back ? order.count - 1 : 0]
     }
 
     /// Return in the address: a Nous-only gateway signs in; otherwise move on to the username (or ask now).
