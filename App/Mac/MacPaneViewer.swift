@@ -50,7 +50,12 @@ final class PanePresentation: UIPresentationController {
     override var frameOfPresentedViewInContainerView: CGRect {
         guard let containerView else { return .zero }
         guard let split = presentingViewController as? RootSplitController, split.isViewLoaded else { return containerView.bounds }
-        return split.view.convert(split.viewerRect, to: containerView)
+        // [macpass r4 tools] With the chat's inspector open the viewer covered the chat column alone: the screen got a
+        // third of a 900 pt window, beside the chat's Info that took no clicks while it was up. It covers the inspector too.
+        var rect = split.viewerRect
+        let inspector = split.inspector.view.frame
+        if !split.inspector.view.isHidden, inspector.width > 0, inspector.intersects(split.view.bounds) { rect = rect.union(inspector) }
+        return split.view.convert(rect, to: containerView)
     }
 
     override func presentationTransitionWillBegin() {

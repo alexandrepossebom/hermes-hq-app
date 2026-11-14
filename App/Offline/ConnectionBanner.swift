@@ -64,7 +64,7 @@ import UIKit
             layout(banner, in: window)
             banner.alpha = 0
             view = banner
-            UIView.animate(withDuration: Self.fade) { banner.alpha = ReplyPeek.shared.isShowing ? 0 : 1 }   // motion-ok: opacity only
+            UIView.animate(withDuration: Self.fade) { banner.alpha = Self.stepsAside(in: window) ? 0 : 1 }   // motion-ok: opacity only
             watchPeek()
             watchSwipe(in: window)
             armStay(for: sentence)
@@ -183,13 +183,42 @@ import UIKit
     }
     #endif
 
-    /// The reply peek owns the slot while it shows.
+    /// Whether the capsule stays out of sight for now: the reply peek owns the slot while it shows, and [macpass r4
+    /// tools] on the Mac a chat on show already says the link is down in its own pill under its title ("Reconnecting…",
+    /// "Offline"): the capsule sat over that pill, two notices saying one thing. The chat's pill is the one shown.
+    static func stepsAside(in window: UIWindow) -> Bool {
+        if ReplyPeek.shared.isShowing { return true }
+        #if targetEnvironment(macCatalyst)
+        return chatPillSaysLink(in: window)
+        #else
+        return false
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// A chat's status pill on show in `window` that says the link's state.
+    static func chatPillSaysLink(in window: UIWindow) -> Bool {
+        let linkWords: Set<String> = ["Reconnecting…", "Offline", "Connecting…", "Can’t reach this bot"]
+        var views: [UIView] = [window]
+        while let view = views.popLast() {
+            if view is BannerView || view.isHidden || view.alpha < 0.01 { continue }
+            if let pill = view as? ChatStatusPill {
+                if let text = pill.text, linkWords.contains(text), pill.window === window { return true }
+                continue
+            }
+            views += view.subviews
+        }
+        return false
+    }
+    #endif
+
+    /// The reply peek (and a chat's own link pill) own the slot while they show.
     private func watchPeek() {
         peekWatch?.invalidate()
         let timer = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let banner = self.view else { return }
-                let target: CGFloat = ReplyPeek.shared.isShowing ? 0 : 1
+                let target: CGFloat = (banner.window.map(Self.stepsAside(in:)) ?? ReplyPeek.shared.isShowing) ? 0 : 1
                 guard banner.alpha != target, banner.layer.animationKeys()?.isEmpty ?? true else { return }
                 UIView.animate(withDuration: Self.fade) { banner.alpha = target }   // motion-ok: opacity only
             }

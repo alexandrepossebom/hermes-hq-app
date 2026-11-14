@@ -128,7 +128,12 @@ struct VerifyRoundTwoRepairTests {
             #expect(PagesREST.reason(URLError(code)) == unreachable, "\(code)")
             #expect(CapabilitiesStore.detail(URLError(code)) == unreachable, "\(code)")
         }
-        #expect(PagesREST.reason(URLError(.timedOut)) == GatewayFailure.timeout.message)
+        // [macpass r4 tools] A timeout and the outage gate's held failures read as the same outage on a page.
+        #expect(PagesREST.reason(URLError(.timedOut)) == unreachable)
+        for held in [GatewayFailure.timeout, .heldUnreachable, .heldTimeout, .socketDead] {
+            #expect(PagesREST.reason(held) == unreachable, "\(held)")
+        }
+        #expect(PagesREST.reason(RPCError(code: RPCError.timeoutCode, message: "timed out")) == unreachable)
         #expect(PagesREST.reason(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)) == unreachable)
         // A refusal keeps the gateway's own words.
         #expect(PagesREST.reason(HTTPError(status: 409, body: #"{"detail": "Refused by the probe"}"#)) == "Refused by the probe")

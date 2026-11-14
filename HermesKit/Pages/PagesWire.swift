@@ -58,8 +58,8 @@ nonisolated enum PagesREST {
             if isUnknownRoute(http) { return MoreWire.olderHermes }
             return detail(http) ?? "The gateway couldn’t do that."
         }
-        if let failure = error as? GatewayFailure { return failure.message }
-        if let rpc = error as? RPCError { return rpc.plainReason }
+        if let failure = error as? GatewayFailure { return failure.isNoAnswer ? cantReach : failure.message }
+        if let rpc = error as? RPCError { return rpc.isTimeout || rpc.isNotConnected ? cantReach : rpc.plainReason }
         if error is CancellationError { return "Cancelled." }
         // Verify round 2: a gateway that can't be reached (a sleeping Mac, Tailscale off) is not a refusal: the app's
         // own can't-reach words, never "The gateway couldn't do that."
@@ -68,12 +68,19 @@ nonisolated enum PagesREST {
         return "The gateway couldn’t do that."
     }
 
+    /// [macpass r4 tools] One sentence for a page whose gateway gave no answer, however it failed: a refused connection,
+    /// a timeout, or the outage gate holding the request. The Tools pages said four different things for the same
+    /// outage depending on which of those it was (Status "didn't answer in time", Changes "Can't reach…", the logs
+    /// "Can't reach … right now. Try again.").
+    static var cantReach: String { GatewayFailure.unreachable.message }
+
     /// The words for a request that never got an answer (NSURLErrorDomain), nil for anything else.
     static func transportReason(_ error: Error) -> String? {
         let ns = error as NSError
         guard ns.domain == NSURLErrorDomain else { return nil }
         if ns.code == NSURLErrorCancelled { return "Cancelled." }
-        return GatewayFailure.transport(domain: ns.domain, code: ns.code).message
+        let failure = GatewayFailure.transport(domain: ns.domain, code: ns.code)
+        return failure.isNoAnswer ? cantReach : failure.message
     }
 
     /// `detail` of an HTTP error body (a string, or an object's `message`); nil when there is none.

@@ -19,7 +19,8 @@ import UIKit
     /// The trailing columns. Files: Kind. Changes: Status, Lines. Each widens with the table, between two limits.
     enum Column {
         case kind, status, lines
-        func width(in table: CGFloat) -> CGFloat {
+        /// `need`: the widest kind word listed (`MacFilesTable.kindNeed`), when known.
+        func width(in table: CGFloat, need: CGFloat? = nil) -> CGFloat {
             let (share, least, most): (CGFloat, CGFloat, CGFloat) = switch self {
             case .kind: (0.24, 112, 260)
             case .status: (0.16, 84, 190)
@@ -30,7 +31,12 @@ import UIKit
             let width = min(HQFont.scaled(most), max(HQFont.scaled(least), table * share))
             // [Mac UI check 2026-11-13] In a narrow list (a file open beside it) Kind kept its least width and squeezed
             // Name to a few letters: the kind gives way first (a long one is cut at its end), never past a third.
-            if self == .kind { return min(width, table / 3).rounded() }
+            // [macpass r4 tools] A third (82 pt at 900 wide with a file open) cut "QuickTime Movie" to "QuickTime…": the
+            // kind may take what its widest word listed needs, up to 55% of the row, and the name keeps the rest.
+            if self == .kind {
+                let need = need ?? 0
+                return min(max(width, need), max(table / 3, min(need, table * 0.55))).rounded()
+            }
             // [macpass-tools 2026-11-14] Changes beside an open diff: Status and Lines at their least took the whole
             // narrow list and the file's name was gone. Each gives way to a quarter, so the name keeps half.
             return min(width, table / 4).rounded()
@@ -40,14 +46,20 @@ import UIKit
     static var text: UIFont { HQFont.preferred(.subheadline) }
     static var detail: UIFont { HQFont.preferred(.footnote) }
 
+    /// The room the widest of `kinds` needs in the Kind column (its words in `text`).
+    static func kindNeed(_ kinds: [String]) -> CGFloat {
+        let font = text
+        return ceil(kinds.reduce(0) { max($0, ($1 as NSString).size(withAttributes: [.font: font]).width) }) + 4
+    }
+
     /// Every other row's faint band, inset and rounded as the selection's box is.
     static let stripe = UIColor { traits in
         traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.035) : UIColor(white: 0, alpha: 0.03)
     }
 
     /// Where the trailing columns start in a row `width` wide: each column's leading x, left to right.
-    static func columns(_ columns: [Column], in width: CGFloat) -> (starts: [CGFloat], widths: [CGFloat]) {
-        let widths = columns.map { $0.width(in: width) }
+    static func columns(_ columns: [Column], in width: CGFloat, kindNeed: CGFloat? = nil) -> (starts: [CGFloat], widths: [CGFloat]) {
+        let widths = columns.map { $0.width(in: width, need: kindNeed) }
         var x = width - margin - widths.reduce(0, +)
         return (widths.map { w in defer { x += w }; return x }, widths)
     }
@@ -61,6 +73,8 @@ final class MacFileRowCell: UITableViewCell {
     private let columnLabels = [UILabel(), UILabel()]
     private let spinner = UIActivityIndicatorView(style: .medium)
     private var columns: [MacFilesTable.Column] = []
+    /// The listed kinds' widest word (`MacFilesTable.kindNeed`), as the columns' names over the rows use it.
+    var kindNeed: CGFloat? { didSet { if kindNeed != oldValue { setNeedsLayout() } } }
     var striped = false { didSet { if striped != oldValue { setNeedsUpdateConfiguration() } } }
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -98,13 +112,17 @@ final class MacFileRowCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let bounds = contentView.bounds
+        // [macpass r4 tools] The columns are laid out on the row's whole width, as the columns' names over them are:
+        // the content view is a few points narrower, and Kind's words sat 6 pt left of "Kind" in a wide window.
+        let bounds = self.bounds
+        let shift = contentView.frame.minX
         let rightToLeft = effectiveUserInterfaceLayoutDirection == .rightToLeft
         func place(_ view: UIView, x: CGFloat, width: CGFloat) {
-            view.frame = CGRect(x: rightToLeft ? bounds.width - x - width : x, y: 0, width: max(0, width), height: bounds.height)
+            view.frame = CGRect(x: (rightToLeft ? bounds.width - x - width : x) - shift, y: 0, width: max(0, width),
+                                height: contentView.bounds.height)
         }
         let margin = MacFilesTable.margin, glyph = MacFilesTable.glyph
-        let (starts, widths) = MacFilesTable.columns(columns, in: bounds.width)
+        let (starts, widths) = MacFilesTable.columns(columns, in: bounds.width, kindNeed: kindNeed)
         place(icon, x: margin, width: glyph - 6)
         spinner.center = icon.center
         let nameEnd = (starts.first ?? bounds.width - margin) - 10
@@ -140,6 +158,7 @@ final class MacFilesHeaderView: UIView {
     private let columnTitles = [UILabel(), UILabel()]
     private let line = UIView()
     private var columns: [MacFilesTable.Column] = []
+    var kindNeed: CGFloat? { didSet { if kindNeed != oldValue { setNeedsLayout() } } }
     private var showsColumns = true
 
     override init(frame: CGRect) {
@@ -238,7 +257,7 @@ final class MacFilesHeaderView: UIView {
         line.frame = CGRect(x: 0, y: bounds.height - pixel, width: bounds.width, height: pixel)
         guard showsColumns else { return }
         let height = bounds.height - top
-        let (starts, widths) = MacFilesTable.columns(columns, in: bounds.width)
+        let (starts, widths) = MacFilesTable.columns(columns, in: bounds.width, kindNeed: kindNeed)
         let nameEnd = (starts.first ?? bounds.width - margin) - 10
         nameTitle.frame = flip(CGRect(x: margin + MacFilesTable.glyph, y: top, width: max(0, nameEnd - margin - MacFilesTable.glyph), height: height - 2))
         for (index, x) in starts.enumerated() {

@@ -182,6 +182,15 @@ nonisolated enum MoreWorkspaceRoot {
         return "+\(add)"
     }
 
+    /// [macpass r4 tools] What a change's Lines shows when it has no counted lines (Hermes sends 0 and 0 for git's
+    /// "-" on a binary file): a renamed or copied file shows nothing, a file that is not read as text says "Binary",
+    /// and a text file that changed no lines (its mode, or an empty file) shows a dash. nil: show `counts`.
+    static func linesWord(added: Int, removed: Int, status: String, path: String) -> String? {
+        guard added <= 0, removed <= 0 else { return nil }
+        if ["R", "C"].contains(statusLetter(status)) { return "" }
+        return opening(name: path) == .download ? "Binary" : "—"
+    }
+
     /// The letter a change shows ("M", "A", "D", "R", "C", "U", "?"): one upper-case character, "M" when unknown.
     static func statusLetter(_ status: String) -> String {
         let letter = status.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()

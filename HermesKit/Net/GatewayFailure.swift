@@ -142,6 +142,15 @@ nonisolated enum GatewayFailure: Error, Sendable, Hashable, CustomStringConverti
         }
     }
 
+    /// No answer came at all (can't connect, timed out, held by the outage gate, the socket died): one outage to a
+    /// person, whichever it was ([macpass r4 tools] `PagesREST.cantReach`).
+    var isNoAnswer: Bool {
+        switch self {
+        case .unreachable, .timeout, .heldUnreachable, .heldTimeout, .socketDead: true
+        default: false
+        }
+    }
+
     /// [offline] Failed by the outage gate without asking the gateway (§6.1): never retried at once (§6.2).
     var isHeld: Bool { self == .heldUnreachable || self == .heldTimeout }
 

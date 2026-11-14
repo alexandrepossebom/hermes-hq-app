@@ -108,7 +108,9 @@ struct UsagePageView: View {
                 MoreSkeleton(label: "Loading \(CommandCenterNames.usage)…") { model.retry() }
             case .failed(let reason):
                 MoreErrorState(title: "Couldn’t Load \(CommandCenterNames.usage)", reason: reason) { model.retry() }
-            case .ready where DeviceWord.isMac && width >= UsageDashboard.wideAt && model.usage?.isEmpty == false:
+            // [macpass r4 tools] Also with nothing used yet: picking a period with no usage swapped the whole page for the
+            // phone's list (a centred "Period" menu row), so the range switch moved and changed kind under the pointer.
+            case .ready where DeviceWord.isMac && width >= UsageDashboard.wideAt && model.usage != nil:
                 if let usage = model.usage { UsageDashboard(model: model, usage: usage) }
             case .ready:
                 List { UsageSections(model: model) }

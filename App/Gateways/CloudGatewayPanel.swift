@@ -116,6 +116,14 @@ private struct CloudPowerLabel: View {
     }
 }
 
+/// [macpass r4 tools] A row whose words carry their own colour (`hqLabel`, the tint) stayed full strength when it was
+/// off: while the agent started or stopped, Name, Size, Disk, Variables and a blue Update Hermes looked ready to use and
+/// did nothing. Off, the row fades as the Team Gateway switch beside them does.
+private struct CloudRowDim: ViewModifier {
+    @Environment(\.isEnabled) private var enabled
+    func body(content: Content) -> some View { content.opacity(enabled ? 1 : 0.45) }
+}
+
 /// The top of a Nous gateway's page: the agent, its power, and its settings. `host`: the gateway's address.
 struct CloudGatewayPanel: View {
     @Bindable var model: CloudGatewayModel
@@ -273,14 +281,17 @@ private struct CloudPanelAgent: View {
         Section {
             Button { model.askRename(agent) } label: {
                 LabeledContent { Text(agent.name).foregroundStyle(Color.hqLabel2) } label: { Text(CloudCopy.name).foregroundStyle(Color.hqLabel) }
+                    .modifier(CloudRowDim())
             }
             .disabled(!model.can(.rename))
             .accessibilityIdentifier("gateway.cloud.rename")
             NavRow(title: CloudCopy.size, value: sizeValue) { model.onRoute?(.resize(agent.id)) }
+                .modifier(CloudRowDim())
                 .disabled(!model.can(.resize) || agent.canResize == false)
                 .accessibilityIdentifier("gateway.cloud.size")
             disk
             NavRow(title: CloudCopy.variables, value: variablesValue) { model.onRoute?(.variables(agent.id)) }
+                .modifier(CloudRowDim())
                 .disabled(!model.can(.updateEnv))
                 .accessibilityIdentifier("gateway.cloud.variables")
             if model.can(.setFeature) { teamGateway }
@@ -291,6 +302,7 @@ private struct CloudPanelAgent: View {
                         Text(CloudCopy.updateDetail(agent)).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .modifier(CloudRowDim())
                 }
                 .accessibilityIdentifier("gateway.cloud.update")
             }
@@ -358,6 +370,7 @@ private struct CloudPanelAgent: View {
             LabeledContent {
                 Text(agent.diskGB.map { "\($0) GB" } ?? CloudCopy.unknownDisk).foregroundStyle(Color.hqLabel2)
             } label: { Text(CloudCopy.disk).foregroundStyle(Color.hqLabel) }
+            .modifier(CloudRowDim())
         }
         .disabled(offers.isEmpty || !model.can(.growDisk) || agent.canGrowDisk == false)
         .accessibilityIdentifier("gateway.cloud.disk")

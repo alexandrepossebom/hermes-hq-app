@@ -154,6 +154,13 @@ struct MoreWorkspaceRootTests {
         #expect(R.counts(added: 5, removed: 0) == "+5")
         #expect(R.counts(added: 0, removed: 3) == "−3")
         #expect(R.counts(added: -4, removed: 0) == "+0")
+        // A change with no counted lines: Binary, nothing for a rename, a dash for a text file.
+        #expect(R.linesWord(added: 0, removed: 0, status: "M", path: "assets/logo.bin") == "Binary")
+        #expect(R.linesWord(added: 0, removed: 0, status: "A", path: "photo.png") == "Binary")
+        #expect(R.linesWord(added: 0, removed: 0, status: "R", path: "src/header.js") == "")
+        #expect(R.linesWord(added: 0, removed: 0, status: "M", path: "run.sh") == "—")
+        #expect(R.linesWord(added: 2, removed: 0, status: "M", path: "logo.bin") == nil)
+        #expect(R.linesWord(added: 0, removed: 1, status: "R", path: "a.js") == nil)
         #expect(R.statusLetter(" m ") == "M")
         #expect(R.statusLetter("?") == "?")
         #expect(R.statusLetter("weird") == "M")

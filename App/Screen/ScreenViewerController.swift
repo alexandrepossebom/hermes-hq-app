@@ -878,11 +878,23 @@ final class ScreenStatePanel: UIView {
         // never theirs to decide: they are centred in the scrolled content, which is at least as tall as the page.
         let snug = scroll.contentLayoutGuide.heightAnchor.constraint(equalToConstant: 0)
         snug.priority = UILayoutPriority(1)
-        NSLayoutConstraint.activate([
+        // [macpass r4 tools] On the Mac the words and their button ran the pane's whole width: Start Screen and
+        // Reconnect were 580 pt bars at 900 pt and over 1,000 pt in a wide window. They keep a reading width there,
+        // centred, as the Tools pages' error states do. iPhone and iPad keep the page's width less the margins.
+        let side: [NSLayoutConstraint]
+        if DeviceWord.isMac {
+            let fill = stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -56)
+            fill.priority = .defaultHigh
+            side = [stack.centerXAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerXAnchor),
+                    stack.widthAnchor.constraint(lessThanOrEqualToConstant: 440), fill,
+                    stack.leadingAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.leadingAnchor, constant: 28)]
+        } else {
+            side = [stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 28),
+                    stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -28)]
+        }
+        NSLayoutConstraint.activate(side + [
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.topAnchor.constraint(equalTo: topAnchor), scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -28),
             stack.topAnchor.constraint(greaterThanOrEqualTo: scroll.contentLayoutGuide.topAnchor, constant: 20),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: scroll.contentLayoutGuide.bottomAnchor, constant: -20),
             stack.centerYAnchor.constraint(equalTo: scroll.contentLayoutGuide.centerYAnchor),

@@ -621,11 +621,16 @@ import UserNotifications
     }
 
     /// Settings' and Status & Maintenance's row while it runs.
-    var rowTitle: String { "Updating \(name)…" }
+    /// [macpass r4 tools] While it only checks, the row said "Updating studio's Mac… / Checking…" before anyone
+    /// tapped Update: it says what it is doing.
+    var rowTitle: String {
+        if case .checking = phase { return "Checking \(name) for Updates…" }
+        return "Updating \(name)…"
+    }
 
     var rowStatus: String? {
         switch phase {
-        case .checking: return "Checking…"
+        case .checking: return nil
         case .asking: return nil
         case .ended: return headline
         case .working:

@@ -2,8 +2,8 @@
 // across the window, not Settings cards in a strip"). The period is a switch at the top right; four tiles give the
 // totals with what they come to a day; the daily chart runs the window's width, splits a day's tokens into what was
 // read and what was written, switches to sessions, and names the day under the pointer; the models and the skills
-// stand side by side, each row with a bar for its share. Narrower than `UsageDashboard.wideAt`, or with nothing used
-// yet, the page is the list it was. iPhone and iPad keep the list.
+// stand side by side, each row with a bar for its share. Narrower than `UsageDashboard.wideAt` the page is the list it
+// was; with nothing used yet it keeps the headline and says so. iPhone and iPad keep the list.
 
 import Charts
 import SwiftUI
@@ -29,11 +29,23 @@ struct UsageDashboard: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 headline
-                tiles
-                if !usage.daily.isEmpty { chartCard }
-                HStack(alignment: .top, spacing: 16) {
-                    if !usage.models.isEmpty { modelsCard }
-                    if !usage.skills.isEmpty { skillsCard }
+                if usage.isEmpty {
+                    // [macpass r4 tools] Nothing used in this period: the headline and its switch stay where they were.
+                    ContentUnavailableView {
+                        UnavailableTitle("No Usage Yet", systemImage: "chart.bar")
+                    } description: {
+                        Text("Usage shows up after your bots have worked.").hqMacFont(MacType.emptyBodyFont)
+                    }
+                    .padding(.top, 48)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("more-usage.empty")
+                } else {
+                    tiles
+                    if !usage.daily.isEmpty { chartCard }
+                    HStack(alignment: .top, spacing: 16) {
+                        if !usage.models.isEmpty { modelsCard }
+                        if !usage.skills.isEmpty { skillsCard }
+                    }
                 }
             }
             // [macpass-tools] Mac full pass 2026-11-14 (round 2): the Tools' one side inset (`MacInset.side`), under the
@@ -67,6 +79,9 @@ struct UsageDashboard: View {
             HQSegmentedPicker("Period", options: [7, 30, 90].map { (title: "\($0) Days", value: $0) }, selection: $model.days, ticks: false)   // `days` ticks as it changes
                 .labelsHidden()
             .frame(width: 330)
+            // [macpass r4 tools] On the Mac the normal look's segments are radio buttons with no selected state:
+            // VoiceOver could not tell which period is on show. The group says it.
+            .accessibilityValue("\(model.days) Days")
             .accessibilityIdentifier("more-usage.period")
         }
         .padding(.vertical, 4)

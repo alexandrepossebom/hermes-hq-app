@@ -202,9 +202,21 @@ final class MoreSearchUI: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         let shown = sections().flatMap { $0.rows() }.filter { $0.card == nil }
         rows = Dictionary(shown.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let tabs = MainTabController.current?.placedTabs ?? []   // [mac-sidebar] every sidebar place
+        // [macpass r4 tools] A place that is a More page (on the Mac every Tool is one) keeps that page's glyph and search
+        // words: Open Quickly showed Status, Usage, Star Map… with a plain arrow, and "memory" did not find Star Map.
+        let pageRows = Dictionary((MainTabController.current?.pages?.moreSections() ?? []).flatMap { $0.rows() }.map { ($0.id, $0) },
+                                  uniquingKeysWith: { first, _ in first })
+        var placedPageIDs: Set<String> = []
         var pages: [MoreSearch.Item] = tabs.enumerated().compactMap { index, tab in
             guard let title = tab.tabBarItem.title, title != "More" else { return nil }
-            return MoreSearch.Item(id: "tab-\(index)", title: title, detail: "Tab", symbol: Self.tabSymbols[title])
+            let tag = tab.tabBarItem.accessibilityIdentifier ?? ""
+            let pageID = tag.hasPrefix("tab-page-") ? String(tag.dropFirst("tab-page-".count)) : nil
+            if let pageID { placedPageIDs.insert(pageID) }
+            let symbol = Self.tabSymbols[title] ?? pageID.flatMap { pageRows[$0]?.symbol }.map(PagesTabs.outlineSymbol)
+            let keywords = pageID.map { MorePages.keywords(for: $0) + (MoreSearch.pageKeywords[$0] ?? []) } ?? []
+            // On the Mac a place is a sidebar row, not a tab (Mac polish: no iPhone words on the Mac).
+            return MoreSearch.Item(id: "tab-\(index)", title: title, detail: DeviceWord.isMac ? "Sidebar" : "Tab",
+                                   keywords: keywords, symbol: symbol)
         }
         // Audit 863 (08d-4): each page's own search words ("telegram" finds Messaging, "memory" Star Map).
         pages += shown.map { MoreSearch.Item(id: $0.id, title: $0.title, keywords: MorePages.keywords(for: $0.id)) }
@@ -226,7 +238,9 @@ final class MoreSearchUI: NSObject, UISearchResultsUpdating, UISearchBarDelegate
             return ($0.target != .root(SettingsSearch.kanbanTabTarget) || kanbanTabShown) && SettingsRootModel.searchRowShown($0)
         }
         let facts = MoreSearch.ActionFacts(writable: !context.readOnly, kanban: hasKanban,
-                                           commandCenter: rows["command-center"] != nil,
+                                           // [macpass r4 tools] On the Mac Status & Maintenance is a sidebar Tool, not a
+                                           // More row: Restart Gateway and Update Hermes went missing from Open Quickly.
+                                           commandCenter: rows["command-center"] != nil || placedPageIDs.contains("command-center"),
                                            version: (context.services as? SettingsServices)?.gatewayVersion)
         return MoreSearch.results(query: trimmed, pages: pages, bots: bots, sessions: sessions, settings: settings,
                                   actions: MoreSearch.actions(facts), allSessions: allSessions)

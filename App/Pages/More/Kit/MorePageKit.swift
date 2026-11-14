@@ -120,6 +120,9 @@ struct MoreErrorState: View {
             UnavailableTitle(title, systemImage: "exclamationmark.triangle")
         } description: {
             Text(reason).hqMacFont(MacType.emptyBodyFont)   // [mac] Stress test 2026-10-28 #52
+                // [macpass r4 tools] The reason ran edge to edge of a wide page (12 pt from the sidebar at 900 wide):
+                // a readable measure, as the title above it.
+                .frame(maxWidth: 440)
         } actions: {
             Button("Try Again", action: retry)
                 .hqEmptyActionButtonStyle()   // [mac] Stress test 2026-10-28 #55 (round 6): the plain push button on the Mac

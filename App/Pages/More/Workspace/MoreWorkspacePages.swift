@@ -224,6 +224,8 @@ final class MoreWorkspaceController: UITableViewController {
     private var markedPath: String?
     private weak var markedPage: UIViewController?
     private let tableHeader = MacFilesHeaderView()
+    /// [macpass r4 tools] The listed kinds' widest word, so a narrow table's Kind column fits "QuickTime Movie".
+    private var tableKindNeed: CGFloat?
     private var barBotButton: UIButton?
     private static let live = NSHashTable<MoreWorkspaceController>.weakObjects()
     /// Chooser pages: called with the folder to use.
@@ -562,12 +564,14 @@ final class MoreWorkspaceController: UITableViewController {
         case .entries(let entries):
             count = entries.count == 1 ? "1 item" : "\(entries.count) items"
             columns = tableColumns
+            tableKindNeed = MacFilesTable.kindNeed(Set(entries.map { MediaKinds.kindWord($0.name, isDirectory: $0.isDirectory) }).sorted())
         case .changes(let changes):
             count = changes.count == 1 ? "1 changed file" : "\(changes.count) changed files"
             columns = tableColumns
         case .loading, .state:
             break
         }
+        tableHeader.kindNeed = tableKindNeed
         tableHeader.set(crumbs: crumbs, count: count, columns: columns)
         let height = MacFilesHeaderView.height(columns: columns != nil)
         if tableHeader.frame.height != height {
@@ -812,6 +816,7 @@ final class MoreWorkspaceController: UITableViewController {
         case .entries(let entries) where isTable:
             let entry = entries[indexPath.row]
             let cell = fileCell(indexPath)
+            cell.kindNeed = tableKindNeed
             let kind = MediaKinds.kindWord(entry.name, isDirectory: entry.isDirectory)
             cell.set(symbol: entry.isDirectory ? "folder" : MediaKinds.glyph(MediaKinds.kind(ofName: entry.name)),
                      tint: entry.isDirectory ? HQPalette.tint : HQPalette.label2,
@@ -836,7 +841,10 @@ final class MoreWorkspaceController: UITableViewController {
             name.append(NSAttributedString(string: (change.path as NSString).lastPathComponent,
                                            attributes: [.font: MacFilesTable.text, .foregroundColor: HQPalette.label]))
             let lines = NSMutableAttributedString()
-            if change.added > 0 || change.removed == 0 {
+            // [macpass r4 tools] A binary change read "+0" in green; it says "Binary" (a rename with no lines: nothing).
+            if let word = MoreWorkspaceRoot.linesWord(added: change.added, removed: change.removed, status: change.status, path: change.path) {
+                lines.append(NSAttributedString(string: word, attributes: [.font: MacFilesTable.text, .foregroundColor: HQPalette.label2]))
+            } else if change.added > 0 || change.removed == 0 {
                 lines.append(NSAttributedString(string: "+\(max(0, change.added))", attributes: [.font: MacFilesTable.text, .foregroundColor: UIColor.systemGreen]))
             }
             if change.removed > 0 {
@@ -850,7 +858,9 @@ final class MoreWorkspaceController: UITableViewController {
                                 .status), (lines, .lines)],
                      busy: false)
             cell.accessibilityIdentifier = "workspace.change.\(change.path)"
-            cell.accessibilityLabel = "\(change.path), \(change.statusName), \(change.added) added, \(change.removed) removed"
+            let spoken = MoreWorkspaceRoot.linesWord(added: change.added, removed: change.removed, status: change.status, path: change.path)
+                .map { $0 == "Binary" ? ", Binary" : "" } ?? ", \(change.added) added, \(change.removed) removed"
+            cell.accessibilityLabel = "\(change.path), \(change.statusName)\(spoken)"
             return cell
         case .entries(let entries):
             let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath)
@@ -925,7 +935,10 @@ final class MoreWorkspaceController: UITableViewController {
             config.textProperties.numberOfLines = 0
             config.textProperties.font = HQFont.preferred(.body)
             config.textProperties.color = HQPalette.label
-            config.secondaryText = "\(change.statusName) · \(MoreWorkspaceRoot.counts(added: change.added, removed: change.removed))"
+            // [macpass r4 tools] "Modified · Binary", "Renamed" alone, never "· +0".
+            let word = MoreWorkspaceRoot.linesWord(added: change.added, removed: change.removed, status: change.status, path: change.path)
+            let lineWords = word ?? MoreWorkspaceRoot.counts(added: change.added, removed: change.removed)
+            config.secondaryText = lineWords.isEmpty ? change.statusName : "\(change.statusName) · \(lineWords)"
             config.secondaryTextProperties.color = HQPalette.label2
             config.secondaryTextProperties.font = HQFont.preferred(.subheadline)
             config.directionalLayoutMargins.top = 12
@@ -939,7 +952,9 @@ final class MoreWorkspaceController: UITableViewController {
             cell.hqDisclosure()   // [mac] Stress test 2026-10-28 #51 (round 6): the quiet Mac chevron
             cell.selectionStyle = .default
             cell.accessibilityIdentifier = "workspace.change.\(change.path)"
-            cell.accessibilityLabel = "\(change.path), \(change.statusName), \(change.added) added, \(change.removed) removed"
+            let spoken = MoreWorkspaceRoot.linesWord(added: change.added, removed: change.removed, status: change.status, path: change.path)
+                .map { $0 == "Binary" ? ", Binary" : "" } ?? ", \(change.added) added, \(change.removed) removed"
+            cell.accessibilityLabel = "\(change.path), \(change.statusName)\(spoken)"
             return cell
         }
     }
