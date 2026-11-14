@@ -556,7 +556,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             if !self.painted {
                 self.painted = true
                 self.spinner.stopAnimating()
-                UIView.animate(withDuration: 0.15) {
+                UIView.animate(withDuration: 0.15) {   // motion-ok: a fade and a colour, nothing moves
                     webView.alpha = 1
                     if let colour { self.view.backgroundColor = colour }
                 }

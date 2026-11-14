@@ -361,7 +361,7 @@ final class LiveTileBox: UIView {
         /// [mac] A right-click (or Control-click) on a live tile is the tile's, not its page's: the web view's own menu
         /// (Cut, Copy, Paste, Speech) came up where the tile's (Open, Size, Move to Page…) belongs. The box takes the
         /// click, so the Tiles page's context menu answers it; left clicks still reach the page's buttons.
-        if let event, event.buttonMask.contains(.secondary) || event.modifierFlags.contains(.control),
+        if let event, event.buttonMask.contains(.secondary) || event.modifierFlags.contains(.control),   // system-ink-ok: the mouse's right button, not a colour
            hit != nil, hit !== self { return self }
         #endif
         return hit

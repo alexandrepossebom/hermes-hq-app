@@ -554,7 +554,7 @@ extension PluginWebPageController {
         guard state.trouble != words else { return }
         state.trouble = words
         troubleBar?.view.isHidden = words == nil
-        if let words { UIAccessibility.post(notification: .announcement, argument: words) }
+        HQAnnounce.say(words, priority: .high)
     }
 }
 
