@@ -574,6 +574,18 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         var white: CGFloat = 0
         colour.getWhite(&white, alpha: nil)
         navigationController?.navigationBar.overrideUserInterfaceStyle = white > 0.6 ? .light : white < 0.35 ? .dark : .unspecified
+        #if targetEnvironment(macCatalyst)
+        // [macpass-popups r3] The Mac bar is opaque in the look's own colour: in the Desktop Look dark its near-black
+        // stood as a band over a slate tile. The bar takes the page's colour instead, its title fonts kept.
+        guard let bar = navigationController?.navigationBar else { return }
+        let look = (navigationItem.standardAppearance ?? bar.standardAppearance).copy()
+        look.backgroundEffect = nil
+        look.backgroundColor = colour
+        look.shadowColor = .clear
+        navigationItem.standardAppearance = look
+        navigationItem.scrollEdgeAppearance = look
+        navigationItem.compactAppearance = look
+        #endif
     }
 
     /// [tiles] A page that fails to draw still shows what it has, not a spinner forever.
