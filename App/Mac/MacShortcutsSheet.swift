@@ -34,6 +34,7 @@ import UIKit
             ("Edit", KeyCommands.editItems()),
             ("View", KeyCommands.viewItems()),
             ("Chat", ChatMenuBar.menu().children),
+            ("Help", KeyCommands.helpItems()),
         ]
         var out: [Section] = []
         var place: [Selector: (section: Int, row: Int)] = [:]   // a command's row, for its second keys
@@ -46,7 +47,9 @@ import UIKit
                 // `validate` hides ⇧⌘W while ⌘W itself reads Close Window (always so in the Settings window), and the
                 // list opened there lost the row.
                 let closing = command.action == KeyCommands.closeChat || command.action == KeyCommands.closeWindow
-                guard closing || !command.attributes.contains(.hidden), let input = command.input else { continue }
+                // [keys] Round 3: Escape's item hides while its step is View › Back's; its key is still listed.
+                let escape = command.action == KeyCommands.escape
+                guard closing || escape || !command.attributes.contains(.hidden), let input = command.input else { continue }
                 // Escape's item is named for what it would do this moment (with this sheet up, "Close"); here, all of it.
                 let name = command.action == KeyCommands.escape ? "Stop Reply, Close or Go Back" : closing ? original : command.title
                 // One action under one name (the tabs share theirs, told apart by their place).
@@ -97,12 +100,30 @@ import UIKit
         return out
     }
 
-    static func present() {
+    static func present(tries: Int = 8) {
         // [mac] Mac polish #12: over the window in front (the Settings window when it is), not the main window behind it.
         guard let host: UIViewController = KeyCommands.settingsInFront ?? KeyCommands.root else { return }
+        let over = KeyCommands.presented(host) ?? host
+        // [keys] 2026-11-14 (Mac full pass, round 3): picked while a sheet was still closing (this one's Done a moment
+        // before), it was presented on that leaving sheet and never showed. It waits for the sheet to go; and a second
+        // pick while the list is up leaves the one on show.
+        if over.isBeingDismissed || over.presentingViewController?.isBeingDismissed == true {
+            guard tries > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { MainActor.assumeIsolated { present(tries: tries - 1) } }
+            return
+        }
+        if (over as? UINavigationController)?.viewControllers.first is KeyShortcutsList { return }
         let list = KeyShortcutsList(sections: sections())
         let sheet = ChatSheet.wrap(list, title: "Keyboard Shortcuts")
-        (KeyCommands.presented(host) ?? host).present(sheet, animated: true)
+        // [keys] Round 3: with one pane on show `wrap` gives it the page sheet, nearly as tall as the window (9 pt from
+        // its top at 900 × 600). It is the other sheets' form sheet, sized from the window it opens over.
+        SheetStyle.macTall(sheet, from: over)
+        // The list follows its rows' height (`wrap`'s fit), up to the main window's room; over the smaller Settings
+        // window that ran past its foot. It stops at the room of the window it opens over.
+        if let window = over.view.window ?? host.view.window {
+            MacSheetFit.cap(sheet, at: SheetStyle.macTallHeight(window))
+        }
+        over.present(sheet, animated: true)
     }
 }
 

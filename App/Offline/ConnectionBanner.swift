@@ -143,11 +143,45 @@ import UIKit
         let safe = window.safeAreaInsets
         let width = min(window.bounds.width - Self.sideInset * 2 - safe.left - safe.right, Self.maxWidth)
         banner.transform = .identity
-        banner.frame = CGRect(x: (window.bounds.width - width) / 2, y: safe.top + 2, width: width, height: banner.height(for: width))
+        var top = safe.top + 2
+        #if targetEnvironment(macCatalyst)
+        // [keys] 2026-11-14 (Mac full pass, round 3): on the Mac the window's safe area ends at the title bar, so the
+        // notice sat over the chat's title and its bar buttons (Sessions' and the Tools pages' too) for its seconds on
+        // show. It sits just under the lowest top bar of the window's columns.
+        if let below = Self.topBarsBottom(in: window) { top = max(top, below + 8) }
+        #endif
+        banner.frame = CGRect(x: (window.bounds.width - width) / 2, y: top, width: width, height: banner.height(for: width))
         banner.layoutIfNeeded()
         banner.shape()
         window.bringSubviewToFront(banner)
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// The foot of the lowest navigation bar on show along the window's top (the sidebar's, the list's, the chat's or
+    /// page's, the inspector's), in window points; nil with none.
+    static func topBarsBottom(in window: UIWindow) -> CGFloat? {
+        func shown(_ view: UIView) -> Bool {
+            var next: UIView? = view
+            while let current = next, current !== window {
+                if current.isHidden || current.alpha < 0.01 { return false }
+                next = current.superview
+            }
+            return true
+        }
+        var bottom: CGFloat?
+        var views: [UIView] = [window]
+        while let view = views.popLast() {
+            if view is BannerView || view.isHidden { continue }
+            if let bar = view as? UINavigationBar {
+                let frame = bar.convert(bar.bounds, to: window)
+                if frame.height > 0, frame.minY < window.safeAreaInsets.top + 80, shown(bar) { bottom = max(bottom ?? 0, frame.maxY) }
+                continue
+            }
+            views += view.subviews
+        }
+        return bottom
+    }
+    #endif
 
     /// The reply peek owns the slot while it shows.
     private func watchPeek() {

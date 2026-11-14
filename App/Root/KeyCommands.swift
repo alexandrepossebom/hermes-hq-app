@@ -162,6 +162,9 @@ extension MoreViewController: KeySearchable {}
     static let textSmaller = #selector(AppDelegate.hqTextSmaller(_:))
     static let toggleSidebar = #selector(AppDelegate.hqToggleSidebar(_:))
     static let keyboardShortcuts = #selector(AppDelegate.hqKeyboardShortcuts(_:))
+    /// Help's items. [keys] 2026-11-14 (round 3): Keyboard Shortcuts has a key of its own, ⌘/, as in Slack, Linear and
+    /// Notion (⇧⌘/ stays the system's Help search).
+    static func helpItems() -> [UIMenuElement] { [command("Keyboard Shortcuts", keyboardShortcuts, "/", .command)] }
     /// [mac-feel D30] Page Up, Page Down, Home and End scroll the chat on show (`ChatViewController.keyScroll`).
     static let scrollChat = #selector(AppDelegate.hqScrollChat(_:))
     private static let scrollInputs = [UIKeyCommand.inputPageUp, UIKeyCommand.inputPageDown, UIKeyCommand.inputHome, UIKeyCommand.inputEnd]
@@ -265,8 +268,7 @@ extension MoreViewController: KeySearchable {}
         MacWindow.trimMenus(builder)   // [mac]
         MacUpdater.addMenuItem(builder)
         // [mac-audit K] Owner 2026-11-02: Help › Keyboard Shortcuts lists every key in a sheet (MacShortcutsSheet).
-        builder.insertChild(UIMenu(title: "", options: .displayInline, children: [
-            UICommand(title: "Keyboard Shortcuts", action: keyboardShortcuts)]), atStartOfMenu: .help)
+        builder.insertChild(UIMenu(title: "", options: .displayInline, children: helpItems()), atStartOfMenu: .help)
         #endif
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: fileItems()), atStartOfMenu: .file)
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: editItems()), atEndOfMenu: .edit)
@@ -699,6 +701,7 @@ extension AppDelegate {
             return
         default: break
         }
+        if validateUndo(command) { return }   // [keys]
         if let settings, validateInSettings(command, settings) { return }
         if let file = KeyCommands.fileInFront, validateInFileWindow(command, file) { return }   // [mac-files]
         #endif
@@ -841,7 +844,12 @@ extension AppDelegate {
             return
         }
         #if targetEnvironment(macCatalyst)
-        if command.action == KeyCommands.escape { command.title = KeyCommands.escapeTitle(root) }   // [mac-audit K]
+        if command.action == KeyCommands.escape {
+            command.title = KeyCommands.escapeTitle(root)   // [mac-audit K]
+            // [keys] 2026-11-14 (round 3): when Escape's step is going back, View showed "Back" (⌘[) and "Go Back" (⎋)
+            // for the one action. The Escape item hides (its key still works) and Back is the one item.
+            if enabled, command.title == "Go Back" { command.attributes = .hidden; return }
+        }
         #endif
         command.attributes = enabled ? [] : .disabled
         #if DEBUG
@@ -869,6 +877,32 @@ extension AppDelegate {
     }()
 
     #if targetEnvironment(macCatalyst)
+    /// Edit › Undo's action (the system's item).
+    static let undoAction = NSSelectorFromString("undo:")
+
+    // [keys] 2026-11-14 (Mac full pass, round 3): Edit › Undo stayed dimmed while "Archived · Undo" showed (Sessions'
+    // right-click Archive), so ⌘Z took nothing back: with no field holding the keyboard the menu asks the app's end of
+    // the chain, which had no undo of its own. The pill's Undo is it now ("Undo Archive"); a field's own typing undo,
+    // earlier in the chain, still comes first.
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == Self.undoAction, UndoPill.menuUndo != nil { return true }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    @objc func undo(_ sender: Any?) {
+        guard let pill = UndoPill.menuUndo else { return }
+        AppLog.note("keys", "undo: the pill's (\(pill.undoName ?? "no name"))")
+        pill.undoFromMenu()
+    }
+
+    /// Edit › Undo's name while the pill's Undo is what it does.
+    func validateUndo(_ command: UICommand) -> Bool {
+        guard command.action == Self.undoAction, let pill = UndoPill.menuUndo else { return false }
+        command.title = pill.undoName.map { "Undo \($0)" } ?? "Undo"
+        command.attributes = command.attributes.subtracting(.disabled)
+        return true
+    }
+
     /// [mac] Mac polish #12: the app's commands while the Settings window is in front (`KeyCommands.settingsInFront`):
     /// the ones a window has work it; the main window's own are off, keeping their names. False for any other command
     /// (the Chat menu's dim through `ChatMenuBar.chat`).
@@ -909,6 +943,8 @@ extension AppDelegate {
             case .system, .dismissPresented: "Close"
             default: "Go Back"
             }
+            // [keys] Round 3: going back is View › Back's (⌘[) item; the Escape item doesn't repeat it.
+            if command.title == "Go Back" { command.attributes = .hidden; return true }
         case KeyCommands.selectTab:
             // The places keep their names, and a number with no place stays hidden.
             if let root = KeyCommands.root, KeyCommands.namePlace(command, root) == nil { command.attributes = .hidden; return true }
@@ -1479,9 +1515,18 @@ extension KanbanBoardListController: ListPaneContent {}
         let flags = (event.value(forKey: "modifierFlags") as? NSNumber)?.uintValue ?? 0
         let mods = flags & (1 << 17 | 1 << 18 | 1 << 19 | 1 << 20)   // shift, control, option, command
         let characters = event.value(forKey: "charactersIgnoringModifiers") as? String
-        guard (code == 53 && mods == 0) || (characters == "." && mods == 1 << 20),
-              (event.value(forKey: "isARepeat") as? Bool) != true,
-              let window = sheetWindow(), sheetPage(in: window) != nil else { return false }
+        let commandPeriod = characters == "." && mods == 1 << 20
+        guard (code == 53 && mods == 0) || commandPeriod, (event.value(forKey: "isARepeat") as? Bool) != true else { return false }
+        guard let window = sheetWindow(), sheetPage(in: window) != nil else {
+            // [keys] Round 3: ⌘. never reached UIKit in the app's own windows either (AppKit keeps it as its Cancel):
+            // the photo viewer, a reply running, a search, all ignored it while Escape worked. It goes where the menu's
+            // Escape item would.
+            guard commandPeriod, !composing(), appWindowIsKey() else { return false }
+            AppLog.note("keys", "⌘. in the window: as Escape")
+            guard UIApplication.shared.sendAction(KeyCommands.escape, to: nil, from: nil, for: nil) else { return false }
+            taken = code
+            return true
+        }
         if composing() { return false }
         if escapeInChain(from: window.hqFirstResponder, in: window) || closeSheet(in: window) {
             taken = code
@@ -1502,6 +1547,13 @@ extension KanbanBoardListController: ListPaneContent {}
             }
         }
         return found.first { $0.isKeyWindow }
+    }
+
+    /// One of the app's own windows (the main window, Settings, a Files window) has the keyboard: not a panel, the
+    /// Open Quickly field or a menu.
+    private static func appWindowIsKey() -> Bool {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            .contains { $0.isKeyWindow && $0.rootViewController != nil }
     }
 
     /// An input method is composing (marked text) in the key window's field, UIKit's or AppKit's.

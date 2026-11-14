@@ -7,6 +7,30 @@ import Testing
 @testable import HermesHQNative
 
 @MainActor @Suite(.serialized) struct BotsListTests {
+    // MARK: [keys] Mac full pass round 3
+
+    @Test func botPreviewDropsTableDividerRows() {
+        #expect(BotList.withoutTableRules("Name · Age --- · --- Ada · 36") == "Name · Age · Ada · 36")
+        #expect(BotList.withoutTableRules("--- · ---") == "")
+        #expect(BotList.withoutTableRules(":--- · ---: Total") == "Total")
+        #expect(BotList.withoutTableRules("Plain words - with a dash") == "Plain words - with a dash")
+    }
+
+    @Test func botPreviewNamesHandedOverFiles() {
+        #expect(BotList.withFileNames("MEDIA:/fixture/media/clip.mov") == "clip.mov")
+        #expect(BotList.withFileNames("Here it is MEDIA:/tmp/a/report.pdf") == "Here it is report.pdf")
+        #expect(BotList.withFileNames("No file here") == "No file here")
+    }
+
+    @Test func undoPillNamesItsVerbAndSpeaksOneStop() {
+        #expect(UndoPill.actionName(for: "Archived “Plans”") == "Archive")
+        #expect(UndoPill.actionName(for: "Hidden") == "Hide")
+        #expect(UndoPill.actionName(for: "Marked Done") == "Mark Done")
+        #expect(UndoPill.actionName(for: "Copied") == nil)
+        #expect(BotList.spoken(["Archived “Plans”", "Find it in Filter and Sort › Show › Archived.", "Undo"])
+                == "Archived “Plans”. Find it in Filter and Sort › Show › Archived. Undo")
+    }
+
     // MARK: L237 the Undo pill's clock
 
     @Test func undoClockRunsFourSecondsAndEightAtAccessibilitySizes() {

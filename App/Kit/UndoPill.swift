@@ -140,14 +140,9 @@ final class UndoPill: UIView {
         shown = pill
         pill.origin = origin
         pill.begin()
-        #if targetEnvironment(macCatalyst)
-        // [mac] Stress test 2026-10-28 #34: Edit › Undo (⌘Z) is the pill's Undo while it shows ("Undo Archived").
-        if showsUndo, actionTitle == "Undo", let manager = view.window?.undoManager {
-            manager.registerUndo(withTarget: pill) { pill in MainActor.assumeIsolated { pill.undo() } }
-            manager.setActionName(label)
-            pill.registeredUndo = manager
-        }
-        #endif
+        // [mac] Stress test 2026-10-28 #34: Edit › Undo (⌘Z) is the pill's Undo while it shows. [keys] 2026-11-14: through
+        // the app's own Undo (`AppDelegate.undo`, `menuUndo`), which names it ("Undo Archive"); the window's undo manager
+        // it used went unasked whenever nothing in the window had the keyboard, and the item stayed dimmed.
         return pill
     }
 
@@ -175,8 +170,10 @@ final class UndoPill: UIView {
         label.textColor = HQPalette.label
         label.numberOfLines = 2
         label.isAccessibilityElement = true
-        label.accessibilityLabel = [text, wayBack].compactMap { $0 }.joined(separator: ". ")
-        announcement = [text, wayBack, detail].compactMap { $0 }.joined(separator: ". ")
+        // [keys] 2026-11-14: a full stop between the parts only where one doesn't end its own sentence (the way back
+        // ends in "." and VoiceOver read "Archived.. Undo").
+        label.accessibilityLabel = BotList.spoken([text, wayBack].compactMap { $0 })
+        announcement = BotList.spoken([text, wayBack, detail].compactMap { $0 })
         var config = UIButton.Configuration.plain()
         config.title = actionTitle
         config.baseForegroundColor = HQPalette.tint
@@ -267,7 +264,9 @@ final class UndoPill: UIView {
                               accessibilitySize: UITraitCollection.current.preferredContentSizeCategory.isAccessibilityCategory
                                 || UIApplication.shared.preferredContentSizeCategory.isAccessibilityCategory)
         // The Undo button says what it undoes (`undo-pill.tsx`: "<label>. <way back> Undo").
-        button.accessibilityLabel = ([text, wayBack, detail].compactMap { $0 } + [actionTitle]).joined(separator: ". ")
+        button.accessibilityLabel = BotList.spoken([text, wayBack, detail].compactMap { $0 } + [actionTitle])
+        undoable = showsUndo && actionTitle == "Undo"
+        undoName = Self.actionName(for: text)
         // [botslist] The away pill showing or going (`TalkAwayPill.changed`): this pill gives it the place and comes back after.
         awayObserver = NotificationCenter.default.addObserver(forName: TalkAwayPill.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.awayChanged() }
@@ -284,8 +283,30 @@ final class UndoPill: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     private var focusObserver: NSObjectProtocol?
-    /// [mac] Where ⌘Z finds this pill's Undo (the window's), cleared as the pill goes.
-    private weak var registeredUndo: UndoManager?
+    /// The pill takes Undo back (not a plain notice, not Cancel).
+    private var undoable = false
+    /// What Edit › Undo names: "Archive" for "Archived “Plans”" (`actionName`).
+    private(set) var undoName: String?
+
+    /// [keys] 2026-11-14 (Mac full pass, round 3): the pill on show whose Undo Edit › Undo (⌘Z) runs. Edit › Undo was
+    /// dimmed after Archive in Sessions: nothing had the keyboard, so the menu asked only the app, which had no undo.
+    static var menuUndo: UndoPill? {
+        guard let pill = shown, pill.isOnShow, pill.undoable, pill.onUndo != nil else { return nil }
+        return pill
+    }
+
+    /// Edit › Undo: the pill's Undo button.
+    func undoFromMenu() { undo() }
+
+    /// The verb a pill's words begin with, as Edit › Undo names it ("Undo Archive"): nil when the words don't start
+    /// with one the app uses.
+    nonisolated static func actionName(for label: String) -> String? {
+        let verbs: [(String, String)] = [("Archived", "Archive"), ("Unarchived", "Unarchive"), ("Hidden", "Hide"),
+                                         ("Deleted", "Delete"), ("Unpinned", "Unpin"), ("Pinned", "Pin"),
+                                         ("Dismissed", "Dismiss"), ("Marked Done", "Mark Done"), ("Head Reset", "Reset Head"),
+                                         ("Moved", "Move"), ("Renamed", "Rename"), ("Removed", "Remove")]
+        return verbs.first { label == $0.0 || label.hasPrefix($0.0 + " ") }?.1
+    }
 
     isolated deinit {
         timer?.invalidate()
@@ -401,7 +422,6 @@ final class UndoPill: UIView {
     func dismiss(animated: Bool) {
         timer?.invalidate()
         timer = nil
-        registeredUndo?.removeAllActions(withTarget: self)
         guard animated, !HQMotion.reduced, !isHidden else { removeFromSuperview(); return }
         UIView.animate(withDuration: 0.2, animations: { self.alpha = 0 }, completion: { _ in self.removeFromSuperview() })
     }

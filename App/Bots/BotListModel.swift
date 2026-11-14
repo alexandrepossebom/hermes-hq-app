@@ -142,11 +142,42 @@ nonisolated enum BotList {
         case .working: return (bot.step.map(LiveSteps.line) ?? "Working…", .tint)   // [toolnow]
         case .idle: break
         }
-        if let preview = bot.preview?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty {
+        if let preview = bot.preview.map(withoutTableRules).map(withFileNames)?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty {
             return (preview, .secondary)
         }
         if let role = bot.role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty { return (role, .secondary) }
         return ("No messages yet", .secondary)
+    }
+
+    /// [keys] 2026-11-14 (Mac full pass, round 3): a reply that is a table left its divider row in the preview
+    /// ("Name · Age --- · --- Ada · 36"), seen and read aloud: the markdown pass drops a divider only with pipes at both
+    /// ends of its line, and the gateway's 80-character cut or a table written without outer pipes leaves it. Words of
+    /// dashes (and colons) alone go, with the "·" they leave doubled or at an end.
+    static func withoutTableRules(_ text: String) -> String {
+        guard text.contains("---") else { return text }
+        func isRule(_ word: Substring) -> Bool {
+            word.filter { $0 == "-" }.count >= 3 && word.allSatisfy { $0 == "-" || $0 == ":" || $0 == "|" }
+        }
+        var kept: [Substring] = []
+        for word in text.split(separator: " ", omittingEmptySubsequences: true) where !isRule(word) {
+            if word == "·", kept.isEmpty || kept.last == "·" { continue }
+            kept.append(word)
+        }
+        while kept.last == "·" { kept.removeLast() }
+        return kept.joined(separator: " ")
+    }
+
+    /// [keys] Round 3: a reply that hands over a file ("MEDIA:/fixture/media/clip.mov") read its whole path, in the
+    /// row and to VoiceOver ("Hermes. MEDIA:/fixture/media/clip.mov"). The file's name stands for it ("clip.mov"), as the
+    /// chat's file row names it.
+    static func withFileNames(_ text: String) -> String {
+        guard text.contains("MEDIA:") else { return text }
+        return text.split(separator: " ", omittingEmptySubsequences: false).map { word -> String in
+            guard word.hasPrefix("MEDIA:") else { return String(word) }
+            let path = word.dropFirst("MEDIA:".count).trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+            let name = path.split(separator: "/").last.map(String.init) ?? ""
+            return name.isEmpty ? String(word) : name
+        }.joined(separator: " ")
     }
 
     /// [botslist] Bot Info's status line under the role (`S/ui-bots/info-sheet.tsx:142-155`, parity §3 L213): the live
