@@ -43,6 +43,17 @@ struct MacPolish2TabShortcutTests {
         #expect(TabShortcut.place(forShortcut: 5, keys: 9, tags: few, numbersMore: false) == nil)
     }
 
+    /// [macpass-sidebar] View lists the places no number picks: the ninth to the second last (⌘9 is the last), never
+    /// More on the Mac; none when every place has a number.
+    @Test func placesPastTheNumbersAreListed() {
+        let more = places.count - 1
+        #expect(TabShortcut.unnumbered(keys: 9, tags: places, numbersMore: false) == Array(8..<(more - 1)))
+        let few = Array(places.prefix(5)) + [HQTab.more.rawValue]
+        #expect(TabShortcut.unnumbered(keys: 9, tags: few, numbersMore: false).isEmpty)
+        let tabs = HQTab.allCases.map(\.rawValue)
+        #expect(TabShortcut.unnumbered(keys: 5, tags: tabs, numbersMore: true) == Array(5..<tabs.count))
+    }
+
     /// The iPhone and iPad keep their numbers: five keys, More among them.
     @Test func theIPadNumbersEveryTab() {
         let tabs = HQTab.allCases.map(\.rawValue)

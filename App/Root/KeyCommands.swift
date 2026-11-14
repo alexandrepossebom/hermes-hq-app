@@ -62,8 +62,22 @@ extension MoreViewController: KeySearchable {}
     /// with more than nine places ⌘9 picks the last, as ⌘9 picks Safari's last tab. [mac] Mac polish #18: More, which
     /// has no row in the sidebar, takes no number (`TabShortcut`).
     static func tabIndex(forShortcut index: Int, among tags: [Int]) -> Int? {
-        TabShortcut.place(forShortcut: index, keys: tabTitles.count, tags: tags, numbersMore: !DeviceWord.isMac)
+        if index >= otherPlaceBase {
+            let others = TabShortcut.unnumbered(keys: tabTitles.count, tags: tags, numbersMore: !DeviceWord.isMac)
+            return others.indices.contains(index - otherPlaceBase) ? others[index - otherPlaceBase] : nil
+        }
+        return TabShortcut.place(forShortcut: index, keys: tabTitles.count, tags: tags, numbersMore: !DeviceWord.isMac)
     }
+
+    /// [macpass-sidebar] View's items for the places past ⌘9 (Kanban, Usage, Spawn Tree… under a long Tools group had
+    /// no menu item): the same Select Tab action with no key, their `propertyList` this base plus the place's turn among
+    /// the unnumbered ones. Named at validation as the numbered ones are; a slot with no place stays hidden.
+    static let otherPlaceBase = 100
+    #if targetEnvironment(macCatalyst)
+    static let otherPlaceSlots = 32
+    #else
+    static let otherPlaceSlots = 0
+    #endif
 
     /// The number whose ⌘ key picks the place at `index`, if one does (the sidebar's tooltips).
     static func shortcut(forTab index: Int, among tags: [Int]) -> Int? {
@@ -134,7 +148,10 @@ extension MoreViewController: KeySearchable {}
         // ⌘[ goes back a page, as in the Finder, Safari and System Settings: Escape's last step, named in the menu.
         let back = command("Back", back, "[", .command)
         back.repeatBehavior = .nonRepeatable
-        var menus = [UIMenu(title: "", options: .displayInline, children: tabs),
+        let others = (0..<otherPlaceSlots).map { slot in
+            UICommand(title: "Tab \(slot + 10)", action: selectTab, propertyList: otherPlaceBase + slot)
+        }
+        var menus = [UIMenu(title: "", options: .displayInline, children: tabs + others),
                      UIMenu(title: "", options: .displayInline, children: walk + [back]),
                      UIMenu(title: "", options: .displayInline, children: [command("Refresh", refresh, "r", .command), stop])]
         #if targetEnvironment(macCatalyst)

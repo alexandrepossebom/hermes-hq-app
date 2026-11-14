@@ -96,4 +96,11 @@ nonisolated enum TabShortcut {
         if keys == 9, index == 8, numbered.count > 9 { return numbered.last }
         return numbered[index]
     }
+
+    /// [macpass-sidebar] The places no number picks (past the eighth, the last taking ⌘9), in order, More left out
+    /// where it takes no number: View lists them under the numbered ones, so every sidebar page is in the menu bar.
+    static func unnumbered(keys: Int, tags: [Int], numbersMore: Bool) -> [Int] {
+        let picked = Set((0..<keys).compactMap { place(forShortcut: $0, keys: keys, tags: tags, numbersMore: numbersMore) })
+        return tags.indices.filter { !picked.contains($0) && (numbersMore || tags[$0] != HQTab.more.rawValue) }
+    }
 }

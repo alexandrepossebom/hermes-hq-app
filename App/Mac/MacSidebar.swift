@@ -112,14 +112,16 @@ final class MacSidebar: UIView {
     /// [sidebar-feel] 37, not 36: with the 2 pt between rows a row takes 39 pt, a whole 30 px on the screen (the Mac
     /// draws this app at 77 %). At 38 pt the rows fell 29.26 px apart, so each row's icon and name landed on a
     /// different part of a pixel: names 12 px tall in one row and 13 in the next, gaps of 29, 30 and 30.5.
-    static var openRowHeight: CGFloat { ((Density.compact ? 32 : tidy ? 37 : 40) * chrome).rounded() }
+    static var openRowHeight: CGFloat { ((Density.compact ? scheme.placeRowCompact : tidy ? scheme.placeRow : 40) * chrome).rounded() }
     /// [sidebar-size] Owner 2026-11-10 ("just get it all sized properly"): one of the sidebar's sizes, `was` before
     /// and `now`. The pages beside it and the Settings window's own sidebar draw their text at 15 pt on the screen;
     /// here the places' names were 13, the group headings 10.4 and Search 12. Now the places' and New Bot's names are
     /// 15 (as the bots'), the headings 11 (macOS's own sidebar headings), Search 13, and no word is under 11.
     static func sized(_ was: CGFloat, _ now: CGFloat) -> CGFloat { tidy ? now : was }
     /// The places' names: 19.5 here is 15 pt on the screen (Compact a step under, as the bots').
-    static var placeSize: CGFloat { sized(17, Density.compact ? 18 : 19.5) }
+    static var placeSize: CGFloat { sized(17, Density.compact ? scheme.rowCompact : scheme.row) }
+    /// [sidebar-type] The sidebar's sizes and weights, today's or the native scheme (`SidebarType`).
+    static var scheme: SidebarType { SidebarType.active }
     /// For before-and-after pictures: `-HQDebugSidebarTidy NO` draws the rows as they were (Debug builds only).
     static var tidy: Bool {
         #if DEBUG
@@ -133,7 +135,7 @@ final class MacSidebar: UIView {
     /// The tab icons: 16 pt beside their names (Mail's). [mac] Owner 2026-10-29 on 452: "when the sidebar is minimized,
     /// the icons are too small": folded, the icon is all the row has, so it is drawn at the size of the bars' own
     /// buttons (22 pt) in a taller row.
-    static func iconSize(folded: Bool) -> CGFloat { (folded ? 22 : sized(16, 18)) * chrome }   // [sidebar-size] beside 15 pt names
+    static func iconSize(folded: Bool) -> CGFloat { (folded ? 22 : sized(16, scheme.icon)) * chrome }   // [sidebar-size] beside 15 pt names
     /// [mac] Mac polish #53: the open sidebar's icon column and where its names start after it, which the bots' rows
     /// share (`MacRailHead`): the bots' names started about 4 pt further in than the places' below them.
     static let iconLeading: CGFloat = 10
@@ -1057,6 +1059,13 @@ final class MacSidebar: UIView {
             // Below: the row after it ends on the list's foot (the list's own end when that is the last row).
             let after = rows.first { $0.minY >= frame.maxY - 0.5 }
             target = after.map { after in after.maxY >= rows.last!.maxY - 0.5 ? most : after.maxY - height } ?? most
+            // [macpass-sidebar] And its top on a whole row: Usage revealed in a short window left Files (or Jobs) cut in
+            // half under the line, against the bots' last row on its other side, and the two read as one row drawn over
+            // the other (tools picture 47). The row cut there scrolls off; the foot then ends a little past `after`,
+            // under its fade.
+            if let whole = rows.first(where: { $0.minY >= target - 0.5 }), whole.minY <= frame.minY - Self.fadeHeight {
+                target = whole.minY
+            }
         } else {
             return
         }
@@ -1157,8 +1166,8 @@ final class MacSidebar: UIView {
         gatewayName.text = title
         // [macpass-sidebar] Type pass: 14.5 (11.2 pt on the screen), the size of the headings and a bot's step line; at 14
         // the gateway's name was 10.8 pt, the one word in the sidebar under the 11 pt floor `sized` keeps.
-        gatewayName.font = Self.font(Self.sized(14, 14.5))
-        gatewayName.textColor = HQPalette.label.withAlphaComponent(0.74)
+        gatewayName.font = Self.font(Self.sized(14, Self.scheme.gatewayName))
+        gatewayName.textColor = Self.scheme.gatewaySecondary ? HQPalette.label2 : HQPalette.label.withAlphaComponent(0.74)
         switch state {
         case .ready: gatewayDot.backgroundColor = .systemGreen
         case .connecting, .reconnecting: gatewayDot.backgroundColor = .systemOrange
@@ -2064,7 +2073,7 @@ private final class Row: UIControl {
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: drawn.pointSize, weight: .regular)
         label.font = MacSidebar.font(MacSidebar.placeSize)   // the rows are made again when UI Scale changes (`rebuild`)
         label.text = item.title
-        count.font = MacSidebar.font(MacSidebar.sized(15, 16))
+        count.font = MacSidebar.font(MacSidebar.sized(15, MacSidebar.scheme.count))
         count.textAlignment = .right
         let dotSize = (7 * MacSidebar.chrome).rounded()
         dot.layer.cornerRadius = dotSize / 2
@@ -2116,6 +2125,11 @@ private final class Row: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// [macpass-sidebar] A row scrolled out of its list (Usage under a long Tools group) did nothing when pressed through
+    /// accessibility (VoiceOver, Full Keyboard Access, a test driver): the default press is a touch at the row's centre,
+    /// which lands outside the list's visible part. It runs the row's own action, which then scrolls it into view.
+    override func accessibilityActivate() -> Bool { sendActions(for: .touchUpInside); return true }
+
     private static func image(_ item: UITabBarItem, folded: Bool) -> UIImage? { MacSidebar.rowIcon(item.image, folded: folded).image }
 
     func imageChanged() { icon.icon = Self.image(item, folded: folded); showBadge() }   // "N running" comes with it
@@ -2144,8 +2158,9 @@ private final class Row: UIControl {
     func recolor() {
         icon.tintColor = isMarked ? tintColor : HQPalette.label2
         label.textColor = isTool && !isMarked && !folded && MacSidebar.tidy ? HQPalette.label.withAlphaComponent(Self.toolInk) : HQPalette.label
-        label.font = MacSidebar.font(named ? 13.5 : MacSidebar.placeSize, weight: isMarked ? .semibold : .regular)
-        label.minimumScaleFactor = MacSidebar.shrink(label.font, least: named ? 0.8 : 0.85)
+        let type = MacSidebar.scheme
+        label.font = MacSidebar.font(named ? type.railPlace : MacSidebar.placeSize, weight: isMarked ? type.markedWeight : .regular)
+        label.minimumScaleFactor = MacSidebar.shrink(label.font, least: named ? type.railPlaceLeast / type.railPlace : 0.85)
         count.textColor = HQPalette.label2
         dot.backgroundColor = tintColor
         // [mac] Stress test 2026-10-28 #54: the window's one source-list mark (`MacSelection`), its corners too.

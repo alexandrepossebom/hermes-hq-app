@@ -30,14 +30,14 @@ enum MacBotsRail {
     /// names, 26 pt faces, 34 pt rows on the screen: 19.5 / 34 / 44 here at 77 %), and their chats the standard one
     /// (13 pt titles in 28 pt rows, what the places below use). Before: 13 pt names, and chat titles at 11.5 pt with
     /// 9.6 pt times, under the Mac's own body size. Compact keeps a step under each.
-    static var rowFace: CGFloat { ((MacSidebar.tidy ? (Density.compact ? 28 : 34) : (Density.compact ? 22 : 28)) * MacSidebar.chrome).rounded() }
+    static var rowFace: CGFloat { ((MacSidebar.tidy ? (Density.compact ? MacSidebar.scheme.faceCompact : MacSidebar.scheme.face) : (Density.compact ? 22 : 28)) * MacSidebar.chrome).rounded() }
     /// [sidebar-feel] 43.5, not 44: with the 2 pt between rows a bot row then takes 45.5 pt, which is a whole 35 px on
     /// the screen (the Mac draws this app at 77 %). At 46 pt the rows fell 35.4 px apart, so each row's face and name
     /// landed on a different part of a pixel and no two were drawn quite alike (`MacSidebar.openRowHeight`).
     static var sidebarRowHeight: CGFloat {
-        MacSidebar.tidy ? MacSidebar.half((Density.compact ? 38 : 43.5) * MacSidebar.chrome) : ((Density.compact ? 32 : 40) * MacSidebar.chrome).rounded()
+        MacSidebar.tidy ? MacSidebar.half((Density.compact ? MacSidebar.scheme.botRowCompact : MacSidebar.scheme.botRow) * MacSidebar.chrome) : ((Density.compact ? 32 : 40) * MacSidebar.chrome).rounded()
     }
-    static var nameSize: CGFloat { MacSidebar.tidy ? (Density.compact ? 18 : 19.5) : (Density.compact ? 15.5 : 17) }
+    static var nameSize: CGFloat { MacSidebar.tidy ? (Density.compact ? MacSidebar.scheme.rowCompact : MacSidebar.scheme.row) : (Density.compact ? 15.5 : 17) }
     /// Where a bot's name and its chats' titles start: clear of the bigger face (which stays centred on the places'
     /// icon column), not the places' own label column, which the face now reaches.
     static var nameLeading: CGFloat {
@@ -104,7 +104,13 @@ enum MacBotsRail {
             let shown = { (hidden: Bool) in section.id == .hidden || !hidden }
             let bots = Dictionary(section.bots.filter { shown($0.hidden) }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             let rooms = Dictionary(section.rooms.filter { shown($0.hidden) }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            let items = section.rows().compactMap { row -> (block: BotListSectionID, item: Item)? in
+            // [macpass-sidebar] The pins hold the order the person set: the bots in their tile order, then the pinned
+            // group chats in theirs (as the iPhone's tiles draw them), never merged by activity, which moved a pinned bot
+            // up or down the Pinned group each time a pinned room had a message.
+            let rows: [BotListRow] = section.id == .tiles || section.id == .pinned
+                ? section.bots.map { .bot($0.id) } + section.rooms.map { .room($0.id) }
+                : section.rows()
+            let items = rows.compactMap { row -> (block: BotListSectionID, item: Item)? in
                 switch row {
                 case .bot(let id): bots[id].map { (block: section.id, item: Item.bot($0)) }
                 case .room(let id): rooms[id].map { (block: section.id, item: Item.room($0)) }
@@ -262,6 +268,9 @@ final class MacRailHead: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// [macpass-sidebar] Pressed through accessibility while scrolled out of view: its own action (`Row.accessibilityActivate`).
+    override func accessibilityActivate() -> Bool { sendActions(for: .touchUpInside); return true }
+
     /// The roster changed: the face is drawn again only when this head's row did.
     func update(_ next: MacBotsRail.Item) {
         guard next != item else { return }
@@ -358,15 +367,16 @@ final class MacRailHead: UIControl {
             // The places' own mark (`MacSelection`): one kind of selection down the whole sidebar.
             backgroundColor = MacSelection.fill(selected: isMarked, pressed: isHighlighted, in: .sidebar) ?? (hovered ? Self.rowHover : .clear)
             layer.cornerRadius = MacSelection.radius
-            name.font = MacSidebar.font(MacBotsRail.nameSize, weight: isMarked || unread ? .semibold : .regular)
-            status.font = MacSidebar.font(MacSidebar.tidy ? 14.5 : 13)
+            name.font = MacSidebar.font(MacBotsRail.nameSize, weight: unread ? .semibold : isMarked ? MacSidebar.scheme.markedWeight : .regular)
+            status.font = MacSidebar.font(MacSidebar.tidy ? MacSidebar.scheme.status : 13)
             // Mac polish #52: the accent word on the open row's accent mark read at about 3:1; there it takes the label's.
             status.textColor = isMarked ? HQPalette.label : HQPalette.tint
             return
         }
         tile.backgroundColor = isMarked ? Self.tileFill : hovered ? Self.hoverFill : .clear
-        name.font = MacSidebar.font(14.5, weight: isMarked ? .semibold : .regular)
-        name.minimumScaleFactor = MacSidebar.shrink(name.font, least: 0.85)   // Mac polish #54
+        let type = MacSidebar.scheme
+        name.font = MacSidebar.font(type.railHead, weight: isMarked ? type.markedWeight : .regular)
+        name.minimumScaleFactor = MacSidebar.shrink(name.font, least: type.railHeadLeast / type.railHead)   // Mac polish #54
     }
 
     private static let rowHover = UIColor { traits in UIColor.label.resolvedColor(with: traits).withAlphaComponent(0.05) }
@@ -691,6 +701,9 @@ final class MacSidebarHeading: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// [macpass-sidebar] Pressed through accessibility while scrolled out of view: its own action (`Row.accessibilityActivate`).
+    override func accessibilityActivate() -> Bool { sendActions(for: .touchUpInside); return true }
+
     /// A heading folded under the old store (by its title) stays folded under its key; the title is then dropped
     /// from the old store, so it is carried over once.
     private static func carryOver(title: String, key: String) {
@@ -717,7 +730,7 @@ final class MacSidebarHeading: UIControl {
     }
 
     func recolor() {
-        label.font = MacSidebar.font(MacSidebar.sized(13.5, 14.5), weight: .semibold)
+        label.font = MacSidebar.font(MacSidebar.sized(13.5, MacSidebar.scheme.heading), weight: .semibold)
         // One drawing, turned: down while the group is open, to the side folded (`showFold` turns it in a click).
         chevron.image = UIImage(systemName: "chevron.down",
                                 withConfiguration: UIImage.SymbolConfiguration(pointSize: 10 * MacSidebar.chrome, weight: .semibold))
@@ -834,10 +847,10 @@ final class MacSidebarTools: UIView {
             glass.tintColor = HQPalette.label2
             glass.contentMode = .center
             word.text = "Search"
-            word.font = MacSidebar.font(MacSidebar.sized(15.5, 17))
+            word.font = MacSidebar.font(MacSidebar.sized(15.5, MacSidebar.scheme.search))
             word.textColor = HQPalette.label2
             shortcut.text = "⌘K"
-            shortcut.font = MacSidebar.font(MacSidebar.sized(13, 14.5))
+            shortcut.font = MacSidebar.font(MacSidebar.sized(13, MacSidebar.scheme.shortcut))
             shortcut.textColor = HQPalette.label3
             if shortcut.superview == nil {
                 for view in [glass, word, shortcut] as [UIView] {
@@ -910,10 +923,10 @@ final class MacSidebarChat: UIControl {
     var isMarked = false { didSet { if isMarked != oldValue { recolor() } } }
 
     static var rowHeight: CGFloat { ((MacSidebar.tidy ? (Density.compact ? 32 : 36) : (Density.compact ? 28 : 32)) * MacSidebar.chrome).rounded() }   // with the 2 pt the stack no longer puts between chat rows; [sidebar-size]
-    static var titleSize: CGFloat { MacSidebar.tidy ? (Density.compact ? 15.5 : 17) : (Density.compact ? 14 : 15) }
+    static var titleSize: CGFloat { MacSidebar.tidy ? (Density.compact ? MacSidebar.scheme.chatTitleCompact : MacSidebar.scheme.chatTitle) : (Density.compact ? 14 : 15) }
     /// [macpass-sidebar] Type pass: 14.5 (11.2 pt on the screen), the size of a bot's own step line beside its name; at
     /// 14 a chat's time was 10.8 pt, under the sidebar's 11 pt floor and a size of its own.
-    static var timeSize: CGFloat { MacSidebar.tidy ? 14.5 : 12.5 }
+    static var timeSize: CGFloat { MacSidebar.tidy ? MacSidebar.scheme.time : 12.5 }
     static var lineX: CGFloat { MacSidebar.iconLeading + MacSidebar.iconColumn / 2 }
 
     init(bot: String, look: Look) {
@@ -946,6 +959,9 @@ final class MacSidebarChat: UIControl {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// [macpass-sidebar] Pressed through accessibility while scrolled out of view: its own action (`Row.accessibilityActivate`).
+    override func accessibilityActivate() -> Bool { sendActions(for: .touchUpInside); return true }
 
     /// The sessions or the roster changed: drawn again only when this row's look did.
     func update(_ next: Look) {
@@ -1025,7 +1041,7 @@ private struct MacSidebarChatContent: View {
                     .lineLimit(1)
                     .fixedSize()
             case .more(let count):
-                Text("\(count) more").font(Font(MacSidebar.font(MacSidebar.tidy ? 15.5 : 14, weight: .medium) as CTFont))
+                Text("\(count) more").font(Font(MacSidebar.font(MacSidebar.tidy ? MacSidebar.scheme.more : 14, weight: MacSidebar.tidy ? MacSidebar.scheme.moreWeight : .medium) as CTFont))
                 Image(systemName: "chevron.right").font(Font(MacSidebar.font(11, weight: .semibold) as CTFont))
                 Spacer(minLength: 0)
             }
@@ -1073,7 +1089,7 @@ final class MacSidebarEmptyHint: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func recolor() {
-        label.font = MacSidebar.font(MacSidebar.sized(12.5, 15))
+        label.font = MacSidebar.font(MacSidebar.sized(12.5, MacSidebar.scheme.hint))
         label.textColor = HQPalette.label3
     }
 }
