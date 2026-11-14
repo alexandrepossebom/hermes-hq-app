@@ -258,7 +258,7 @@ nonisolated enum PluginUpdateWords {
     static func askBot(_ bot: String, count: Int) -> String { "Ask \(bot) to Update \(count == 1 ? "It" : "Them")" }
 
     static func addsPackages(_ names: [String]) -> String {
-        names.count == 1 ? "\(names[0]) Adds Python Packages" : "\(names.count) Plugins Add Python Packages"
+        names.count == 1 ? "\(DisplayName.title(names[0])) Adds Python Packages" : "\(names.count) Plugins Add Python Packages"
     }
 
     /// The request in the main bot's chat. `rows`: each plugin, what it adds, and the profiles that have it.

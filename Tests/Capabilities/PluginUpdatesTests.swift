@@ -61,13 +61,13 @@ import Testing
                                                                   Self.plugin(PushPolicy.pluginName)])
         #expect(reminder.count == 1 && reminder.badged)
         #expect(reminder.title == "Plugin Update Available")
-        #expect(reminder.footer == "web-clipper has a newer version.")
+        #expect(reminder.footer == "Web Clipper has a newer version.", "the name as Marketplace shows it")
         #expect(reminder.spoken == "Plugin update available" && reminder.hubValue == "1 Update")
         // Another bot's copy of the same plugin is the same update; a second plugin is a second one.
         reminder.report(account: "A", profile: "finance", list: [Self.plugin("web-clipper"), Self.plugin("field-notes")])
         #expect(reminder.count == 2 && reminder.names == ["field-notes", "web-clipper"])
         #expect(reminder.title == "2 Plugin Updates Available")
-        #expect(reminder.footer == "field-notes and web-clipper have newer versions.")
+        #expect(reminder.footer == "Field Notes and Web Clipper have newer versions.")
         #expect(reminder.spoken == "2 plugin updates available" && reminder.hubValue == "2 Updates")
         // A bot's list read again takes the place of what was kept for it.
         reminder.report(account: "A", profile: "finance", list: [Self.plugin("web-clipper", update: false)])
@@ -130,7 +130,7 @@ import Testing
         #expect(PluginUpdateWords.line(.yours, one)?.hasPrefix("The update is installed. Now restart Hermes") == true)
         #expect(PluginUpdateWords.line(.yours, three)?.hasPrefix("The updates are installed.") == true)
         #expect(PluginUpdateWords.line(.slow, one) == nil && PluginUpdateWords.line(.unreachable, one) == nil)
-        #expect(PluginUpdateWords.couldnt(one) == "Couldn’t Update web-clipper")
+        #expect(PluginUpdateWords.couldnt(one) == "Couldn’t Update Web Clipper")
         #expect(PluginUpdateWords.couldnt(three) == "Couldn’t Update 3 Plugins")
         #expect(PluginUpdateFlow.distinct(["a", "b", "a", "c", "b"]) == ["a", "b", "c"])
     }
@@ -178,7 +178,7 @@ import Testing
         #expect(PluginUpdateWords.needsBot(tally.computer, packages: ["tzdata; platform_system == 'Windows'", "phone-harness==0.3.3"], bot: "Hermes")
                 == "homeassistant and phone-harness add Python packages (tzdata and phone-harness), which Hermes only installs when asked on its own computer. Hermes can do that from its chat.")
         #expect(PluginUpdateWords.askBot("Hermes", count: 2) == "Ask Hermes to Update Them" && PluginUpdateWords.askBot("Otto", count: 1) == "Ask Otto to Update It")
-        #expect(PluginUpdateWords.addsPackages(["a"]) == "a Adds Python Packages")
+        #expect(PluginUpdateWords.addsPackages(["a"]) == "A Adds Python Packages")
         let prompt = PluginUpdateWords.botUpdatePrompt([("homeassistant", "tzdata; platform_system == 'Windows'", ["default", "finance"]),
                                                         ("phone-harness", "phone-harness==0.3.3", ["default"])])
         #expect(prompt.contains("- homeassistant (adds: tzdata; platform_system == 'Windows'), for the profiles default, finance"))
@@ -192,7 +192,7 @@ import Testing
         #expect(all.updated == ["a"] && all.reason == nil, "every copy in: nothing to explain")
         let part = PluginUpdateFlow.Tally([Self.outcome("a", "default", .done), Self.outcome("a", "x", .failed("No room."))], plugins: ["a"])
         #expect(part.updated.isEmpty && part.failed == ["a"], "a plugin with a copy left behind isn't updated")
-        #expect(part.title == "Couldn’t Update a" && part.reason == "No room.")
+        #expect(part.title == "Couldn’t Update A" && part.reason == "No room.")
         let one = PluginUpdateFlow.Tally([Self.outcome("a", "default", .computer(packages: "tzdata; platform_system == 'Windows'"))], plugins: ["a"])
         #expect(one.reason == "a adds Python packages, which Hermes only lets you approve on its computer. Run hermes plugins update a there.")
         let no = PluginUpdateFlow.Tally([Self.outcome("a", "default", .declined), Self.outcome("b", "default", .done)], plugins: ["a", "b"])
