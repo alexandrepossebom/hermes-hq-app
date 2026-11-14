@@ -268,7 +268,18 @@ import UIKit
         // A page that asks for more width keeps it (the Table page: a wide table's own width, up to 900).
         let width = max(wide, navigation.topViewController?.preferredContentSize.width ?? 0)
         navigation.preferredContentSize = CGSize(width: width, height: next)
-        Self.keepUnder(navigation, set: next, tall: tall, floor: floor)
+        #if targetEnvironment(macCatalyst)
+        // [macpass-popups r3] The sheet is its bar taller than the height it is given, and a list that runs under the
+        // bar counts the bar in its top inset too: every fitted sheet stood 54 pt (42 px) of empty foot under its last
+        // row (New Task: 63 px from its last row to the sheet's foot, New Job the same). The bar is counted once, and a
+        // sheet capped at the tall size is the tall size with its bar.
+        let bar = navigation.preferredContentSize.height - next
+        if navigation.modalPresentationStyle == .formSheet, bar > 0.5 {
+            var less = content > 0 && !notice ? min(bar, max(0, scroll.adjustedContentInset.top)) : 0
+            if next - less + bar > tall { less = next + bar - tall }
+            if less > 0.5 { navigation.preferredContentSize = CGSize(width: width, height: max(floor - bar, next - less)) }
+        }
+        #endif
     }
 
     /// [macpass-popups r3] A navigation sheet is its bar taller than the height it is given (54 pt on the Mac), so a
