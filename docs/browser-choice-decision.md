@@ -119,3 +119,20 @@ Not in it: 1Password's approve-in-the-app flow (a partner preview that needs a 1
 side; the owner chose to start without it). Not tested yet: a Hermes Cloud gateway, where the add-on is not installed
 and the bot's browser setting may be managed. Guards: `BrowserCloudTests`, `test3b_BrowserUseCloud`
 (`scripts/e2e-browser.sh`, also with `TEST_RUNNER_HQN_UI_DESKTOPLOOK=1`), the add-on's `test_cloud.py`.
+
+## Hermes Cloud (a gateway Nous hosts)
+
+The owner asked for Browser Use Cloud on a Hermes Cloud gateway, where the browser add-on had never been installed: a
+bot there browses in a cloud browser Hermes sets up, and the add-on as it was would have pointed every bot at a Chrome
+on that small machine.
+
+- **Add-on 3.11.** On a hosted Hermes it starts no Chrome and writes no `cdp_url`. A bot is reported as
+  `blocked: "hosted"` (with `hosted: true`) and keeps Hermes Cloud's browser until Browser Use Cloud is chosen for it;
+  switching back removes `browser.cloud_provider`. It knows it is hosted from its address, or from the app
+  (`POST /cloud {"hosted": true}`, sent once by `BrowserService` when the gateway's address is a Hermes Cloud one).
+- **Setting it up.** A first setup on Hermes Cloud still leaves the browser add-on out. Settings › Browser Use Cloud
+  shows "Set Up the Browser Add-on" when the add-on isn't there (on any gateway), which runs the add-on update sheet.
+- **The pages.** Bot Info › Browser offers "Hermes Cloud's Browser" and "Browser Use Cloud", with no Chrome profile or
+  window choices. Settings › Browser Use Cloud speaks of the browser Hermes Cloud gives a bot.
+- **Not yet checked on a real Hermes Cloud agent:** the install through Hermes's plugin manager there, the restart, and
+  a bot opening a Browser Use Cloud browser from that machine.

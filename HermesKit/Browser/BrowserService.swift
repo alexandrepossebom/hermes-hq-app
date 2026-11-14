@@ -98,6 +98,9 @@ nonisolated final class BrowserCloseOnce: Sendable {
     private var ready: (plugin: Plugin, at: Date)?
     static let healthReuse: TimeInterval = 5 * 60
     private(set) lazy var activity = BrowserActivityChannel(service: self)
+    /// [cloud-hosted] The gateway is one Nous hosts (Hermes Cloud). The add-on is told (3.11+), so it starts no Chrome
+    /// there and leaves each bot on the browser Hermes Cloud gives it until the person chooses Browser Use Cloud.
+    var hostedGateway = false
 
     init(rest: any GatewayClient, sockets: any GatewayPluginSockets) {
         self.rest = rest
@@ -138,8 +141,13 @@ nonisolated final class BrowserCloseOnce: Sendable {
         let first = base
         for candidate in [first, first == BrowserWire.plugin ? BrowserWire.legacyPlugin : BrowserWire.plugin] {
             do {
-                let health = try await json("GET", candidate + "/health", timeout: timeout)
+                var health = try await json("GET", candidate + "/health", timeout: timeout)
                 base = candidate
+                if hostedGateway, BrowserHealth.knowsHosted(health), !BrowserHealth.hosted(health) {
+                    // [cloud-hosted] It hasn't worked out that it is hosted (its address didn't reach it): said here.
+                    _ = try? await json("POST", candidate + "/cloud", body: .object(["hosted": true]), timeout: timeout)
+                    health = (try? await json("GET", candidate + "/health", timeout: timeout)) ?? health
+                }
                 let found = Plugin(base: candidate, health: health, legacy: candidate == BrowserWire.legacyPlugin)
                 ready = found.setup == .ready ? (found, Date()) : nil
                 return found
@@ -225,12 +233,16 @@ nonisolated final class BrowserCloseOnce: Sendable {
         return cloud
     }
 
-    /// Browser Use Cloud for Settings, with whether the plugin has "Use for All Bots" (3.10+); nil when it has no cloud.
-    func cloudSettings() async throws -> (cloud: BrowserCloud, offersAll: Bool)? {
+    /// Browser Use Cloud for Settings, with whether the plugin has "Use for All Bots" (3.10+) and whether Hermes is
+    /// hosted (3.11+); nil when it has no cloud.
+    /// Throws `HTTPError` 404 when the add-on isn't there at all (only the old dispatch-browser answers, or nothing is
+    /// installed): Settings offers to set it up.
+    func cloudSettings() async throws -> (cloud: BrowserCloud, offersAll: Bool, hosted: Bool)? {
         let found = try await plugin()
+        if found.legacy || found.setup == .missing { throw HTTPError(status: 404, body: nil) }
         guard found.setup == .ready, BrowserHealth.offersCloud(found.health) else { return nil }
         guard let cloud = BrowserCloud.parse(try await json("GET", found.base + "/cloud")) else { return nil }
-        return (cloud, BrowserHealth.offersCloudForAll(found.health))
+        return (cloud, BrowserHealth.offersCloudForAll(found.health), BrowserHealth.hosted(found.health))
     }
 
     func chromeProfiles() async throws -> ChromeProfiles {
@@ -268,6 +280,9 @@ nonisolated struct BrowserChoice: Sendable, Equatable {
     var blocked: String? = nil
     /// The plugin can safely take this bot's browser over (`POST /choice {take_over: true}`, 3.6.2+).
     var canTakeOver = false
+    /// [cloud-hosted] A hosted Hermes (Hermes Cloud, plugin 3.11+): the bot has no Chrome there. It uses the browser
+    /// Hermes Cloud gives it (`blocked: "hosted"`) or Browser Use Cloud.
+    var hosted = false
 
     enum Change: Sendable, Equatable {
         case own
@@ -290,7 +305,7 @@ nonisolated struct BrowserChoice: Sendable, Equatable {
                              copiedAt: value["copied_at"]?.double.map { Date(timeIntervalSince1970: $0) },
                              normalWindow: value["window"]?.string == "normal", changeable: value["changeable"]?.bool ?? false,
                              blocked: value["blocked"]?.string.flatMap { $0.isEmpty ? nil : String($0.prefix(40)) },
-                             canTakeOver: value["can_take_over"]?.bool ?? false)
+                             canTakeOver: value["can_take_over"]?.bool ?? false, hosted: value["hosted"]?.bool ?? false)
     }
 }
 

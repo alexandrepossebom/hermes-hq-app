@@ -538,6 +538,9 @@ nonisolated enum BrowserHealth {
     /// Plugin 3.9+: a bot can browse in Browser Use Cloud on the person's own account (their API key, saved on the
     /// computer), watched and taken over here like its own Chrome.
     static func offersCloud(_ health: JSONValue) -> Bool { health["features"]?["cloud"]?.bool == true }
+    /// [cloud-hosted] Plugin 3.11+: it can be told Hermes is hosted, and says whether it is.
+    static func knowsHosted(_ health: JSONValue) -> Bool { health["features"]?["hosted"]?.bool == true }
+    static func hosted(_ health: JSONValue) -> Bool { health["hosted"]?.bool == true }
     /// The plugin has "Use for All Bots" (3.10+).
     static func offersCloudForAll(_ health: JSONValue) -> Bool { offersCloud(health) && health["features"]?["cloud_all"]?.bool == true }
 

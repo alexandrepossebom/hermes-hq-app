@@ -42,7 +42,8 @@ import UIKit
             if choice != nil {
                 cloud = try await service.cloud()
                 // A bot in the cloud has no Chrome on the computer to copy a profile into; the list loads when it's back.
-                if choice?.cloud != true { profiles = try? await service.chromeProfiles() }
+                // [cloud-hosted] Nor has a bot on a hosted Hermes.
+                if choice?.cloud != true, choice?.hosted != true { profiles = try? await service.chromeProfiles() }
             }
         } catch {
             AppLog.swallowed("browser", "read this bot's browser choice", error)
@@ -64,7 +65,7 @@ import UIKit
         working = switch change {
         case .copy: "Copying your Chrome profile…"
         case .refresh: "Copying your sign-ins again…"
-        case .own: "Switching back to its own profile…"
+        case .own: choice?.hosted == true ? "Switching back to Hermes Cloud’s browser…" : "Switching back to its own profile…"
         case .window: "Restarting \(bot.name)’s browser…"
         case .takeOver: "Setting up \(bot.name)’s browser…"
         case .cloud: "Switching to Browser Use Cloud…"
@@ -75,7 +76,7 @@ import UIKit
                 choice = try await service.setChoice(profile: bot.id, change: change)
                 AppLog.note("browser", Self.outcome(change, status: nil))
                 Haptics.play(.success)
-                if change == .takeOver || change == .own { await settle() }
+                if (change == .takeOver || change == .own) && choice?.hosted != true { await settle() }
             } catch let error as HTTPError {
                 AppLog.note("browser", Self.outcome(change, status: error.status))
                 failure = Self.detail(error.body) ?? "\(HostWord.sentence) didn’t make that change. Try again."
@@ -173,6 +174,8 @@ import UIKit
     /// Why the page can't change this bot's browser, in plain words; nil when it can.
     static func explanation(_ choice: BrowserChoice, name: String) -> String? {
         guard !choice.changeable, !choice.cloud else { return nil }
+        // [cloud-hosted] Nothing is wrong there: the page offers the two browsers a hosted bot can have.
+        if choice.hosted, choice.blocked == "hosted" { return nil }
         return switch choice.blocked {
         case "real_profile": "\(name) is set to use your real Chrome profile through Hermes’s own setting, so Hermes HQ doesn’t run its browser."
         case "released": "\(name)’s browser was turned off in its Hermes settings."
@@ -191,6 +194,7 @@ import UIKit
         if choice.changeable { return choice.copy.map { "Copy of \($0.name)" } ?? "Its Own" }
         return switch choice.blocked {
         case "cloud": "Browser Use Cloud"
+        case "hosted": "Hermes Cloud"
         case "real_profile": "Real Chrome"
         case "released", "off": "Off"
         case "no_browser": "No Browser"
@@ -260,9 +264,9 @@ struct BrowserChoiceView: View {
                 if let explanation = BrowserChoiceModel.explanation(choice, name: model.bot.name) {
                     blockedSection(choice, explanation: explanation)
                 }
-                profileSection(choice)
+                if choice.hosted { hostedSection(choice) } else { profileSection(choice) }
                 if model.cloud != nil { cloudSection(choice) }
-                if !choice.cloud { windowSection(choice) }
+                if !choice.cloud, !choice.hosted { windowSection(choice) }
             } else {
                 Section {
                     Text("The browser add\u{2011}on on \(HostWord.phrase) doesn’t offer this yet. Once it’s updated you can choose a browser profile for each bot here.")
@@ -305,7 +309,9 @@ struct BrowserChoiceView: View {
             Button("Remove", role: .destructive) { model.forgetKey() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Bots set to Browser Use Cloud can’t open a browser until you add a key again or switch them back to their own.")
+            Text(model.choice?.hosted == true
+                 ? "Bots set to Browser Use Cloud can’t open a browser until you add a key again or switch them back to Hermes Cloud’s browser."
+                 : "Bots set to Browser Use Cloud can’t open a browser until you add a key again or switch them back to their own.")
         }
         .alert("Let Hermes HQ Run \(model.bot.name)’s Browser?", isPresented: $model.confirmingTakeOver,
                presenting: model.choice) { _ in
@@ -366,6 +372,19 @@ struct BrowserChoiceView: View {
         .disabled(!choice.changeable && !choice.cloud)
     }
 
+    /// [cloud-hosted] On Hermes Cloud a bot has no Chrome of its own: the first choice is the browser Hermes Cloud gives it.
+    @ViewBuilder private func hostedSection(_ choice: BrowserChoice) -> some View {
+        Section {
+            row(title: "Hermes Cloud’s Browser", subtitle: "The cloud browser Hermes Cloud sets up", selected: !choice.cloud,
+                enabled: choice.cloud, id: "browser.choice.hosted") { if choice.cloud { model.apply(.own) } }
+        } header: { HQSectionLabel {
+            Text("Browser")
+        } } footer: { HQSectionFooter {
+            Text("\(model.bot.name) browses in the cloud browser that comes with Hermes Cloud. It can’t be watched or taken over here, and it starts signed out each time.")
+        } }
+        .disabled(!choice.cloud)
+    }
+
     /// Browser Use Cloud: the third choice, and the person's API key beside it. Offered to any bot with browser tools
     /// (also one whose Chrome the add-on doesn't run), never to one whose add-on or browser is off.
     @ViewBuilder private func cloudSection(_ choice: BrowserChoice) -> some View {
@@ -395,7 +414,9 @@ struct BrowserChoiceView: View {
             if choice.cloud {
                 Text("\(model.bot.name) browses in a cloud browser that Browser Use bills to your account by the minute. Sites it signs in to stay signed in. You can watch it and take over here as before.")
             } else {
-                Text("\(model.bot.name) browses in a cloud browser instead of a Chrome on \(HostWord.phrase). Browser Use bills your account by the minute. Sites it signs in to stay signed in, and you can watch it and take over here as before.")
+                Text(choice.hosted
+                     ? "\(model.bot.name) browses in a cloud browser on your own Browser Use account instead. Browser Use bills your account by the minute. Sites it signs in to stay signed in, and you can watch it and take over here."
+                     : "\(model.bot.name) browses in a cloud browser instead of a Chrome on \(HostWord.phrase). Browser Use bills your account by the minute. Sites it signs in to stay signed in, and you can watch it and take over here as before.")
             }
         } }
     }

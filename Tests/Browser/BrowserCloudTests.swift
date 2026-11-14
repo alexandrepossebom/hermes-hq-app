@@ -3,6 +3,7 @@
 // is saved without ever sending the key back. The page shows the cloud as a choice, not as a problem.
 
 import Foundation
+import Synchronization
 import Testing
 @testable import HermesHQNative
 
@@ -68,5 +69,57 @@ struct BrowserCloudTests {
     @Test func outcomeLinesNameTheCloudChange() {
         #expect(BrowserChoiceModel.outcome(.cloud, status: nil) == "choice cloud: ok")
         #expect(BrowserChoiceModel.outcome(.cloud, status: 409) == "choice cloud: failed (HTTP 409)")
+    }
+
+    // MARK: A hosted Hermes (Hermes Cloud, add-on 3.11): the owner asked for Browser Use Cloud on a hosted gateway
+
+    @Test func aHostedBotHasTwoBrowsersAndNothingIsWrong() throws {
+        let hosted = try choice(["changeable": false, "blocked": "hosted", "hosted": true])
+        #expect(hosted.hosted && !hosted.cloud)
+        #expect(BrowserChoiceModel.explanation(hosted, name: "Wren") == nil, "no notice: the page offers its two browsers")
+        #expect(BrowserChoiceModel.takeOverTitle(hosted, name: "Wren") == nil, "there is no Chrome to run for it there")
+        #expect(BrowserChoiceModel.summary(hosted) == "Hermes Cloud")
+        let cloud = try choice(["mode": "cloud", "changeable": false, "blocked": "cloud", "can_take_over": true, "hosted": true])
+        #expect(cloud.hosted && cloud.cloud && BrowserChoiceModel.summary(cloud) == "Browser Use Cloud")
+        #expect(!(try choice(["changeable": true])).hosted, "3.10 and older, and a computer of your own")
+    }
+
+    /// The add-on can't always see the address it is reached under, so the app says when the gateway is one Nous hosts.
+    @Test func theAddOnIsToldItIsHostedOnceAndOnlyOnAHostedGateway() async throws {
+        func service(hostedGateway: Bool, knows: Bool = true) -> (BrowserService, BotsFakeGatewayClient) {
+            let client = BotsFakeGatewayClient()
+            let told = Mutex(false)
+            client.onREST { method, path, _, _ in
+                if method == "POST", path.hasSuffix("/cloud") {
+                    told.withLock { $0 = true }
+                    return Data(#"{"schema": "hermes-hq-browser.cloud.v1", "key_set": false}"#.utf8)
+                }
+                guard path.hasSuffix("/health") else { throw HTTPError(status: 404, body: nil) }
+                let health: JSONValue = ["installed": true, "protocol": 3, "hosted": .bool(told.withLock { $0 }),
+                                         "features": ["control": true, "watch": true, "cloud": true, "hosted": .bool(knows)]]
+                return try health.encoded()
+            }
+            let service = BrowserService(rest: client, sockets: NoPluginSockets())
+            service.hostedGateway = hostedGateway
+            return (service, client)
+        }
+        func posts(_ client: BotsFakeGatewayClient) -> Int { client.restCalls.filter { $0.method == "POST" && $0.path.hasSuffix("/cloud") }.count }
+
+        let (nous, nousClient) = service(hostedGateway: true)
+        #expect(BrowserHealth.hosted(try await nous.plugin().health), "told, and the answer kept is the one after")
+        _ = try await nous.plugin(fresh: true)
+        #expect(posts(nousClient) == 1, "not told again once it says so itself")
+
+        let (own, ownClient) = service(hostedGateway: false)
+        #expect(!BrowserHealth.hosted(try await own.plugin().health) && posts(ownClient) == 0)
+
+        let (older, olderClient) = service(hostedGateway: true, knows: false)
+        _ = try await older.plugin()
+        #expect(posts(olderClient) == 0, "3.10 and older have no such word")
+    }
+
+    @Test func aMissingBrowserAddOnIsSetUpNotUpdated() {
+        #expect(AddOnUpdate.installTitle(setUp: true, both: false, addOns: .browser) == "Install the browser add\u{2011}on")
+        #expect(AddOnUpdate.installTitle(setUp: false, both: false, addOns: .browser) == "Install the browser update")
     }
 }

@@ -11,6 +11,12 @@ import UIKit
     weak var router: SettingsRouter?
     var cloud: BrowserCloud?
     var offersAll = false
+    /// [cloud-hosted] Hermes is hosted (Hermes Cloud): a bot off Browser Use Cloud is on the browser Hermes Cloud gives it.
+    var hosted = false
+    /// The browser add-on isn't on this gateway at all (no answer under its name): the page offers to set it up.
+    var addOnMissing = false
+    /// Starts the add-on's setup (or its update): the sheet Settings' "Add-on Update Available" row runs. nil hides it.
+    var setUp: (() -> Void)?
     var loading = true
     var loadFailure: String?
     var working: String?
@@ -20,10 +26,14 @@ import UIKit
     var confirmingForget = false
     var confirmingOff = false
 
-    init(service: BrowserService?, router: SettingsRouter?) {
+    init(service: BrowserService?, router: SettingsRouter?, setUp: (() -> Void)? = nil) {
         self.service = service
         self.router = router
+        self.setUp = setUp
     }
+
+    /// The words for a bot's other browser: its own, or on Hermes Cloud the one that comes with it.
+    var otherBrowser: String { hosted ? "the browser Hermes Cloud gives it" : "its own browser on \(HostWord.phrase)" }
 
     func load() async {
         loading = true
@@ -34,8 +44,11 @@ import UIKit
             let found = try await service.cloudSettings()
             cloud = found?.cloud
             offersAll = found?.offersAll ?? false
+            hosted = found?.hosted ?? false
+            addOnMissing = false
         } catch where BrowserService.isMissing(error) {
             cloud = nil
+            addOnMissing = true
         } catch {
             AppLog.swallowed("browser", "read Browser Use Cloud", error)
             loadFailure = (error as? LocalizedError)?.errorDescription ?? "Couldn’t read Browser Use Cloud. Try again."
@@ -106,7 +119,8 @@ import UIKit
 
     func applyAll(_ on: Bool) {
         guard let service, working == nil else { return }
-        working = on ? "Switching every bot to Browser Use Cloud…" : "Giving every bot its own browser back…"
+        working = on ? "Switching every bot to Browser Use Cloud…"
+            : hosted ? "Switching every bot back to Hermes Cloud’s browser…" : "Giving every bot its own browser back…"
         Task {
             defer { working = nil }
             do {
@@ -121,6 +135,18 @@ import UIKit
                 failure = BrowserChoiceModel.detail((error as? HTTPError)?.body) ?? (error as? LocalizedError)?.errorDescription
                     ?? "\(HostWord.sentence) didn’t make that change. Try again."
                 Haptics.play(.warning)
+            }
+        }
+    }
+
+    /// [cloud-hosted] "Set Up the Browser Add-on": the add-on update sheet, which also puts in a browser add-on that
+    /// isn't there (Hermes Cloud never got one with its first setup). nil where the app can't install add-ons.
+    static func setUp(_ services: any AppServices, router: SettingsRouter?) -> (() -> Void)? {
+        guard PushRegistrar.available, let model = services as? AppModel else { return nil }
+        return { [weak model, weak router] in
+            guard let model else { return }
+            Task { @MainActor in
+                _ = await PushSetupOffer.shared.check(model: model, fromSettings: true, browserSetup: true, from: router?.presenter)
             }
         }
     }
@@ -163,9 +189,15 @@ struct BrowserCloudSettingsView: View {
                 allSection(cloud)
             } else {
                 Section {
-                    Text("The browser add\u{2011}on on \(HostWord.phrase) doesn’t offer this yet. Once it’s updated you can add your Browser Use API key here and have your bots browse in the cloud.")
+                    Text(model.addOnMissing
+                         ? "Your bots can browse in cloud browsers on your own Browser Use account, where you can watch them and take over. It needs \(AppIdentity.current.displayName)’s small browser add\u{2011}on on \(HostWord.phrase)."
+                         : "The browser add\u{2011}on on \(HostWord.phrase) doesn’t offer this yet. Once it’s updated you can add your Browser Use API key here and have your bots browse in the cloud.")
                         .foregroundStyle(Color.hqLabel2)
                         .accessibilityIdentifier("settings.cloud.unavailable")
+                    if let setUp = model.setUp {
+                        Button(model.addOnMissing ? "Set Up the Browser Add\u{2011}on" : "Update the Browser Add\u{2011}on") { setUp() }
+                            .accessibilityIdentifier("settings.cloud.setup")
+                    }
                 }
             }
         }
@@ -189,14 +221,18 @@ struct BrowserCloudSettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(model.cloud?.all == true
-                 ? "Use for All Bots turns off and every bot goes back to its own browser on \(HostWord.phrase)."
+                 ? "Use for All Bots turns off and every bot goes back to \(model.otherBrowser)."
+                 : model.hosted
+                 ? "Bots set to Browser Use Cloud can’t open a browser until you add a key again or switch them back to Hermes Cloud’s browser."
                  : "Bots set to Browser Use Cloud can’t open a browser until you add a key again or switch them back to their own.")
         }
         .alert("Turn Off Browser Use Cloud for All Bots?", isPresented: $model.confirmingOff) {
             Button("Turn Off") { model.applyAll(false) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every bot goes back to its own browser on \(HostWord.phrase), with the sign-ins it had there. You can still choose Browser Use Cloud for one bot in Bot Info › Browser.")
+            Text(model.hosted
+                 ? "Every bot goes back to the browser Hermes Cloud gives it, which can’t be watched here. You can still choose Browser Use Cloud for one bot in Bot Info › Browser."
+                 : "Every bot goes back to its own browser on \(HostWord.phrase), with the sign-ins it had there. You can still choose Browser Use Cloud for one bot in Bot Info › Browser.")
         }
         .task { await model.load() }
     }
@@ -234,7 +270,9 @@ struct BrowserCloudSettingsView: View {
                         Text(line).foregroundStyle(Color.hqLabel).accessibilityIdentifier("settings.cloud.skipped")
                     }
                     Text(cloud.all
-                         ? "Every bot on \(HostWord.phrase) browses in Browser Use Cloud, and so does any bot you add. To keep one bot on its own browser, choose Its Own Profile in its Bot Info › Browser."
+                         ? model.hosted
+                         ? "Every bot on \(HostWord.phrase) browses in Browser Use Cloud, and so does any bot you add. To put one bot back, choose Hermes Cloud’s Browser in its Bot Info › Browser."
+                         : "Every bot on \(HostWord.phrase) browses in Browser Use Cloud, and so does any bot you add. To keep one bot on its own browser, choose Its Own Profile in its Bot Info › Browser."
                          : "Puts every bot on \(HostWord.phrase) in a Browser Use Cloud browser, and any bot you add later. You can watch and take over as before. To switch just one bot, use its Bot Info › Browser.")
                 }
             } }

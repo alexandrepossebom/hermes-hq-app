@@ -281,6 +281,67 @@ final class BrowserEndToEndTests: XCTestCase {
         attach("all-6-older-add-on")
     }
 
+    // MARK: 3d. Hermes Cloud (a gateway Nous hosts): the add-on is set up from Settings, starts no Chrome there, and a
+    //          bot is on Hermes Cloud's browser or Browser Use Cloud
+
+    @MainActor func test3d_BrowserUseCloudOnHermesCloud() throws {
+        // No browser add-on yet (Hermes Cloud's first setup leaves it out): the page offers to set it up.
+        try account.control("/__fixture/browser", ["plugin": "missing"])
+        launch(extra: ["-HQDebugCloudHost", "YES", "-HQDebugPushAnyTopic", "YES", "-HQDebugNoPushOffer", "YES"])   // the test build may install add-ons; no launch offer over the page
+        openCloudSettings(shot: nil)
+        XCTAssertTrue(app.buttons["settings.cloud.setup"].waitForExistence(timeout: 10), "Set Up the Browser Add-on shows")
+        XCTAssertTrue(app.staticTexts["settings.cloud.unavailable"].exists)
+        attach("hosted-1-set-up")
+        app.terminate()
+
+        // The add-on is in: the app tells it the gateway is hosted, and the page speaks of Hermes Cloud's browser.
+        try account.control("/__fixture/browser", ["plugin": "ready"])
+        launch(extra: ["-HQDebugCloudHost", "YES"])
+        openCloudSettings(shot: nil)
+        let all = app.switches["settings.cloud.all"]
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "the page offers Use for All Bots")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["hosted"] as? Bool) == true }, "the add-on was told it is hosted")
+        XCTAssertEqual(try state()["hosted_told"] as? Int, 1, "once")
+        all.switches.firstMatch.tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no key saved: the key is asked for first")
+        field.typeText("invented-key-00000000WXYZ")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == true })
+        XCTAssertTrue(waitUntil(timeout: 5) { all.value as? String == "1" })
+        attach("hosted-2-all-on")
+        all.switches.firstMatch.tap()
+        let off = app.alerts.buttons["Turn Off"]
+        XCTAssertTrue(off.waitForExistence(timeout: 5), "turning it off asks first")
+        XCTAssertTrue(app.alerts.staticTexts.allElementsBoundByIndex.contains { $0.label.contains("the browser Hermes Cloud gives it") },
+                      "the question names Hermes Cloud's browser, not a Chrome of its own")
+        attach("hosted-3-off-asked")
+        off.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == false })
+        app.terminate()
+
+        // One bot: Hermes Cloud's Browser or Browser Use Cloud, and no Chrome profile or window choices.
+        launch(extra: ["-HQDebugCloudHost", "YES"])
+        openBotInfo()
+        let row = app.buttons["bot-info.browser.choice"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Bot Info offers the browser page")
+        attach("hosted-4-bot-info")
+        row.tap()
+        let hosted = app.buttons["browser.choice.hosted"]
+        XCTAssertTrue(hosted.waitForExistence(timeout: 10), "Hermes Cloud's Browser is the first choice")
+        XCTAssertFalse(app.buttons["browser.choice.own"].exists, "no Chrome of its own there")
+        XCTAssertFalse(app.switches["browser.choice.window"].exists, "and no window to show")
+        XCTAssertFalse(app.descendants(matching: .any)["browser.choice.blocked"].exists, "nothing is wrong, so no notice")
+        attach("hosted-5-browser-page")
+        app.buttons["browser.choice.cloud"].tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "cloud" })
+        attach("hosted-6-in-browser-use-cloud")
+        XCTAssertTrue(waitUntil(timeout: 5) { hosted.isEnabled })
+        hosted.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "own" },
+                      "back on Hermes Cloud's browser")
+    }
+
     @MainActor func test3_BotInfoBrowserChoice() throws {
         launch()
         openBotInfo()

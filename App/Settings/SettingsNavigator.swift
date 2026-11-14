@@ -80,7 +80,8 @@ enum SettingsNavigator {
             }
         case "billing": router.push("Billing", BillingPageView(router: router))
         case "browser-use-cloud":   // the key and "Use for All Bots" (App/Browser/BrowserCloudSettings.swift)
-            router.push("Browser Use Cloud", BrowserCloudSettingsView(model: BrowserCloudSettingsModel(service: (services as? AppModel)?.browser, router: router)))
+            router.push("Browser Use Cloud", BrowserCloudSettingsView(model: BrowserCloudSettingsModel(
+                service: (services as? AppModel)?.browser, router: router, setUp: BrowserCloudSettingsModel.setUp(services, router: router))))
         case "sessions":
             guard let store = router.gatewaySettings?.configStore else { return }
             router.push(SettingsSearch.sessionsPageTitle, SessionsSettingsView(store: store, router: router))
