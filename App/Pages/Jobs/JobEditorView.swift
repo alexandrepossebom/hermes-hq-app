@@ -330,15 +330,20 @@ struct JobEditorView: View {
 
     // MARK: Schedule
 
-    /// The time wheel's date: hour and minute on a fixed day in UTC, shown in UTC, so the phone's time zone and
-    /// daylight saving never move the stored hour.
+    /// The time wheel's date: hour and minute on a fixed day with no clock change (Jan 1, 2001), in the device's own
+    /// zone, so daylight saving never moves the stored hour. Mac pass 2026-11-14: it was a UTC date shown with the
+    /// picker's zone set to UTC; the Mac's picker drew 9:00 AM but read itself to VoiceOver in the Mac's zone
+    /// ("3:00 AM" in Chicago), since the system picker's spoken value ignores SwiftUI's zone.
+    private static let wheelDay: Date = Calendar.current.date(from: DateComponents(year: 2001, month: 1, day: 1)) ?? Date(timeIntervalSinceReferenceDate: 0)
+
     private static func wheelDate(hour: Int, minute: Int) -> Date {
-        Date(timeIntervalSinceReferenceDate: TimeInterval(hour * 3600 + minute * 60))
+        Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: wheelDay)
+            ?? wheelDay.addingTimeInterval(TimeInterval(hour * 3600 + minute * 60))
     }
 
     private static func wheelTime(_ date: Date) -> (hour: Int, minute: Int) {
-        let seconds = ((Int(date.timeIntervalSinceReferenceDate.rounded()) % 86400) + 86400) % 86400
-        return (seconds / 3600, (seconds % 3600) / 60)
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0, parts.minute ?? 0)
     }
 
     private var timeBinding: Binding<Date> {
@@ -459,7 +464,6 @@ struct JobEditorView: View {
             }
             if frequency.isTimed && frequency != .hourly {
                 HQDatePicker("Time", selection: timeBinding)
-                    .environment(\.timeZone, .gmt)
                     .accessibilityIdentifier("job.editor.time")
             }
             if frequency == .custom {
@@ -654,7 +658,6 @@ struct JobEditorView: View {
                     let time = Self.wheelTime(date)
                     model.setSlot(field.name, JobBlueprints.timeValue(hour: time.hour, minute: time.minute))
                 }), displayedComponents: .hourAndMinute)
-                .environment(\.timeZone, .gmt)
                 .accessibilityIdentifier("job.editor.slot.\(field.name)")
             case .choice:
                 Picker(field.title, selection: Binding(get: { value }, set: { next in

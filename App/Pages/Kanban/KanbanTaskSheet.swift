@@ -1192,6 +1192,16 @@ struct KanbanTaskView: View {
                     .focused($focus, equals: .comment)
                     .modifier(TaskPanelField(panel: panel))
                     .accessibilityIdentifier("kanban.task.comment")
+                    // Mac: Return posts the comment, as a Mac message field does (it had only ever made a new line, so a
+                    // comment went out only by the arrow). The field's text view takes Return before any key handler,
+                    // so this reads the one typed line break; a pasted block with line breaks stays as pasted.
+                    .onChange(of: model.comment) { old, new in
+                        guard DeviceWord.isMac, new.count == old.count + 1, new.hasSuffix("\n") else { return }
+                        model.comment = String(new.dropLast())
+                        if !model.comment.pgTrim.isEmpty, !model.busy.contains("comment"), !model.busy.contains("requeue") {
+                            model.sendComment(requeue: false)
+                        }
+                    }
                 Button {
                     model.sendComment(requeue: false)
                 } label: {

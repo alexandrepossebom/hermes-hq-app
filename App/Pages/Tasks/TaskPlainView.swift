@@ -536,7 +536,7 @@ struct TaskPlainView: View {
                                      onTap: model.gone || task.isDone ? nil : { model.editNotes() }, open: model.openPath)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { notesWidth = $0 }
-                        .accessibilityHint("Double-tap to edit")
+                        .accessibilityHint("Edits the notes.")   // Mac pass 2026-11-14: no phone gesture in the words
                     .accessibilityAction(named: "Edit Notes") { model.editNotes() }
                 }
             }

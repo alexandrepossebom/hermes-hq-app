@@ -1840,7 +1840,10 @@ extension SessionsViewController {
             let snippet = SessionSearch.matchSnippet(hit.snippet, query: query)
             let shown = SessionSearch.plain(snippet)
             var copy = session
-            if !shown.isEmpty, shown != session.title, shown != session.preview { copy.searchSnippet = snippet }
+            // The snippet is left out only when the row already says those words: with Row Detail's Preview off the
+            // row shows the metadata ("main · hermes-4 · 2 messages"), so a match only in the preview showed no reason.
+            let lineShown = SessionRowWords.detailText(session, detail: rowDetail)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !shown.isEmpty, shown != session.title, shown != lineShown { copy.searchSnippet = snippet }
             return copy
         }
         let local = listed.filter { session in

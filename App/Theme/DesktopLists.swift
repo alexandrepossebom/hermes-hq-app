@@ -248,12 +248,25 @@ struct DesktopBareRowMarker: UIViewRepresentable {
     func updateUIView(_ view: Marker, context: Context) { view.mark() }
 
     final class Marker: UIView {
+        private var retries = 0
+
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            retries = 0
+            mark()
+        }
+
+        /// Mac pass 2026-11-14: the job editor's bot strip opened boxed in the look (one outline across the sheet) until
+        /// the first click. On the first pass the marker's host is in the window before SwiftUI has put it in its list
+        /// cell, so no cell was found and nothing asked again until the next SwiftUI update. It now asks again on the
+        /// next layout and, a few times, on the next turn of the run loop.
+        override func layoutSubviews() {
+            super.layoutSubviews()
             mark()
         }
 
         func mark() {
+            guard window != nil else { return }
             var view = superview
             while let current = view {
                 if let cell = current as? UICollectionViewListCell {
@@ -267,6 +280,9 @@ struct DesktopBareRowMarker: UIViewRepresentable {
                 }
                 view = current.superview
             }
+            guard retries < 6 else { return }
+            retries += 1
+            DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.mark() } }
         }
     }
 }

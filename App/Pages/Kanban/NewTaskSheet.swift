@@ -192,8 +192,7 @@ struct NewTaskView: View {
                     .focused($focus, equals: .details)
             }
             Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 4) {
+                WhoStrip {
                         ForEach(model.people, id: \.self) { name in
                             Button {
                                 if model.who != name { PagesHaptics.selection() }
@@ -222,14 +221,16 @@ struct NewTaskView: View {
                                 // around the head was a rounded square that fit square heads and not round ones.
                                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
                                     .fill(model.who == name ? Color.hqTint.opacity(0.14) : .clear))
+                                // Mac pass 2026-11-14: the whole tile takes the click. A head is a UIKit view that takes
+                                // no touches, so a click on the face (not its name) went past the button to the form's
+                                // row and chose nobody. The job editor's tiles have the same shape for the same reason.
+                                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(name.isEmpty ? "No One Yet" : model.botName(name))
                             .accessibilityAddTraits(model.who == name ? .isSelected : [])
                             .accessibilityIdentifier(name.isEmpty ? "kanban.new.nobody" : "kanban.new.who.\(name)")
                         }
-                    }
-                    .padding(.vertical, 6)
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
             } header: { HQSectionLabel { Text("Who Does It") } } footer: { HQSectionFooter {
@@ -288,5 +289,25 @@ struct NewTaskView: View {
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .disabled(model.saving)
         .onAppear { focus = .title }
+    }
+}
+
+/// The New Task sheet's faces: a sideways strip, and on the Mac lines that wrap.
+/// Mac pass 2026-11-14: on the Mac a click on a face in the sideways strip did nothing (only VoiceOver's press chose the
+/// bot; the scroll view in the form's cell kept the click), and a plain wheel can't move a strip sideways. The faces wrap
+/// to a second line instead, as the job editor's do (FEEL-LIST #32).
+private struct WhoStrip<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        if DeviceWord.isMac {
+            PagesFlowLayout(spacing: 4, lineSpacing: 4) { content }
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 4) { content }
+                    .padding(.vertical, 6)
+            }
+        }
     }
 }

@@ -882,31 +882,44 @@ struct NewChatSheetView: View {
         .accessibilityIdentifier("new-chat-project-new")
     }
 
+    @ViewBuilder private var botPills: some View {
+        ForEach(bots) { item in
+            SessionPill(caption: item.name, name: item.name, picked: bot == item.id,
+                        identifier: "new-chat-bot-\(item.id)", hasFace: true) {
+                bot = item.id
+            } face: {
+                HeadImage(raw: item.head, profile: item.id, size: faceSize, working: false)
+            }
+            .id(item.id)
+        }
+    }
+
     var body: some View {
         let listed = NewChatLast.shown(all: projects.map(\.key), recent: recent(bot))
         let last = NewChatLast.project(for: bot)
         List {
             Section {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
-                            ForEach(bots) { item in
-                                SessionPill(caption: item.name, name: item.name, picked: bot == item.id,
-                                            identifier: "new-chat-bot-\(item.id)", hasFace: true) {
-                                    bot = item.id
-                                } face: {
-                                    HeadImage(raw: item.head, profile: item.id, size: faceSize, working: false)
-                                }
-                                .id(item.id)
-                            }
-                        }
+                if DeviceWord.isMac {
+                    // Mac pass 2026-11-14: a plain mouse wheel can't move a sideways strip, so a bot past the sheet's
+                    // edge (Finance, cut in half with five bots) was out of reach without a trackpad. On the Mac the
+                    // pills wrap to another line, as the job editor's faces do (FEEL-LIST #32).
+                    PagesFlowLayout(spacing: 8, lineSpacing: 8) { botPills }
                         .padding(.horizontal, 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 8) { botPills }
+                                .padding(.horizontal, 2)
+                        }
+                        .scrollIndicators(.hidden)
+                        .onAppear { proxy.scrollTo(bot, anchor: .center) }
                     }
-                    .scrollIndicators(.hidden)
-                    .onAppear { proxy.scrollTo(bot, anchor: .center) }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
             } header: { HQSectionLabel { Text("Bot") } }
             Section {
                 ForEach(listed.keys, id: \.self) { key in

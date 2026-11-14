@@ -319,7 +319,10 @@ final class ScopeBarItem {
         }
         // Rebuilt only when what it shows changes: a menu open under the finger is never replaced by a reload.
         let current = scope.effective(bots: bots)
-        let signature = ([current] + PagesNames.scopeChoices(bots).map { "\($0.id)\u{1F}\($0.name)" }).joined(separator: "\u{1E}")
+        // Mac pass 2026-11-14: `compact` is in it, so Tasks' table (words) and column (glyph) each get their own; the
+        // table kept the column's filter glyph, as the bots alone had not changed.
+        let signature = ([current, compact ? "glyph" : "words"] + PagesNames.scopeChoices(bots).map { "\($0.id)\u{1F}\($0.name)" })
+            .joined(separator: "\u{1E}")
         if signature != self.signature {
             self.signature = signature
             if compact {

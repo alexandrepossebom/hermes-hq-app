@@ -38,7 +38,7 @@ mockup's list and a chat ('s-tasks') where Hermes adds two with tasks_add; --tas
 Hermes's own Bot Chat too; --no-tasks answers 404 for the routes (an add-on older than 0.9.32).
 """
 import shutil
-import argparse, base64, copy, datetime, hashlib, importlib.util, json, mimetypes, os, pathlib, socket, struct, sys, threading, time, zlib
+import argparse, base64, copy, datetime, hashlib, importlib.util, json, mimetypes, os, pathlib, re, socket, struct, sys, threading, time, zlib
 from urllib.parse import urlparse, parse_qs, unquote
 
 REF = pathlib.Path(os.environ.get('HQN_REF', '/Users/me/Projects/hermes-hq-native-ref238'))
@@ -392,6 +392,14 @@ def kanban(method, path, query, body):
     if method == 'POST' and sub == '/dispatch':
         state['dispatch'] += 1
         return 200, {'spawned': []}
+    if sub.startswith('/attachments/') and method == 'DELETE':
+        aid = sub.split('/')[2]
+        for b in BOARDS.values():
+            for t in b['tasks'].values():
+                if any(a['id'] == aid for a in t['attachments']):
+                    t['attachments'] = [a for a in t['attachments'] if a['id'] != aid]
+                    return 200, {'ok': True}
+        return 404, {'detail': 'attachment not found'}
     if sub.startswith('/attachments/'):
         aid = sub.split('/')[2]
         for b in BOARDS.values():
@@ -419,6 +427,17 @@ def kanban(method, path, query, body):
                      'links': links, 'link_tasks': titles, 'child_results': [],
                      'runs': [{'id': 1, 'profile': t['assignee'], 'status': 'done', 'outcome': 'completed', 'summary': t.get('result'),
                                'error': None, 'started_at': t['created_at'], 'ended_at': t['created_at'] + HOUR}] if t['status'] == 'done' else []}
+    if method == 'POST' and tail == 'attachments':
+        up = body.get('__upload') or {'filename': 'file', 'size': 0}
+        aid = 'a' + hashlib.sha256(f"{up['filename']}{now()}".encode()).hexdigest()[:6]
+        record = {'id': aid, 'task_id': t['id'], 'filename': up['filename'], 'content_type': 'application/octet-stream',
+                  'size': up['size'], 'uploaded_by': 'desktop', 'stored_path': f'/kanban/{aid}', 'created_at': int(now())}
+        t['attachments'].append(record)
+        return 200, {'attachment': record}
+    if method == 'DELETE' and tail.startswith('attachments/'):
+        aid = tail.split('/')[1]
+        t['attachments'] = [a for a in t['attachments'] if a['id'] != aid]
+        return 200, {'ok': True}
     if method == 'GET' and tail == 'log':
         running = t['status'] == 'running'
         return 200, {'task_id': t['id'], 'path': '/fixture/worker.log', 'exists': running, 'size_bytes': 80 if running else 0,
@@ -1194,7 +1213,10 @@ def handler(gateway):
         def body_json(self):
             raw = self.rfile.read(int(self.headers.get('Content-Length') or 0))
             try: return json.loads(raw or b'{}')
-            except ValueError: return {}
+            except ValueError:
+                # A multipart upload (Kanban attachments): its file's name and size, for the attachment route.
+                m = re.search(rb'filename="([^"]+)"', raw)
+                return {'__upload': {'filename': m.group(1).decode('utf-8', 'replace') if m else 'file', 'size': len(raw)}}
 
         def answer(self, status, body):
             if isinstance(body, tuple):
@@ -1275,6 +1297,16 @@ def handler(gateway):
                 with lock: return kanban(method, path, query, body)
             if path == '/api/cron/jobs' and method == 'GET':
                 with lock: return 200, copy.deepcopy(jobs_for(one('profile')))
+            if path == '/api/cron/jobs' and method == 'POST':
+                # Hermes's create: the job as sent, a schedule string becoming a cron schedule.
+                b = dict(body or {}); profile = one('profile') or 'default'
+                expr = b.pop('schedule', '0 9 * * *')
+                jid = 'j-' + hashlib.sha256(f'{expr}{now()}'.encode()).hexdigest()[:8]
+                name = b.pop('name', None) or (b.get('prompt') or 'Job')[:50]
+                with lock:
+                    JOBS[f'{profile}|{jid}'] = job_record(jid, name, profile, {'kind': 'cron', 'expr': expr, 'display': expr}, **b)
+                    answer = copy.deepcopy(JOBS[f'{profile}|{jid}'])
+                broadcast(); return 200, answer
             if path.startswith('/api/cron/jobs/'):
                 parts = [unquote(p) for p in path[len('/api/cron/jobs/'):].split('/')]
                 with lock: job = job_by(parts[0], one('profile'))
@@ -1396,6 +1428,17 @@ def handler(gateway):
                     if mode.get('empty'): TASKS.clear()
                     # "keep_rev": as an add-on update does (before 0.9.40), the list's rev stays, so `?since=` says unchanged
                     if not mode.get('keep_rev'): TSTATE['rev'] += 1
+                return self.reply(200, {'ok': True})
+            if path == '/__fixture/kanban-many':   # {"count": 40, "status": "todo", "long": false}: fill one column
+                body = self.body_json() or {}
+                with lock:
+                    board = BOARDS[KSTATE['current']]
+                    for n in range(int(body.get('count', 40))):
+                        title = (f'Long card {n + 1}: check every export path on the release branch and write down each one that '
+                                 'fails, with the file it wrote and the error it showed' if body.get('long') else f'Filler card {n + 1}')
+                        t = ktask(title, body.get('status', 'todo'), 'deploys' if n % 2 else None, n * MIN)
+                        t['id'] = f't_many{n:03d}'
+                        board['tasks'][t['id']] = t
                 return self.reply(200, {'ok': True})
             if path == '/__fixture/tile-job':
                 # {"status": "error", "error": "…", "model": "…"}: a tile whose last update failed, run by that model.
