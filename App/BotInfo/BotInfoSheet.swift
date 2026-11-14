@@ -142,7 +142,11 @@ extension EditingPage {
 
     /// Discard Changes / Keep Editing, from the page on screen (a page under it can't present).
     static func askToDiscard(from page: UIViewController, leave: @escaping () -> Void) {
-        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        // [macpass-popups r3] On the Mac the action sheet had no button to hang from (Cancel is the app's own button) and
+        // stood untitled in the middle of the form, two loose buttons over its rows. There it is the Mac's alert, titled
+        // as the Prompts editor's is ("Discard Changes?"), Keep Editing its default for Return and Escape.
+        let sheet = UIAlertController(title: DeviceWord.isMac ? "Discard Changes?" : nil, message: nil,
+                                      preferredStyle: DeviceWord.isMac ? .alert : .actionSheet)
         sheet.addAction(UIAlertAction(title: "Discard Changes", style: .destructive) { [weak page] _ in
             // Never out from under a Save that started while the question was up.
             if let navigation = page?.navigationController, isSaving(in: navigation) { return }
