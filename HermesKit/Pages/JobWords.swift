@@ -602,6 +602,7 @@ nonisolated enum JobWords {
     }
 
     private static let errorPrefix = RX(#"^(?:[A-Za-z_][\w.]*(?:Error|Exception)|Exception):\s*"#)
+    private static let noModel = RX(#"has no model configured"#, .caseInsensitive)
     private static let errorMarker = RX(#"^\[[a-z_]+(?::[a-z_]+)?\]\s*"#)
     private static let errorEmoji = RX("^(?:\u{26A0}\u{FE0F}?|\u{1F6D1}|\u{274C}|\u{1F6AB})\\s*")
 
@@ -614,6 +615,9 @@ nonisolated enum JobWords {
             text = errorPrefix.replace(errorEmoji.replace(errorMarker.replace(text, with: "", all: false), with: "", all: false),
                                        with: "", all: false).pgTrimStart
         }
+        // [macpass-lists] The scheduler's own words for a job with no model ("Cron job 'x' has no model configured
+        // (job.model=None, HERMES_MODEL='').") read as code on the job's page: said plainly, with the way out.
+        if noModel.test(text) { return "No model is set for this job. Choose one in Edit Job." }
         let end = RX.c(#"\. |\n"#).search(text)
         let sentence = (end == -1 ? text : text.pgSlice(0, end + 1)).pgTrim
         return sentence.count > 200 ? String(sentence.prefix(199)).trimmingCharacters(in: .whitespaces) + "…" : sentence

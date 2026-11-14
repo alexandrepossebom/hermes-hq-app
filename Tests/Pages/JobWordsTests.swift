@@ -335,7 +335,7 @@ struct JobWordsLabelTests {
         d.prompt = ""; d.script = "sync_quillreach_cron.sh"
         #expect(JobWords.jobDescription(d) == "sync_quillreach_cron.sh")
         let raw = "RuntimeError: Cron job 'x' has no model configured (job.model=None, HERMES_MODEL=''). Set a per-job model via `hermes cron edit x --model <name>`."
-        #expect(JobWords.lastErrorSummary(raw) == "Cron job 'x' has no model configured (job.model=None, HERMES_MODEL='').")
+        #expect(JobWords.lastErrorSummary(raw) == "No model is set for this job. Choose one in Edit Job.")
         #expect(JobWords.lastErrorSummary("[blocked_config:silent] ⚠️ ValueError: bad schedule\nDetails follow") == "bad schedule")
         let long = JobWords.lastErrorSummary("HTTPStatusError: " + String(repeating: "x", count: 400))
         #expect(long.count <= 200 && long.hasSuffix("…"))

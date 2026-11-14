@@ -1946,9 +1946,19 @@ extension SessionsViewController {
     private func apply(_ state: SessionFilterState, animated: Bool = true) {
         guard let store else { return }
         let bot = store.botFilter
+        let regroup = store.view.groupBy != state.prefs.groupBy
         store.apply(state)
         if searching, bot != store.botFilter { rerunSearch() }
-        reload(animated: animated)
+        if regroup, animated, view.window != nil, !HQMotion.reduced {
+            // [macpass-lists] A new Group By puts every row in other sections: the list's own move animation slid the
+            // old headers over the new rows for a moment (Pinned on Projects, App on a pinned chat). The list
+            // cross-fades to its new grouping instead.
+            UIView.transition(with: collectionView, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+                self.reload(animated: false)
+            }
+        } else {
+            reload(animated: animated)
+        }
         redrawOpenMenu()
     }
 
