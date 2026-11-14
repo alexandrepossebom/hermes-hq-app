@@ -33,9 +33,17 @@ final class MacSidebar: UIView {
     /// At 100 %: 300 is about 231 pt on the screen (Mail's and Finder's sidebars open near there).
     static let defaultOpenWidth: CGFloat = 300
     static var savedOpenWidth: CGFloat {
-        get { let saved = UserDefaults.standard.double(forKey: openWidthKey); return saved > 0 ? CGFloat(saved) : defaultOpenWidth }
-        set { UserDefaults.standard.set(Double(newValue), forKey: openWidthKey) }
+        get { storedOpenWidth > 0 ? storedOpenWidth : defaultOpenWidth }
+        set { storedOpenWidth = newValue; UserDefaults.standard.set(Double(newValue), forKey: openWidthKey) }
     }
+    /// [macpass-sidebar] The sidebar's kept state (open width, folded, named rail) is read from the defaults once a
+    /// launch and held here, not read on every layout pass. Another copy of the app on the same Mac (every Debug build
+    /// shares one defaults file) folding its sidebar wrote the key under this one, and the next layout pass here (a
+    /// sheet opening) gave the strip the rail's width while its rows were still the open sidebar's: names cut to "I"
+    /// and "…" behind Bot Info. The strip's width and the rows it holds now always come from the same state.
+    private static var storedOpenWidth = CGFloat(UserDefaults.standard.double(forKey: openWidthKey))
+    private static var storedCollapsed = UserDefaults.standard.bool(forKey: collapsedKey)
+    private static var storedRailNamed = UserDefaults.standard.bool(forKey: railNamedKey)
     /// The open sidebar's width while its edge is dragged (nil otherwise).
     private(set) static var openDragWidth: CGFloat?
     /// The window's width at the last layout pass (0 before the first).
@@ -68,15 +76,18 @@ final class MacSidebar: UIView {
     static var namedRailWidth: CGFloat { max(136, (2 * contentInset + 116 * chrome).rounded()) }
     static let railNamedKey = "HQMacRailNamed"
     static var railNamed: Bool {
-        get { UserDefaults.standard.bool(forKey: railNamedKey) }
-        set { UserDefaults.standard.set(newValue, forKey: railNamedKey) }
+        get { storedRailNamed }
+        set { storedRailNamed = newValue; UserDefaults.standard.set(newValue, forKey: railNamedKey) }
     }
     /// [rail-names] The rail's width while its edge is dragged (nil otherwise): it follows the pointer, then settles.
     private(set) static var railDragWidth: CGFloat?
     static let collapsedKey = "HQMacSidebarCollapsed"
     /// Folded by the person (kept across launches), or by a narrow window (below).
     static var isCollapsed: Bool { savedCollapsed || (narrowWindow && !openedWhileNarrow) }
-    private static var savedCollapsed: Bool { UserDefaults.standard.bool(forKey: collapsedKey) }
+    private static var savedCollapsed: Bool {
+        get { storedCollapsed }
+        set { storedCollapsed = newValue; UserDefaults.standard.set(newValue, forKey: collapsedKey) }
+    }
     /// [mac] Stress test 2026-10-28 #13: a window too narrow for the open sidebar and two panes folds it to its icons by
     /// itself, as Mail and Finder do, and opens it again once wider; nothing is saved. The button or ⌃⌘S still opens it
     /// meanwhile (`openedWhileNarrow`, until the window is wide again).
@@ -541,6 +552,14 @@ final class MacSidebar: UIView {
     }
 
     /// The tabs changed (Kanban or Artifacts, a gateway switch): the rows are made again.
+    /// [macpass-sidebar] A Tool row is a Tools page that is not one of the places: Move to Places adds it to Settings ›
+    /// Tabs, and the tab controller then puts it among them (`MainTabController.setViewControllers`), but asked only
+    /// `PagesTabs.isTool` the sidebar still drew it in Tools, now first under the heading, with Move to Places again.
+    func isTool(_ controller: UIViewController) -> Bool {
+        guard tabs?.pages?.isTool(controller) == true else { return false }
+        return TabChoice(tag: controller.tabBarItem.tag).map { !TabOrder.tabs.contains($0) } ?? true
+    }
+
     func rebuild() {
         guard let tabs else { return }
         badgeWatch = []
@@ -574,7 +593,7 @@ final class MacSidebar: UIView {
             // with More skipped (it has no row here; Mac polish #18, `TabShortcut`).
             let row = Row(item: item, shortcut: KeyCommands.shortcut(forTab: index, among: places.map { $0.tabBarItem.tag }), folded: Self.isCollapsed, named: named)
             row.controller = controller
-            row.isTool = tabs.pages?.isTool(controller) ?? false   // [sidebar-tidy] quieter than the bots and places
+            row.isTool = isTool(controller)   // [sidebar-tidy] quieter than the bots and places
             row.addAction(UIAction { [weak self, weak row, weak controller] _ in
                 guard let self, let tabs = self.tabs, let controller else { return }
                 // [mac] stress test #62: the right pane follows the tab; a chat left over its list goes straight there
@@ -587,8 +606,8 @@ final class MacSidebar: UIView {
             // [mac-sidebar] Its own Control-click menu, and a row with a place in Settings › Tabs (not More) drags to a
             // new one.
             row.addInteraction(UIContextMenuInteraction(delegate: self))
-            let isTool = tabs.pages?.isTool(controller) ?? false
-            if TabChoice(tag: item.tag) != nil, !folded, !isTool {
+            let tool = row.isTool
+            if TabChoice(tag: item.tag) != nil, !folded, !tool {
                 let drag = UIDragInteraction(delegate: self)
                 drag.isEnabled = true
                 row.addInteraction(drag)
@@ -596,7 +615,7 @@ final class MacSidebar: UIView {
             // [bots-rail] [mac-layout] Bots is the bots themselves, open or folded: its row is left out.
             // [mac-layout] More dissolved: its pages are Tools and the Settings window's; it stays a place out of
             // sight (⌘K's results open from its stack), with no row.
-            if isTool { toolRows.append(row) } else if item.tag != HQTab.bots.rawValue, item.tag != HQTab.more.rawValue { placeRows.append(row) }
+            if tool { toolRows.append(row) } else if item.tag != HQTab.bots.rawValue, item.tag != HQTab.more.rawValue { placeRows.append(row) }
             let height = row.heightAnchor.constraint(equalToConstant: named ? Self.namedRowHeight : Self.rowHeight)
             height.priority = .required - 1   // [sidebar-feel] a hidden Tools row has no height in its stack (`foldTools`)
             height.isActive = true
@@ -1136,7 +1155,9 @@ final class MacSidebar: UIView {
         let state = tabs.services.connection
         gatewayLeading.constant = Self.contentInset + MacBotsRail.nameLeading   // UI Scale moves the column
         gatewayName.text = title
-        gatewayName.font = Self.font(14)
+        // [macpass-sidebar] Type pass: 14.5 (11.2 pt on the screen), the size of the headings and a bot's step line; at 14
+        // the gateway's name was 10.8 pt, the one word in the sidebar under the 11 pt floor `sized` keeps.
+        gatewayName.font = Self.font(Self.sized(14, 14.5))
         gatewayName.textColor = HQPalette.label.withAlphaComponent(0.74)
         switch state {
         case .ready: gatewayDot.backgroundColor = .systemGreen
@@ -1323,12 +1344,12 @@ final class MacSidebar: UIView {
     /// Folds the sidebar to its icons or opens it out again; the panes slide over to fill the room.
     func toggleCollapsed() {
         if Self.isCollapsed {
-            UserDefaults.standard.set(false, forKey: Self.collapsedKey)
+            Self.savedCollapsed = false
             if Self.narrowWindow { Self.openedWhileNarrow = true }
         } else if Self.narrowWindow {
             Self.openedWhileNarrow = false   // folded for this narrow spell only: it opens again with a wider window
         } else {
-            UserDefaults.standard.set(true, forKey: Self.collapsedKey)
+            Self.savedCollapsed = true
         }
         AppLog.note("mac", Self.isCollapsed ? "sidebar folded" : "sidebar opened")
         // [sidebar-feel] The rows turned into icons (or back) at once and then the strip glided. Now a picture of the
@@ -1412,7 +1433,7 @@ final class MacSidebar: UIView {
         guard let tabs else { return }
         let shown = tabs.selectedViewController
         for row in rows { row.isMarked = row.controller != nil && row.controller === shown }
-        foldedTools?.isMarked = shown.map { tabs.pages?.isTool($0) ?? false } ?? false   // [mac-layout]
+        foldedTools?.isMarked = shown.map { isTool($0) } ?? false   // [mac-layout]
         markHeads()   // [bots-rail] a head is marked only while Bots is on show
         // [mac-sidebar] A place picked by ⌘9 or a link, below the fold of a long list, scrolls into view (in its own list:
         // Mac polish #27). A Tool on the folded rail is its Tools button.
@@ -1692,7 +1713,7 @@ extension MacSidebar: UIContextMenuInteractionDelegate, UIDragInteractionDelegat
         }
         let hit = row(at: interaction.view.map { $0.convert(location, to: self) } ?? location)
         // [mac-layout] A tool's menu: make it one of the places (it leaves Tools for Settings › Tabs' list).
-        if let hit, let controller = rows[hit.index].controller, tabs?.pages?.isTool(controller) == true, let choice = hit.choice {
+        if let hit, let controller = rows[hit.index].controller, isTool(controller), let choice = hit.choice {
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
                 UIMenu(children: [UIAction(title: "Move to Places", image: UIImage(systemName: "arrow.up.to.line")) { _ in
                     SidebarEditing.add(choice)

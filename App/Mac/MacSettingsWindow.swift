@@ -210,8 +210,14 @@ final class SettingsSceneDelegate: UIResponder, UIWindowSceneDelegate {
         // longer came back at its first size beside the main window each time. Kept inside the screen it is on now (a
         // second screen unplugged, a Dock that grew).
         let kept = WindowFit.decode(UserDefaults.standard.string(forKey: MacSettingsWindow.frameKey), minimum: CGSize(width: 320, height: 240))
-        if let main = MainTabController.current?.view.window?.windowScene?.effectiveGeometry.systemFrame {
-            let asked = kept ?? CGRect(x: main.minX + 60, y: main.minY + 40, width: 860, height: 640)
+        // [macpass-sidebar] Also with no main window to sit beside (closed, or not on show yet): it opened at the
+        // system's own size for a new window of this app, 1321 pt wide at the screen's left edge, with its content
+        // shifted up and a blank band at its foot. Now it opens as left, or settings-sized in the middle of the screen.
+        let main = MainTabController.current?.view.window?.windowScene?.effectiveGeometry.systemFrame
+        let beside = main.map { CGRect(x: $0.minX + 60, y: $0.minY + 40, width: 860, height: 640) }
+        let screen = MacSettingsWindow.visibleScreen(around: kept ?? beside ?? .zero)
+        let centred = screen.map { CGRect(x: ($0.midX - 430).rounded(), y: ($0.midY - 320).rounded(), width: 860, height: 640) }
+        if let asked = kept ?? beside ?? centred {
             let visible = MacSettingsWindow.visibleScreen(around: asked)
             let frame = WindowFit.inside(asked, visible: visible)
             AppLog.note("mac", "settings window: \(kept == nil ? "" : "as left, ")\(Int(frame.width))×\(Int(frame.height)) at \(Int(frame.minX)),\(Int(frame.minY)) in \(visible.map { "\(Int($0.width))×\(Int($0.height)) at \(Int($0.minX)),\(Int($0.minY))" } ?? "an unknown screen")")

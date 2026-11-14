@@ -1053,14 +1053,17 @@ struct MacAppUpdateView: View {
         .animation(HQMotion.swiftUI(.smooth(duration: 0.25)), value: update.countdown)
     }
 
+    /// [macpass-sidebar] A button title never wraps: with four buttons (Copy Details, Open Website, Done, Try Again on
+    /// "The Update Wasn't Signed Right") SwiftUI squeezed Copy Details onto two lines; the row has room for all four
+    /// at their natural width, so each title keeps its one line.
     private func push(_ title: String, id: String, prominent: Bool = false, perform: @escaping () -> Void) -> some View {
         Group {
             if prominent {
-                Button(action: perform) { Text(title).frame(minWidth: 72) }
+                Button(action: perform) { Text(title).lineLimit(1).fixedSize().frame(minWidth: 72) }
                     .hqProminentButtonStyle()
                     .keyboardShortcut(.defaultAction)
             } else {
-                Button(action: perform) { Text(title).frame(minWidth: 60) }
+                Button(action: perform) { Text(title).lineLimit(1).fixedSize().frame(minWidth: 60) }
                     .hqBorderedButtonStyle()
             }
         }

@@ -618,10 +618,13 @@ final class MacSidebarHeading: UIControl {
     static let foldedKey = "HQMacSidebarFoldedGroupKeys"
     /// The old store, by title: each heading takes its fold from it once (`carryOver`).
     static let legacyFoldedKey = "HQMacSidebarFoldedGroups"
+    /// [macpass-sidebar] Read once a launch and held (as `MacSidebar`'s own state): another copy of the app sharing the
+    /// defaults file could fold a group under this one, its chevron and rows then disagreeing.
     static var folded: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: foldedKey) ?? []) }
-        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: foldedKey) }
+        get { storedFolded }
+        set { storedFolded = newValue; UserDefaults.standard.set(Array(newValue).sorted(), forKey: foldedKey) }
     }
+    private static var storedFolded = Set(UserDefaults.standard.stringArray(forKey: foldedKey) ?? [])
 
     /// A bots' group's lasting key: its block (a user section by its id).
     static func key(for block: BotListSectionID) -> String {
@@ -908,7 +911,9 @@ final class MacSidebarChat: UIControl {
 
     static var rowHeight: CGFloat { ((MacSidebar.tidy ? (Density.compact ? 32 : 36) : (Density.compact ? 28 : 32)) * MacSidebar.chrome).rounded() }   // with the 2 pt the stack no longer puts between chat rows; [sidebar-size]
     static var titleSize: CGFloat { MacSidebar.tidy ? (Density.compact ? 15.5 : 17) : (Density.compact ? 14 : 15) }
-    static var timeSize: CGFloat { MacSidebar.tidy ? 14 : 12.5 }
+    /// [macpass-sidebar] Type pass: 14.5 (11.2 pt on the screen), the size of a bot's own step line beside its name; at
+    /// 14 a chat's time was 10.8 pt, under the sidebar's 11 pt floor and a size of its own.
+    static var timeSize: CGFloat { MacSidebar.tidy ? 14.5 : 12.5 }
     static var lineX: CGFloat { MacSidebar.iconLeading + MacSidebar.iconColumn / 2 }
 
     init(bot: String, look: Look) {
