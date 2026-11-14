@@ -1061,23 +1061,25 @@ final class NewChatKeysPage: UIHostingController<AnyView> {
             start.wantsPriorityOverSystemBehavior = true
             commands.append(start)
         }
-        if onEscape != nil {
-            let back = UIKeyCommand(title: "Back", action: #selector(hqEscape(_:)), input: UIKeyCommand.inputEscape)
-            back.wantsPriorityOverSystemBehavior = true
-            commands.append(back)
-        }
+        // [macpass] 2026-11-14: on the sheet's first page too. This page holds the keyboard, and the SwiftUI host under
+        // it took Escape without doing anything, so the menu's Escape (Close) never closed the sheet.
+        let back = UIKeyCommand(title: onEscape == nil ? "Close" : "Back", action: #selector(hqEscape(_:)), input: UIKeyCommand.inputEscape)
+        back.wantsPriorityOverSystemBehavior = true
+        commands.append(back)
         return commands
     }
 
     @objc private func returnPressed() { onReturn?() }
 
-    /// The app's Escape (`KeyCommands.escape`) stops here first while this page is in the responder chain.
+    /// The app's Escape (`KeyCommands.escape`) stops here first while this page is in the responder chain: a pushed
+    /// page goes back a step, the first page closes the sheet.
     @objc func hqEscape(_ sender: Any?) {
-        onEscape?()
+        if let onEscape { onEscape(); return }
+        (navigationController ?? self).presentingViewController?.dismiss(animated: true)
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(hqEscape(_:)) { return onEscape != nil && presentedViewController == nil }
+        if action == #selector(hqEscape(_:)) { return presentedViewController == nil }
         return super.canPerformAction(action, withSender: sender)
     }
 }

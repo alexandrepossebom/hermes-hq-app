@@ -26,7 +26,10 @@ import UIKit
     private let veil = UIView()
     private let fieldBox = UIView()
     private let field = UITextField()
-    private let table = UITableView(frame: .zero, style: .plain)
+    /// [macpass] Grouped, not plain: a plain table pins its headings, so a result scrolled under "Go To" showed its
+    /// blue mark through the heading (2026-11-14 Mac pass). The grouped style's own room above and below a section
+    /// is taken out in viewDidLoad.
+    private let table = UITableView(frame: .zero, style: .grouped)
     private var groups: [MoreSearch.Group] = []
     private var marked = IndexPath(row: 0, section: 0)
     private var tableHeight: NSLayoutConstraint!
@@ -127,6 +130,10 @@ import UIKit
         table.backgroundColor = .clear
         table.separatorStyle = .none
         table.sectionHeaderTopPadding = 6
+        table.sectionFooterHeight = .leastNormalMagnitude
+        table.estimatedSectionFooterHeight = 0
+        table.tableHeaderView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: CGFloat.leastNormalMagnitude))
+        table.tableFooterView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: CGFloat.leastNormalMagnitude))
         table.rowHeight = UITableView.automaticDimension
         table.estimatedRowHeight = 52
         table.accessibilityIdentifier = "open-quickly.results"
@@ -213,8 +220,11 @@ import UIKit
         let dark = traitCollection.userInterfaceStyle == .dark
         panel.backgroundColor = desktop ? ChatPalette.elevated : .clear
         panel.layer.cornerRadius = desktop ? HQShape.desktopRadius(.sheet) : Self.glassRadius
-        panel.layer.borderWidth = desktop ? 1 : 0
-        panel.layer.borderColor = ChatPalette.strokePrimary.resolvedColor(with: traitCollection).cgColor
+        // [macpass] 2026-11-14: in the iOS look the glass under a 94 % page-coloured veil had no edge at all on a dark
+        // page (black on black): the results seemed to float, a heading at the foot hung in the air. The sidebar's
+        // glass panel has the same hairline (`MacSidebar`, `cardEdge`).
+        panel.layer.borderWidth = desktop ? 1 : 1 / max(1, traitCollection.displayScale)
+        panel.layer.borderColor = (desktop ? ChatPalette.strokePrimary : HQPalette.cardEdge).resolvedColor(with: traitCollection).cgColor
         panel.layer.shadowOpacity = desktop ? (dark ? 0.6 : 0.25) : 0   // under see-through glass a drawn shadow would darken it
         fieldBox.backgroundColor = desktop ? ChatPalette.editor : Self.well
         fieldBox.layer.cornerRadius = desktop ? DesktopRows.radius : 8
@@ -262,6 +272,8 @@ import UIKit
     func numberOfSections(in tableView: UITableView) -> Int { groups.count }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { groups[section].rows.count }
+
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat { .leastNormalMagnitude }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         (field.text ?? "").isEmpty ? "Recent" : groups[section].kind.title

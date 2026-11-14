@@ -18,10 +18,21 @@ nonisolated(unsafe) private var pageBarKey: UInt8 = 0
         scene.titlebar?.toolbar = nil
         scene.sizeRestrictions?.minimumSize = minimumSize
         DesktopSegments.macTitles(UISegmentedControl.appearance())   // the iOS look has no theme walk at launch
+        noWindowTabs()
         MacDockMenu.install()   // quick actions and Talk's controls on the Dock icon
         MacDockIcon.apply()     // [app-icons] the icon picked in Settings › App Icon
         DesktopBars.hookBars()  // stress test 2026-10-28 #50: plain toolbar items in the iOS look too
         DesktopBack.install()   // stress test 2026-10-28 #104: the plain named Back in the iOS look too
+    }
+
+    /// [macpass] 2026-11-14: the app's windows are never tabs, but AppKit's automatic tabbing put Show Tab Bar and
+    /// Show All Tabs in View and Show Previous Tab, Show Next Tab, Move Tab to New Window and Merge All Windows in
+    /// Window, all dimmed. Turning tabbing off takes them out, as in apps that have no tabs.
+    static func noWindowTabs() {
+        let selector = NSSelectorFromString("setAllowsAutomaticWindowTabbing:")
+        guard let window: AnyClass = NSClassFromString("NSWindow"), let method = class_getClassMethod(window, selector) else { return }
+        typealias Setter = @convention(c) (AnyClass, Selector, Bool) -> Void
+        unsafeBitCast(method_getImplementation(method), to: Setter.self)(window, selector, false)
     }
 
     /// In the iPad points the Mac draws at 77 %: the sidebar and a 375 pt list (about 470 × 460 pt on the screen).
