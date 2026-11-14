@@ -102,6 +102,8 @@ struct PasswordsPageView: View {
     let model: VaultModel
     let keys: EnvKeysModel
     @State private var unlocking: VaultSource?
+    /// A password manager's switch while its save is out: where the person put it.
+    @State private var settingSource: [String: Bool] = [:]
     @State private var masterPassword = ""
     /// [mac-audit] The row under the pointer: its delete button shows.
     @State private var hovered: VaultItem.ID?
@@ -238,9 +240,20 @@ struct PasswordsPageView: View {
                 ForEach(model.sources) { source in
                     VStack(alignment: .leading, spacing: 6) {
                         // Stress test 2026-10-28 #87 (both): the subtitle says what the switch does and what locked means.
-                        SwitchRow(title: source.name, subtitle: VaultSource.subtitle(source),
-                                  isOn: Binding(get: { source.enabled }, set: { on in Task { _ = await model.setSource(source, enabled: on) } }),
-                                  disabled: !source.installed)
+                        // [macpass-settings r3] A slow gateway left the switch where it was, with nothing to show the
+                        // click took, for up to 30 s: it now moves at once and says so until the gateway answers (and
+                        // goes back if the save fails, with the failure card above).
+                        let pending = settingSource[source.id]
+                        SwitchRow(title: source.name,
+                                  subtitle: pending.map { $0 ? "Turning on…" : "Turning off…" } ?? VaultSource.subtitle(source),
+                                  isOn: Binding(get: { pending ?? source.enabled }, set: { on in
+                                      settingSource[source.id] = on
+                                      Task {
+                                          _ = await model.setSource(source, enabled: on)
+                                          settingSource[source.id] = nil
+                                      }
+                                  }),
+                                  disabled: !source.installed || pending != nil)
                         if source.enabled, source.installed {
                             Button(source.unlocked ? "Lock" : "Unlock…") {
                                 if source.unlocked { Task { if await model.lock(source) { Haptics.play(.success) } } } else { unlocking = source }

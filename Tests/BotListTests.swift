@@ -109,6 +109,22 @@ struct SignInTests {
         #expect(SignInWays(SignInOptions(reachable: true, offersNous: false, offersPassword: false)) == .both)
     }
 
+    /// [macpass-settings r3] An address that answered without listing its ways in is not "can't reach".
+    @Test func probeNoteSaysWhatIsTrue() {
+        let none = SignInOptions(reachable: false, offersNous: false, offersPassword: false)
+        #expect(SignInCopy.probeNote(none, hasAccess: false) == SignInCopy.unreachableNote)
+        #expect(SignInCopy.unreachableNote.hasPrefix("Can’t reach this address"))
+        let answered = SignInOptions(reachable: false, offersNous: false, offersPassword: false, answered: true)
+        #expect(SignInCopy.probeNote(answered, hasAccess: false) == SignInCopy.unansweredWaysNote)
+        #expect(SignInCopy.unansweredWaysNote.hasPrefix("This address answered"))
+        #expect(!SignInCopy.unansweredWaysNote.contains("reach"))
+        #expect(SignInCopy.probeNote(SignInOptions(reachable: true, offersNous: true, offersPassword: true), hasAccess: false) == nil)
+        let access = SignInOptions(reachable: false, offersNous: false, offersPassword: false, behindAccess: true)
+        #expect(SignInCopy.probeNote(access, hasAccess: false) == SignInCopy.Access.needed)
+        #expect(SignInCopy.probeNote(access, hasAccess: true) == SignInCopy.Access.refused)
+        #expect(ProbeResult.silent.ways == .both && ProbeResult.silent != .unknown)
+    }
+
     @Test func addressNormalisation() {
         #expect(SignInAddress.normalize("  mac-mini.tail1234.ts.net ") == "http://mac-mini.tail1234.ts.net")
         #expect(SignInAddress.normalize("hermes.example.com") == "https://hermes.example.com")

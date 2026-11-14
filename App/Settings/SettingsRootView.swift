@@ -1949,12 +1949,18 @@ extension SettingsRowLabel {
     /// [mac] Stress test 2026-10-28 round 6: the row glyph's font, made just small enough for a wide symbol to fit the
     /// icon column (Mixture of Agents' "rectangle.3.group" was about 4 pt wider and stuck out left of the column on the
     /// Model hub). Every other glyph keeps the row's size.
+    /// [macpass-settings r3] Fitting only to the column left the wide, busy glyphs (Memory's brain, Advanced's two
+    /// gears, Archiving's folder with a gear, Billing's card) about a quarter larger than the others on Hermes' list,
+    /// so they read heavier. Every glyph now fits one box, at most 1.3 × the text size wide and 1.4 × tall (measured
+    /// on that list: brain, gears and folder-gear 24–25 pt wide against 19–22 pt for the rest).
     static func fittedFont(_ name: String, column: CGFloat) -> Font {
         let size = MacIcon.rowSize
-        guard let glyph = UIImage(systemName: name, withConfiguration: MacIcon.row)?.size.width, glyph > column else {
+        guard let glyph = UIImage(systemName: name, withConfiguration: MacIcon.row)?.size, glyph.width > 0, glyph.height > 0 else {
             return MacIcon.rowFont
         }
-        return Font.system(size: (size * column / glyph * 10).rounded(.down) / 10, weight: .regular)
+        let scale = min(1, min(column, size * 1.3) / glyph.width, size * 1.4 / glyph.height)
+        guard scale < 1 else { return MacIcon.rowFont }
+        return Font.system(size: (size * scale * 10).rounded(.down) / 10, weight: .regular)
     }
 }
 

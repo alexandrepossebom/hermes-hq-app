@@ -209,10 +209,8 @@ final class SignInModel {
             // [cf-access] Cloudflare Access answered instead of Hermes: the token's fields open and the note says why.
             self.behindAccess = options.behindAccess
             if options.behindAccess { self.accessOpen = true }
-            self.note = options.reachable ? nil : options.behindAccess
-                ? (self.access == nil ? SignInCopy.Access.needed : SignInCopy.Access.refused)
-                : (options.message ?? SignInCopy.unreachableNote)
-            AppLog.trace("signin", "address probe settled: reachable=\(options.reachable)")
+            self.note = SignInCopy.probeNote(options, hasAccess: self.access != nil)
+            AppLog.trace("signin", "address probe settled: reachable=\(options.reachable) answered=\(options.answered)")
         }
     }
 

@@ -370,7 +370,7 @@ struct ChatBubblesSettingsView: View {
     }
 
     /// [tinted-bubbles] Tinted picked with no Chat Background: it has no colours to take.
-    static let tintedNeedsBackground = "Tinted takes its colors from your Chat Background. Choose one in Settings › Backgrounds; until then, messages are solid."
+    static let tintedNeedsBackground = "Tinted takes its colors from your Chat Background. Choose one in Appearance › Backgrounds; until then, messages are solid."
 
     var body: some View {
         let state = theme.state

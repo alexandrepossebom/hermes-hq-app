@@ -465,6 +465,12 @@ struct ProviderPageView: View {
         .settingsList().hqMacSettingsRows()
         .saveFailureFeedback(failure)
         .onChange(of: model.row(id)) { _, now in if let now { last = now } }
+        // [macpass-settings r3] A rename from another device reached the Name row but left the page title on the old
+        // name: the page carrying the old name takes the new one.
+        .onChange(of: row?.name(prefs)) { old, new in
+            guard let old, let new, old != new else { return }
+            router.navigation?.viewControllers.last(where: { $0.title == old })?.title = new
+        }
         .onAppear { if last == nil { last = model.row(id) } }
         .refreshable { await model.load() }
         .accessibilityIdentifier("provider-page")

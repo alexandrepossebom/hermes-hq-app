@@ -17,8 +17,8 @@ struct PerformanceFixtureTests {
         let creds = try #require(Fixtures.credentials("perf.json"))
         let service = SignInService(store: AccountStore(vault: vault))
 
-        // The perf fixture's /api/status lists no providers: show both ways in.
-        #expect(await service.probe(creds.url) == .unknown)
+        // The perf fixture's /api/status lists no providers: show both ways in, and it did answer.
+        #expect(await service.probe(creds.url) == .silent)
 
         let account = try await service.signInWithPassword(address: creds.url, username: creds.username, password: creds.password)
         #expect(account.kind == .password && account.username == creds.username)

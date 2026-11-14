@@ -50,11 +50,13 @@ nonisolated struct SignInOptions: Sendable, Equatable {
     /// [cf-access] The address answered with Cloudflare Access's own sign-in: it needs a service token, or did not
     /// take the one the form holds.
     var behindAccess = false
+    /// [macpass-settings r3] Not reachable as Hermes, but the address did answer (without listing its ways in).
+    var answered = false
 
     init(reachable: Bool, offersNous: Bool, offersPassword: Bool, message: String? = nil, ownLoginTitle: String? = nil,
-         behindAccess: Bool = false) {
+         behindAccess: Bool = false, answered: Bool = false) {
         self.reachable = reachable; self.offersNous = offersNous; self.offersPassword = offersPassword; self.message = message
-        self.ownLoginTitle = ownLoginTitle; self.behindAccess = behindAccess
+        self.ownLoginTitle = ownLoginTitle; self.behindAccess = behindAccess; self.answered = answered
     }
 
     /// Some sign-in in the browser sheet: Nous, or the gateway's own login.
@@ -119,8 +121,19 @@ nonisolated enum SignInCopy {
         static let refused = "Cloudflare Access didn’t take this service token. Check the Client ID and Client Secret, and that the token is allowed for this address."
     }
 
-    /// Under the address when the probe couldn't reach it (UX study #130); the full form stays, as the probe can be wrong.
+    /// Under the address when the probe got no answer (UX study #130); the full form stays, as the probe can be wrong.
     static let unreachableNote = "Can’t reach this address right now. Check that it’s typed right, or sign in anyway."
+    /// [macpass-settings r3] The address answered but didn't say how it signs in: it was reached, so never "can't reach".
+    static let unansweredWaysNote = "This address answered, but didn’t say how to sign in. Check the address, including any :port at the end, or sign in anyway."
+
+    /// The calm note under the address once the probe settled (nil: none). `hasAccess`: the form holds a Cloudflare
+    /// Access token.
+    static func probeNote(_ options: SignInOptions, hasAccess: Bool) -> String? {
+        if options.reachable { return nil }
+        if options.behindAccess { return hasAccess ? Access.refused : Access.needed }
+        if let message = options.message { return message }
+        return options.answered ? unansweredWaysNote : unreachableNote
+    }
 
     /// The stable code for any error a driver throws.
     static func code(for error: Error) -> String {

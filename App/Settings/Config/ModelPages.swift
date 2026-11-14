@@ -115,16 +115,30 @@ struct ModelChooserView: View {
 
     @ViewBuilder private var choices: some View {
         Section {
+            let rows = catalog.providers.filter { !excludeMoa || $0.slug.lowercased() != "moa" }
+            if DeviceWord.isMac {
+                // [macpass-settings r3] The form's bordered pop-up, as on the page under this sheet (a menu picker drew
+                // plain text with chevrons here, the one pop-up of the Model pages that looked like that).
+                let slugs = (provider.isEmpty || catalog.provider(provider) == nil ? [provider] : []) + rows.map(\.slug)
+                MacFormRow(label: "Provider") {
+                    MacPopUp(label: "Provider", selection: $provider, options: slugs) { slug in
+                        guard let row = catalog.provider(slug) else { return slug.isEmpty ? "Choose" : catalog.providerName(slug) }
+                        return row.isReady ? row.name : "\(row.name) (Not Set Up)"
+                    }
+                }
+                .accessibilityIdentifier("model-chooser.provider")
+            } else {
             Picker("Provider", selection: $provider) {
                 if provider.isEmpty || catalog.provider(provider) == nil {
                     Text(provider.isEmpty ? "Choose" : catalog.providerName(provider)).tag(provider)
                 }
-                ForEach(catalog.providers.filter { !excludeMoa || $0.slug.lowercased() != "moa" }) { row in
+                ForEach(rows) { row in
                     Text(row.isReady ? row.name : "\(row.name) (Not Set Up)").tag(row.slug)
                 }
             }
             .hqMenuPicker()
             .accessibilityIdentifier("model-chooser.provider")
+            }
         } header: { HQSectionLabel { Text("Provider") } } footer: { HQSectionFooter {
             if let note { Text(note).accessibilityIdentifier("model-chooser.note") }
         } }
@@ -132,6 +146,7 @@ struct ModelChooserView: View {
         let listed = catalog.provider(provider)?.models ?? []
         let models = provider == currentProvider && !currentModel.isEmpty && !listed.contains(currentModel) && catalog.provider(provider) != nil
             ? [currentModel] + listed : listed
+        let shown = models.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) || catalog.modelName(provider, $0).localizedCaseInsensitiveContains(query) }
         if !models.isEmpty {
             Section {
                 TextField("Search Models", text: $query)
@@ -139,7 +154,7 @@ struct ModelChooserView: View {
                     .autocorrectionDisabled()
             }
             Section {
-                ForEach(models.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) || catalog.modelName(provider, $0).localizedCaseInsensitiveContains(query) }, id: \.self) { model in
+                ForEach(shown, id: \.self) { model in
                     Button {
                         Haptics.play(.selection)
                         pick(provider, model)
@@ -161,18 +176,25 @@ struct ModelChooserView: View {
                     .accessibilityIdentifier("model-option.\(model)")
                     .hqRadioRow()   // [mac] Stress test 2026-10-28 #51 (round 6)
                 }
-            } header: { HQSectionLabel { Text("Model") } }
+            } header: { HQSectionLabel { Text("Model") } } footer: { HQSectionFooter {
+                // [macpass-settings r3] A search that matched nothing left the Model heading over nothing at all.
+                if shown.isEmpty { Text("No model matches “\(query)”.") }
+            } }
         }
         if !provider.isEmpty {
             Section {
                 TextField("Model name", text: $custom)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .onSubmit { if !custom.trimmingCharacters(in: .whitespaces).isEmpty { pick(provider, custom.trimmingCharacters(in: .whitespaces)) } }
                     .accessibilityIdentifier("model-chooser.custom")
+                // [macpass-settings r3] A push button, as Custom Provider's own Use This Model; dimmed, the row's words read
+                // as a second empty text field under Model name.
                 Button("Use This Model") {
                     pick(provider, custom.trimmingCharacters(in: .whitespaces))
                 }
                 .disabled(custom.trimmingCharacters(in: .whitespaces).isEmpty)
+                .hqMacPushButton(leading: true)
             } header: { HQSectionLabel {
                 Text(models.isEmpty ? "Model" : "Another Model")
             } } footer: { HQSectionFooter {
@@ -855,7 +877,12 @@ final class MixtureModel {
     }
 
     func setDefault(_ name: String) {
-        guard var record, let preset = record["presets"]?[name] else { return }
+        guard var record, var preset = record["presets"]?[name] else { return }
+        // [macpass-settings r3] Switching presets keeps Mixture of Agents as it was: a preset saved off (`enabled: false`)
+        // used to turn the whole feature off the moment it became Hermes's preset.
+        let wasOn = record["presets"]?[defaultPreset]?["enabled"]?.bool ?? record["enabled"]?.bool ?? false
+        preset = ConfigPath.set(preset, "enabled", .bool(wasOn))
+        record = ConfigPath.set(record, "presets.\(name)", preset)
         record = ConfigPath.set(record, "default_preset", .string(name))
         record = ConfigPath.set(record, "active_preset", .string(name))
         for key in ["aggregator", "aggregator_temperature", "reference_models", "reference_temperature", "enabled"] {

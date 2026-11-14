@@ -15,8 +15,13 @@ nonisolated struct ProbeResult: Sendable, Equatable {
     /// [cf-access] The address answered with Cloudflare Access's sign-in redirect: it needs a service token (or the
     /// one given was not taken).
     var behindAccess = false
+    /// [macpass-settings r3] The address answered, but not with the sign-in ways (no `auth_providers`, another
+    /// status, a body that isn't JSON): the form says it answered, never that it can't be reached.
+    var answeredWithoutWays = false
 
     static let unknown = ProbeResult(known: false, nous: false, password: false)
+    /// An answer that didn't list the ways in (shows both, like `.unknown`).
+    static let silent = ProbeResult(known: false, nous: false, password: false, answeredWithoutWays: true)
 
     /// unknown → both; browser only → nous; password only → password; else both.
     var ways: SignInWays {
@@ -65,7 +70,7 @@ nonisolated enum SignInFlows {
         }
         guard response.statusCode == 200,
               let status = try? JSONValue.parseFast(data), let providers = status["auth_providers"]?.array?.compactMap(\.string)
-        else { return .unknown }
+        else { return .silent }
         var result = ProbeResult(known: true, nous: NousGatewayProtocol.offersNous(status: status), password: providers.contains("basic"))
         // [own-login] No Nous, but a browser sign-in and a provider that isn't the password one: ask what it is.
         if !result.nous, NousGatewayProtocol.offersBrowserSignIn(status: status), providers.contains(where: { $0 != "basic" }),
