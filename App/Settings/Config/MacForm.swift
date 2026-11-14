@@ -700,6 +700,8 @@ enum MacPushKind { case plain, prominent, destructive }
         config.background.cornerRadius = radius
         config.contentInsets = insets
         config.titleLineBreakMode = .byTruncatingTail
+        // [Mac full pass 2026-11-14] An icon beside the word is the word's size, not the system's large default.
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: HQFont.preferred(.body), scale: .small)
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var copy = attributes
             copy.font = HQFont.preferred(.body)

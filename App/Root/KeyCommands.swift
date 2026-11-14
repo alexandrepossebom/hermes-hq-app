@@ -463,7 +463,7 @@ extension MoreViewController: KeySearchable {}
         facts.presented = presented(root) != nil
         facts.searching = activeSearch(root) != nil
         facts.chatDraft = root.chatOnShow.map { EscapeRule.isDraft($0.composer.text) } ?? false
-        facts.depth = backStack(root)?.viewControllers.count ?? 1
+        facts.depth = inPlaceBack(root) != nil ? 2 : backStack(root)?.viewControllers.count ?? 1
         return facts
     }
 
@@ -502,7 +502,13 @@ extension MoreViewController: KeySearchable {}
 
     /// ⌘[ (View › Back) has a page to go back from, as the bar's Back button does.
     static func canGoBack(_ root: MainTabController) -> Bool {
-        backStack(root).map(canGoBack) ?? false
+        inPlaceBack(root) != nil || backStack(root).map(canGoBack) ?? false
+    }
+
+    /// [macpass-tools] The list's page while it shows a folder it opened in place (Files' table): Back goes up one.
+    static func inPlaceBack(_ root: MainTabController) -> InPlaceBack? {
+        guard let page = listOnShow(root) as? InPlaceBack, page.canGoBackInPlace else { return nil }
+        return page
     }
 
     /// `stack` has a page to go back from and isn't moving.
@@ -512,6 +518,7 @@ extension MoreViewController: KeySearchable {}
 
     /// Back one page on the stack Escape goes back on (`goBack`).
     static func escapeGoBack(_ root: MainTabController) {
+        if let page = inPlaceBack(root) { page.goBackInPlace(); return }
         guard let stack = backStack(root) else { return }
         goBack(stack)
     }
