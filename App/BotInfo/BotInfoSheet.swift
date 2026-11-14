@@ -52,7 +52,9 @@ enum BotInfoStart { case info, editBot, face }
         #if targetEnvironment(macCatalyst)
         navigation.delegate = BotInfoPageBars.shared   // [mac] Mac polish #2
         #endif
-        SheetStyle.apply(navigation, from: presenter)   // [m9/ipad] a centred form sheet in two panes (§4.8)
+        // [macpass-popups] One height for every tab, About's (it followed each tab's list: About 760 pt, Brain 709 pt,
+        // so it jumped as the tabs switched); a longer tab scrolls.
+        SheetStyle.apply(navigation, from: presenter, fixed: 780)   // [m9/ipad] a centred form sheet in two panes (§4.8)
         let guardian = SheetEditGuard(navigation: navigation)
         navigation.presentationController?.delegate = guardian
         objc_setAssociatedObject(navigation, &guardKey, guardian, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)

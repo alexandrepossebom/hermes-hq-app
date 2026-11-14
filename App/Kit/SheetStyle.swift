@@ -8,8 +8,10 @@ import UIKit
 
 @MainActor enum SheetStyle {
     /// `presenter`: whoever presents the sheet (its window says the layout); nil reads the app's tabs.
+    /// `fixed` ([mac] only): the sheet keeps this height (at most the tall size) whatever its page holds, for a sheet
+    /// whose tabs change its list (Bot Info), so switching tabs never changes its height; the page scrolls instead.
     static func apply(_ navigation: UINavigationController, from presenter: UIViewController?,
-                      detents: [UISheetPresentationController.Detent] = [.large()]) {
+                      detents: [UISheetPresentationController.Detent] = [.large()], fixed: CGFloat? = nil) {
         if PanePopover.take(navigation, detents: detents) { return }   // [ipad-polish] hung off its button in two panes
         navigation.modalPresentationStyle = twoPanes(presenter) ? .formSheet : .pageSheet
         navigation.sheetPresentationController?.detents = detents
@@ -17,9 +19,9 @@ import UIKit
         // [mac] The form sheet keeps the iPad's 620 × 700 pt in any window, so a Kanban task or Bot Info scrolled with
         // most of the window empty. On the Mac it's as tall as the window allows, at the same width (owner 2026-10-23).
         if navigation.modalPresentationStyle == .formSheet, let window = presentingWindow(presenter) {
-            let tall = max(700, min(window.bounds.height - 120, 1100))
-            navigation.preferredContentSize = CGSize(width: 620, height: tall)
-            MacSheetFit.attach(to: navigation, tall: tall)
+            let tall = macTallHeight(window)
+            navigation.preferredContentSize = CGSize(width: 620, height: min(tall, fixed ?? tall))
+            if fixed == nil { MacSheetFit.attach(to: navigation, tall: tall) }
         }
         #else
         // [ipad-polish] The iPad's own form sheet is 570 × 650 pt whatever the window, so on a 13-inch iPad Bot Info
@@ -43,17 +45,46 @@ import UIKit
         #if targetEnvironment(macCatalyst)
         guard let window = presentingWindow(presenter) else { return }
         controller.modalPresentationStyle = .formSheet
-        controller.preferredContentSize = CGSize(width: 620, height: max(700, min(window.bounds.height - 120, 1100)))
+        controller.preferredContentSize = CGSize(width: 620, height: macTallHeight(window))
         #endif
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// [mac] A full-height sheet's height: as tall as the window allows, at least 700 pt, at most 1,100. [macpass-popups]
+    /// Never taller than the window it opens over, less 40 pt above and below: the 700 pt floor made a sheet over a
+    /// smaller window (Add Gateway over the Settings window) taller than the window, over its close, minimise and zoom
+    /// buttons, with Sign In cut off at the foot.
+    static func macTallHeight(_ window: UIWindow) -> CGFloat {
+        let room = window.bounds.height
+        return max(320, min(room - 80, max(700, min(room - 120, 1100))))
+    }
+
+    /// [macpass-popups] A sheet that shows a document (a live page or tile, a note, a folder of files): the page size
+    /// the tiles' sheet had (`HTMLPageSheet`), wide as a browser's page up to `width` (960 at most), the window less 80
+    /// pt a side, and as tall as the window allows, the same every time: it does not follow its page's scrolling
+    /// height as a form does (a note or a web page followed its own length; a 620 pt strip over a wide window).
+    static func macPage(_ navigation: UINavigationController, width: CGFloat = 960, from presenter: UIViewController?) {
+        guard let window = presentingWindow(presenter) else { return }
+        navigation.view.subviews.filter { $0 is MacSheetFit }.forEach { $0.removeFromSuperview() }   // no following the page
+        objc_setAssociatedObject(navigation, &MacSheetFit.key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        navigation.modalPresentationStyle = .formSheet
+        let room = window.bounds
+        navigation.preferredContentSize = CGSize(width: max(620, min(width, 960, room.width - 160)),
+                                                 height: min(room.height - 80, max(480, min(room.height - 180, 1100))))
+    }
+    #endif
 
     static func inTwoPanes(_ presenter: UIViewController?) -> Bool { twoPanes(presenter) }
 
     /// [ipad-polish] A sheet that shows a document (a live page or tile, a note, a folder of files) is wider than a form
     /// on an iPad: up to `width`, with 40 pt of the window left on each side. A page made for a browser sat in a
     /// phone's 620 pt on a 1,366 pt screen. Only the iPad's full-height form sheet in two panes; a no-op elsewhere.
+    /// [macpass-popups] On the Mac: the page size (`macPage`), up to `width`.
     static func widen(_ navigation: UINavigationController, to width: CGFloat, from presenter: UIViewController?) {
-        #if !targetEnvironment(macCatalyst)
+        #if targetEnvironment(macCatalyst)
+        guard navigation.modalPresentationStyle == .formSheet else { return }
+        macPage(navigation, width: width, from: presenter)
+        #else
         guard navigation.modalPresentationStyle == .formSheet, let window = presentingWindow(presenter) else { return }
         let wide = max(620, min(width, window.bounds.width - 80))
         MacSheetFit.widen(navigation, to: wide)
@@ -76,7 +107,7 @@ import UIKit
 /// keeps. [ipad-polish] The iPad's full-height form sheets in two panes use it too (`SheetStyle.apply`). It waits for the content to settle (a page fills in after loading), then follows it (#80: it used to only
 /// grow); while a field in it is being typed in it only grows. An empty page (its notice drawn over no rows) is 420.
 @MainActor final class MacSheetFit: UIView {
-    private static var key: UInt8 = 0
+    fileprivate static var key: UInt8 = 0
     private weak var navigation: UINavigationController?
     private weak var watched: UIScrollView?
     private var watch: NSKeyValueObservation?
@@ -152,7 +183,21 @@ import UIKit
         return nil
     }
 
+    /// [macpass-popups] The sheet opened at the tall size and only fitted its page 0.3 s later, so New Chat (and every
+    /// other fitted sheet) opened window-tall and empty, then shrank. As the sheet goes on screen its page is laid out at
+    /// once and the sheet takes the page's height before it is drawn; later changes still wait for the page to settle.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, height == 0, let navigation else { return }
+        navigation.view.layoutIfNeeded()
+        guard let page = navigation.topViewController?.viewIfLoaded, let scroll = watched ?? Self.list(in: page, depth: 0) else { return }
+        scroll.layoutIfNeeded()
+        if scroll.contentSize.height > 0 { fit(scroll, settled: true) }
+    }
+
     private func follow(_ scroll: UIScrollView) {
+        // The first measure of a page that is already drawn: at once (see `didMoveToWindow`).
+        if height == 0, scroll.window != nil, scroll.contentSize.height > 0 { fit(scroll, settled: true); return }
         settle?.cancel()
         relax?.cancel()   // [mac] #74: the list moved again, so it isn't still yet
         let work = DispatchWorkItem { [weak self, weak scroll] in if let scroll { self?.fit(scroll) } }
