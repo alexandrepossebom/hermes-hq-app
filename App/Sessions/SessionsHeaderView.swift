@@ -373,7 +373,7 @@ private struct SessionChip<Face: View>: View {
                         }
                     }
                 Text(caption)
-                    .font(Font.hq(.caption2).weight(picked ? .semibold : .regular))
+                    .font(Font.hq(.caption2).weight(picked && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the ring shows the pick
                     .foregroundStyle(picked ? Color.hqLabel : Color.hqLabel2)
                     .lineLimit(1)
                     .truncationMode(.tail)

@@ -820,7 +820,7 @@ final class MoreWorkspaceController: UITableViewController {
             let kind = MediaKinds.kindWord(entry.name, isDirectory: entry.isDirectory)
             cell.set(symbol: entry.isDirectory ? "folder" : MediaKinds.glyph(MediaKinds.kind(ofName: entry.name)),
                      tint: entry.isDirectory ? HQPalette.tint : HQPalette.label2,
-                     name: NSAttributedString(string: entry.name, attributes: [.font: MacFilesTable.text, .foregroundColor: HQPalette.label]),
+                     name: NSAttributedString(string: entry.name, attributes: [.font: MacFilesTable.name, .foregroundColor: HQPalette.label]),
                      columns: [(NSAttributedString(string: kind, attributes: [.font: MacFilesTable.text, .foregroundColor: HQPalette.label2]),
                                 .kind)],
                      busy: busyPath == entry.path)
@@ -836,10 +836,10 @@ final class MoreWorkspaceController: UITableViewController {
             let folder = (change.path as NSString).deletingLastPathComponent
             let name = NSMutableAttributedString()
             if !folder.isEmpty {
-                name.append(NSAttributedString(string: folder + "/", attributes: [.font: MacFilesTable.text, .foregroundColor: HQPalette.label2]))
+                name.append(NSAttributedString(string: folder + "/", attributes: [.font: MacFilesTable.name, .foregroundColor: HQPalette.label2]))
             }
             name.append(NSAttributedString(string: (change.path as NSString).lastPathComponent,
-                                           attributes: [.font: MacFilesTable.text, .foregroundColor: HQPalette.label]))
+                                           attributes: [.font: MacFilesTable.name, .foregroundColor: HQPalette.label]))
             let lines = NSMutableAttributedString()
             // [macpass r4 tools] A binary change read "+0" in green; it says "Binary" (a rename with no lines: nothing).
             if let word = MoreWorkspaceRoot.linesWord(added: change.added, removed: change.removed, status: change.status, path: change.path) {

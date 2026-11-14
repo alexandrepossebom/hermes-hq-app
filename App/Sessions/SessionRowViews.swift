@@ -107,7 +107,7 @@ struct SessionRowView: View {
                 .frame(minHeight: face)
                 if let status = cardStatus {
                     Text(status.words)
-                        .font(Font.hq(desk ? .footnote : .subheadline))
+                        .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
                         .foregroundStyle(status.color)
                         .lineLimit(large ? 3 : 1)
                         .padding(.bottom, 2)
@@ -172,7 +172,7 @@ struct SessionRowView: View {
                             ProgressView().controlSize(.mini).tint(Color.hqLabel2)
                         }
                         Text(status.words)
-                            .font(Font.hq(desk ? .footnote : .subheadline))
+                            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
                             .foregroundStyle(status.color)
                             .lineLimit(large ? 3 : 1)
                     }
@@ -207,7 +207,7 @@ struct SessionRowView: View {
 
     private func previewText(_ words: String) -> some View {
         Text(words)
-            .font(Font.hq(desk ? .footnote : .subheadline))
+            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
             .foregroundStyle(Color.hqLabel2)
             .lineLimit(large ? 3 : 1)
             .truncationMode(.tail)
@@ -376,14 +376,15 @@ struct SessionRowView: View {
     /// `.body` carries no UI Scale on the Mac, so names drew smaller than Bots'); bold only while unread, as before.
     private var titleFont: Font {
         // [density] Through the font factory on the iPhone too (it was the system body there), so UI Scale reaches it.
-        let body: Font = Font.hq(Density.compact ? .callout : .body)
+        // [type] Mac: callout, the row title of every Mac list (Jobs, Tasks, Artifacts, Files; the Desktop Look's own).
+        let body: Font = Font.hq(Density.compact || DeviceWord.isMac ? .callout : .body)
         return session.unread ? body.weight(.semibold) : body
     }
 
     private func trailingWords(_ words: String) -> some View {
         Text(words)
             // [mac] Stress test 2026-10-28 #68: the iOS look's time at the Bots row's size (it was a size larger).
-            .font(Font.hq(desk ? .caption2 : DeviceWord.isMac ? .caption : .subheadline))
+            .font(Font.hq(DeviceWord.isMac ? .footnote : desk ? .caption2 : .subheadline))   // [type] Mac: Jobs', Tasks' and Artifacts' time
             .monospacedDigit()
             .foregroundStyle(session.unread && fresh == nil ? Color.hqTintText : Color.hqLabel2)   // [sessions-fresh] the dot says it
             .lineLimit(large ? 3 : 1)                 // under the second line at the largest sizes: it wraps, never "$…"
@@ -410,14 +411,14 @@ struct SessionRowView: View {
         } else if let words = SessionRowWords.detailText(session, detail: detail) {
             rest = Text(words).foregroundStyle(Color.hqLabel2)
         } else {
-            return Text("\(owner)").font(Font.hq(desk ? .footnote : .subheadline)).lineLimit(desk || ((DeviceWord.isMac || shortPreview) && !large) ? 1 : large ? 4 : 2).frame(maxWidth: .infinity, alignment: .leading)
+            return Text("\(owner)").font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline)).lineLimit(desk || ((DeviceWord.isMac || shortPreview) && !large) ? 1 : large ? 4 : 2).frame(maxWidth: .infinity, alignment: .leading)
         }
         // [mac] Stress test 2026-10-28: one line in both looks on the Mac (the iOS look wrapped to two or three).
         // [toolnow] A step's line stays one line too, so the row keeps its height as the steps change.
         let stepLine = session.step != nil && (session.isRunning || session.status == .working) && session.searchSnippet == nil
             && session.status != .needsInput
         return Text("\(owner)\(Text(" · ").foregroundStyle(Color.hqLabel2))\(rest)")
-            .font(Font.hq(desk ? .footnote : .subheadline))
+            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
             .lineLimit(desk || ((DeviceWord.isMac || stepLine || shortPreview) && !large) ? 1 : large ? 4 : 2)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -826,7 +827,7 @@ struct SessionDateHeaderView: View {
             if let seeAll { seeAllButton(seeAll) }
             if let onEditCaption {
                 Button("Edit", action: onEditCaption)
-                    .font(Font.hq(desk ? .footnote : .subheadline))
+                    .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
                     .foregroundStyle(Color.hqTintText)
                     .buttonStyle(.plain)
                     .frame(minWidth: 44, minHeight: Self.captionHeight, alignment: .trailing)

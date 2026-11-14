@@ -87,11 +87,13 @@ nonisolated enum HQFont {
             let font = UIFont.preferredFont(forTextStyle: legibleStyle(style), compatibleWith: traits)
             // UI Scale in the iOS look too: the Mac's text size, and [density] on the iPhone and iPad on top of iOS's.
             let factor = iosFactor(traits, state: state)
-            return factor == 1 ? font : font.withSize((font.pointSize * factor * 2).rounded() / 2)
+            guard factor != 1 else { return font }
+            let size = MacTypeSteps.style(legibleStyle(style), size: (font.pointSize * factor * 2).rounded() / 2, state: state)
+            return font.withSize(size)
         }
         let spec = desktopSpec(style)
-        return face(size: legible((spec.size * factor(traits, state: state) * 2).rounded() / 2), weight: spec.weight,
-                    family: state.skin.sansFamily)
+        let size = MacTypeSteps.style(style, size: legible((spec.size * factor(traits, state: state) * 2).rounded() / 2), state: state)
+        return face(size: size, weight: spec.weight, family: state.skin.sansFamily)
     }
 
     /// [page-tabs] What a UISegmentedControl draws its titles in when none is set: 13 pt, the chosen one semibold (the
@@ -101,22 +103,24 @@ nonisolated enum HQFont {
     /// `UIFont.systemFont(ofSize:weight:)` when the look is off; × UI Scale in the skin's typeface when it is on.
     static func system(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
         let state = ThemeTable.current.state
-        guard state.desktopLook else { return UIFont.systemFont(ofSize: size * CGFloat(state.scale), weight: weight) }
+        let size = MacTypeSteps.whole(size * CGFloat(state.scale))
+        guard state.desktopLook else { return UIFont.systemFont(ofSize: size, weight: weight) }
         let capped = weight.rawValue > UIFont.Weight.semibold.rawValue ? UIFont.Weight.semibold : weight
-        return face(size: size * CGFloat(state.scale), weight: capped, family: state.skin.sansFamily)
+        return face(size: size, weight: capped, family: state.skin.sansFamily)
     }
 
     /// Code stays the system monospace in every skin (§3.4 DECISION); it follows UI Scale.
     static func mono(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
-        UIFont.monospacedSystemFont(ofSize: size * scale, weight: weight)
+        UIFont.monospacedSystemFont(ofSize: MacTypeSteps.whole(size * scale), weight: weight)
     }
 
     static func monoDigit(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
         let state = ThemeTable.current.state
+        let size = MacTypeSteps.whole(size * CGFloat(state.scale))
         guard state.desktopLook, state.skin.sansFamily != nil else {
-            return UIFont.monospacedDigitSystemFont(ofSize: size * CGFloat(state.scale), weight: weight)
+            return UIFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
         }
-        return face(size: size * CGFloat(state.scale), weight: weight, family: state.skin.sansFamily)
+        return face(size: size, weight: weight, family: state.skin.sansFamily)
     }
 
     // Sizes read back from a font this file already made (`HQFont.preferred(...).pointSize` and anything derived
@@ -124,17 +128,19 @@ nonisolated enum HQFont {
     // `system` / `mono` / `monoDigit` are for literal sizes only.
     static func face(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
         let state = ThemeTable.current.state
+        let size = MacTypeSteps.whole(size)
         guard state.desktopLook else { return UIFont.systemFont(ofSize: size, weight: weight) }
         let capped = weight.rawValue > UIFont.Weight.semibold.rawValue ? UIFont.Weight.semibold : weight
         return face(size: size, weight: capped, family: state.skin.sansFamily)
     }
 
     static func monoFace(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
-        UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+        UIFont.monospacedSystemFont(ofSize: MacTypeSteps.whole(size), weight: weight)
     }
 
     static func monoDigitFace(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
         let state = ThemeTable.current.state
+        let size = MacTypeSteps.whole(size)
         guard state.desktopLook, state.skin.sansFamily != nil else {
             return UIFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
         }
@@ -199,7 +205,7 @@ extension Font {
             return state.scale == 1 ? plain(style) : Font(HQFont.preferred(uiStyle(style)) as CTFont)
         }
         let spec = HQFont.desktopSpec(uiStyle(style))
-        let size = HQFont.legible((spec.size * HQFont.factor(nil, state: state) * 2).rounded() / 2)
+        let size = MacTypeSteps.style(uiStyle(style), size: HQFont.legible((spec.size * HQFont.factor(nil, state: state) * 2).rounded() / 2), state: state)
         let weight: Font.Weight = spec.weight == .semibold ? .semibold : .regular
         if let family = state.skin.sansFamily { return Font.custom(family, fixedSize: size).weight(weight) }
         return Font.system(size: size, weight: weight)
@@ -209,11 +215,12 @@ extension Font {
     static func hqSystem(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
         Theme.touch()
         let state = ThemeTable.current.state
-        guard state.desktopLook else { return Font.system(size: size * CGFloat(state.scale), weight: weight, design: design) }
+        let size = MacTypeSteps.whole(size * CGFloat(state.scale))
+        guard state.desktopLook else { return Font.system(size: size, weight: weight, design: design) }
         if design == .default, let family = state.skin.sansFamily {
-            return Font.custom(family, fixedSize: size * CGFloat(state.scale)).weight(weight)
+            return Font.custom(family, fixedSize: size).weight(weight)
         }
-        return Font.system(size: size * CGFloat(state.scale), weight: weight, design: design)
+        return Font.system(size: size, weight: weight, design: design)
     }
 
     static func hqSystem(_ style: Font.TextStyle, design: Font.Design? = nil, weight: Font.Weight? = nil) -> Font {
@@ -226,7 +233,7 @@ extension Font {
             return Font.system(size: size, weight: weight ?? (style == .headline ? .semibold : .regular), design: design ?? .default)
         }
         let spec = HQFont.desktopSpec(uiStyle(style))
-        let size = HQFont.legible((spec.size * HQFont.factor(nil, state: state) * 2).rounded() / 2)
+        let size = MacTypeSteps.style(uiStyle(style), size: HQFont.legible((spec.size * HQFont.factor(nil, state: state) * 2).rounded() / 2), state: state)
         return Font.system(size: size, weight: weight ?? (spec.weight == .semibold ? .semibold : .regular), design: design ?? .default)
     }
 }
@@ -248,7 +255,7 @@ extension Font {
     private static func iosLook(_ font: UIFont) -> Font? {
         guard scaledRoot, !Theme.isDesktop else { return nil }
         let scale = HQFont.iosFactor(nil)
-        return Font(font.withSize((font.pointSize * scale * 2).rounded() / 2) as CTFont)
+        return Font(font.withSize(MacTypeSteps.whole((font.pointSize * scale * 2).rounded() / 2)) as CTFont)
     }
 }
 
@@ -298,8 +305,8 @@ extension UIListContentConfiguration {
         guard scale != 1 else { return self }
         var copy = self
         let text = copy.textProperties.font, secondary = copy.secondaryTextProperties.font
-        copy.textProperties.font = text.withSize((text.pointSize * scale * 2).rounded() / 2)
-        copy.secondaryTextProperties.font = secondary.withSize((secondary.pointSize * scale * 2).rounded() / 2)
+        copy.textProperties.font = text.withSize(MacTypeSteps.whole((text.pointSize * scale * 2).rounded() / 2))
+        copy.secondaryTextProperties.font = secondary.withSize(MacTypeSteps.whole((secondary.pointSize * scale * 2).rounded() / 2))
         return copy
     }
 }

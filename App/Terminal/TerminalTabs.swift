@@ -128,7 +128,7 @@ final class TerminalTabStrip: UIView {
         config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: front ? 34 : 12)
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
             var attributes = attributes
-            attributes.font = HQFont.mono(ofSize: 13, weight: front ? .semibold : .regular)
+            attributes.font = HQFont.mono(ofSize: 13, weight: front && !DeviceWord.isMac ? .semibold : .regular)   // [type] Mac: the fill shows the front tab
             return attributes
         }
         let button = UIButton(configuration: config)

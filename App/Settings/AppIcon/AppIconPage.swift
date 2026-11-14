@@ -76,7 +76,7 @@ struct AppIconPage: View {
                 // [mac] Mac polish #100: a long name ("Black & White") wraps onto a second line at the others' size; it was
                 // shrunk to about three quarters of it to fit one. iPhone and iPad keep one line.
                 Text(choice.title)
-                    .font(Font.hq(.footnote).weight(chosen ? .semibold : .regular))
+                    .font(Font.hq(.footnote).weight(chosen && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the tick and ink show the choice
                     .foregroundStyle(chosen ? Color.hqLabel : Color.hqLabel2)
                     .lineLimit(DeviceWord.isMac ? 2 : 1)
                     .minimumScaleFactor(DeviceWord.isMac ? 1 : 0.8)

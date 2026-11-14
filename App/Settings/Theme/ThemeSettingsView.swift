@@ -778,7 +778,7 @@ private struct ScaleSegments: View {
                 let last = index == ThemeState.scalePresets.count - 1
                 Button { pick(percent) } label: {
                     Text("\(percent)%")
-                        .font(Font.hq(.footnote).weight(on ? .semibold : .regular))
+                        .font(Font.hq(.footnote).weight(on && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the fill shows the choice
                         .foregroundStyle(on ? Color.hqOnTint : Color.hqLabel)
                         // [mac] No shrinking to fit on the Mac (a candidate in the Mac 479 layout-loop crash: a label that may
                         // scale measures differently pass to pass); the Mac's segments are wide enough at every UI Scale.

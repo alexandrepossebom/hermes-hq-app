@@ -264,7 +264,7 @@ struct DesktopSegmentStrip<Value: Hashable>: View {
                     selection = option.value
                 } label: {
                     Text(option.title)
-                        .font(Font.hq(.footnote).weight(selection == option.value ? .semibold : .regular))
+                        .font(Font.hq(.footnote).weight(selection == option.value && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the fill shows the choice
                         .foregroundStyle(selection == option.value ? Color.hqLabel : Color.hqLabel2)
                         .lineLimit(1)
                         .fixedSize(horizontal: wholeLabels, vertical: false)

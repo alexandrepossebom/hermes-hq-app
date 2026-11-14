@@ -224,7 +224,7 @@ private struct ChangeTileChip: View {
                     .hqSymbolFont(11, weight: .semibold, cap: 18)
                 Text(label).lineLimit(2).multilineTextAlignment(.leading)
             }
-            .font(Font.hq(.footnote).weight(on ? .semibold : .medium))
+            .font(Font.hq(.footnote).weight(on && !DeviceWord.isMac ? .semibold : .medium))   // [type] Mac: the tick and tint show it
             .foregroundStyle(on ? Color.hqTintText : Color.hqLabel)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)

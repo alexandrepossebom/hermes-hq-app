@@ -16,18 +16,18 @@ nonisolated extension HQFont {
         if design != .default, let descriptor = base.fontDescriptor.withDesign(design) {
             base = UIFont(descriptor: descriptor, size: size * scale)
         }
-        return metricScaled(base, like: style, cap: cap, category: category)
+        return MacTypeSteps.font(metricScaled(base, like: style, cap: cap, category: category))
     }
 
     static func mono(_ size: CGFloat, weight: UIFont.Weight = .regular, like style: UIFont.TextStyle,
                                  cap: CGFloat? = nil, category: UIContentSizeCategory? = nil) -> UIFont {
-        metricScaled(.monospacedSystemFont(ofSize: legible(size) * scale, weight: weight), like: style, cap: cap, category: category)
+        MacTypeSteps.font(metricScaled(.monospacedSystemFont(ofSize: legible(size) * scale, weight: weight), like: style, cap: cap, category: category))
     }
 
     /// Digits that do not jiggle (counters, timers).
     static func digits(_ size: CGFloat, weight: UIFont.Weight = .regular, like style: UIFont.TextStyle,
                                    cap: CGFloat? = nil, category: UIContentSizeCategory? = nil) -> UIFont {
-        metricScaled(.monospacedDigitSystemFont(ofSize: legible(size) * scale, weight: weight), like: style, cap: cap, category: category)
+        MacTypeSteps.font(metricScaled(.monospacedDigitSystemFont(ofSize: legible(size) * scale, weight: weight), like: style, cap: cap, category: category))
     }
 
     /// The system's own style, capped.
@@ -36,8 +36,8 @@ nonisolated extension HQFont {
         let traits = category.map { UITraitCollection(preferredContentSizeCategory: $0) }
         let preferred = UIFont.preferredFont(forTextStyle: legibleStyle(style), compatibleWith: traits)
         let size = min(preferred.pointSize, cap ?? .greatestFiniteMagnitude) * scale
-        guard let weight else { return cap == nil && scale == 1 ? preferred : preferred.withSize(size) }
-        return .systemFont(ofSize: size, weight: weight)
+        guard let weight else { return cap == nil && scale == 1 ? preferred : MacTypeSteps.font(preferred.withSize(size)) }
+        return MacTypeSteps.font(.systemFont(ofSize: size, weight: weight))
     }
 
     private static func metricScaled(_ base: UIFont, like style: UIFont.TextStyle, cap: CGFloat?,

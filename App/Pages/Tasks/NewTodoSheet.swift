@@ -377,7 +377,7 @@ struct NewTodoView: View {
             if let symbol { Image(systemName: symbol).imageScale(.small).foregroundStyle(tint ?? (set ? Color.hqTintText : Color.hqLabel2)) }
             if let words { Text(words).lineLimit(1) }
         }
-        .font(Font.hq(.footnote).weight(set ? .semibold : .regular))
+        .font(Font.hq(.footnote).weight(set && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the tint shows it is set
         .foregroundStyle(set ? Color.hqTintText : Color.hqLabel2)
         .padding(.horizontal, 10)
         .frame(minHeight: 32)
@@ -472,7 +472,7 @@ struct NewTodoView: View {
                 }
                 Text(words).lineLimit(1)
             }
-            .font(Font.hq(.footnote).weight(model.helper != nil ? .semibold : .regular))
+            .font(Font.hq(.footnote).weight(model.helper != nil && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the tint shows it
             .foregroundStyle(model.helper != nil ? Color.hqTintText : Color.hqLabel2)
             .padding(.horizontal, 10)
             .frame(minHeight: 32)

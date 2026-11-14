@@ -2920,7 +2920,7 @@ struct ArtifactRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(record.label.isEmpty ? record.value : record.label)
-                        .font(Font.hq(.body))
+                        .font(Font.hq(DeviceWord.isMac ? .callout : .body))   // [type] Mac: every list's row title
                         .foregroundStyle(missing ? Color.hqLabel2 : Color.hqLabel)
                         .lineLimit(large ? 3 : (record.repeatBadge == nil || card || edged ? 1 : 2))   // [morepages] the name wraps before the badge squeezes it
                         .truncationMode(.middle)
@@ -3055,7 +3055,7 @@ final class ArtifactFilterBar: UIView {
             // The control keeps its 32 pt height whatever the font: taller text needs a taller control.
             control.heightAnchor.constraint(greaterThanOrEqualToConstant: ceil(font.lineHeight) + 14).isActive = true
             control.setTitleTextAttributes([.font: font], for: .normal)
-            control.setTitleTextAttributes([.font: font.pagesWeight(.semibold)], for: .selected)
+            control.setTitleTextAttributes([.font: DeviceWord.isMac ? font : font.pagesWeight(.semibold)], for: .selected)   // [type] Mac: the thumb shows the choice
             control.accessibilityIdentifier = rows.count == 1 ? "artifacts.filter" : "artifacts.filter.\(number + 1)"
             control.addAction(UIAction { [weak self, weak control] _ in
                 guard let self, let control, control.selectedSegmentIndex >= 0 else { return }

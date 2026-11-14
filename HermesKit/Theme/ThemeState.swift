@@ -59,11 +59,27 @@ nonisolated struct ThemeState: Sendable, Hashable {
     /// faces, rows and icons grow with it.
     static func macBase(desktopLook: Bool) -> Double {
         #if targetEnvironment(macCatalyst)
-        desktopLook ? 1.3 : 1.15
+        (desktopLook ? 1.3 : 1.15) * macBodyTrial
         #else
         1
         #endif
     }
+
+    /// [type-body] A trial, not the shipping look (owner 2026-11-14, type pass): a Debug build launched with
+    /// `-HQTypeBody 13` draws the Mac's text, faces and rows smaller by the ratio that puts body text (15 pt on the
+    /// screen in both looks) on `13`, as a UI Scale would, without storing a UI Scale. The launch's own arguments,
+    /// read once a launch, never saved; 1 otherwise and always in Release. The sidebar keeps its own sizes
+    /// (`SidebarType`; `-HQSidebarType native` is its 13 pt scheme).
+    static let macBodyTrial: Double = {
+        #if DEBUG && targetEnvironment(macCatalyst)
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let at = arguments.firstIndex(of: "-HQTypeBody"), at + 1 < arguments.count,
+              let body = Double(arguments[at + 1]), (10...20).contains(body) else { return 1 }
+        return body / 15
+        #else
+        return 1
+        #endif
+    }()
 
     /// UI Scale × the look's own 100 % on the Mac. [density] Both looks, everywhere: the web's `appliedUIScale`
     /// (ui-scale.ts:21) kept the iOS look at 100 %, and so did the iPhone until 2026-11-09 (the Mac stopped in October,

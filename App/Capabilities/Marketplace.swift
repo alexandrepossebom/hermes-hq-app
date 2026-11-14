@@ -574,7 +574,7 @@ struct MarketplaceView: View {
         Button { HQMotion.withAnimation(.snappy) { action(); state.resetPaging() } } label: {
             HStack(spacing: 9) {
                 Image(systemName: symbol).font(Font.hq(.subheadline)).foregroundStyle(on ? Color.hqTint : Color.hqLabel2).frame(width: 24)
-                Text(title).font(Font.hq(.subheadline).weight(on ? .semibold : .regular)).foregroundStyle(Color.hqLabel).lineLimit(1)
+                Text(title).font(Font.hq(.subheadline).weight(on && !DeviceWord.isMac ? .semibold : .regular)).foregroundStyle(Color.hqLabel).lineLimit(1)   // [type] Mac: the fill shows the choice
                 Spacer(minLength: 4)
                 if let count {
                     Text(count.formatted()).font(Font.hq(.caption)).monospacedDigit().foregroundStyle(on ? Color.hqTint : Color.hqLabel2)
@@ -1598,7 +1598,7 @@ struct MarketplaceChipFace: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(title).font(Font.hq(.subheadline).weight(on ? .semibold : .regular))
+            Text(title).font(Font.hq(.subheadline).weight(on && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the fill shows the choice
             if let count { Text(count.formatted()).font(Font.hq(.footnote)).foregroundStyle(on ? Color.hqTint : Color.hqLabel2) }
             if menu { Image(systemName: "chevron.down").font(Font.hq(.caption2).weight(.semibold)) }
         }

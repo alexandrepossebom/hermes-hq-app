@@ -44,6 +44,8 @@ import UIKit
     }
 
     static var text: UIFont { HQFont.preferred(.subheadline) }
+    /// [type] A row's name: callout, every Mac list's row title (Sessions, Jobs, Tasks, Artifacts); its columns `text`.
+    static var name: UIFont { HQFont.preferred(.callout) }
     static var detail: UIFont { HQFont.preferred(.footnote) }
 
     /// The room the widest of `kinds` needs in the Kind column (its words in `text`).

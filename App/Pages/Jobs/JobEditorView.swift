@@ -135,7 +135,7 @@ struct JobEditorView: View {
                         .padding(3)
                     // The largest sizes: one line that shrinks, never a name broken mid-word.
                     Text(bot.name)
-                        .font(Font.hq(.caption).weight(chosen ? .semibold : .regular))
+                        .font(Font.hq(.caption).weight(chosen && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the tile's ring shows the choice
                         // On the glass the names are in full ink, the chosen one too (the grey read 3:1 over
                         // the blur, the tint on the chosen tile's tinted glass 2.2:1 in the dark).
                         .foregroundStyle(Theme.isDesktop ? (chosen ? Color.hqTintText : Color.hqLabel2) : Color.hqLabel)
@@ -781,7 +781,7 @@ struct JobChip: View {
         let shape = RoundedRectangle(cornerRadius: desk ? DesktopRows.radius : min(height, 52) / 2, style: .continuous)
         Button(action: action) {
             Text(title)
-                .font(Font.hq(.subheadline).weight(selected ? .semibold : .medium))
+                .font(Font.hq(.subheadline).weight(selected && !DeviceWord.isMac ? .semibold : .medium))   // [type] Mac: the fill shows the choice
                 .foregroundStyle(selected && !desk ? Color.hqOnTint : Color.hqLabel)
                 .lineLimit(1)
                 .fixedSize()

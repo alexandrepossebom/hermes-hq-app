@@ -79,7 +79,7 @@ struct TodoRowView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(row.line.lead ?? "")
-                .font(Font.hq(.subheadline).weight(.medium)).foregroundStyle(TodoInk.color(row.line.tone))
+                .font(Font.hq(.subheadline).weight(DeviceWord.isMac ? .regular : .medium)).foregroundStyle(TodoInk.color(row.line.tone))   // [type] Mac: its colour marks it, as Jobs' status
                 .lineLimit(1)
                 .frame(width: TodoTable.status, alignment: .leading)
             Text(row.line.rest.joined(separator: " · "))
@@ -340,7 +340,7 @@ struct TodoWeekStrip: View {
                         // The picked day is the filled circle; today, while it isn't picked, is the accent's number (as
                         // Calendar's week). With no day picked the list holds every coming day.
                         Text(day.number)
-                            .font(Font.hq(.callout).weight(day.today || day.picked ? .semibold : .regular)).monospacedDigit()
+                            .font(Font.hq(.callout).weight(day.today || (day.picked && !DeviceWord.isMac) ? .semibold : .regular)).monospacedDigit()   // [type] Mac: the circle shows the pick
                             .foregroundStyle(day.picked ? Color.hqOnTint : (day.today ? Color.hqTintText : (day.busy ? Color.hqLabel : Color.hqLabel2)))
                             .frame(width: HQFont.scaled(32), height: HQFont.scaled(32))
                             .background { if day.picked { Circle().fill(Color.hqTint) } }

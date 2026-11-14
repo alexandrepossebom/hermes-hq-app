@@ -419,7 +419,7 @@ extension UIBarButtonItem {
         #if targetEnvironment(macCatalyst)
         for state in [UIControl.State.normal, .selected] {
             var attributes = control.titleTextAttributes(for: state) ?? [:]
-            attributes[.font] = HQFont.system(ofSize: 13, weight: state == .selected ? .semibold : .regular)
+            attributes[.font] = HQFont.system(ofSize: 13, weight: .regular)   // [type] one weight: the thumb shows the choice (as AppKit's segments)
             control.setTitleTextAttributes(attributes, for: state)
         }
         #else
