@@ -154,7 +154,10 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     /// where it stands, the details, who has it) and the bot picker is in words. With a task open beside it the list
     /// is the column it was. iPhone and iPad never see this.
     private(set) var isTable = false
-    static let tableAt: CGFloat = 760
+    /// The columns' widths and gaps (`TodoTable`) are about 500 pt before the task's name: from 760 a 900 pt window's
+    /// pane (about 820 pt in the page's points) left the name some 60 pt, "Reply to Ivy abo…" and worse. From here the
+    /// name keeps 220 pt at least; below it the list is the column it is beside an open task.
+    static let tableAt: CGFloat = 940
 
     private func fitWide() {
         let wide = DeviceWord.isMac && view.bounds.width >= Self.tableAt

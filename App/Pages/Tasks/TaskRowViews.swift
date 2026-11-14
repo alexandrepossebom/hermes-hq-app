@@ -85,7 +85,8 @@ struct TodoRowView: View {
             Text(row.line.rest.joined(separator: " · "))
                 .font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
                 .lineLimit(1)
-                .frame(width: TodoTable.details, alignment: .leading)
+                // Up to its width, and no more than the name's share: at the table's narrowest the name keeps half.
+                .frame(minWidth: 0, maxWidth: TodoTable.details, alignment: .leading)
             HStack(spacing: 7) {
                 if let profile = row.face {
                     HeadImage(raw: row.head, profile: profile, size: 18).frame(width: 18, height: 18)
