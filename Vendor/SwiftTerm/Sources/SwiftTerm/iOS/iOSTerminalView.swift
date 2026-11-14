@@ -795,9 +795,14 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     ///  to auto-select a word
     func showContextMenu (forRegion: CGRect, pos: Position) {
         let items: [UIMenuItem] = []
-        
+
         lastLongSelect = pos
         lastLongSelectRegion = forRegion
+        #if targetEnvironment(macCatalyst)
+        // Hermes HQ Mac full pass 2026-11-14 [macpass-tools]: no iPhone Copy/Paste bubble over a double-clicked word on
+        // the Mac; ⌘C, ⌘V and Edit in the menu bar do it, as in Terminal.
+        return
+        #endif
 
         //GAR: Declutter context menu
         //items.append (UIMenuItem(title: "Reset", action: #selector(resetCmd)))
@@ -1475,6 +1480,9 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         addGestureRecognizer(gesture)
         panMouseGesture = gesture
         panGestureRecognizer.minimumNumberOfTouches = 2
+        #if targetEnvironment(macCatalyst)
+        macDragSelect?.isEnabled = false   // [macpass-tools] the program takes the drag
+        #endif
     }
     
     func disableMousePanGesture () {
@@ -1484,6 +1492,9 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         removeGestureRecognizer(gesture)
         panMouseGesture = nil
         panGestureRecognizer.minimumNumberOfTouches = 1
+        #if targetEnvironment(macCatalyst)
+        macDragSelect?.isEnabled = true
+        #endif
     }
     
     var panSelectionGesture: UIPanGestureRecognizer?
@@ -1523,7 +1534,60 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 
         singleTap.require(toFail: doubleTap)
         doubleTap.require(toFail: tripleTap)
+        #if targetEnvironment(macCatalyst)
+        setupMacDragSelect()
+        #endif
     }
+
+    #if targetEnvironment(macCatalyst)
+    // Hermes HQ Mac full pass 2026-11-14 [macpass-tools]: on the Mac a click-drag selects text, as in Terminal. The
+    // iPhone's way in (a long press, then a drag) is no Mac gesture, and the drag only moved the page. The wheel still
+    // scrolls, and a program that takes the mouse (vim, tmux) still gets the drag (panMouseHandler; this one is off).
+    var macDragSelect: UIPanGestureRecognizer?
+    /// Where the button went down: the pan only begins some points later, so its own start is a letter late.
+    var macPressPoint: CGPoint?
+    private var macDragSelectDelegate: MacDragSelectDelegate?
+
+    func setupMacDragSelect () {
+        let drag = UIPanGestureRecognizer (target: self, action: #selector(macDragSelectHandler(_:)))
+        drag.maximumNumberOfTouches = 1
+        let delegate = MacDragSelectDelegate (terminalView: self)
+        drag.delegate = delegate
+        macDragSelectDelegate = delegate
+        addGestureRecognizer(drag)
+        macDragSelect = drag
+        panGestureRecognizer.allowedTouchTypes = []   // a click-drag never moves the page; the wheel and trackpad do
+    }
+
+    @objc func macDragSelectHandler (_ gestureRecognizer: UIPanGestureRecognizer) {
+        let point = gestureRecognizer.location (in: self)
+        switch gestureRecognizer.state {
+        case .began:
+            let moved = gestureRecognizer.translation (in: self)
+            let from = calculateTapHit (point: macPressPoint ?? CGPoint (x: point.x - moved.x, y: point.y - moved.y)).grid
+            let hit = calculateTapHit (point: point).grid
+            _ = becomeFirstResponder ()
+            withTerminal { _ in selection.setSelection (start: from, end: hit) }
+            requestDisplay ()
+        case .changed:
+            let hit = calculateTapHit (point: point).grid
+            stopSelectionTimer ()
+            withTerminal { _ in selection.dragExtend (bufferPosition: hit) }
+            let absoluteY = point.y - contentOffset.y
+            if absoluteY < 0 || absoluteY > bounds.height {
+                startSelectionTimer {
+                    let newPlace = CGRect (x: 0, y: max (0, self.contentOffset.y+absoluteY), width: self.bounds.width, height: self.bounds.height)
+                    self.scrollRectToVisible (newPlace, animated: true)
+                }
+            }
+            requestDisplay ()
+        case .ended, .cancelled, .failed:
+            stopSelectionTimer ()
+        default:
+            break
+        }
+    }
+    #endif
 
     func setupLinkReportingInteractions ()
     {
@@ -2196,7 +2260,14 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         let bottomRow = withTerminal { terminal -> Int in
             setManualScrollingLocked(false, terminal: terminal)
             let displayBuffer = terminal.displayBuffer
-            terminal.setViewYDisp(maxDisplayRow(in: displayBuffer))
+            let bottom = maxDisplayRow(in: displayBuffer)
+            if displayBuffer.yDisp != bottom {
+                terminal.setViewYDisp(bottom)
+                // Hermes HQ Mac full pass 2026-11-14 [macpass-tools]: repaint, as syncYDispFromContentOffset does. A key
+                // typed while scrolled up (Esc, or any key on a slow link) jumped to the bottom but kept drawing the
+                // old rows there: half a screen of old lines over a blank, until the shell's next output.
+                terminal.refresh(startRow: 0, endRow: terminal.rows - 1)
+            }
             return displayBuffer.yDisp
         }
         let bottomOffset = min(CGFloat(bottomRow) * cellDimension.height, maxContentOffsetY())
@@ -3947,6 +4018,23 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     private var pointerScrollAccumulator = WheelDistanceAccumulator<ProgramScrollRoute>()
     private var pointerScrollDelegate: PointerScrollGestureDelegate?
 }
+
+#if targetEnvironment(macCatalyst)
+/// [macpass-tools] Notes where the mouse button went down, for the Mac's click-drag selection.
+@MainActor
+private final class MacDragSelectDelegate: NSObject, UIGestureRecognizerDelegate {
+    private weak var terminalView: TerminalView?
+
+    init(terminalView: TerminalView) {
+        self.terminalView = terminalView
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if let view = terminalView { view.macPressPoint = touch.location (in: view) }
+        return true
+    }
+}
+#endif
 
 @MainActor
 private final class PointerScrollGestureDelegate: NSObject, UIGestureRecognizerDelegate {

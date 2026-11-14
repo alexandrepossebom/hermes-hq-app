@@ -187,13 +187,14 @@ final class SpawnTreeModel {
 
     // MARK: Opening a chat
 
-    func open(_ chat: SpawnTree.Chat, profile: String) {
+    /// `fromDashboard`: the Mac's whole-window tree (the chat gets a ✕ that gives the window back to it).
+    func open(_ chat: SpawnTree.Chat, profile: String, fromDashboard: Bool = false) {
         guard let id = chat.sessionId else { return }
         let navigation = host?.navigationController
         if let session = context.services.sessions.first(where: { $0.id == id }) {
-            MorePages.openChat(session, on: navigation)
+            MorePages.openChat(session, on: navigation, closes: fromDashboard)
         } else {
-            MorePages.openChat(sessionId: id, profile: profile, title: chat.title, on: navigation)
+            MorePages.openChat(sessionId: id, profile: profile, title: chat.title, on: navigation, closes: fromDashboard)
         }
     }
 }

@@ -172,6 +172,16 @@ struct HermesUpdateStepTests {
         #expect(!progress.sawGap)
     }
 
+    @Test func aFailedInstallStopsOnTheInstall() {
+        var progress = HermesUpdateProgress()
+        let lines = ["⚕ Updating Hermes Agent…", "→ Installing dependencies…", "✗ Update failed. Nothing was changed."]
+        progress.read(status(lines))
+        progress.read(status(lines, running: false, exit: 1))
+        #expect(progress.finished)
+        #expect(progress.state(.install) == .active)
+        #expect(progress.state(.restart) == .waiting)
+    }
+
     @Test func aFinalReceiptEndsTheRunWithoutAnExitCode() {
         var progress = HermesUpdateProgress()
         progress.read(status(["Installing"], running: false, receipt: #"{"outcome": "failed", "user_action": {"reason": "Fix the conflicts"}}"#))

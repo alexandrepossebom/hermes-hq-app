@@ -23,13 +23,17 @@ import UIKit
             let (share, least, most): (CGFloat, CGFloat, CGFloat) = switch self {
             case .kind: (0.24, 112, 260)
             case .status: (0.16, 84, 190)
-            case .lines: (0.12, 72, 130)
+            // [macpass-tools 2026-11-14] 72 at the least cut a big change's count to "+1000 −10…" at 900 wide: the
+            // least now holds two four-figure counts ("+1000 −1000") at the standard text size.
+            case .lines: (0.15, 104, 160)
             }
             let width = min(HQFont.scaled(most), max(HQFont.scaled(least), table * share))
             // [Mac UI check 2026-11-13] In a narrow list (a file open beside it) Kind kept its least width and squeezed
             // Name to a few letters: the kind gives way first (a long one is cut at its end), never past a third.
             if self == .kind { return min(width, table / 3).rounded() }
-            return width.rounded()
+            // [macpass-tools 2026-11-14] Changes beside an open diff: Status and Lines at their least took the whole
+            // narrow list and the file's name was gone. Each gives way to a quarter, so the name keeps half.
+            return min(width, table / 4).rounded()
         }
     }
 
@@ -144,6 +148,7 @@ final class MacFilesHeaderView: UIView {
         scroll.showsHorizontalScrollIndicator = false
         scroll.showsVerticalScrollIndicator = false
         scroll.alwaysBounceHorizontal = false
+        SideWheel.install(on: scroll)   // feel list D32: a plain mouse's wheel reaches a long trail's first folders
         trail.axis = .horizontal
         trail.alignment = .center
         trail.spacing = 0

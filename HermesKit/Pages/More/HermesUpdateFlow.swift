@@ -283,7 +283,9 @@ nonisolated struct HermesUpdateProgress: Sendable, Equatable {
         if !status.running, status.exitCode != nil || status.receipt?.outcome.map({ $0 != "running" }) == true {
             finished = true
             exitCode = status.exitCode ?? (status.receipt?.succeeded == true ? 0 : 1)
-            next = .done
+            // [macpass-tools] Mac full pass 2026-11-14 (round 3): a failed run stays on the step it stopped on (the sheet
+            // marks that one failed); it used to jump to the end, ticking Install and Restart for an install that broke.
+            if exitCode == 0, receipt?.failed != true { next = .done }
         }
         stage = max(stage, next)
     }

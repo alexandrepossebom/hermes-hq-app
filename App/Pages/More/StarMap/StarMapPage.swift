@@ -100,6 +100,7 @@ struct StarMapPage: View {
             Picker("Show", selection: $model.filter) {
                 ForEach(StarMapFilter.allCases) { filter in Text(filter.title).tag(filter) }
             }
+            .pickerStyle(.inline)   // [macpass-tools] Round 3: the choices in the menu, not a one-item "Show ›" submenu
             Section {
                 Button("Refresh", systemImage: "arrow.clockwise") { model.retry() }
             }

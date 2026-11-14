@@ -481,7 +481,8 @@ import UserNotifications
             if steps[index].state == .active {
                 if case .updated = end { steps[index].state = .done; steps[index].finished = Date() }
                 else if case .unchanged = end { steps[index].state = .done; steps[index].finished = Date() }
-                else if case .failed = end { steps[index].state = .failed; steps[index].finished = Date() }
+                // [macpass-tools] Round 3: no "Installing the new Hermes" under the failed step's red mark.
+                else if case .failed = end { steps[index].state = .failed; steps[index].finished = Date(); steps[index].detail = nil }
                 else { steps[index].state = .waiting }
             }
             if steps[index].state == .waiting { steps[index].detail = nil }

@@ -196,7 +196,10 @@ struct StatusDashboard: View {
                     .accessibilityIdentifier("more.page.retry")
             }
             if !model.readOnly {
-                if model.restart.phase == .idle {
+                // [macpass-tools] Mac full pass 2026-11-14 (round 3): a finished restart's words stand BESIDE the button,
+                // not in its place; "Gateway Restarted" took the button away until the page was opened again.
+                if !model.restart.isBusy {
+                    if model.restart.phase != .idle { GatewayRestartProgress(run: model.restart).frame(maxWidth: 360, alignment: .trailing) }
                     Button("Restart Gateway…") { model.askRestart() }
                         .hqMacBordered().fixedSize()
                         .disabled(!model.canStartAction)
@@ -242,6 +245,8 @@ struct StatusDashboard: View {
                 Picker("Show", selection: $logs.level) {
                     ForEach(LogLevelFilter.allCases) { Text($0.title).tag($0) }
                 }
+                // [macpass-tools] Round 3: the choices in the menu itself; a menu Picker is a one-item "Show ›" submenu.
+                .pickerStyle(.inline)
             } label: { MacDashPop(lead: "Show", value: logs.level.title) }
             .buttonStyle(.plain).fixedSize()
             .accessibilityIdentifier("command-center.logs.level")

@@ -260,17 +260,21 @@ enum MorePages {
     // MARK: Opening a chat over More
 
     /// Pushes `session`'s chat on `navigation` (More's stack), as Artifacts' Show in Chat does.
-    static func openChat(_ session: SessionSummary, on navigation: UINavigationController?) {
+    /// `closes`: [macpass-tools] opened from a whole-window dashboard (Spawn Tree's), the chat gets the ✕ that gives the
+    /// window back to it, as Status & Maintenance's pages have (`MacDash.closes`); without it nothing brought the
+    /// dashboard back but closing the chat some other way.
+    static func openChat(_ session: SessionSummary, on navigation: UINavigationController?, closes: Bool = false) {
         guard let context, let navigation else { return }
         Haptics.play(.soft)
         let chat = context.makeChat(context.pages.chat(for: session))
         chat.hidesBottomBarWhenPushed = true
         chat.navigationItem.largeTitleDisplayMode = .never
+        if closes { MacDash.closes(chat) }
         ChatViewController.push(chat, on: navigation) {}
     }
 
-    static func openChat(sessionId: String, profile: String?, title: String, on navigation: UINavigationController?) {
+    static func openChat(sessionId: String, profile: String?, title: String, on navigation: UINavigationController?, closes: Bool = false) {
         openChat(SessionSummary(id: sessionId, profile: profile ?? "default", title: title, preview: nil, lastActive: nil,
-                                source: nil, unread: false, isRunning: false), on: navigation)
+                                source: nil, unread: false, isRunning: false), on: navigation, closes: closes)
     }
 }

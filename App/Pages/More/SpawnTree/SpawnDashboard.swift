@@ -150,7 +150,7 @@ struct SpawnDashboard: View {
                 .accessibilityLabel("\(chat.rows.count) \(chat.rows.count == 1 ? "subagent" : "subagents")")
             Spacer(minLength: 8)
             if chat.sessionId != nil {
-                Button("Open Chat") { model.open(chat, profile: profile) }
+                Button("Open Chat") { model.open(chat, profile: profile, fromDashboard: true) }
                     .hqMacBordered().fixedSize()
                     .accessibilityIdentifier("spawn-tree.chat.\(chat.sessionId ?? "none")")
             }

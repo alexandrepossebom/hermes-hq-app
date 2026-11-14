@@ -68,6 +68,7 @@ final class TerminalTabStrip: UIView {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.showsHorizontalScrollIndicator = false
         scroll.alwaysBounceHorizontal = false
+        SideWheel.install(on: scroll)   // feel list D32: a plain mouse's wheel reaches the tabs past the edge
         addSubview(scroll)
         row.translatesAutoresizingMaskIntoConstraints = false
         row.axis = .horizontal

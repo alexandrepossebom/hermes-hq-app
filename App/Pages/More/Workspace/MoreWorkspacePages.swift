@@ -369,6 +369,13 @@ final class MoreWorkspaceController: UITableViewController {
         reload()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // [macpass-tools] Mac full pass 2026-11-14 (round 3): the Mac keeps this page while other places are open; opened
+        // again on a "Couldn't Load" (a read that failed offline, say), it reads again instead of waiting for Try Again.
+        if DeviceWord.isMac, case .state(_, _, true, _) = content { reload() }
+    }
+
     // MARK: Loading
 
     /// Reads the root again (after a new folder or bot) and then its entries.

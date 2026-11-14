@@ -100,7 +100,12 @@ final class CommandCenterModel {
                 if ready != self.online {
                     self.online = ready
                     // Back after a drop: what the page shows may be older than the gateway.
-                    if ready, self.status != nil, !self.anyActionBusy { await self.loadStatus() }
+                    // [macpass-tools] Round 3: a first read that failed offline tries again too (it stayed "Couldn't Load").
+                    let firstFailed = if case .failed = self.statusLoad { true } else { false }
+                    if ready, self.status != nil || firstFailed, !self.anyActionBusy {
+                        if firstFailed { self.statusLoad = .loading; await self.checkUpdate(force: false) }
+                        await self.loadStatus()
+                    }
                 }
             }
         }

@@ -146,6 +146,7 @@ final class ScreenControlBar: UIView {
             row.translatesAutoresizingMaskIntoConstraints = false
             scroll.showsHorizontalScrollIndicator = false
             scroll.alwaysBounceHorizontal = false
+            SideWheel.install(on: scroll)   // feel list D32: a plain mouse's wheel reaches the keys past the edge
             scroll.addSubview(row)
             scroll.lane = scroll.frameLayoutGuide.heightAnchor.constraint(equalTo: row.heightAnchor)
             NSLayoutConstraint.activate([

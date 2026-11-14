@@ -19,6 +19,9 @@ Knobs (POST /__fixture/workspace):
   {"entries": 3000}                                 /home/hermes/projects/site/many holds that many files
   {"changes": 500}                                  the site repository lists that many changed files
   {"gone": ["/home/hermes/projects/notes"]}         those folders no longer exist (list → ENOENT)
+  {"rich": true}                                    more kinds of file and change: notes/tables.md (tables), a PNG, a
+                                                    PDF, a deep folder chain under site/docs, and in the site's changes
+                                                    a 2,000-line diff, a binary file and a renamed one
 state(): {"default_cwd", "reads": <count of this module's answers>}
 """
 
@@ -76,7 +79,45 @@ def _files():
     }
     for index in range(int(knobs.get('entries') or 0)):
         tree[f'{SITE}/many/file-{index:04d}.txt'] = f'file {index}\n'
+    if knobs.get('rich'): tree.update(_rich_files())
     return tree
+
+def _png():
+    import struct, zlib
+    w, h = 320, 200
+    raw = b''.join(b'\x00' + bytes(v for x in range(w) for v in (x * 255 // w, y * 255 // h, 180)) for y in range(h))
+    chunk = lambda kind, data: struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+
+def _pdf():
+    objects = [b'<< /Type /Catalog /Pages 2 0 R >>', b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+               b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+               None, b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+    text = b'BT /F1 24 Tf 72 700 Td (Release 2.4 guide) Tj ET'
+    objects[3] = b'<< /Length %d >>\nstream\n' % len(text) + text + b'\nendstream'
+    out, offsets = b'%PDF-1.4\n', []
+    for index, body in enumerate(objects, 1):
+        offsets.append(len(out)); out += b'%d 0 obj\n' % index + body + b'\nendobj\n'
+    xref = len(out)
+    out += b'xref\n0 %d\n0000000000 65535 f \n' % (len(objects) + 1) + b''.join(b'%010d 00000 n \n' % o for o in offsets)
+    return out + b'trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n' % (len(objects) + 1, xref)
+
+def _rich_files():
+    table = ('# Plans\n\nThe three plans side by side.\n\n| Plan | Seats | Price a month | Notes |\n|:--|--:|--:|:--|\n'
+             '| Starter | 1 | $9 | For trying it out |\n| Team | 10 | $49 | Shared bots and a group chat for everyone |\n'
+             '| Business | 50 | $199 | SSO, audit log and a long note that wraps over more than one line in a narrow window |\n\n'
+             '## Second table\n\n| Key | Value |\n|---|---|\n| region | eu-west |\n| retries | 3 |\n')
+    out = {NOTES + '/tables.md': table, SITE + '/assets/photo.png': _png(), SITE + '/docs': None,
+           SITE + '/docs/guide.pdf': _pdf(),
+           SITE + '/src/big.js': ''.join(f'const value{i} = {i * 2} // the new line number {i}, doubled, with some words after it\n' for i in range(1000)),
+           SITE + '/src/components/header.js': "export function header(root) {\n  root.prepend(document.createElement('header'))\n}\n"}
+    deep = SITE + '/docs'
+    for name in ('architecture-decisions', 'networking-and-transport', 'retry-and-backoff-policies', 'incident-reviews-2026',
+                 'october-gateway-timeouts', 'follow-up-actions'):
+        deep += '/' + name
+        out[deep] = None
+    out[deep + '/summary-of-what-we-changed.md'] = '# Summary\n\nRetries now back off for up to a minute.\n'
+    return out
 
 DIFFS = {
     'src/app.js': ('M', False, 3, 1,
@@ -111,9 +152,25 @@ def git_root(path):
         if path == repo or path.startswith(repo + '/'): return repo
     return None
 
+BIG_DIFF = ('diff --git a/src/big.js b/src/big.js\nindex 1111111..2222222 100644\n--- a/src/big.js\n+++ b/src/big.js\n'
+            '@@ -1,1000 +1,1000 @@\n' + ''.join(f'-const value{i} = {i} // the old line number {i} with some words after it\n'
+                                              f'+const value{i} = {i * 2} // the new line number {i}, doubled, with some words after it\n'
+                                              for i in range(1000)))
+RICH_DIFFS = {
+    'src/big.js': ('M', False, 1000, 1000, BIG_DIFF),
+    'assets/logo.bin': ('M', False, 0, 0, 'diff --git a/assets/logo.bin b/assets/logo.bin\nindex 3333333..4444444 100644\n'
+                                       'Binary files a/assets/logo.bin and b/assets/logo.bin differ\n'),
+    'src/components/header.js': ('R', True, 1, 1, 'diff --git a/src/components/top.js b/src/components/header.js\nsimilarity index 92%\n'
+                                 'rename from src/components/top.js\nrename to src/components/header.js\n--- a/src/components/top.js\n'
+                                 '+++ b/src/components/header.js\n@@ -1,3 +1,3 @@\n-export function top(root) {\n+export function header(root) {\n'
+                                 "   root.prepend(document.createElement('header'))\n }\n"),
+}
+
+def _diffs(): return {**DIFFS, **(RICH_DIFFS if knobs.get('rich') else {})}
+
 def changes():
     rows = [{'path': name, 'added': added, 'removed': removed, 'status': status, 'staged': staged}
-            for name, (status, staged, added, removed, _) in DIFFS.items()]
+            for name, (status, staged, added, removed, _) in _diffs().items()]
     for index in range(int(knobs.get('changes') or 0)):
         rows.append({'path': f'src/generated/part-{index:04d}.js', 'added': index % 40, 'removed': index % 7, 'status': 'M', 'staged': False})
     return rows
@@ -169,7 +226,7 @@ def rest(method, path, query, body, handler):
         reads[0] += 1
         name = ctx.one(query, 'file')
         if name.startswith(asked + '/'): name = name[len(asked) + 1:]
-        if name in DIFFS: return 200, {'diff': DIFFS[name][4]}
+        if name in _diffs(): return 200, {'diff': _diffs()[name][4]}
         if name.startswith('src/generated/'): return 200, {'diff': f'--- a/{name}\n+++ b/{name}\n@@ -1 +1 @@\n-old\n+new\n'}
         return 200, {'diff': ''}
     return None

@@ -55,6 +55,9 @@ final class UsagePageModel {
     }
 
     func appear() {
+        // [macpass-tools] Mac full pass 2026-11-14 (round 3): the Mac keeps the page; opened again after a first read
+        // failed (offline), it reads again instead of showing "Couldn't Load Usage" until Try Again.
+        if appeared, case .failed = load { retry(); return }
         guard !appeared else { return }
         appeared = true
         Task { await read() }

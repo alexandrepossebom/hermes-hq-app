@@ -313,7 +313,14 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
             if UserDefaults.standard.bool(forKey: "HQDebugFileWindowsStack") { taken = [] }   // the old placing, for a "before" picture
             #endif
             let frame = WindowFit.cascaded(CGRect(x: main.minX + 40, y: main.minY + 30, width: width, height: height), taken: taken, visible: visible)
-            windowScene.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
+            // [macpass tools 2026-11-14] Asked for a moment after the window is up, not while it connects: asked then
+            // (or on the next turn of the run loop, or when the scene turns active, both tried), the Mac put the window
+            // at the screen's left edge and kept its page laid out for the old size, 146 points too high, so the bar
+            // (the file's name, Open in, Share) sat above the window and a blank band showed under the file until the
+            // window was resized by hand. 0.4 s on, the frame lands where asked and the page follows it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak windowScene] in
+                windowScene?.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
+            }
         }
         let window = UIWindow(windowScene: windowScene)
         MacToolTips.install(on: window)

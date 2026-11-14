@@ -4672,6 +4672,10 @@ open class Terminal {
                 buffer.linesTop = 0
                 buffer.yBase = max (buffer.yBase - scrollBackSize, 0)
                 buffer.yDisp = max (buffer.yDisp - scrollBackSize, 0)
+                // Hermes HQ Mac full pass 2026-11-14 [macpass-tools]: tell the view, as a scroll does. zsh's `clear`
+                // sends this; without it the iPhone/Mac view kept the old scroll height and offset and drew rows past
+                // the end: a blank Terminal until a screenful of new output scrolled it.
+                recordScrollNotification ()
             }
             break;
         default:
@@ -8812,6 +8816,7 @@ open class Terminal {
         // Only the normal buffer has scrollback
         normalBuffer.clearScrollback ()
         refresh (startRow: 0, endRow: self.rows - 1)
+        recordScrollNotification ()   // [macpass-tools] as ED 3: the view's scroll height follows
     }
 
     public func changeScrollback (_ newScrollback: Int?)

@@ -1425,6 +1425,9 @@ final class HQTerminalView: TerminalView {
         caretColor = HQPalette.tint
         selectedTextBackgroundColor = HQPalette.tint.withAlphaComponent(0.4)
         selectedTextForegroundColor = .white
+        // [macpass-tools] Mac full pass 2026-11-14: the Mac selects with a click-drag (SwiftTerm, macDragSelect), so no
+        // iPhone drag handles (blue dots) at the selection's ends, as in Terminal.
+        if DeviceWord.isMac { selectionHandleColor = .clear }
         keyboardAppearance = .dark
     }
 
