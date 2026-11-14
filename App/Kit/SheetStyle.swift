@@ -21,6 +21,10 @@ import UIKit
         if navigation.modalPresentationStyle == .formSheet, let window = presentingWindow(presenter) {
             let tall = macTallHeight(window)
             navigation.preferredContentSize = CGSize(width: 620, height: min(tall, fixed ?? tall))
+            // [macpass-popups r3] Bot Info in a 900 x 600 window opened 581 px tall, 9 px from the window's top: its
+            // bar stood past the tall size (`MacSheetFit.keepUnder`).
+            MacSheetFit.keepUnder(navigation, set: min(tall, fixed ?? tall), tall: tall, floor: 320)
+            if let fixed { MacSheetEdges.asked(navigation, height: fixed) }   // what it grows back to in a bigger window
             if fixed == nil { MacSheetFit.attach(to: navigation, tall: tall) }
         }
         #else
@@ -55,8 +59,7 @@ import UIKit
     /// smaller window (Add Gateway over the Settings window) taller than the window, over its close, minimise and zoom
     /// buttons, with Sign In cut off at the foot.
     static func macTallHeight(_ window: UIWindow) -> CGFloat {
-        let room = window.bounds.height
-        return max(320, min(room - 80, max(700, min(room - 120, 1100))))
+        macTallHeight(room: window.bounds.height)
     }
 
     /// [macpass-popups] A sheet that shows a document (a live page or tile, a note, a folder of files): the page size
@@ -68,10 +71,17 @@ import UIKit
         navigation.view.subviews.filter { $0 is MacSheetFit }.forEach { $0.removeFromSuperview() }   // no following the page
         objc_setAssociatedObject(navigation, &MacSheetFit.key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         navigation.modalPresentationStyle = .formSheet
-        let room = window.bounds
-        navigation.preferredContentSize = CGSize(width: max(620, min(width, 960, room.width - 160)),
-                                                 height: min(room.height - 80, max(480, min(room.height - 180, 1100))))
+        navigation.preferredContentSize = macPageSize(window.bounds.size, width: width)
     }
+
+    /// The page size in a window this size (`macPage`).
+    static func macPageSize(_ room: CGSize, width: CGFloat = 960) -> CGSize {
+        CGSize(width: max(620, min(width, 960, room.width - 160)),
+               height: min(room.height - 80, max(480, min(room.height - 180, 1100))))
+    }
+
+    /// [macpass-popups r3] A sheet's height in a window `room` pt tall (`macTallHeight`).
+    static func macTallHeight(room: CGFloat) -> CGFloat { max(320, min(room - 80, max(700, min(room - 120, 1100)))) }
     #endif
 
     static func inTwoPanes(_ presenter: UIViewController?) -> Bool { twoPanes(presenter) }
@@ -142,6 +152,22 @@ import UIKit
         guard let fit = objc_getAssociatedObject(navigation, &key) as? MacSheetFit, height < fit.tall else { return }
         fit.tall = height
         navigation.preferredContentSize.height = min(navigation.preferredContentSize.height, height)
+    }
+
+    /// [macpass-popups r3] The window was resized: the sheet's tallest is the new window's, and it fits its page again
+    /// within it (false: the sheet has no fit of its own).
+    @discardableResult
+    static func windowChanged(_ navigation: UINavigationController, tall: CGFloat) -> Bool {
+        guard let fit = objc_getAssociatedObject(navigation, &key) as? MacSheetFit else { return false }
+        let wasTall = fit.height == 0 || fit.height >= fit.tall - 1   // a page with no list of its own stays the tall size
+        fit.tall = tall
+        if let watched = fit.watched, fit.height > 0 {
+            fit.fit(watched, settled: true)
+        } else if wasTall || navigation.preferredContentSize.height > tall {
+            navigation.preferredContentSize.height = tall
+            keepUnder(navigation, set: tall, tall: tall, floor: fit.floor)
+        }
+        return true
     }
 
     private init(_ navigation: UINavigationController, tall: CGFloat) {
@@ -242,6 +268,18 @@ import UIKit
         // A page that asks for more width keeps it (the Table page: a wide table's own width, up to 900).
         let width = max(wide, navigation.topViewController?.preferredContentSize.width ?? 0)
         navigation.preferredContentSize = CGSize(width: width, height: next)
+        Self.keepUnder(navigation, set: next, tall: tall, floor: floor)
+    }
+
+    /// [macpass-popups r3] A navigation sheet is its bar taller than the height it is given (54 pt on the Mac), so a
+    /// sheet capped at the tall size stood 54 pt past it: in a 600 px window New Job was 754 of 780 pt, 10 px from the
+    /// window's top and foot. Capped, it is the tall size with its bar.
+    static func keepUnder(_ navigation: UINavigationController, set: CGFloat, tall: CGFloat, floor: CGFloat) {
+        #if targetEnvironment(macCatalyst)
+        let shown = navigation.preferredContentSize   // what was set, and the bar
+        guard shown.height > tall + 0.5 else { return }
+        navigation.preferredContentSize = CGSize(width: shown.width, height: max(floor, set - (shown.height - tall)))
+        #endif
     }
 
     /// A text field in the sheet has the keyboard (a search field, the Prompts editor's fields). [mac] A search field
@@ -751,6 +789,7 @@ extension UISheetPresentationController {
 
     static func apply(_ sheet: UISheetPresentationController) {
         let page = sheet.presentedViewController
+        followWindow(sheet)
         guard objc_getAssociatedObject(page, appliedKey) == nil, objc_getAssociatedObject(page, fullBleedKey) == nil,
               !(page is UIAlertController), page.modalPresentationStyle != .popover else { return }
         // Only the app's own pages: the system's (Quick Look, pickers, Share) lay themselves out.
@@ -763,6 +802,94 @@ extension UISheetPresentationController {
         page.additionalSafeAreaInsets.left += side
         page.additionalSafeAreaInsets.right += side
         page.additionalSafeAreaInsets.bottom += foot
+    }
+
+    /// [macpass-popups r3] A sheet's size was worked out once, from the window it opened over: one opened in a tall
+    /// window kept its 834 pt when the window was made 600 tall, running off the window's top and foot, and one opened
+    /// in a small window stayed small when it grew. Every sheet of the app's own now follows its window (the tiles'
+    /// `HTMLPageSheet` did this for itself): a form fits its page again under the new window's tallest, a page sized
+    /// as a document (`macPage`) takes the page size for the new window, and any other sheet is never taller than the
+    /// window less 40 pt above and below, back up to the size it opened at as the window grows.
+    private static let roomKey = malloc(1)!
+    private static let openedKey = malloc(1)!
+
+    private static let probeKey = malloc(1)!
+
+    /// Once per sheet: a probe in the window it opened over (the sheet's own container is the sheet's own window on
+    /// the Mac, so it never hears the main window), which goes when the sheet does.
+    private static func followWindow(_ sheet: UISheetPresentationController) {
+        let page = sheet.presentedViewController
+        guard objc_getAssociatedObject(page, probeKey) == nil, page.modalPresentationStyle == .formSheet,
+              !(page is UIAlertController), let window = sheet.presentingViewController.viewIfLoaded?.window else { return }
+        let probe = WindowSizeProbe(frame: window.bounds)
+        probe.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        probe.isUserInteractionEnabled = false
+        probe.isHidden = true
+        probe.changed = { [weak page, weak probe] room in
+            guard let page, page.presentingViewController != nil else { probe?.removeFromSuperview(); return }
+            DispatchQueue.main.async { [weak page] in if let page { windowResized(page, room: room) } }
+        }
+        objc_setAssociatedObject(page, probeKey, ProbeOwner(probe), .OBJC_ASSOCIATION_RETAIN)
+        window.insertSubview(probe, at: 0)
+    }
+
+    /// Takes the probe out of the window when the sheet's page goes.
+    private final class ProbeOwner: NSObject {
+        weak var probe: UIView?
+        init(_ probe: UIView) { self.probe = probe }
+        deinit {
+            let probe = probe
+            DispatchQueue.main.async { MainActor.assumeIsolated { probe?.removeFromSuperview() } }
+        }
+    }
+
+    private static func windowResized(_ page: UIViewController, room: CGSize) {
+        guard room.width > 0, room.height > 0 else { return }
+        let opened = objc_getAssociatedObject(page, openedKey) as? NSValue
+        guard let last = (objc_getAssociatedObject(page, roomKey) as? NSValue)?.cgSizeValue, let opened else {
+            objc_setAssociatedObject(page, roomKey, NSValue(cgSize: room), .OBJC_ASSOCIATION_RETAIN)
+            objc_setAssociatedObject(page, openedKey, NSValue(cgSize: page.preferredContentSize), .OBJC_ASSOCIATION_RETAIN)
+            return
+        }
+        guard abs(last.width - room.width) > 0.5 || abs(last.height - room.height) > 0.5 else { return }
+        objc_setAssociatedObject(page, roomKey, NSValue(cgSize: room), .OBJC_ASSOCIATION_RETAIN)
+        let size = page.preferredContentSize
+        guard size.width > 0, size.height > 0 else { return }
+        let tall = SheetStyle.macTallHeight(room: room.height)
+        if let navigation = page as? UINavigationController, MacSheetFit.windowChanged(navigation, tall: tall) { return }
+        let wasPage = abs(size.width - SheetStyle.macPageSize(last).width) < 1 && abs(size.height - SheetStyle.macPageSize(last).height) < 1
+            && size.width > 620
+        if wasPage {
+            let next = SheetStyle.macPageSize(room)
+            if page.preferredContentSize != next { page.preferredContentSize = next }
+            return
+        }
+        if let asked = objc_getAssociatedObject(page, askedKey) as? CGFloat {
+            // A sheet of a set height (Bot Info): that height, the bar on top, never past the window's tall size.
+            let set = min(asked, tall)
+            page.preferredContentSize = CGSize(width: size.width, height: set)
+            if let navigation = page as? UINavigationController { MacSheetFit.keepUnder(navigation, set: set, tall: tall, floor: 320) }
+            return
+        }
+        // The size the page asked for: the one it opened at, or one it set since (not one set here).
+        var wanted = opened.cgSizeValue
+        if let ours = (objc_getAssociatedObject(page, setKey) as? NSValue)?.cgSizeValue, ours != size { wanted = size }
+        if objc_getAssociatedObject(page, setKey) == nil, size != wanted { wanted = size }
+        objc_setAssociatedObject(page, openedKey, NSValue(cgSize: wanted), .OBJC_ASSOCIATION_RETAIN)
+        let next = CGSize(width: min(wanted.width, max(320, room.width - 80)), height: min(wanted.height, max(240, room.height - 80)))
+        objc_setAssociatedObject(page, setKey, NSValue(cgSize: next), .OBJC_ASSOCIATION_RETAIN)
+        guard abs(next.width - size.width) > 0.5 || abs(next.height - size.height) > 0.5 else { return }
+        page.preferredContentSize = next
+        // A navigation sheet reads back its bar on top of what it was given: given that much less, it is `next`.
+        let extra = page.preferredContentSize.height - next.height
+        if extra > 0.5 { page.preferredContentSize = CGSize(width: next.width, height: next.height - extra) }
+    }
+    private static let setKey = malloc(1)!
+    private static let askedKey = malloc(1)!
+
+    /// The height a sheet of a set height asked for (`SheetStyle.apply`'s `fixed`), kept for when its window changes.
+    static func asked(_ page: UIViewController, height: CGFloat) {
+        objc_setAssociatedObject(page, askedKey, height, .OBJC_ASSOCIATION_RETAIN)
     }
 }
 #endif
