@@ -72,10 +72,15 @@ nonisolated enum ChatTranscript {
         var fenced = false
         var out: [String] = []
         let normalized = markdown.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        for raw in normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        // A table reads as its cells, a tab between them (it pastes into a spreadsheet as columns); the |---| row goes.
+        let tables = SpeechText.tables(lines)
+        for (index, raw) in lines.enumerated() {
             if Rx.matches(fence, raw) { fenced.toggle(); continue }
             if fenced { out.append(raw); continue }
-            var line = Rx.replace(listMarker, in: raw, with: "$1• ")
+            if tables.delimiters.contains(index) { continue }
+            var line = tables.rows[index].map { $0.map { $0.replacingOccurrences(of: "\\|", with: "|") }.joined(separator: "\t") } ?? raw
+            line = Rx.replace(listMarker, in: line, with: "$1• ")
             line = Rx.replace(heading, in: line, with: "")
             line = Rx.replace(quote, in: line, with: "")
             line = Rx.replace(image, in: line, with: "$1")

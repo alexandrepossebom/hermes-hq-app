@@ -62,15 +62,16 @@ import UniformTypeIdentifiers
     /// Under a source the tray is full for: the limit itself (removing a tile frees a place).
     static var limitNote: String { "Up to \(AttachmentStaging.maxPerMessage) per message" }
 
-    /// Paste Image, present only when the pasteboard holds an image (checked without a paste prompt).
-    static func paste(enabled: Bool, action: @escaping () -> Void) -> UIMenuElement {
-        UIDeferredMenuElement.uncached { completion in
-            guard UIPasteboard.general.hasImages else { completion([]); return }
-            let paste = UIAction(title: "Paste Image", image: UIImage(systemName: "doc.on.clipboard")) { _ in action() }
-            paste.accessibilityIdentifier = "composer.plus.paste"
-            if !enabled { paste.attributes = .disabled; paste.subtitle = limitNote }
-            completion([paste])
-        }
+    /// Paste Image, present only when the pasteboard holds an image (checked without a paste prompt). Read as the menu
+    /// opens (the + button's menu is itself made on open), never as a deferred element of its own: [Mac full pass
+    /// 2026-11-14] one nested inside the button's deferred menu was never filled on the Mac and the menu kept a grey
+    /// "Loading…" row between Talk and Link….
+    static func paste(enabled: Bool, action: @escaping () -> Void) -> [UIMenuElement] {
+        guard UIPasteboard.general.hasImages else { return [] }
+        let paste = UIAction(title: "Paste Image", image: UIImage(systemName: "doc.on.clipboard")) { _ in action() }
+        paste.accessibilityIdentifier = "composer.plus.paste"
+        if !enabled { paste.attributes = .disabled; paste.subtitle = limitNote }
+        return [paste]
     }
 }
 

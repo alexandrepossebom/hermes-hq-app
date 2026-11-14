@@ -91,23 +91,31 @@ nonisolated enum ChatRunSummary {
     static func summarize(_ tools: [ToolCall], live: Bool) -> String {
         let narrating = live ? (tools.first(where: { $0.state == .running }) ?? tools.last) : nil
         let liveCategory = narrating.map { category($0.name) }
+        // [Mac full pass 2026-11-14] Clauses in the order their first step happened, the order the card's rows list them
+        // ("Checked …, ran 1 command, explored big.txt" over rows Checked, Ran, Explored), not a fixed category order.
+        enum Slot { case words(String), group(Category) }
+        var slots: [Slot] = []
         var groups: [Category: [ToolCall]] = [:]
-        var skillClauses: [String] = []
         for tool in tools {
-            if let skill = skillTitle(tool, live: live) { skillClauses.append(skill); continue }
+            if let skill = skillTitle(tool, live: live) { slots.append(.words(skill)); continue }
             // [transcript] Tools with plain words of their own ("Checked how to use terminal", "Checked a background process";
             // docs/spec/3x-transcript.md §5.1, L344); a failed one is counted with the failures below.
             if tool.state != .failed, let plain = ToolWords.plainLabel(name: tool.name, args: args(tool), preview: tool.title) {
-                skillClauses.append(plain); continue
+                slots.append(.words(plain)); continue
             }
-            groups[category(tool.name), default: []].append(tool)
+            let cat = category(tool.name)
+            if groups[cat] == nil { slots.append(.group(cat)) }
+            groups[cat, default: []].append(tool)
         }
-        var clauses = Category.allCases.compactMap { cat in
-            groups[cat].map { clause(cat, $0, live: cat == liveCategory) }
+        var clauses = slots.map { slot -> String in
+            switch slot {
+            case .words(let words): return words
+            case .group(let cat): return clause(cat, groups[cat] ?? [], live: cat == liveCategory)
+            }
         }
         let failed = tools.filter { $0.state == .failed }.count
         if failed > 0 { clauses.append("\(failed) tool call\(failed == 1 ? "" : "s") failed") }
-        return (skillClauses + clauses).enumerated()
+        return clauses.enumerated()
             .map { $0.offset == 0 ? $0.element : lowerFirst($0.element) }
             .joined(separator: ", ")
     }

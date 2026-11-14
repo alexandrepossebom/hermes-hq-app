@@ -27,6 +27,15 @@ struct ToolLineTests {
         #expect(line("execute_code", ["code": "print(1)"]) == ToolLine(emoji: "🐍", text: "Running code", code: "print(1)"))
     }
 
+    @Test func aDoneStepReadsInThePast() {
+        #expect(ToolLines.done("Reading big.txt") == "Read big.txt")
+        #expect(ToolLines.done("Searching the web for x") == "Searched the web for x")
+        #expect(ToolLines.done("Running code") == "Ran code")
+        #expect(ToolLines.done("Reading skill pdf") == "Read skill pdf")
+        #expect(ToolLines.done("Readingly odd") == "Readingly odd")
+        #expect(ToolLines.done("my_tool: “x”") == "my_tool: “x”")
+    }
+
     @Test func keepsAnUnknownToolUnderItsName() {
         #expect(line("mcp_github_create_issue", ["title": "Bug"]) == ToolLine(emoji: "⚙️", text: "mcp_github_create_issue…"))
         #expect(line("custom_tool", ["query": "q"]) == ToolLine(emoji: "⚙️", text: "custom_tool: “q”"))

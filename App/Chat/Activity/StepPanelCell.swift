@@ -53,8 +53,7 @@ final class StepPanelCell: UITableViewCell {
         let failed = call.state == .failed, running = call.state == .running
         emoji.text = line.emoji
         // The sheet's words (`StepLineCell.configure`).
-        let plain = failed ? nil : ToolWords.plainLabel(name: call.name, args: ChatRunSummary.args(call), preview: call.title)
-        text.text = plain ?? (call.name == "terminal" && line.text == "terminal" ? (running ? "Running a command" : "Ran a command") : line.text)
+        text.text = StepLineCell.words(call, line: line)
         let code = line.code.flatMap { StepLineCell.codePreview($0).lines.first }?.trimmingCharacters(in: .whitespaces)
         detail.text = code
         detail.isHidden = code?.isEmpty != false

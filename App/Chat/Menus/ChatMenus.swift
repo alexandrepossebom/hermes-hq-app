@@ -270,7 +270,10 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         let keysDownBottom = min(host.bounds.maxY - ChatMetrics.composerBottomDown,
                                  host.bounds.maxY - host.safeAreaInsets.bottom - ChatMetrics.composerBottomUp)
         // A "Replying to …" or "Editing Message" banner rides on top of the field: the card rests above it, not on it.
-        let restsOn = min(composer.fieldFrame.minY, composer.editBanner?.frame.minY ?? .infinity)
+        // [Mac full pass 2026-11-14] So does the attachment tray (a link or file waiting to go): the card sat behind it,
+        // its foot (Approval Mode, YOLO) cut off by the tray's band.
+        let tray = composer.topAccessoryHeight > 0 ? composer.topAccessory?.frame.minY : nil
+        let restsOn = min(composer.fieldFrame.minY, composer.editBanner?.frame.minY ?? .infinity, tray ?? .infinity)
         let floor = keysDownBottom - composer.bounds.height + restsOn - 12
         let actions = ModelPanelActions(
             state: { [weak self] in self?.modelPanelState() },

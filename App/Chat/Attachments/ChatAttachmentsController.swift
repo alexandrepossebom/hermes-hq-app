@@ -81,7 +81,7 @@ private extension AttachmentPrepareError {
         }
         plusMenu.register(.paste) { [weak self] in
             guard let self else { return [] }
-            return [ComposerPlusMenu.paste(enabled: self.count < AttachmentStaging.maxPerMessage) { [weak self] in self?.pasteFromBoard() }]
+            return ComposerPlusMenu.paste(enabled: self.count < AttachmentStaging.maxPerMessage) { [weak self] in self?.pasteFromBoard() }
         }
         plusMenu.register(.link) { [weak self] in
             let item = UIAction(title: "Link…", image: UIImage(systemName: "link")) { [weak self] _ in self?.presentLinkDialog() }

@@ -642,6 +642,9 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// [desktoplook2] How far the look's one box reaches past the row on each side (`layoutDesktopBox`): the cards
     /// docked above it reach as far, so their edges line up with the box's.
     var boxOutset: CGFloat { Self.oneBox ? 4 : 0 }
+    /// How far that box rises over the composer's own top (`layoutDesktopBox`: 3 pt above the row): a card resting on
+    /// the composer keeps its gap from the box, not from the bounds hidden under it.
+    var boxRise: CGFloat { Self.oneBox ? 3 : 0 }
 
     /// The row moved without changing size (the keyboard layout guide carries it, so `layoutSubviews` doesn't run):
     /// lay it out again when its side inset changed, inside whatever animation moved it. The screen calls this from

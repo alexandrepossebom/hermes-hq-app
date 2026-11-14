@@ -886,6 +886,15 @@ final class StepLineCell: UITableViewCell {
         meta.font = on ? HQFont.digits(13, like: .footnote) : HQFont.digits(15, like: .subheadline)
     }
 
+    /// A step's words: the chat row's own plain words when it has them, else Hermes's progress line, its verb in the
+    /// past once the step is done ("Read big.txt", "Ran a command"; a running or failed step keeps "Reading …").
+    static func words(_ call: ToolCall, line: ToolLine) -> String {
+        let failed = call.state == .failed, done = call.state == .done
+        if !failed, let plain = ToolWords.plainLabel(name: call.name, args: ChatRunSummary.args(call), preview: call.title) { return plain }
+        if call.name == "terminal" && line.text == "terminal" { return call.state == .running ? "Running a command" : "Ran a command" }
+        return done ? ToolLines.done(line.text) : line.text
+    }
+
     func configure(_ call: ToolCall, first: Bool, last: Bool) {
         let line = ToolLines.line(call)
         emoji.text = line.emoji
@@ -896,8 +905,7 @@ final class StepLineCell: UITableViewCell {
         railDown.isHidden = last
         // Hermes's own progress line says just "terminal" for a command; the sheet words it like "Running code". The
         // calls the chat's row words itself ("Checked how to use 3 tools", not "tool_describe…") read the same here.
-        let plain = failed ? nil : ToolWords.plainLabel(name: call.name, args: ChatRunSummary.args(call), preview: call.title)
-        text.text = plain ?? (call.name == "terminal" && line.text == "terminal" ? (running ? "Running a command" : "Ran a command") : line.text)
+        text.text = Self.words(call, line: line)
         text.textColor = ChatPalette.label
         let time = call.durationSeconds.map(ToolCards.formatDurationSeconds)
         meta.text = failed ? "Failed" : time

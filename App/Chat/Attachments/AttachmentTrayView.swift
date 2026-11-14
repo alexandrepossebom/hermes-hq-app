@@ -298,8 +298,12 @@ final class TrayTileView: UIView {
         guard let a = attachment, a.kind != .image else { return AttachmentTrayView.tileHeight }
         let nameW = ceil((a.name as NSString).size(withAttributes: [.font: name.font!]).width)
         let detailW = ceil((detailText as NSString).size(withAttributes: [.font: detail.font!]).width)
-        return min(240, max(160, 12 + 40 + 10 + max(nameW, detailW) + 12))
+        return min(240, max(160, 12 + 40 + 10 + max(nameW + Self.nameTrailing - 12, detailW) + 12))
     }
+
+    /// [Mac full pass 2026-11-14] Room after the name: on the Mac's one box the ✕ sits inside the tile's top corner
+    /// (22 pt, 4 pt in), over the name's line, and covered its last letters ("example.com/pos").
+    private static var nameTrailing: CGFloat { ComposerView.oneBox ? 22 + 4 + 6 : 12 }
 
     private var detailText: String {
         guard let a = attachment else { return "" }
@@ -426,7 +430,7 @@ final class TrayTileView: UIView {
         let textX: CGFloat = 12 + 40 + 10
         let nameH = ceil(name.font.lineHeight), detailH = ceil(detail.font.lineHeight)
         let top = (bounds.height - nameH - 2 - detailH) / 2
-        name.frame = CGRect(x: textX, y: top, width: max(0, bounds.width - textX - 12), height: nameH)
+        name.frame = CGRect(x: textX, y: top, width: max(0, bounds.width - textX - Self.nameTrailing), height: nameH)
         detail.frame = CGRect(x: textX, y: top + nameH + 2, width: max(0, bounds.width - textX - 12), height: detailH)
         let ringCenter = attachment?.kind != .image ? CGPoint(x: iconBox.frame.midX, y: iconBox.frame.midY) : CGPoint(x: bounds.midX, y: bounds.midY)
         ring.frame = CGRect(x: ringCenter.x - 12, y: ringCenter.y - 12, width: 24, height: 24)

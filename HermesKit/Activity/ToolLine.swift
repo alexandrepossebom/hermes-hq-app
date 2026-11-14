@@ -43,6 +43,29 @@ nonisolated enum ToolLines {
         "cronjob_manage": "Scheduling", "clarify": "Asking", "memory": "Updating memory", "todo_list": "Updating tasks",
         "message_agent": "Messaging",
     ]
+    /// Each verb above as done, for a step that has finished ("Read big.txt", not "Reading big.txt", in the Steps
+    /// sheet and the Mac inspector, as the chat's own step card words it in the past).
+    static let pastVerb: [String: String] = [
+        "Searching the web": "Searched the web", "Reading": "Read", "Browsing": "Browsed", "Clicking": "Clicked",
+        "Typing": "Typed", "Writing": "Wrote", "Editing": "Edited", "Searching files": "Searched files", "Running": "Ran",
+        "Running code": "Ran code", "Generating image": "Generated image", "Generating video": "Generated video",
+        "Generating speech": "Generated speech", "Looking at the image": "Looked at the image",
+        "Searching past sessions": "Searched past sessions", "Reading skill": "Read skill", "Listing skills": "Listed skills",
+        "Updating skill": "Updated skill", "Delegating": "Delegated", "Scheduling": "Scheduled", "Asking": "Asked",
+        "Updating memory": "Updated memory", "Updating tasks": "Updated tasks", "Messaging": "Messaged",
+    ]
+
+    /// `text` with its leading verb put in the past; text that starts with no known verb comes back as it is.
+    static func done(_ text: String) -> String {
+        // The longest verb first: "Reading skill pdf" is "Read skill pdf", "Running code" is "Ran code".
+        for present in pastVerb.keys.sorted(by: { $0.count > $1.count }) where text.hasPrefix(present) {
+            let rest = text.dropFirst(present.count)
+            guard rest.isEmpty || rest.first == " " else { continue }
+            return (pastVerb[present] ?? present) + rest
+        }
+        return text
+    }
+
     static let noPreview: Set<String> = ["skills_list", "session_search", "memory", "todo_list"]
     static let forConnector: Set<String> = ["web_search", "search_files"]
     static let primary: [String: String] = [

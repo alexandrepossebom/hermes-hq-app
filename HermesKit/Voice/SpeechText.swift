@@ -87,6 +87,30 @@ nonisolated enum SpeechText {
         return ".!?:".contains(last) ? header : header + "."
     }
 
+    /// The Markdown tables among `lines`: each table line's cells by line index (header and body rows), and the
+    /// delimiter rows (`|---|:--:|`), which hold no words. Shared with Select Text's readable text.
+    static func tables(_ lines: [String]) -> (rows: [Int: [String]], delimiters: Set<Int>) {
+        var rows: [Int: [String]] = [:], delimiters = Set<Int>()
+        var index = 1
+        while index < lines.count {
+            guard let delimiter = tableRow(lines[index]), let header = tableRow(lines[index - 1]),
+                  delimiter.cells.allSatisfy({ tableDelimiter.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }),
+                  header.cells.count == delimiter.cells.count, header.depth == delimiter.depth else {
+                index += 1
+                continue
+            }
+            rows[index - 1] = header.cells
+            delimiters.insert(index)
+            var row = index + 1
+            while row < lines.count, let body = tableRow(lines[row]), body.depth == delimiter.depth {
+                rows[row] = body.cells
+                row += 1
+            }
+            index = row
+        }
+        return (rows, delimiters)
+    }
+
     static func summarizeTables(_ text: String) -> String {
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
             .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)

@@ -550,6 +550,9 @@ struct MenusTranscriptTests {
         let md = "- **Dana:** you told her\n## Next\nSee [the doc](https://x.test) and `npm i`\n```\nconst a = **b**\n```"
         #expect(ChatTranscript.readableText(md) == "• Dana: you told her\nNext\nSee the doc (https://x.test) and npm i\nconst a = **b**")
         #expect(ChatTranscript.readableText("[https://a.b](https://a.b) *em* _un_ ~~gone~~") == "https://a.b em un gone")
+        // A table reads as its cells, no pipes or |---| row.
+        #expect(ChatTranscript.readableText("Times:\n| Step | Time |\n|---|---:|\n| **Build** | 2 s |\n| a \\| b | 3 s |")
+                == "Times:\nStep\tTime\nBuild\t2 s\na | b\t3 s")
     }
 
     @Test func menuTitle() {

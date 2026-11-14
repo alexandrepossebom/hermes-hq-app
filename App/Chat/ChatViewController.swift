@@ -1188,7 +1188,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let top = panel.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor,
                                              constant: ChatMetrics.statusLineHeight + 44)
         top.priority = UILayoutPriority(240)   // over the drawer's own height (200), under anything that places the composer
-        NSLayoutConstraint.activate(sides + [panel.bottomAnchor.constraint(equalTo: composer.topAnchor, constant: -8), top])
+        NSLayoutConstraint.activate(sides + [panel.bottomAnchor.constraint(equalTo: composer.topAnchor, constant: -8 - composer.boxRise), top])   // [Mac full pass 2026-11-14] 8 pt clear of the Mac's box (it was 5)
         drawer.watchTaps(on: tableView)
     }
 

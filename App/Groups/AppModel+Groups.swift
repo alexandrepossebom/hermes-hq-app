@@ -219,6 +219,17 @@ extension AppModel: GroupServices {
             guard let self, let screen, let session else { return }
             GroupInfoSheet.present(roomKey: session.roomKey, from: screen, services: self)
         }
+        // [mac-layout] The Mac's inspector Info tab shows Group Info's page, as a bot chat's shows its Info rows (it
+        // read "No Info" for every room). No Done and no title: the panel is not a sheet, and an untitled tab page has no
+        // bar (a page pushed from it, a member's Bot Info or Name & Photo, gets one with Back).
+        screen.makeInfoContent = { [weak self, weak session] in
+            guard let self, let session, let room = self.groupStore?.room(session.roomKey) else { return nil }
+            let info = GroupInfoController(uid: room.uid.value, services: self)
+            info.navigationItem.hqRemoveClose()
+            info.title = nil
+            info.additionalSafeAreaInsets.top = 8   // the header card clear of the panel's tabs
+            return info
+        }
         screen.loadViewIfNeeded()
         var actions = GroupRoomActions()
         actions.isOnline = { [weak self] in self?.groupsWritable ?? false }
