@@ -92,7 +92,8 @@ import UIKit
 
         // Owner 2026-11-08: changing a bot's face, one step from its menu (it sat under Edit Bot › Edit Head).
         var info: [BotMenuNode] = [.action("Bot Info", "info.circle") { [weak self] in self?.openInfo(bot) },
-                                   .action("Change Face", "face.smiling") { [weak self] in self?.openInfo(bot, start: .face) }]
+                                   // [macpass] A Mac item that opens a picker to finish ends in "…".
+                                   .action(DeviceWord.isMac ? "Change Face…" : "Change Face", "face.smiling") { [weak self] in self?.openInfo(bot, start: .face) }]
         if let item = BotMenuHooks.item(.newChat, bot, host) { info.append(item) }
         // [chats-under] Sessions with this bot's chip picked (tester, 2026-11-08). A hidden bot has no chip.
         if !bot.hidden, BotsViewController.sessionsListed {   // [Mac UI check 2026-11-13] not while Sessions is hidden

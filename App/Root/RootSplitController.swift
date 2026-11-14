@@ -1013,7 +1013,7 @@ final class RootSplitController: UIViewController {
     }
 }
 
-private extension UIView {
+extension UIView {
     /// The first responder inside this view, if any.
     var hqFirstResponder: UIView? {
         if isFirstResponder { return self }

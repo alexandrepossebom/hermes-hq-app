@@ -214,6 +214,12 @@ extension MoreViewController: KeySearchable {}
         let up = UIKeyCommand(action: previousChat, input: UIKeyCommand.inputUpArrow, modifierFlags: [])
         down.repeatBehavior = .nonRepeatable
         up.repeatBehavior = .nonRepeatable
+        // [macpass] 2026-11-14: in Sessions, after a click on a row, ↓ moved the system's square focus ring down the
+        // list (and past the pane's edge) instead of opening the next chat: keyboard focus takes plain arrows before a
+        // key command without priority. With it they walk the chats; `validate` turns them off while a text field
+        // holds the caret, or with nothing to walk, so a field, a picker or another list keeps its arrows.
+        down.wantsPriorityOverSystemBehavior = true
+        up.wantsPriorityOverSystemBehavior = true
         let field = UIKeyCommand(action: messageField, input: "\r", modifierFlags: [])
         // [mac] ⌘= is ⌘+ without Shift, as in every Mac app that zooms.
         return [next, previous, stop, down, up, field, UIKeyCommand(action: textBigger, input: "=", modifierFlags: .command)] + scrollKeys
@@ -255,6 +261,7 @@ extension MoreViewController: KeySearchable {}
         builder.remove(menu: .sidebar)
         #endif
         #if targetEnvironment(macCatalyst)
+        SheetKeys.install()   // [macpass]
         MacWindow.trimMenus(builder)   // [mac]
         MacUpdater.addMenuItem(builder)
         // [mac-audit K] Owner 2026-11-02: Help › Keyboard Shortcuts lists every key in a sheet (MacShortcutsSheet).
@@ -632,6 +639,21 @@ extension MoreViewController: KeySearchable {}
         focus(30)
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// [macpass] A text field or text view in the window holds the caret (the arrows are its own).
+    static func typing(_ root: MainTabController) -> Bool {
+        guard let first = root.view.window?.hqFirstResponder else { return false }
+        return first is UIKeyInput
+    }
+
+    /// [macpass] The plain arrow walks a chat list now (see `keyCommands`).
+    static func arrowsWalk(forward: Bool) -> Bool {
+        guard let root, presented(root) == nil, !MacSettingsWindow.isKey, !MacFileWindow.isKey,
+              root.view.window?.isKeyWindow == true, !typing(root) else { return false }
+        return walkTarget(root, forward: forward) != nil
+    }
+    #endif
+
     static func walkTarget(_ root: MainTabController, forward: Bool) -> (key: String, open: (String) -> Void)? {
         guard let list = walkList(root),
               let key = ChatWalk.target(order: list.order, current: list.current, forward: forward) else { return nil }
@@ -757,6 +779,10 @@ extension AppDelegate {
             break
         case KeyCommands.nextChat, KeyCommands.previousChat:
             enabled = enabled && KeyCommands.walkTarget(root, forward: command.action == KeyCommands.nextChat) != nil
+            #if targetEnvironment(macCatalyst)
+            // [macpass] The plain arrows (with priority over the system's own, `alternates`) leave a text field's caret be.
+            if (command as? UIKeyCommand)?.modifierFlags.isEmpty == true, KeyCommands.typing(root) { enabled = false }
+            #endif
         case KeyCommands.selectTab:
             let place = KeyCommands.namePlace(command, root)
             enabled = (enabled || givesWay) && place != nil
@@ -981,14 +1007,25 @@ extension AppDelegate {
     }
 
     override var keyCommands: [UIKeyCommand]? {
+        #if targetEnvironment(macCatalyst)
+        // [macpass] The plain ↑ / ↓ go before the system's own use of the arrows (`alternates`), so they are offered
+        // only when they walk something: not while a field holds the caret, nor over a list they don't walk (Jobs,
+        // Tasks, Files, a pick panel keep their own arrows), nor under a sheet or with another window in front.
+        let alternates = KeyCommands.alternates.filter { command in
+            guard command.modifierFlags.isEmpty, command.action == KeyCommands.nextChat || command.action == KeyCommands.previousChat else { return true }
+            return KeyCommands.arrowsWalk(forward: command.action == KeyCommands.nextChat)
+        }
+        #else
+        let alternates = KeyCommands.alternates
+        #endif
         #if DEBUG
         // UI tests and the stress sweep: ⌃⌥⌘P flips the stand-in window between 420 pt wide (phone layout) and the
         // real window, ⌃⌥⌘O sweeps it 1,100 → 400 → 1,100 pt over 2 s (docs/spec/3x-ipad.md §11).
-        return KeyCommands.alternates + [
+        return alternates + [
             UIKeyCommand(action: #selector(hqDebugTogglePane(_:)), input: "p", modifierFlags: [.control, .alternate, .command]),
             UIKeyCommand(action: #selector(hqDebugSweepPane(_:)), input: "o", modifierFlags: [.control, .alternate, .command])]
         #else
-        return KeyCommands.alternates
+        return alternates
         #endif
     }
 
@@ -1402,6 +1439,142 @@ extension UINavigationController {
 }
 
 extension KanbanBoardListController: ListPaneContent {}
+
+#if targetEnvironment(macCatalyst)
+/// [macpass] 2026-11-14 (Mac full pass, round 2): Escape and ⌘. never closed a sheet (New Job, Edit Job, Bot Info, a
+/// step's sheet, Star Map's skill, Select Text…), changed or not; only Cancel and Done did. The Mac shows a sheet in a
+/// window of its own (`_UIBridgedPresentationWindow`), and there a key command never matches, the menu bar's included
+/// (View's Close, the app's ⌘.): with nothing focused the press met no responder, and a focused field's keys go the
+/// AppKit way and never reach UIKit at all. So the app watches its own key presses (an AppKit local monitor, which
+/// sees them before any window does): Escape or ⌘. while a sheet's window is key goes to the nearest `hqEscape` in the
+/// first responder's chain below the app's (New Chat's Back), as the menu item's action would, else closes the sheet
+/// the Mac way (`closeSheet`), or takes the Cancel of an alert over it. An input method's composition keeps its Escape.
+@MainActor enum SheetKeys {
+    private static var monitor: AnyObject?
+    /// The key code of the Escape press taken when it went down, so its release is taken too.
+    private static var taken: UInt16?
+
+    static func install() {
+        guard monitor == nil, let events = NSClassFromString("NSEvent"),
+              let method = class_getClassMethod(events, NSSelectorFromString("addLocalMonitorForEventsMatchingMask:handler:")) else { return }
+        typealias Handler = @convention(block) (NSObject) -> NSObject?
+        typealias Add = @convention(c) (AnyClass, Selector, UInt64, @escaping Handler) -> AnyObject?
+        let add = unsafeBitCast(method_getImplementation(method), to: Add.self)
+        let keyDown: UInt64 = 1 << 10, keyUp: UInt64 = 1 << 11
+        monitor = add(events, NSSelectorFromString("addLocalMonitorForEventsMatchingMask:handler:"), keyDown | keyUp) { event in
+            let taken = MainActor.assumeIsolated { take(event) }
+            return taken ? nil : event
+        }
+    }
+
+    /// True when the AppKit key event is Escape's (or ⌘.'s) in a sheet's window and was handled here.
+    private static func take(_ event: NSObject) -> Bool {
+        guard let code = (event.value(forKey: "keyCode") as? NSNumber)?.uint16Value,
+              let type = (event.value(forKey: "type") as? NSNumber)?.uintValue else { return false }
+        if type == 11 {   // key up
+            guard taken == code else { return false }
+            taken = nil
+            return true
+        }
+        let flags = (event.value(forKey: "modifierFlags") as? NSNumber)?.uintValue ?? 0
+        let mods = flags & (1 << 17 | 1 << 18 | 1 << 19 | 1 << 20)   // shift, control, option, command
+        let characters = event.value(forKey: "charactersIgnoringModifiers") as? String
+        guard (code == 53 && mods == 0) || (characters == "." && mods == 1 << 20),
+              (event.value(forKey: "isARepeat") as? Bool) != true,
+              let window = sheetWindow(), sheetPage(in: window) != nil else { return false }
+        if composing() { return false }
+        if escapeInChain(from: window.hqFirstResponder, in: window) || closeSheet(in: window) {
+            taken = code
+            return true
+        }
+        return false
+    }
+
+    /// The window of a sheet on show, when it is key (the app's scenes don't list it: found through what is presented).
+    private static func sheetWindow() -> UIWindow? {
+        guard let type = NSClassFromString("_UIBridgedPresentationWindow") else { return nil }
+        var found: [UIWindow] = []
+        for root in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows).compactMap(\.rootViewController) {
+            var next = root.presentedViewController
+            while let page = next {
+                if let window = page.viewIfLoaded?.window, window.isKind(of: type), !found.contains(window) { found.append(window) }
+                next = page.presentedViewController
+            }
+        }
+        return found.first { $0.isKeyWindow }
+    }
+
+    /// An input method is composing (marked text) in the key window's field, UIKit's or AppKit's.
+    private static func composing() -> Bool {
+        if (sheetWindow()?.hqFirstResponder as? UITextInput)?.markedTextRange != nil { return true }
+        guard let app = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
+              let first = (app.value(forKey: "keyWindow") as? NSObject)?.value(forKey: "firstResponder") as? NSObject,
+              first.responds(to: NSSelectorFromString("hasMarkedText")) else { return false }
+        return first.value(forKey: "hasMarkedText") as? Bool == true
+    }
+
+    /// The nearest `hqEscape` in the first responder's chain inside the sheet (past it are the pages it covers, and
+    /// the app's own Escape, which acts on the main window).
+    private static func escapeInChain(from first: UIResponder?, in window: UIWindow) -> Bool {
+        func inSheet(_ responder: UIResponder) -> Bool {
+            if let view = responder as? UIView { return view.window === window && view !== window }
+            return (responder as? UIViewController)?.viewIfLoaded?.window === window
+        }
+        var next = first
+        while let responder = next, inSheet(responder) {
+            if responder.responds(to: KeyCommands.escape), responder.canPerformAction(KeyCommands.escape, withSender: nil) {
+                AppLog.note("keys", "escape (sheet window): \(type(of: responder))'s own")
+                _ = responder.perform(KeyCommands.escape, with: nil)
+                return true
+            }
+            next = responder.next
+        }
+        return false
+    }
+
+    /// The deepest presented page (not an alert) whose view is in `window`.
+    static func sheetPage(in window: UIWindow) -> UIViewController? {
+        let roots = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).compactMap(\.rootViewController)
+        var found: UIViewController?
+        for root in roots {
+            var next = root.presentedViewController
+            while let page = next {
+                if page.viewIfLoaded?.window === window, !(page is UIAlertController), !page.isBeingDismissed { found = page }
+                next = page.presentedViewController
+            }
+        }
+        return found
+    }
+
+    /// Escape or ⌘. in a sheet's window: the top of what is over the sheet closes as its Cancel, ✕ or a pull down
+    /// would (asking first over unsaved changes, `KeyCommands.closePresented`). An alert there (Discard Changes' own
+    /// question, a prompt) takes its Cancel button, as the system's Escape does for an alert in the main window.
+    private static func closeSheet(in window: UIWindow) -> Bool {
+        guard var top = sheetPage(in: window) else { return false }
+        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+        if let alert = top as? UIAlertController {
+            if let typing = AlertCancel.typing(alert) { AlertCancel.close(typing); return true }
+            return cancel(alert)
+        }
+        guard KeyCommands.canDismiss(top) else { return false }
+        AppLog.note("keys", "escape (sheet window): close \(type(of: top))")
+        KeyCommands.closePresented(top)
+        return true
+    }
+
+    /// Taps `alert`'s Cancel (its handler runs, as a click's would). False when it has none: the key does nothing.
+    private static func cancel(_ alert: UIAlertController) -> Bool {
+        let selector = NSSelectorFromString("_dismissAnimated:triggeringAction:")
+        guard let action = alert.actions.first(where: { $0.style == .cancel && $0.isEnabled }),
+              let method = class_getInstanceMethod(object_getClass(alert), selector) else { return false }
+        typealias Dismiss = @convention(c) (AnyObject, Selector, Bool, UIAlertAction) -> Void
+        AppLog.note("keys", "escape (sheet window): alert's \(action.title ?? "Cancel")")
+        unsafeBitCast(method_getImplementation(method), to: Dismiss.self)(alert, selector, true, action)
+        return true
+    }
+}
+#endif
 
 #if DEBUG
 /// The app's window in DEBUG builds. It notes, in the app's log, each key press that arrives with Command held (the

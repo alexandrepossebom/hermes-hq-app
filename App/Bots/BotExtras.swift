@@ -111,7 +111,8 @@ nonisolated enum BotExtrasRules {
         BotMenuHooks.providers[.delete] = { bot, host in
             guard let editing = ((host as? BotsViewController)?.organizer?.settings)?.botEditing,
                   BotExtrasRules.canDelete(isDefault: editing.isDefault(bot)) else { return nil }
-            return .action("Delete Bot", "trash", destructive: true) { [weak host] in
+            // [macpass] It asks first, so on the Mac it reads "Delete Bot…" (as Chat's "Delete Chat…").
+            return .action(DeviceWord.isMac ? "Delete Bot…" : "Delete Bot", "trash", destructive: true) { [weak host] in
                 guard let host else { return }
                 let source = (host as? BotsViewController)?.anchorView(for: bot.id)
                 #if targetEnvironment(macCatalyst)

@@ -61,8 +61,9 @@ import UIKit
             UICommand(title: "Model Prices", action: tool, propertyList: ChatMenus.ToolRow.prices.rawValue),
         ]
         let more: [UIMenuElement] = [
-            item("Files", chatRow, row: .files),
-            item("Changes", chatRow, row: .changes),
+            // [macpass] 2026-11-14: View has Files and Changes too (the places); these are this chat's.
+            item(Self.filesTitle, chatRow, row: .files),
+            item(Self.changesTitle, chatRow, row: .changes),
             item("Branch in New Chat", chatRow, row: .branch),
             item("Export Chat…", chatRow, row: .export),
         ]
@@ -83,6 +84,9 @@ import UIKit
 
     /// The Chat menu's Delete: a Mac menu item that asks before acting ends in "…", as File's does.
     static var deleteTitle: String { DeviceWord.isMac ? "Delete Chat…" : "Delete Chat" }
+    /// The chat's own Files and Changes, named apart from View's Files and Changes (the places of all bots).
+    static let filesTitle = "Chat Files"
+    static let changesTitle = "Chat Changes"
 
     static var chat: ChatViewController? {
         #if targetEnvironment(macCatalyst)
@@ -123,6 +127,9 @@ extension AppDelegate {
                 let inspector = chat.flatMap { MacInspector.beside($0) }
                 let visible = inspector?.isVisible ?? MacInspector.isShown
                 command.title = chat != nil && inspector == nil ? "Chat Info" : visible ? "Hide Inspector" : "Show Inspector"
+                // [macpass] 2026-11-14: the first ⌘I after a bot's click did nothing while its chat was still opening
+                // (the ⋯'s Info row is dimmed until the chat has loaded); the panel beside it can open all the same.
+                if inspector != nil { enabled = true }
             }
             #endif
             if let id = (command.propertyList as? String).flatMap(ChatMenuItemID.init(rawValue:)),
@@ -132,6 +139,8 @@ extension AppDelegate {
                 case .info: if !DeviceWord.isMac { command.title = "Chat Info" }
                 case .export: command.title = "Export Chat…"
                 case .delete: command.title = ChatMenuBar.deleteTitle
+                case .files: command.title = ChatMenuBar.filesTitle
+                case .changes: command.title = ChatMenuBar.changesTitle
                 default: command.title = row.title
                 }
             }
@@ -164,13 +173,18 @@ extension AppDelegate {
     }
 
     @objc func hqChatRow(_ sender: Any?) {
-        guard let id = ((sender as? UICommand)?.propertyList as? String).flatMap(ChatMenuItemID.init(rawValue:)),
-              let menus = ChatMenuBar.chat?.menus, menus.menuBarRow(id) != nil else { return }
-        AppLog.note("keys", "chat menu: \(id.rawValue)")
+        guard let id = ((sender as? UICommand)?.propertyList as? String).flatMap(ChatMenuItemID.init(rawValue:)) else { return }
         #if targetEnvironment(macCatalyst)
-        // [mac-layout] ⌘I shows and hides the inspector beside the chat, as Linear's and Keynote's do.
-        if id == .info, let chat = ChatMenuBar.chat, let inspector = MacInspector.beside(chat) { inspector.toggle(); return }
+        // [mac-layout] ⌘I shows and hides the inspector beside the chat, as Linear's and Keynote's do (also while the
+        // chat is still opening: [macpass] 2026-11-14).
+        if id == .info, let chat = ChatMenuBar.chat, let inspector = MacInspector.beside(chat) {
+            AppLog.note("keys", "chat menu: info (inspector)")
+            inspector.toggle()
+            return
+        }
         #endif
+        guard let menus = ChatMenuBar.chat?.menus, menus.menuBarRow(id) != nil else { return }
+        AppLog.note("keys", "chat menu: \(id.rawValue)")
         menus.perform(id)
     }
 
