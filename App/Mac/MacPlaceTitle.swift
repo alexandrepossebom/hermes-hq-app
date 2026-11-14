@@ -56,7 +56,7 @@ enum MacPlaceTitle {
         let item = page.navigationItem
         guard item.titleView == nil, item.leftBarButtonItems?.isEmpty ?? true, item.largeTitleDisplayMode != .inline else { return }
         if afterBack { item.leftItemsSupplementBackButton = true }
-        let label = UILabel()
+        let label = PlaceTitleLabel()
         label.font = MacType.pageTitle
         label.textColor = HQPalette.label
         label.adjustsFontForContentSizeCategory = true
@@ -84,6 +84,31 @@ enum MacPlaceTitle {
             MainActor.assumeIsolated { label?.text = item?.title ?? page.title}
         }]
         objc_setAssociatedObject(page, &watchKey, watch, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+}
+
+/// A place's title at UI Scale: View › Make Text Bigger (or Settings › UI Scale) changed every other text and left the
+/// title at the size it opened with (`adjustsFontForContentSizeCategory` follows the system's text size alone).
+private final class PlaceTitleLabel: UILabel {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        registerForTraitChanges([ThemeGenerationTrait.self, UITraitPreferredContentSizeCategory.self]) { (label: PlaceTitleLabel, _) in
+            label.refreshFont()
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(themeChanged), name: Theme.didChange, object: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func themeChanged() { refreshFont() }
+
+    private func refreshFont() {
+        let next = MacType.pageTitle
+        guard font != next else { return }
+        font = next
+        invalidateIntrinsicContentSize()
+        superview?.invalidateIntrinsicContentSize()
+        superview?.setNeedsLayout()
     }
 }
 #endif

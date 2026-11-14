@@ -37,6 +37,10 @@
   --color-input: var(--hq-separator);
   --color-ring: var(--hq-tint);
 
+  /* [mac] Mac polish #125: Tailwind's text-xs (12 px) is never under the app's smallest on the Mac (--hq-text-min,
+     13 px there and 0 elsewhere, from PluginPageTheme.swift): drawn at 77 %, it came out at 9 pt. */
+  --text-xs: max(0.75rem, var(--hq-text-min, 0px));
+
   --radius-sm: calc(var(--hq-radius) - 4px);
   --radius-md: calc(var(--hq-radius) - 2px);
   --radius-lg: var(--hq-radius);
@@ -95,7 +99,7 @@
   .hq-badge {
     display: inline-flex; align-items: center; gap: 4px;
     flex-shrink: 0; max-width: 100%; padding: 4px 8px; border-radius: 999px;
-    font-size: 12px; font-weight: 600; line-height: 1.15;
+    font-size: max(12px, var(--hq-text-min, 0px)); font-weight: 600; line-height: 1.15;   /* [mac] Mac polish #125 */
     background: color-mix(in srgb, var(--hq-tint) 15%, transparent); color: var(--hq-tint);
   }
   .hq-badge-secondary { background: var(--hq-fill); color: var(--hq-label2); }

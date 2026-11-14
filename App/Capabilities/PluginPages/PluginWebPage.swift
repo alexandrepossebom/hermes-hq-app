@@ -27,6 +27,9 @@ final class PluginWebPageState {
     /// The controller hides the message's view once the page is up, so touches reach the web view.
     @ObservationIgnored var changed: ((Phase) -> Void)?
     var askNote: String?
+    /// Mac pass round 4: the plugin's own data didn't come (Hermes or the plugin failed, or no answer), in plain words.
+    /// The page draws its own error; this offers Try Again under it. Cleared by the next answer that works.
+    var trouble: String?
 }
 
 final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKScriptMessageHandlerWithReply, WKScriptMessageHandler,
@@ -42,6 +45,7 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
     private var web: WKWebView?
     private var schemes: PluginPageSchemeHandler?
     private var status: UIHostingController<HQScaledRoot<PluginWebPageStatus>>?
+    private var troubleBar: UIHostingController<HQScaledRoot<PluginWebPageTrouble>>?
     private var loadTask: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
     private(set) var bundle: Data?
@@ -118,6 +122,22 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
             self?.web?.accessibilityElementsHidden = phase != .ready
         }
 
+        // Mac pass round 4: a failed read of the plugin's data gets plain words and Try Again along the page's foot.
+        let bar = UIHostingController(rootView: HQScaledRoot(PluginWebPageTrouble(state: state, retry: { [weak self] in self?.reload() })))
+        bar.view.backgroundColor = .clear
+        bar.sizingOptions = .intrinsicContentSize
+        addChild(bar)
+        bar.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bar.view)
+        NSLayoutConstraint.activate([
+            bar.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bar.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bar.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+        bar.didMove(toParent: self)
+        bar.view.isHidden = true
+        troubleBar = bar
+
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (self: PluginWebPageController, _) in
             self.restyle()
         }
@@ -151,7 +171,7 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
                     self.state.phase = .failed(title: "Couldn’t Open \(page.label)",
                                                words: "Hermes didn’t send this page’s files. Check that the plugin is on for \(self.botName) in Plugins. If it was just installed, Hermes may need a restart first.")
                 } else {
-                    let words = (error as? LocalizedError)?.errorDescription ?? "Hermes didn’t answer."
+                    let words = (error as? HTTPError)?.plainWords ?? (error as? LocalizedError)?.errorDescription ?? "Hermes didn’t answer."
                     self.state.phase = .failed(title: "Couldn’t Open \(page.label)", words: words)
                 }
             }
@@ -218,6 +238,7 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
 
     private func reload() {
         Haptics.play(.light)
+        noteTrouble(nil)
         load()
     }
 
@@ -300,14 +321,18 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
             do {
                 let data = try await client.pageRest(method, path, query: [], body: text.map { Data($0.utf8) }, timeout: 60)
                 AppLog.trace("plugin-pages", "\(name) \(method) \(AppLog.tag(path)) 200 \(data.count) B in \(AppLog.ms(since: started)) ms")
+                self?.noteTrouble(nil)
                 replyHandler(["status": 200, "body": String(decoding: data, as: UTF8.self)], nil)
             } catch let error as HTTPError {
                 AppLog.note("plugin-pages", "\(name) \(method) \(AppLog.tag(path)) HTTP \(error.status) in \(AppLog.ms(since: started)) ms")
                 if PluginPageBridge.routeMissing(status: error.status, body: error.body) { self?.state.phase = .needsRestart }
-                replyHandler(["status": error.status, "body": error.body ?? ""], nil)
+                // The page's error reads these words, not "502: Bad Gateway" (host.jsx errorWords).
+                if error.status >= 500 || error.status == 408 || error.status == 429 { self?.noteTrouble(error.plainWords) }
+                replyHandler(["status": error.status, "body": error.body ?? "", "words": error.plainWords], nil)
             } catch {
                 let words = (error as? LocalizedError)?.errorDescription ?? "Hermes HQ couldn’t reach Hermes."
                 AppLog.note("plugin-pages", "\(name) \(method) \(AppLog.tag(path)) failed: \(type(of: error))")
+                self?.noteTrouble(words)
                 replyHandler(["status": 0, "error": words], nil)
             }
         }
@@ -523,6 +548,40 @@ final class PluginPageSchemeHandler: NSObject, WKURLSchemeHandler {
 
 extension PluginWebPageController {
     var clientForAssets: any GatewayClient { client }
+
+    /// Shows or clears the foot's Try Again (only over a page that's up: a notice of its own has one already).
+    fileprivate func noteTrouble(_ words: String?) {
+        guard state.trouble != words else { return }
+        state.trouble = words
+        troubleBar?.view.isHidden = words == nil
+        if let words { UIAccessibility.post(notification: .announcement, argument: words) }
+    }
+}
+
+/// Mac pass round 4: plain words for a plugin page whose data didn't come, and Try Again, on a bar along its foot.
+struct PluginWebPageTrouble: View {
+    @Bindable var state: PluginWebPageState
+    let retry: () -> Void
+
+    var body: some View {
+        if let words = state.trouble, state.phase == .ready {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.hqOrange).accessibilityHidden(true)
+                Text(words).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Try Again", action: retry).hqBorderedButtonStyle()
+                    .accessibilityIdentifier("plugin-web-page.trouble-retry")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.hqGroupedCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("plugin-web-page.trouble")
+        }
+    }
 }
 
 // MARK: - The native message over the page

@@ -128,7 +128,8 @@ final class LiveTiles: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(LiveTileHandler(self), name: "hermes")
         config.userContentController.add(LiveTileHandler(self), name: "hermesTile")
-        let web = WKWebView(frame: .zero, configuration: config)
+        let web = LiveTileWeb(frame: .zero, configuration: config)
+        web.openTile = { [weak self] in self?.open?(id) }
         web.isOpaque = false
         web.backgroundColor = .clear
         web.scrollView.backgroundColor = .clear
@@ -354,14 +355,47 @@ final class LiveTileBox: UIView {
         }
     }
 
-    #if targetEnvironment(macCatalyst)
-    /// [mac] A right-click (or Control-click) on a live tile is the tile's, not its page's: the web view's own menu
-    /// (Cut, Copy, Paste, Speech) came up where the tile's (Open, Size, Move to Page…) belongs. The box takes the click,
-    /// so the Tiles page's context menu answers it; left clicks still reach the page's buttons.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
-        if let event, event.buttonMask.contains(.secondary) || event.modifierFlags.contains(.control), hit != nil { return self }
+        #if targetEnvironment(macCatalyst)
+        /// [mac] A right-click (or Control-click) on a live tile is the tile's, not its page's: the web view's own menu
+        /// (Cut, Copy, Paste, Speech) came up where the tile's (Open, Size, Move to Page…) belongs. The box takes the
+        /// click, so the Tiles page's context menu answers it; left clicks still reach the page's buttons.
+        if let event, event.buttonMask.contains(.secondary) || event.modifierFlags.contains(.control),
+           hit != nil, hit !== self { return self }
+        #endif
         return hit
     }
-    #endif
+
+    /// Mac pass round 4: until its page has drawn, the web view is see-through (the picture shows) and UIKit skips it,
+    /// so the empty box took the click and nothing opened: after launch, after a scroll that remade the view, or while a
+    /// page still fetched a script, font or picture, clicks on the tile did nothing. A click then opens the tile.
+    private lazy var openTap: UITapGestureRecognizer = {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(openUndrawn))
+        tap.cancelsTouchesInView = false   // a drawn page's own buttons keep their clicks
+        addGestureRecognizer(tap)
+        return tap
+    }()
+
+    private var undrawn: LiveTileWeb? {
+        (subviews.first { $0 is LiveTileWeb } as? LiveTileWeb).flatMap { $0.alpha < 0.01 ? $0 : nil }
+    }
+
+    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        recognizer === openTap ? undrawn != nil : super.gestureRecognizerShouldBegin(recognizer)
+    }
+
+    override func didAddSubview(_ subview: UIView) {
+        super.didAddSubview(subview)
+        _ = openTap
+    }
+
+    @objc private func openUndrawn() {
+        undrawn?.openTile?()
+    }
+}
+
+/// [live-tiles] A live tile's web view: it knows how to open its tile (a click before its page has drawn).
+final class LiveTileWeb: WKWebView {
+    var openTile: (() -> Void)?
 }

@@ -511,7 +511,11 @@ struct MarketplaceView: View {
         return VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    sideRow("Discover", symbol: "star", count: nil, on: state.kind == .all && state.categories.isEmpty, id: "discover") {
+                    // Mac pass round 4: not lit over search results (the store front isn't what shows then); a click
+                    // on it while searching goes back to the store front, the search emptied.
+                    sideRow("Discover", symbol: "star", count: nil,
+                            on: state.kind == .all && state.categories.isEmpty && state.query.isEmpty, id: "discover") {
+                        if !state.query.isEmpty { state.query = ""; state.typeQuery?("") }
                         state.choose(.all); state.clear(); state.sort = .stars
                     }
                     sideHead("Plugins")

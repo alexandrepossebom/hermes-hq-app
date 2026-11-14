@@ -82,20 +82,31 @@ async function bridgedFetch(url, init) {
   return answer;
 }
 
-/** The words fetchJSON throws for a non-2xx answer: the server's `detail` when it sent one. */
-export function errorWords(status, text) {
+/** HTTP's own reason phrases: a `detail` that is one of these says no more than the number did. */
+const REASONS = new Set(["bad request", "unauthorized", "forbidden", "not found", "method not allowed", "request timeout",
+  "conflict", "payload too large", "unprocessable entity", "unprocessable content", "too many requests",
+  "internal server error", "not implemented", "bad gateway", "service unavailable", "gateway timeout", "request failed"]);
+
+/**
+ * The words fetchJSON throws for a non-2xx answer (Mac pass round 4: a page read "Error: 502: Bad Gateway"). The
+ * server's own `detail` when it says something (a plugin's "Title is required."), else the app's plain words for the
+ * status (`words`, from HTTPError.plainWords), never a bare number. `error.status` and `error.body` keep the rest.
+ */
+export function errorWords(status, text, words) {
+  const plain = words || "Hermes couldn’t do that. Try again.";
+  if (status >= 500 || status === 0) return plain;
   try {
     const parsed = JSON.parse(text);
     const detail = parsed && (parsed.detail || parsed.error || parsed.message);
-    if (typeof detail === "string" && detail) return `${status}: ${detail}`;
+    if (typeof detail === "string" && detail.trim() && !REASONS.has(detail.trim().toLowerCase())) return detail.trim();
   } catch { /* not JSON */ }
-  return `${status}: ${text || "Request failed"}`;
+  return plain;
 }
 
 export async function fetchJSON(url, init) {
   const answer = await bridgedFetch(url, init);
   if (answer.status < 200 || answer.status >= 300) {
-    const error = new Error(errorWords(answer.status, answer.body));
+    const error = new Error(errorWords(answer.status, answer.body, answer.words));
     error.status = answer.status;
     error.body = answer.body;
     throw error;

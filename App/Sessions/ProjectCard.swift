@@ -670,50 +670,19 @@ struct ProjectCardHeader: View {
                 .animation(motion, value: carded)   // motion-ok: nil unless a fold's unfold runs (reload skips it under Reduce Motion)
                 .geometryGroup()   // [project-unfold] its move down is the list's: only what changes inside it animates
                 .frame(width: ProjectCard.column)
-            HStack(alignment: .center, spacing: 6) {
-                // The count on the name's baseline, so the smaller grey number reads as the name's. [project-unfold]
-                // Each piece its own gap before it, so the count's is gone with it while open.
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    Text(title)
-                        .font(nameFont)
-                        .foregroundStyle(dropTarget ? Color.hqTint : Color.hqLabel)
-                        .lineLimit(large ? 3 : 1)
-                        .layoutPriority(1)
-                    if favorite {
-                        // In the name's font, so the symbol centres on its capitals (on the baseline at a caption's
-                        // size it sat low: owner, 2026-11-01), then drawn at about a caption's size.
-                        Text(Image(systemName: "star.fill"))
-                            .font(nameFont)
-                            .imageScale(.small)
-                            .scaleEffect(0.8)
-                            .foregroundStyle(Color.hqLabel3)
-                            .fixedSize()
-                            .padding(.leading, 6)
-                            .accessibilityHidden(true)
+            Group {
+                if DeviceWord.isMac && !large {
+                    // [mac] A narrow list: the count goes first, then the time, before the name is cut short (it
+                    // read "Pro…" beside "1 › 1:55 PM"). Each choice is measured with the name capped at `keep`, so a
+                    // long name in a wide list still truncates with its count and time beside it.
+                    ViewThatFits(in: .horizontal) {
+                        line(count: true, time: true)
+                        line(count: false, time: true)
+                        line(count: false, time: false)
                     }
-                    // Owner, 2026-11-01: "I want the count next to the project name and the time on the far right",
-                    // then "What if there wasn't a backdrop behind the number just to make it blend in more?" and "Should the
-                    // number be just a bit softer?": between the time's grey and the caret's (the caret's is too faint for
-                    // words), the time's grey under Increase Contrast.
-                    if summary.total > 0 {
-                        Text("\(summary.total)")
-                            .font(Font.hq(desk ? .footnote : .subheadline))
-                            .foregroundStyle(Color.hqLabel2.opacity(contrast == .increased ? 1 : 0.75))
-                            .monospacedDigit()
-                            .fixedSize()
-                            .modifier(ClosedRowOnly(shown: summary.collapsed, anchor: .leading, gap: 6, gapEdge: .leading))
-                            .accessibilityHidden(true)
-                    }
+                } else {
+                    line(count: true, time: true)
                 }
-                .layoutPriority(1)
-                if folds {
-                    Image(systemName: "chevron.down")
-                        .font(Font.hq(.caption).weight(.semibold))
-                        .foregroundStyle(Color.hqLabel3)
-                        .rotationEffect(.degrees(summary.collapsed ? -90 : 0))
-                }
-                Spacer(minLength: 4)
-                trailing
             }
             .frame(minHeight: boxSize)
             // [project-unfold] An open card's right edge further in, inside the row, so it moves with the rest across.
@@ -743,6 +712,59 @@ struct ProjectCardHeader: View {
         .animation(HQMotion.reduced ? nil : .snappy(duration: 0.2), value: dropTarget)
     }
 
+    /// [mac] How much of a project's name a narrow list keeps before it lets the count and then the time go.
+    @ScaledMetric(relativeTo: .callout) private var keep: CGFloat = 120
+
+    /// The name, its count, the caret and the trailing pieces; `count` and `time` false leave those out.
+    private func line(count showCount: Bool, time showTime: Bool) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            // The count on the name's baseline, so the smaller grey number reads as the name's. [project-unfold]
+            // Each piece its own gap before it, so the count's is gone with it while open.
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(title)
+                    .font(nameFont)
+                    .foregroundStyle(dropTarget ? Color.hqTint : Color.hqLabel)
+                    .lineLimit(large ? 3 : 1)
+                    .modifier(KeepIdealWidth(cap: DeviceWord.isMac ? keep : .infinity))
+                    .layoutPriority(1)
+                if favorite {
+                    // In the name's font, so the symbol centres on its capitals (on the baseline at a caption's
+                    // size it sat low: owner, 2026-11-01), then drawn at about a caption's size.
+                    Text(Image(systemName: "star.fill"))
+                        .font(nameFont)
+                        .imageScale(.small)
+                        .scaleEffect(0.8)
+                        .foregroundStyle(Color.hqLabel3)
+                        .fixedSize()
+                        .padding(.leading, 6)
+                        .accessibilityHidden(true)
+                }
+                // Owner, 2026-11-01: "I want the count next to the project name and the time on the far right",
+                // then "What if there wasn't a backdrop behind the number just to make it blend in more?" and "Should the
+                // number be just a bit softer?": between the time's grey and the caret's (the caret's is too faint for
+                // words), the time's grey under Increase Contrast.
+                if summary.total > 0 && showCount {
+                    Text("\(summary.total)")
+                        .font(Font.hq(desk ? .footnote : .subheadline))
+                        .foregroundStyle(Color.hqLabel2.opacity(contrast == .increased ? 1 : 0.75))
+                        .monospacedDigit()
+                        .fixedSize()
+                        .modifier(ClosedRowOnly(shown: summary.collapsed, anchor: .leading, gap: 6, gapEdge: .leading))
+                        .accessibilityHidden(true)
+                }
+            }
+            .layoutPriority(1)
+            if folds {
+                Image(systemName: "chevron.down")
+                    .font(Font.hq(.caption).weight(.semibold))
+                    .foregroundStyle(Color.hqLabel3)
+                    .rotationEffect(.degrees(summary.collapsed ? -90 : 0))
+            }
+            Spacer(minLength: 4)
+            trailing(time: showTime)
+        }
+    }
+
     /// A folder (Home: a house) in a small box, where a chat row has its face.
     private var folder: some View {
         Image(systemName: summary.home ? "house" : "folder")
@@ -762,7 +784,7 @@ struct ProjectCardHeader: View {
 
     /// The time at a chat row's size on the far right, so a closed project's reads as Pinned's do (in the tint while
     /// it holds an unread chat, as an unread chat's time), the working dots and unread count before it.
-    @ViewBuilder private var trailing: some View {
+    @ViewBuilder private func trailing(time showTime: Bool) -> some View {
         HStack(spacing: 0) {
             WorkingDots()
                 .modifier(ClosedRowOnly(shown: summary.collapsed && summary.working, anchor: .trailing,
@@ -776,7 +798,7 @@ struct ProjectCardHeader: View {
                     menuSpotView
                 }
             } else {
-                time
+                if showTime { time }
                 if menuSpot { menuSpotView.padding(.leading, 8) }
             }
         }
@@ -801,6 +823,25 @@ struct ProjectCardHeader: View {
             .frame(width: desk ? 16 : 18, height: boxSize)
             .anchorPreference(key: HeaderMenuSpot.self, value: .bounds) { $0 }
             .accessibilityHidden(true)
+    }
+}
+
+/// [mac] Its view's ideal width no wider than `cap` (a project's name, so `ViewThatFits` tries a row with the name cut
+/// to `cap` before it drops the count or the time); any real width it is offered passes through.
+private struct KeepIdealWidth: ViewModifier {
+    var cap: CGFloat
+    func body(content: Content) -> some View { KeepIdeal(cap: cap) { content } }
+}
+
+private struct KeepIdeal: Layout {
+    var cap: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let view = subviews.first else { return .zero }
+        let size = view.sizeThatFits(proposal)
+        return proposal.width == nil ? CGSize(width: min(size.width, cap), height: size.height) : size
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
     }
 }
 
