@@ -2178,7 +2178,12 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
            !HQAccessibility.voiceOver, liveTiles?.isRunning(id) == true {
             return false
         }
-        switch dataSource.itemIdentifier(for: indexPath) {
+        return opens(dataSource.itemIdentifier(for: indexPath))
+    }
+
+    /// Whether an item does something when chosen (a picture, row, tile or link; not the empty state or a count).
+    private func opens(_ item: Item?) -> Bool {
+        switch item {
         case .image?, .row?, .unavailableRow?, .showAllImages?, .unavailableToggle?, .pin?, .pinRow?, .allPins?, .making?: return true
         default: return false
         }
@@ -2186,9 +2191,13 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
 
     /// [tiles] The tile-being-made row isn't a keyboard focus stop: after the New Tile sheet (typed into) closes, focus
     /// landed on it and drew it tint-filled.
+    /// [tiles] Mac pass round 6: nor is anything that doesn't open. The empty Tiles page in the light look stood on a
+    /// grey block the height of its "No Tiles Yet" state, top to bottom of it: the list's first focus stop was the state
+    /// itself, drawn focused.
     func collectionView(_ collectionView: UICollectionView, canFocusItemAt indexPath: IndexPath) -> Bool {
-        if case .making? = dataSource.itemIdentifier(for: indexPath) { return false }
-        return true
+        let item = dataSource.itemIdentifier(for: indexPath)
+        if case .making? = item { return false }
+        return opens(item)
     }
 
     /// The Unavailable group's arrow: right when folded, down when open.

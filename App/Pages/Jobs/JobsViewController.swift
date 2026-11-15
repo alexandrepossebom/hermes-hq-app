@@ -214,7 +214,9 @@ final class JobsViewController: UIViewController, UICollectionViewDelegate, UISe
     private func configureDataSource() {
         let jobCell = UICollectionView.CellRegistration<SoftCardListCell, String> { [weak self] cell, _, key in
             guard let self, let row = self.rows[key] else { return }
-            cell.contentConfiguration = UIHostingConfiguration { JobRowView(row: row) }
+            cell.contentConfiguration = UIHostingConfiguration {
+                JobRowView(row: row, open: { [weak self] in self.map { $0.collectionView.pressRow(at: $0.dataSource.indexPath(for: .job(key))) } })
+            }
             .margins(.all, 0)
             cell.accessibilityIdentifier = "job-row-\(key)"
             cell.configurationUpdateHandler = { cell, state in

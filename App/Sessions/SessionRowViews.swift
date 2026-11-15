@@ -200,8 +200,8 @@ struct SessionRowView: View {
     private var previewLine: String? {
         guard detail.contains(.preview), session.searchSnippet == nil,
               !session.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        let words = session.preview?.split(whereSeparator: \.isNewline).joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // [lists] Mac pass round 6: read as words, as a bot row's preview is, not raw Markdown.
+        let words = RosterPreview.cleanPreviewText(session.preview?.split(whereSeparator: \.isNewline).joined(separator: " "))
         return words.isEmpty ? nil : words
     }
 

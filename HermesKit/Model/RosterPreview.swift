@@ -94,6 +94,8 @@ nonisolated enum RosterPreview {
         (JSRegex(#"`([^`\n]*)`"#), "$1"),
         (JSRegex(#"!\[([^\]]*)\]\([^)]*\)"#), "$1"),
         (JSRegex(#"\[([^\]]*)\]\([^)]*\)"#), "$1"),
+        // [lists] Mac pass round 6: a link the 80-character cut ends inside keeps its words, not "[name](#media:%2F…".
+        (JSRegex(#"!?\[([^\]]*)\]\([^)]*\z"#), "$1"),
         (JSRegex(#"(\*\*|__)(.*?)\1"#), "$2"),
         (JSRegex(#"(^|\s)[*_](\S(?:.*?\S)?)[*_](?=\s|\z|[.,;:!?])"#), "$1$2"),
         (JSRegex(#"~~(.*?)~~"#), "$1"),

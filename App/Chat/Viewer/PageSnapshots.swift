@@ -72,7 +72,8 @@ import WebKit
     private let cache = NSCache<NSString, UIImage>()
     private var generations: [MediaContext: Int] = [:]
     private var waiting: [String: [(UIImage?) -> Void]] = [:]
-    private var queue: [(key: String, path: String, name: String, context: MediaContext, fresh: Bool, dark: Bool, shape: Shape)] = []
+    /// Pages read and waiting to be drawn (one draws at a time; reading is not in line: see `picture`).
+    private var queue: [(key: String, url: URL, dark: Bool, shape: Shape)] = []
     private var drawing = false
     /// [tiles] Each page's title and job, as its last read said (`TileNames.head`), by account, bot and path.
     private var heads: [String: TileNames.Head] = [:]
@@ -80,6 +81,10 @@ import WebKit
     /// over one wears the failed mark instead of a grey chart that looked like one still drawing (Mac pass 2026-11-14).
     private var gone: Set<String> = []
     private var loaded: CheckedContinuation<Bool, Never>?
+    /// Pictures begun this run: a load's time limit only ends the draw it was set for.
+    private var drawCount = 0
+    /// How long a page gets to load before it is pictured as not drawable.
+    private static let loadLimit: Duration = .seconds(15)
 
     override private init() {
         super.init()
@@ -127,8 +132,46 @@ import WebKit
         if waiting[k] != nil { waiting[k]?.append(done); return }
         waiting[k] = [done]
         // Read again each time it's drawn: the bot may have rewritten it (a kept copy if the read fails).
-        queue.append((k, path, name, context, true, dark, shape))
-        drainQueue()
+        // [tiles] Mac pass round 6: reading the page used to be in the one-at-a-time line with drawing it, so one tile
+        // whose computer never answered (a 30 s timeout) held back every tile pinned after it, and a chat's page cards
+        // with them: three plain tiles still spinning half a minute in. Pages are read side by side now (one read per
+        // page: the loader joins a second ask), and only drawing waits its turn.
+        Task { [weak self] in
+            let url = await Self.read(path: path, name: name, context: context, headKey: Self.headKey(path, context), into: self)
+            guard let self else { return }
+            guard let url else {
+                for callback in self.waiting.removeValue(forKey: k) ?? [] { callback(nil) }
+                return
+            }
+            self.queue.append((k, url, dark, shape))
+            self.drainQueue()
+        }
+    }
+
+    /// The page's file from the bot's computer, or this Mac's last copy when the read fails for any reason but the
+    /// file being gone (nil then, or when there is no copy).
+    private static func read(path: String, name: String, context: MediaContext, headKey: String,
+                             into snapshots: PageSnapshots?) async -> URL? {
+        var url: URL?
+        do {
+            // [tiles] The loader's own fall-back to the kept copy hid a page deleted on the gateway (Mac pass
+            // 2026-11-14: the tile kept drawing the old copy, with no mark): gone is said; any other failure
+            // still draws the kept copy.
+            url = try await MediaLoader.shared.file(path: path, name: name, context: context,
+                                                    progressKey: "page|" + path, fresh: true, keptOnFailure: false)
+            snapshots?.gone.remove(headKey)
+        } catch {
+            if error as? MediaLoadError == .notFound {
+                snapshots?.gone.insert(headKey)
+            } else if !(error is CancellationError) {
+                let store = MediaLoader.shared.store(for: context.accountId)
+                url = store.cachedFile(MediaStore.gatewayKey(accountId: context.accountId, profile: context.profile,
+                                                             path: path), name: name)
+            }
+            AppLog.swallowed("chatui", "page card download\(url != nil ? ", the kept copy drawn" : "")", error)
+        }
+        if let url { snapshots?.heads[headKey] = readHead(url) }
+        return url
     }
 
     private func drainQueue() {
@@ -136,30 +179,7 @@ import WebKit
         drawing = true
         let job = queue.removeFirst()
         Task { [weak self] in
-            var image: UIImage?
-            let headKey = Self.headKey(job.path, job.context)
-            var url: URL?
-            do {
-                // [tiles] The loader's own fall-back to the kept copy hid a page deleted on the gateway (Mac pass
-                // 2026-11-14: the tile kept drawing the old copy, with no mark): gone is said; any other failure
-                // still draws the kept copy.
-                url = try await MediaLoader.shared.file(path: job.path, name: job.name, context: job.context,
-                                                        progressKey: "page|" + job.path, fresh: job.fresh, keptOnFailure: false)
-                self?.gone.remove(headKey)
-            } catch {
-                if error as? MediaLoadError == .notFound {
-                    self?.gone.insert(headKey)
-                } else if !(error is CancellationError) {
-                    let store = MediaLoader.shared.store(for: job.context.accountId)
-                    url = store.cachedFile(MediaStore.gatewayKey(accountId: job.context.accountId, profile: job.context.profile,
-                                                                 path: job.path), name: job.name)
-                }
-                AppLog.swallowed("chatui", "page card download\(url != nil ? ", the kept copy drawn" : "")", error)
-            }
-            if let url {
-                self?.heads[headKey] = Self.readHead(url)
-                image = await self?.draw(url, dark: job.dark, shape: job.shape)
-            }
+            let image = await self?.draw(job.url, dark: job.dark, shape: job.shape)
             guard let self else { return }
             if let image { self.cache.setObject(image, forKey: job.key as NSString) }
             for callback in self.waiting.removeValue(forKey: job.key) ?? [] { callback(image) }
@@ -187,9 +207,18 @@ import WebKit
         web.scrollView.contentInsetAdjustmentBehavior = .never
         window.addSubview(web)
         defer { web.removeFromSuperview() }
+        drawCount += 1
+        let thisDraw = drawCount
         let ok = await withCheckedContinuation { continuation in
             loaded = continuation
             web.loadPageFile(url)
+            // [tiles] A page that never finishes loading (a picture or script from a server that never answers) is
+            // given up on, so the line of pictures behind it keeps moving.
+            Task { [weak self] in
+                try? await Task.sleep(for: Self.loadLimit)
+                guard let self, self.drawCount == thisDraw else { return }
+                self.finishLoad(false)
+            }
         }
         guard ok else { return nil }
         try? await Task.sleep(for: Self.settle)

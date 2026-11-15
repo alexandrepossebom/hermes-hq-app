@@ -579,7 +579,8 @@ nonisolated enum SessionRowWords {
         if let pending = session.pending { return pending.prefix + " " + pending.text }
         // A chat without a title of its own already shows its preview as the title: the detail is then the metadata.
         let titled = !session.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if detail.contains(.preview), titled, let preview = session.preview?.trimmingCharacters(in: .whitespacesAndNewlines),
+        // [lists] Mac pass round 6: the preview reads as words, as a bot row's does, not "[name](#media:%2F…".
+        if detail.contains(.preview), titled, case let preview = RosterPreview.cleanPreviewText(session.preview),
            !preview.isEmpty { return preview }
         return session.metadata.isEmpty ? nil : session.metadata
     }

@@ -170,7 +170,7 @@ def seed_jobs():
     jobs = [
         job_record('j-triage', 'Morning inbox triage', 'inbox', {'kind': 'cron', 'expr': '0 8 * * 1-5', 'display': '0 8 * * 1-5'},
                    next_run_at=iso(weekday_after(t0, 8)), last_run_at=iso(last_triage), last_status='ok', deliver='origin',
-                   origin={'platform': 'telegram', 'chat_id': '100000001', 'chat_name': 'Alex Rivera', 'thread_id': None},
+                   origin={'platform': 'telegram', 'chat_id': '100000001', 'chat_name': 'Juno Example', 'thread_id': None},
                    prompt='Triage the inbox. Draft replies for anything that needs <name>, and file the rest & move on.'),
         job_record('j-watch', 'release-watch', 'deploys', {'kind': 'interval', 'minutes': 30, 'display': 'every 30m'},
                    next_run_at=iso(minute(t0) + datetime.timedelta(minutes=12)),
@@ -987,7 +987,7 @@ def seed_sessions():
     ], base - 3 * 3600)
     add_session('s-cut', 'inbox', 'A cut-off link', [
         {'role': 'user', 'content': 'Where is the telephony doc?'},
-        {'role': 'assistant', 'content': 'see https://samplehost.po…'},
+        {'role': 'assistant', 'content': 'see https://example.co…'},
     ], base - 26 * 3600)
     add_session('s-cron-nofolder', 'inbox', 'Morning inbox triage · run without a folder', [
         {'role': 'user', 'content': '[CRON] Summarize.'},
@@ -1086,6 +1086,15 @@ def real_file(asked):
     if pure.parent.name.endswith('.versions'): return FILES / pure.parent.name / pure.name
     return FILES / pure.name
 
+def paced(asked):
+    # [tiles] A page whose name says how it answers, every time (a tile's pop-up on a slow or failing computer):
+    # slow3-*/slow10-* wait 3 or 10 s, hang-* waits 90 s (past the app's own timeout), fail500-* is a 500.
+    name = pathlib.PurePosixPath(asked).name
+    slow = re.match(r'(slow(\d+)|hang)-', name)
+    if slow: time.sleep(90 if slow.group(1) == 'hang' else int(slow.group(2)))
+    if name.startswith('fail500-'): return 500, {'detail': 'Internal Server Error'}
+    return None
+
 def serve_file(gateway_handler, query, data_url):
     asked = (query.get('path') or [''])[0]
     sid = (query.get('session_id') or [''])[0]
@@ -1098,6 +1107,8 @@ def serve_file(gateway_handler, query, data_url):
         content = RUN_DOCUMENT.encode()
         return 200, ('text/markdown', content)
     real = real_file(asked)
+    paced_fail = paced(asked)
+    if paced_fail: return paced_fail
     if not asked or not real.is_file(): return 404, {'detail': 'File not found'}
     data = real.read_bytes()
     kind = mimetypes.guess_type(real.name)[0] or 'application/octet-stream'
@@ -1374,6 +1385,8 @@ def handler(gateway):
             # [tile-versions] The text routes a tile's versions are kept with.
             if path == '/api/fs/read-text' and method == 'GET':
                 real = real_file(one('path') or '')
+                paced_fail = paced(one('path') or '')
+                if paced_fail: return paced_fail
                 if not real.is_file(): return 404, {'detail': 'File not found'}
                 data = real.read_bytes()
                 return 200, {'path': one('path'), 'text': data.decode('utf-8', 'replace'), 'binary': False, 'truncated': False,

@@ -411,3 +411,14 @@ struct DesktopBareRowMarker: UIViewRepresentable {
         if marked || desktop { cell.setNeedsUpdateConfiguration() }
     }
 }
+
+extension UICollectionView {
+    /// [lists] Mac pass round 6: a row whose SwiftUI element is pressed through accessibility (VoiceOver, Voice Control,
+    /// Full Keyboard Access) opens the way a click does. The element carried the button trait with no action of its
+    /// own, so the press did nothing on Jobs and Tasks. Goes through the list's own select path.
+    func pressRow(at path: IndexPath?) {
+        guard let path, delegate?.collectionView?(self, shouldSelectItemAt: path) ?? true else { return }
+        selectItem(at: path, animated: false, scrollPosition: [])
+        delegate?.collectionView?(self, didSelectItemAt: path)
+    }
+}

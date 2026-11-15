@@ -61,6 +61,9 @@ import Testing
         #expect(SessionRowWords.detailText(chat(metadata: meta), detail: [.time]) == meta)
         #expect(SessionRowWords.detailText(chat(preview: nil, metadata: meta), detail: [.preview]) == meta)
         #expect(SessionRowWords.detailText(chat(preview: nil), detail: [.preview]) == nil)
+        // [lists] The gateway's 80-character cut can end inside a link: its words stay, the Markdown goes.
+        #expect(SessionRowWords.detailText(chat(preview: "And [fog.html](#media:%2Fhome%2Fme%2Fsi"), detail: [.preview]) == "And fog.html")
+        #expect(SessionRowWords.detailText(chat(preview: "See **[notes](https://example.com)**"), detail: [.preview]) == "See notes")
         // No title of its own: the title already is the preview, so the detail is the metadata.
         #expect(SessionRowWords.detailText(chat(title: " ", metadata: meta), detail: [.preview]) == meta)
         // A live status wins over the pending line, which wins over the detail.

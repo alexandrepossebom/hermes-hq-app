@@ -123,8 +123,22 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     /// follows the window now.
     private var windowWatch: WindowSizeProbe?
 
+    /// [tiles] Mac pass round 6: ⌘W did nothing over a page (the menu's Close Chat looks past a sheet for a chat to
+    /// close), while Escape and Done closed it. The page holds the keyboard, as the browser viewer does, and takes ⌘W.
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// ⌘W (the menu's Close Chat) closes the page, as Done does.
+    @objc func hqCloseChat(_ sender: Any?) { dismiss(animated: true) }
+
+    /// Not while something is up over the page: the app's own ladder closes that first.
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == KeyCommands.closeChat { return presentedViewController == nil && !isBeingDismissed }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if presentedViewController == nil { becomeFirstResponder() }
         guard windowWatch == nil, let sheet = navigationController, sheet.modalPresentationStyle == .formSheet,
               let container = sheet.presentationController?.containerView else { return }
         // The sheet's container is the window's size; a probe filling it hears every resize (UIWindowScene's
@@ -191,6 +205,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                 // words in the app's light ink, all but unreadable. Nothing of the page shows: the sheet's own colour.
                 self.view.backgroundColor = ChatPalette.page
                 self.navigationController?.navigationBar.overrideUserInterfaceStyle = .unspecified
+                self.spinner.overrideUserInterfaceStyle = .unspecified
                 var notice = UIContentUnavailableConfiguration.empty()
                 notice.image = UIImage(systemName: "exclamationmark.triangle")
                 notice.text = "Couldn’t Open \(self.tile?.name ?? name)"
@@ -572,7 +587,11 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     private func inkBar(for colour: UIColor) {
         var white: CGFloat = 0
         colour.getWhite(&white, alpha: nil)
-        navigationController?.navigationBar.overrideUserInterfaceStyle = white > 0.6 ? .light : white < 0.35 ? .dark : .unspecified
+        let ink: UIUserInterfaceStyle = white > 0.6 ? .light : white < 0.35 ? .dark : .unspecified
+        navigationController?.navigationBar.overrideUserInterfaceStyle = ink
+        // [tiles] Mac pass round 6: the spinner kept the app's dark-mode grey over a white tile's colour, all but
+        // invisible: a slow tile opened to what looked like a blank white sheet for as long as the page took.
+        spinner.overrideUserInterfaceStyle = ink
         #if targetEnvironment(macCatalyst)
         // [macpass-popups r3] The Mac bar is opaque in the look's own colour: in the Desktop Look dark its near-black
         // stood as a band over a slate tile. The bar takes the page's colour instead, its title fonts kept.

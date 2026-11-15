@@ -32,6 +32,8 @@ struct JobRowModel: Hashable {
 
 struct JobRowView: View {
     var row: JobRowModel
+    /// Pressed through accessibility: opens the job as a click does (`UICollectionView.pressRow`).
+    var open: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .callout) private var textFaceSize: CGFloat = 22
     /// [ui-sizing] × UI Scale too: a ScaledMetric follows only the text size, and at 150 % the text grew around it.
@@ -71,6 +73,7 @@ struct JobRowView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.title), \(accessibilitySubtitle)")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }   // [lists] Mac pass round 6
     }
 
     /// The owner's face, its middle on the middle of the title's first line (capped at 32 pt at the largest sizes).

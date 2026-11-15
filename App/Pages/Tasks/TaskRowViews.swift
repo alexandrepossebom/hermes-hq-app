@@ -55,6 +55,8 @@ struct TodoRowModel: Hashable {
 struct TodoRowView: View {
     var row: TodoRowModel
     var toggle: () -> Void
+    /// Pressed through accessibility: opens the task as a click does (`UICollectionView.pressRow`).
+    var open: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .callout) private var textFaceSize: CGFloat = 20
     /// [ui-sizing] × UI Scale too: a ScaledMetric follows only the text size, and at 150 % the text grew around it.
@@ -105,6 +107,7 @@ struct TodoRowView: View {
         .accessibilityLabel("\(row.title), \(row.line.text), \(row.who)")
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }   // [lists] Mac pass round 6
         .accessibilityAction(named: row.done ? "Mark Not Done" : "Mark Done") { toggle() }
     }
 
@@ -147,6 +150,7 @@ struct TodoRowView: View {
         .accessibilityLabel(row.words.spoken.isEmpty ? row.title : "\(row.title), \(row.words.spoken)")
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }   // [lists] Mac pass round 6
         .accessibilityAction(named: row.done ? "Mark Not Done" : "Mark Done") { toggle() }
     }
 

@@ -197,7 +197,7 @@ nonisolated enum ArtifactCollector {
         }
     }
 
-    /// r3-53: a URL the transcript cut off ("https://samplehost.po…"). `next` is the character after the match.
+    /// r3-53: a URL the transcript cut off ("https://example.co…"). `next` is the character after the match.
     static func urlCutOff(_ raw: String, next: String = "") -> Bool {
         if RX.c(#"\.{2,}$|…"#).test(raw) || next == "…" || elided(raw) { return true }
         let stripped = RX.c(#"[.,;:!?*_~`…]+$"#).replace(raw, with: "", all: false)

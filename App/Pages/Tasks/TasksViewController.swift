@@ -349,7 +349,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             guard let self, let row = self.rows[id] else { return }
             cell.onMeasure = { [weak self] height in self?.measured(id, height) }
             cell.contentConfiguration = UIHostingConfiguration {
-                TodoRowView(row: row) { [weak self] in self?.toggleDone(id) }
+                TodoRowView(row: row, toggle: { [weak self] in self?.toggleDone(id) },
+                            open: { [weak self] in self.map { $0.collectionView.pressRow(at: $0.dataSource.indexPath(for: .task(id))) } })
             }.margins(.all, 0)
             cell.contentView.alpha = self.dusted.contains(id) ? 0 : 1   // [task-check-off]
             cell.accessibilityIdentifier = "task-row-\(row.title)"
