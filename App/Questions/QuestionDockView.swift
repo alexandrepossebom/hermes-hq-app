@@ -995,7 +995,7 @@ final class RecommendedTag: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        label.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: HQFont.system(ofSize: 12, weight: .semibold))
+        label.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: HQFont.system(ofSize: HQFont.legibleLiteral(12), weight: .semibold))
         label.adjustsFontForContentSizeCategory = true
         label.text = "Recommended"
         label.translatesAutoresizingMaskIntoConstraints = false

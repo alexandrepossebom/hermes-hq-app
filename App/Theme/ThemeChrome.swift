@@ -37,7 +37,7 @@ enum ThemeChrome {
         let title = DeviceWord.isMac ? MacType.pageTitle : HQFont.system(ofSize: 14 * HQFont.dynamicRatio(nil), weight: .semibold)
         appearance.titleTextAttributes = [.font: title, .foregroundColor: HQPalette.label]
         // A tab root's title: the desktop label (12 pt semibold, uppercase, tracked, secondary colour).
-        let label = HQFont.system(ofSize: 12 * HQFont.dynamicRatio(nil), weight: .semibold)
+        let label = HQFont.system(ofSize: HQFont.legibleLiteral(12 * HQFont.dynamicRatio(nil)), weight: .semibold)
         appearance.largeTitleTextAttributes = [.font: label, .foregroundColor: HQPalette.label2, .kern: 12 * 0.08]
         return appearance
     }

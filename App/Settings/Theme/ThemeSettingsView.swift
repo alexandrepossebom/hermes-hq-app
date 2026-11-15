@@ -733,7 +733,7 @@ struct DesktopLabel: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(Font.hqSystem(size: 12 * HQFont.dynamicRatio(nil), weight: .semibold))
+            .font(Font.hqSystem(size: HQFont.legibleLiteral(12 * HQFont.dynamicRatio(nil)), weight: .semibold))
             .tracking(12 * 0.08)
             .foregroundStyle(Color.hqLabel2)
             .accessibilityLabel(text)

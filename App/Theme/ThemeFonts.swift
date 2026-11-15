@@ -68,6 +68,17 @@ nonisolated enum HQFont {
         #endif
     }
 
+    /// [type-body] A literal size (before UI Scale, for `system`, `Font.hqSystem`) that lands on the Mac's screen no
+    /// smaller than `legible`'s floor once UI Scale and the Mac's 13 pt body (`ThemeState.macBody`) are applied:
+    /// 12 pt in the iOS look came out at 9.2 pt. The size itself wherever it already lands above the floor.
+    static func legibleLiteral(_ size: CGFloat) -> CGFloat {
+        #if targetEnvironment(macCatalyst)
+        max(size, macSmallest / max(scale, 0.01))
+        #else
+        size
+        #endif
+    }
+
     /// [mac] The tab bar's labels (`MacWindow.tabLabels`): the Mac has no text size setting for bars.
     static let macTabLabel = UIFont.systemFont(ofSize: macSmallest, weight: .medium)
 

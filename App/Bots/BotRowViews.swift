@@ -546,7 +546,7 @@ struct BotSectionHeaderView: View {
                 .hqDesktopLabel()
                 .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
             Spacer(minLength: 0)
-            trailing(font: Font.hqSystem(size: DesktopRows.labelSize * HQFont.dynamicRatio(nil)))
+            trailing(font: Font.hqSystem(size: HQFont.legibleLiteral(DesktopRows.labelSize * HQFont.dynamicRatio(nil))))
         }
         .padding(.horizontal, DesktopRows.gutter)
         .frame(minHeight: 36)

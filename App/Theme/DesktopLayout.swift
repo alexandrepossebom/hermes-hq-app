@@ -82,12 +82,12 @@ nonisolated enum DesktopRows {
 
     /// The label font (UIKit).
     static func labelFont() -> UIFont {
-        HQFont.system(ofSize: DesktopRows.labelSize * HQFont.dynamicRatio(nil), weight: .semibold)
+        HQFont.system(ofSize: HQFont.legibleLiteral(DesktopRows.labelSize * HQFont.dynamicRatio(nil)), weight: .semibold)
     }
 
     /// Attributes of the desktop's label (UIKit), for bar titles and headers.
     static func labelAttributes(color: UIColor = HQPalette.label2, size: CGFloat = DesktopRows.labelSize) -> [NSAttributedString.Key: Any] {
-        let font = HQFont.system(ofSize: size * HQFont.dynamicRatio(nil), weight: .semibold)
+        let font = HQFont.system(ofSize: HQFont.legibleLiteral(size * HQFont.dynamicRatio(nil)), weight: .semibold)
         return [.font: font, .foregroundColor: color, .kern: font.pointSize * DesktopRows.labelTracking]
     }
 }
@@ -100,8 +100,8 @@ extension View {
                                      color: Color = .hqLabel2) -> some View {
         if on {
             self.textCase(.uppercase)
-                .font(Font.hqSystem(size: size * HQFont.dynamicRatio(nil), weight: .semibold))
-                .tracking(size * HQFont.dynamicRatio(nil) * DesktopRows.labelTracking)
+                .font(Font.hqSystem(size: HQFont.legibleLiteral(size * HQFont.dynamicRatio(nil)), weight: .semibold))
+                .tracking(HQFont.legibleLiteral(size * HQFont.dynamicRatio(nil)) * DesktopRows.labelTracking)
                 .foregroundStyle(color)
         } else {
             self

@@ -130,7 +130,7 @@ private struct BackdropThumb: View {
                 } else {
                     // [ui-sizing 2026-11-09] None: a quiet tile with a picture glyph. The bare page colour read as a
                     // small black block, as if the picture had failed to load.
-                    Image(systemName: "photo").font(Font.hqSystem(size: 11)).foregroundStyle(Color.hqLabel3)
+                    Image(systemName: "photo").font(Font.hqSystem(size: HQFont.legibleLiteral(11))).foregroundStyle(Color.hqLabel3)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
