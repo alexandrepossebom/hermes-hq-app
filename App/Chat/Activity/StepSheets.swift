@@ -612,7 +612,11 @@ final class StepsListViewController: UITableViewController {
         }
         // [mac-ui-issues] The glyph, title and line every empty tab of the inspector has (`InspectorEmptyView`).
         let label = live
-            ? InspectorEmptyView(symbol: "checklist", title: "No Steps Yet", hint: "The tools a bot runs for a reply are listed here as it works.")
+            // [macpass-chat] By design the panel follows the latest reply only (`turnSteps(endingAt: nil)`): a chat whose
+            // earlier reply had a failed step still said "No Steps Yet", as if nothing had ever run. The words say whose
+            // steps these are and where the earlier ones are.
+            ? InspectorEmptyView(symbol: "checklist", title: "No Steps in the Latest Reply",
+                                 hint: "The tools a bot runs for its latest reply are listed here as it works. An earlier reply’s steps stay with that reply in the chat.")
             : InspectorEmptyView(symbol: "checklist", title: "No Steps", hint: "This reply ran no tools.")
         label.translatesAutoresizingMaskIntoConstraints = false
         let host = UIView()
