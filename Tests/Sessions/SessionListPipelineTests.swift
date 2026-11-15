@@ -565,7 +565,11 @@ import Testing
         let clock = ContinuousClock()
         var first: [[String]] = []
         // [project-cards] Group By Project lists New for You's chats in their projects too.
-        let twice = rows.filter { SessionListPipeline.isNew($0) && !$0.pinned }.count
+        let twice = rows.filter {
+            // [pinned-in-project] A pinned chat is in Pinned and in its project too (Home's is Pinned's alone).
+            $0.pinned ? SessionProjects.key(cwd: $0.cwd, profile: $0.profile, projectsByProfile: projects) != SessionProjects.homeKey
+                      : SessionListPipeline.isNew($0)
+        }.count
         var again: [Int] = []
         let took = clock.measure {
             for round in 0..<3 {
@@ -626,7 +630,11 @@ import Testing
                 let count = counted.reduce(0) { $0 + max($1.total, $1.sessions.count) }      // a capped project counts its all
                 // [sessions-layout] A project counts its chats in New for You as well (it draws them there only).
                 let flat = sort == .tokens || sort == .cost
-                let twice = group == .project && !flat ? rows.filter { SessionListPipeline.isNew($0) && !$0.pinned }.count : 0
+                let twice = group == .project && !flat ? rows.filter {
+                    // [pinned-in-project] A pinned chat is in Pinned and in its project too (Home's is Pinned's alone).
+                    $0.pinned ? SessionProjects.key(cwd: $0.cwd, profile: $0.profile, projectsByProfile: projects) != SessionProjects.homeKey
+                              : SessionListPipeline.isNew($0)
+                }.count : 0
                 #expect(count - twice == 5_000)
                 #expect(best < .milliseconds(150), "5,000 chats, Sort By \(sort), Group By \(group): best of five \(best)")
             }
