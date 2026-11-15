@@ -253,10 +253,10 @@ final class EndToEndTests: XCTestCase {
         let more = app.navigationBars.buttons["chat.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 5), "the chat bar has ⋯")
         more.tap()
-        // [menu-tidy] Info and Share: tiles where the chat has no list actions, else under More ▸.
+        // [menu-tidy] A bot's own chat: Share is a tile (in Archive's place), Info is under More ▸.
+        XCTAssertTrue(app.chatMoreRow("share").exists, "⋯ offers Share")
         let info = app.chatMoreRow("info")
         XCTAssertTrue(info.waitForExistence(timeout: 3), "⋯ offers Info")
-        XCTAssertTrue(app.buttons["chat.more.share"].firstMatch.exists, "⋯ offers Share")
         info.tap()
         XCTAssertTrue(app.staticTexts["Chat ID"].waitForExistence(timeout: 3), "Info lists the session id")
         attachScreenshot(app, "chat-info")

@@ -10,6 +10,12 @@ extension XCUIApplication {
         buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat.more.'")).firstMatch
     }
 
+    /// A ⋯ row on screen now, to scroll the menu by (at the largest text sizes some rows sit outside its frame).
+    var visibleChatMoreRow: XCUIElement {
+        let rows = buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat.more.'")).allElementsBoundByIndex
+        return rows.first { $0.isHittable } ?? anyChatMoreRow
+    }
+
     /// The ⋯ row with this id, on the menu itself or under its More ▸, which this opens when the row isn't on the
     /// menu. Call with the ⋯ open.
     @MainActor func chatMoreRow(_ id: String, timeout: TimeInterval = 4) -> XCUIElement {
