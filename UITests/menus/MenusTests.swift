@@ -258,6 +258,27 @@ final class MenusTests: XCTestCase {
         try assertWireClean(account)
     }
 
+    /// Owner 2026-11-15: "Model changed to …" sat a whole empty status line below the chat's title. With no status
+    /// words showing, the notice sits just under the title.
+    @MainActor func test03c_SwitchNoticeSitsUnderTitle() throws {
+        let (_, app) = try start()
+        openBotChat(app)
+        openModelSheet(app)
+        let gpt = app.cells["models.row.openai-codex::gpt-5.5"]
+        XCTAssertTrue(gpt.waitForExistence(timeout: 10))
+        gpt.tap()
+        let notice = app.staticTexts["Model changed to GPT-5.5."]
+        XCTAssertTrue(notice.waitForExistence(timeout: 8), "the switch's notice")
+        let title = app.descendants(matching: .any)["chat.title"].firstMatch
+        XCTAssertTrue(title.exists)
+        let toast = app.descendants(matching: .any)["chat.notice"].firstMatch
+        let top = toast.exists ? toast.frame.minY : notice.frame.minY
+        let gap = top - title.frame.maxY
+        shot(app, "model-switch-notice-under-title")
+        XCTAssertLessThan(gap, 20, "the notice sits under the title, not a status line lower (gap \(gap) pt)")
+        XCTAssertGreaterThanOrEqual(gap, 0, "the notice doesn't cover the title (gap \(gap) pt)")
+    }
+
     // MARK: 18–19 · Confirm and failure
 
     @MainActor func test04_ConfirmAndFailure() throws {

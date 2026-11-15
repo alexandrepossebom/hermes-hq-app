@@ -2227,6 +2227,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [toolnow] At the Bottom: what the bot is doing shows once, under the typing dots, not in the pill as well.
         if ToolCallSettings.style == .bottom, (session as? LiveChatSession)?.statusIsWork() == true { statusText = nil }
         statusPill.set(statusText)
+        updateNoticeTop()
         let edge = statusText == nil ? Self.topEdgeBelowStatus : Self.topEdgeBelowShownStatus
         if let topEdgeBottom, topEdgeBottom.constant != edge { topEdgeBottom.constant = edge }
         // MENUS (spec 1x §7.1): ☰ is off only while signed out (offline it still opens: cached list or the error).
@@ -4278,9 +4279,24 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// [mac] Stress test 2026-10-28 #79: the notice's top constraint, moved under `anchor` (6 pt gap); the old one goes.
     private func noticeTop(under anchor: UIView) -> NSLayoutConstraint {
         noticeToastTop?.isActive = false
-        let top = noticeToast.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: 6)
+        let top = noticeToast.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: noticeGap(under: anchor))
         noticeToastTop = top
         return top
+    }
+
+    /// Owner 2026-11-15: "Model changed to …" sat a whole empty status line below the title. With no status words the
+    /// notice takes the status line's place under the title; it steps down under the words when they show.
+    private func noticeGap(under anchor: UIView) -> CGFloat {
+        anchor === statusPill && statusPill.text == nil ? -ChatMetrics.statusLineHeight : 6
+    }
+
+    private func updateNoticeTop() {
+        guard let top = noticeToastTop, let anchor = top.secondItem as? UIView else { return }
+        let gap = noticeGap(under: anchor)
+        guard top.constant != gap else { return }
+        top.constant = gap
+        guard noticeToast.isShowing, view.window != nil else { return }
+        HQMotion.animate(0.2, options: [.beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
     }
 
     func showFindBar(_ bar: ChatFindBar) {
