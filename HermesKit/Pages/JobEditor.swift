@@ -345,7 +345,7 @@ final class JobEditorModel {
         guard generation == loadGeneration else { return }
         if let gotTargets { targets = gotTargets; targetsState = .loaded } else { targets = []; targetsState = .failed }
         // [provider-manager] The owner's provider and model names, hidden models left out.
-        if let gotModels { providers = gotModels.map { $0.applying(ProviderPrefs.active) }; modelsState = .loaded } else { providers = []; modelsState = .failed }
+        if let gotModels { providers = gotModels.applying(ProviderPrefs.active); modelsState = .loaded } else { providers = []; modelsState = .failed }
     }
 
     func reloadTargets() async {
@@ -360,7 +360,7 @@ final class JobEditorModel {
         modelsState = .loading
         let got = try? await store.modelProviders(profile: profile)
         guard profile == form.profile else { return }
-        if let got { providers = got.map { $0.applying(ProviderPrefs.active) }; modelsState = .loaded } else { modelsState = .failed }
+        if let got { providers = got.applying(ProviderPrefs.active); modelsState = .loaded } else { modelsState = .failed }
     }
 
     private func blueprintsArrived(_ profile: String) {

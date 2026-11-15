@@ -38,7 +38,9 @@ nonisolated private func account(_ id: String, _ name: String, connected: Bool, 
                         account("openai-codex", "ChatGPT (Codex)", connected: false, disconnectable: true),
                         account("claude-code", "Claude Code", connected: true, disconnectable: false)]
         let rows = ProviderList.merge(custom: [home], vars: vars, accounts: accounts, catalog: catalog)
-        #expect(rows.map(\.id) == ["anthropic", "claude-code", "custom:home-server", "nous"], "A to Z by name, unset keys and signed-out accounts left out")
+        // [provider-off] OpenRouter has no key here, but the catalog offers its models, so the menus show it: listed.
+        #expect(rows.map(\.id) == ["anthropic", "claude-code", "custom:home-server", "nous", "openrouter"],
+                "A to Z by name, signed-out accounts left out, what the menus list kept")
         let anthropic = rows[0]
         #expect(anthropic.keys.map(\.key) == ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"], "every key of its card, for its page")
         #expect(anthropic.sourceLine == "Built into Hermes · Key saved")
@@ -74,21 +76,138 @@ nonisolated private func account(_ id: String, _ name: String, connected: Bool, 
         prefs.setHidden(true, provider: "custom:home-server", model: "qwen3-coder-30b")
         prefs.addExtra("my-tune", provider: "custom:home-server")
         let rows = ProviderList.merge(custom: [home], vars: vars, accounts: [], catalog: catalog, prefs: prefs)
-        #expect(rows.map { $0.name(prefs) } == ["Home Server", "Nous Portal", "Zed's Claude"])
+        #expect(rows.map { $0.name(prefs) } == ["Home Server", "Nous Portal", "OpenRouter", "Zed's Claude"])
         #expect(ProviderList.allModels(rows[0], catalog: catalog, prefs: prefs) == ["llama-3.3-70b", "qwen3-coder-30b", "my-tune"],
                 "the catalog's, the endpoint's saved ones, then those added")
         #expect(ProviderList.shownLine(rows[0], catalog: catalog, prefs: prefs) == "2 of 3 models shown")
-        #expect(ProviderList.shownLine(rows[2], catalog: catalog, prefs: prefs) == "2 models shown")
+        #expect(ProviderList.shownLine(rows[3], catalog: catalog, prefs: prefs) == "2 models shown")
         #expect(ProviderList.shownLine(rows[1], catalog: catalog, prefs: prefs) == "1 model shown")
         // [provider-rows] Owner 2026-11-10: the same counts at the row's trailing edge, without "shown".
         #expect(ProviderList.shownEdge(rows[0], catalog: catalog, prefs: prefs).text == "2 of 3 models")
-        #expect(ProviderList.shownEdge(rows[2], catalog: catalog, prefs: prefs).text == "2 models")
+        #expect(ProviderList.shownEdge(rows[3], catalog: catalog, prefs: prefs).text == "2 models")
         #expect(ProviderList.shownEdge(rows[1], catalog: catalog, prefs: prefs) == ("1 model", false))
         #expect(ProviderList.shownEdge(rows[0], catalog: [], prefs: ProviderPrefs()).none == ProviderList.allModels(rows[0], catalog: [], prefs: ProviderPrefs()).isEmpty,
                 "orange only when there is nothing to pick")
         var renamedEndpoint = prefs
         renamedEndpoint.setProviderName("Ignored", provider: "custom:home-server")
         #expect(rows[0].name(renamedEndpoint) == "Home Server", "your own endpoint's name is the gateway's")
+    }
+}
+
+// [provider-off] Owner 2026-11-15: a provider turned off as a whole, every provider the menus show listed, several
+// turned off or removed at once.
+@Suite struct ProviderOffTests {
+    private let chat = ModelOptions(providers: [
+        ModelProviderRow(slug: "openai-codex", name: "ChatGPT (Codex)", models: ["gpt-6-astra", "gpt-6"], aliases: [], capabilities: [:]),
+        ModelProviderRow(slug: "openai-api", name: "OpenAI API", models: ["gpt-6-astra", "gpt-6-mini"], aliases: [], capabilities: [:]),
+    ], model: "gpt-6-astra", provider: "openai-codex")
+
+    @Test func aProviderTurnedOffIsInNoModelList() {
+        var prefs = ProviderPrefs()
+        prefs.setHidden(true, provider: "openai-api", model: "gpt-6-mini")
+        prefs.setOff(true, provider: "OpenAI-API")
+        #expect(prefs.isOff("openai-api") && !prefs.isOff("openai-codex"))
+        #expect(prefs.offProviders == ["openai-api"])
+        let shown = chat.applying(prefs)
+        #expect(shown.providers.map(\.slug) == ["openai-codex"], "the same model under the provider he doesn't want is gone")
+        #expect(shown.choices.allSatisfy { $0.provider == "openai-codex" })
+        // A model it lists later is off too: nothing to tick.
+        var later = chat
+        later.providers[1].models.append("gpt-7")
+        #expect(later.applying(prefs).providers.map(\.slug) == ["openai-codex"])
+        // Settings' lists and a job's choices.
+        let settings = [ModelProviderOption(slug: "openai-codex", name: "ChatGPT (Codex)", models: ["gpt-6-astra"]),
+                        ModelProviderOption(slug: "openai-api", name: "OpenAI API", models: ["gpt-6-astra", "gpt-6-mini"])]
+        #expect(settings.applying(prefs).map(\.slug) == ["openai-codex"])
+        let jobs = [JobModelProvider(slug: "openai-codex", name: "ChatGPT (Codex)", models: ["gpt-6-astra"]),
+                    JobModelProvider(slug: "openai-api", name: "OpenAI API", models: ["gpt-6-astra"])]
+        #expect(jobs.applying(prefs).map(\.slug) == ["openai-codex"])
+        // Back on: what was hidden inside it is as it was.
+        prefs.setOff(false, provider: "openai-api")
+        #expect(chat.applying(prefs).providers[1].models == ["gpt-6-astra"])
+        #expect(prefs.offProviders.isEmpty)
+    }
+
+    @Test func theModelInUseStaysThoughItsProviderIsOff() {
+        var prefs = ProviderPrefs()
+        prefs.setOff(true, provider: "openai-codex")
+        let shown = chat.applying(prefs)
+        #expect(shown.providers.map(\.slug) == ["openai-codex", "openai-api"])
+        #expect(shown.providers[0].models == ["gpt-6-astra"], "the chat's own model, nothing else of that provider's")
+        let settings = [ModelProviderOption(slug: "openai-codex", name: "ChatGPT (Codex)", models: ["gpt-6-astra", "gpt-6"])]
+        #expect(settings.applying(prefs, keepProvider: "openai-codex", keepModel: "gpt-6").first?.models == ["gpt-6"])
+        #expect(settings.applying(prefs, keepProvider: "openai-api", keepModel: "gpt-6").isEmpty)
+    }
+
+    @Test func offTravelsAsAHiddenEntryAndGoesWithTheProvider() throws {
+        var prefs = ProviderPrefs()
+        prefs.setOff(true, providers: ["xai", "openai-api"])
+        #expect(Set(prefs.json["hidden"]?.array?.compactMap(\.string) ?? []) == ["xai::*", "openai-api::*"],
+                "an older build keeps it through its own saves: it is one more hidden entry")
+        #expect(ProviderPrefs(json: try JSONValue.parse(prefs.json.encoded())) == prefs)
+        // Turned off on the phone while the Mac hid a model: both stay.
+        var mac = ProviderPrefs()
+        mac.setHidden(true, provider: "anthropic", model: "claude-haiku-5")
+        let merged = ProviderPrefs.merged(local: prefs, remote: mac, base: ProviderPrefs(), merge: .rebase)
+        #expect(merged.isOff("xai") && merged.isOff("openai-api") && merged.isHidden(provider: "anthropic", model: "claude-haiku-5"))
+        prefs.forget(provider: "xai")
+        #expect(!prefs.isOff("xai") && prefs.isOff("openai-api"), "removed: added again later, it starts on")
+    }
+
+    private let plugin = ModelProviderOption(slug: "claude-subscription-directsdk-experimental", name: "Claude Subscription",
+                                             models: ["claude-opus-5-5"], authenticated: true)
+
+    @Test func everyProviderTheMenusShowIsListed() {
+        let listed = catalog + [plugin,
+                                ModelProviderOption(slug: "gemini", name: "Google Gemini", models: ["gemini-3-pro"], authenticated: false),
+                                ModelProviderOption(slug: "zai", name: "Z.AI", models: [], authenticated: true)]
+        let rows = ProviderList.merge(custom: [home], vars: [key("ANTHROPIC_API_KEY", set: true)], accounts: [], catalog: listed)
+        #expect(rows.map(\.id) == ["anthropic", "claude-subscription-directsdk-experimental", "custom:home-server", "nous", "openrouter"],
+                "the plug-in's provider has a row; one not signed in or with no models is in no menu, so it has none")
+        let claude = rows[1]
+        #expect(claude.listedOnly && claude.sourceLine == "Set up in Hermes")
+        if case .cannot(let why) = claude.removal { #expect(why.contains("Turn it off")) } else { Issue.record("nothing of it to remove") }
+        #expect(!rows[0].listedOnly && rows[0].listed && rows[0].removal == .removeKeys(["ANTHROPIC_API_KEY"]), "a key's row is still its key's")
+        #expect(rows[2].endpoint != nil && rows[2].listed)
+    }
+
+    @Test func anEndpointHermesListsByItsBareKeyIsOneRow() {
+        let studio = CustomProvider(id: "macstudio-uncensored", name: "Mac Studio", baseURL: "http://10.0.0.5:8080/v1", model: "qwen", models: ["qwen"])
+        let bare = [ModelProviderOption(slug: "macstudio-uncensored", name: "Mac Studio", models: ["qwen", "llama"], authenticated: true)]
+        #expect(ProviderList.slug(forEndpoint: studio, catalog: bare) == "macstudio-uncensored")
+        #expect(ProviderList.slug(forEndpoint: studio, catalog: []) == "custom:macstudio-uncensored")
+        #expect(ProviderList.slug(forEndpoint: home, catalog: catalog) == "custom:home-server")
+        let rows = ProviderList.merge(custom: [studio], vars: [], accounts: [], catalog: bare)
+        #expect(rows.count == 1 && rows[0].id == "macstudio-uncensored" && rows[0].endpoint != nil, "not one row for the endpoint and one for the catalog")
+        // Its switch is kept under the id the menus use, so turning it off takes it out of them.
+        var prefs = ProviderPrefs()
+        prefs.setOff(true, provider: rows[0].id)
+        #expect(bare.applying(prefs).isEmpty)
+        #expect(ProviderList.allModels(rows[0], catalog: bare, prefs: prefs) == ["qwen", "llama"])
+    }
+
+    @Test func rowsSayOffAndTheListCountsThem() {
+        var prefs = ProviderPrefs()
+        let rows = ProviderList.merge(custom: [home], vars: [key("ANTHROPIC_API_KEY", set: true)], accounts: [], catalog: catalog + [plugin])
+        #expect(ProviderList.onOffLine(rows, prefs: prefs) == nil, "nothing off: nothing to say")
+        let anthropic = rows[0]
+        #expect(ProviderList.rowLine(anthropic, catalog: catalog, prefs: prefs) == ("2 models", "Built into Hermes · Key saved", false, false))
+        prefs.setOff(true, providers: ["anthropic", "openrouter"])
+        #expect(ProviderList.rowLine(anthropic, catalog: catalog, prefs: prefs) == ("Off", "Built into Hermes · Key saved", true, false))
+        #expect(ProviderList.onOffLine(rows, prefs: prefs) == "3 on · 2 off")
+    }
+
+    @Test func removingSeveralSaysWhatGoesAndWhatCant() {
+        let accounts = [account("nous", "Nous Portal", connected: true, disconnectable: true)]
+        let rows = ProviderList.merge(custom: [home], vars: [key("ANTHROPIC_API_KEY", set: true), key("OPENROUTER_API_KEY", set: true)],
+                                      accounts: accounts, catalog: catalog + [plugin])
+        #expect(ProviderList.removable(rows).map(\.id) == ["anthropic", "custom:home-server", "nous", "openrouter"])
+        let all = ProviderList.removeMessage(rows, prefs: ProviderPrefs())
+        #expect(all.hasPrefix("2 keys are removed from "), "\(all)")
+        #expect(all.contains("Hermes signs out of 1 account") && all.contains("1 of your own providers is deleted"), "\(all)")
+        #expect(all.hasSuffix("1 can’t be removed here and is turned off instead."), "\(all)")
+        let one = ProviderList.removeMessage([rows[0], rows[4]], prefs: ProviderPrefs())
+        #expect(one.hasPrefix("2 keys are removed from ") && !one.contains("turned off"), "\(one)")
     }
 }
 

@@ -13,9 +13,9 @@ import UIKit
 
 @MainActor @Observable
 final class ModelCatalogModel {
-    /// [provider-manager] As the menus show them: the owner's names, hidden models left out (the one in use kept), and
-    /// models added by hand (`ProviderPrefs`). `raw` is the gateway's own answer.
-    var providers: [ModelProviderOption] { raw.map { $0.applying(prefs, keep: $0.slug == mainProvider ? mainModel : nil) } }
+    /// [provider-manager] As the menus show them: the owner's names, hidden models left out (the one in use kept), models
+    /// added by hand, and no provider turned off (`ProviderPrefs`). `raw` is the gateway's own answer.
+    var providers: [ModelProviderOption] { raw.applying(prefs, keepProvider: mainProvider, keepModel: mainModel) }
     var raw: [ModelProviderOption] = []
     /// Read again when the names or short lists change (another page, another device).
     var prefs = ProviderPrefs.active

@@ -9,6 +9,9 @@
 // [provider-add] testCP2: the Providers page's + and its Add Provider chooser (a preset fills in a new entry; a service
 // Hermes has built in opens its key), then removing from the list: swipe Delete on one of Your Providers, swipe Remove on
 // an API key, and Sign Out of an account (only where Hermes can sign it out).
+// [provider-off] testCP5: a row's switch takes the provider out of the model chooser; a provider Hermes sets up itself
+// (the fixture's Mixture of Agents) is listed; Select turns several off, removes several after one confirm (the one that
+// can't be removed is turned off), and turns them back on; the provider page's own switch.
 
 import XCTest
 
@@ -322,5 +325,100 @@ extension SettingsEndToEndTests {
         app.alerts.buttons["Cancel"].tap()
         XCTAssertTrue(home.waitForExistence(timeout: 3), "Cancel keeps it")
         XCTAssertTrue(a.writes("DELETE /api/providers/custom-endpoints/home-server").isEmpty)
+    }
+
+    /// [provider-off] Owner 2026-11-15: "i want to clean out a bunch of providers and there isn't an easy way to do it".
+    @MainActor func testCP5_TurnOffSelectSeveralAndRemove() throws {
+        let app = launchClean()
+        openProviders(app)
+        let anthropic = app.buttons["provider.anthropic"], router = app.buttons["provider.openrouter"]
+        let moa = app.buttons["provider.moa"], together = app.buttons["provider.custom:together"]
+        XCTAssertTrue(appears(anthropic, app, "cp5-list", timeout: 10))
+        // Every provider the model menus show has a row: Mixture of Agents has no key, account or address of its own.
+        scrollTo(moa, app)
+        XCTAssertTrue(moa.exists && moa.label.contains("Set up in Hermes"), moa.exists ? moa.label : "Mixture of Agents isn't listed")
+        app.swipeDown(velocity: .fast)
+        shot(app, "provider-off-1-list")
+
+        // One switch: OpenRouter off. Its row says so, the list counts it, and the model chooser no longer offers it.
+        let routerSwitch = app.switches["provider.on.openrouter"]
+        scrollTo(routerSwitch, app)
+        XCTAssertEqual(routerSwitch.value as? String, "1")
+        flip(routerSwitch)
+        XCTAssertTrue(waitUntil(timeout: 5) { routerSwitch.value as? String == "0" && router.label.hasSuffix("Off") }, router.label)
+        XCTAssertTrue(a.writes("PUT /api/env").isEmpty && a.writes("DELETE /api/env").isEmpty, "its key is untouched")
+        app.swipeDown(velocity: .fast)
+        shot(app, "provider-off-2-one-off")
+        openSection(app, "model")
+        let main = app.buttons["config-page.model.main"]
+        XCTAssertTrue(appears(main, app, "cp5-model-page"))
+        main.tap()
+        let row = app.buttons["main-model.model"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        XCTAssertTrue(app.buttons["model-option.claude-opus-5.5"].waitForExistence(timeout: 8), "Anthropic's models")
+        XCTAssertFalse(app.buttons["model-option.x-ai/grok-5"].exists || app.buttons["model-option.qwen/qwen3-coder"].exists,
+                       "OpenRouter is off: none of its models are offered")
+        shot(app, "provider-off-3-chooser")
+
+        // Select: three at once, off.
+        openProviders(app)
+        XCTAssertTrue(appears(anthropic, app, "cp5-list-again", timeout: 10))
+        app.buttons["providers.select"].tap()
+        XCTAssertTrue(appears(app.buttons["providers.select-off"], app, "cp5-select"))
+        XCTAssertFalse(app.buttons["providers.select-off"].isEnabled, "nothing picked yet")
+        XCTAssertFalse(app.switches["provider.on.anthropic"].exists, "ticks, not switches, while selecting")
+        anthropic.tap()
+        scrollTo(together, app); together.tap()
+        scrollTo(moa, app); moa.tap()
+        let count = app.staticTexts["providers.select-count"]
+        XCTAssertTrue(waitUntil(timeout: 5) { count.label == "3 Selected" }, count.label)
+        shot(app, "provider-off-4-select")
+        app.buttons["providers.select-off"].tap()
+        XCTAssertTrue(app.buttons["providers.select"].waitForExistence(timeout: 5), "Select ends once it has acted")
+        XCTAssertTrue(waitUntil(timeout: 5) { anthropic.label.hasSuffix("Off") }, anthropic.label)
+        scrollTo(moa, app)
+        XCTAssertTrue(moa.label.hasSuffix("Off") && together.label.hasSuffix("Off"), "\(moa.label) / \(together.label)")
+        let footer = app.staticTexts["providers.footer"]
+        scrollTo(footer, app)
+        XCTAssertTrue(footer.label.contains("4 off"), footer.label)
+        app.swipeDown(velocity: .fast)
+        shot(app, "provider-off-5-several-off")
+
+        // Remove several, one confirm: Together goes; Mixture of Agents can't be removed here and stays off.
+        app.buttons["providers.select"].tap()
+        scrollTo(together, app); together.tap()
+        scrollTo(moa, app); moa.tap()
+        app.buttons["providers.select-remove"].tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(appears(alert, app, "cp5-remove-confirm"))
+        XCTAssertTrue(alert.label.contains("Remove 1 Provider?") || alert.staticTexts["Remove 1 Provider?"].exists, alert.label)
+        XCTAssertTrue(alert.staticTexts.allElementsBoundByIndex.contains { $0.label.contains("turned off instead") }, "it says what can't be removed")
+        shot(app, "provider-off-6-remove-confirm")
+        confirmAlert(app, "Remove")
+        XCTAssertTrue(waitUntil(timeout: 10) { !together.exists }, "Together AI is removed")
+        XCTAssertTrue(waitUntil(timeout: 5) { self.a.writes("DELETE /api/providers/custom-endpoints/together").count == 1 }, "one delete on the gateway")
+        scrollTo(moa, app)
+        XCTAssertTrue(moa.exists && moa.label.hasSuffix("Off"), "still listed, off")
+        XCTAssertTrue(app.buttons["providers.select"].waitForExistence(timeout: 5))
+
+        // Everything back on at once.
+        app.buttons["providers.select"].tap()
+        app.buttons["providers.select-all"].tap()
+        app.buttons["providers.select-on"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !anthropic.label.hasSuffix("Off") && !moa.label.hasSuffix("Off") }, anthropic.label)
+
+        // The provider's page has the same switch; off, its models wait greyed.
+        scrollTo(anthropic, app)
+        anthropic.tap()
+        let on = app.switches["provider-page.on"]
+        XCTAssertTrue(appears(on, app, "cp5-page"))
+        XCTAssertEqual(on.value as? String, "1")
+        flip(on)
+        XCTAssertTrue(waitUntil(timeout: 5) { on.value as? String == "0" })
+        XCTAssertFalse(app.switches["provider-model.show.claude-haiku-5"].isEnabled, "its models wait while it is off")
+        shot(app, "provider-off-7-page-off")
+        back(app)
+        XCTAssertTrue(waitUntil(timeout: 5) { anthropic.label.hasSuffix("Off") }, anthropic.label)
     }
 }

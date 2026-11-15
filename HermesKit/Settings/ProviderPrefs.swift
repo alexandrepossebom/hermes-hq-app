@@ -4,6 +4,13 @@
 // built-in one or a signed-in account; your own endpoints are renamed on the gateway), each model's name, the models
 // left out of the menus, and model IDs added by hand to a built-in provider.
 //
+// [provider-off] Owner 2026-11-15: "I keep having the models change to providers that i don't want to use and i want to
+// clean out a bunch of providers and there isn't an easy way to do it." His phone's logs: GPT-6 Astra picked three times
+// under OpenAI API where he wanted his Codex subscription, a key he can't remove (voice uses it). A provider can be
+// turned off as a whole: none of its models are offered anywhere, the ones it lists later included, and its key stays.
+// Kept as one more hidden entry, the provider's id with `*` for the model (`anthropic::*`), so a device on an older build
+// keeps the choice through its own saves (it reads and writes `hidden` whole) though it doesn't act on it.
+//
 // Keyed by the provider's catalog id (`anthropic`, `custom:home-server`, lowercased) and, for a model, that id plus the
 // model's own id (`anthropic::claude-opus-5.5`). Only what is shown changes: a pick still sends the real ids.
 //
@@ -62,11 +69,27 @@ nonisolated struct ProviderPrefs: Sendable, Equatable, Codable {
 
     func isHidden(provider: String, model: String) -> Bool { hidden.contains(Self.modelKey(provider, model)) }
 
+    /// [provider-off] The model id that stands for a whole provider in `hidden`.
+    static let everyModel = "*"
+
+    static func offKey(_ provider: String) -> String { modelKey(provider, everyModel) }
+
+    /// The whole provider is left out of every model list (its key and sign-in are untouched).
+    func isOff(_ provider: String) -> Bool { !hidden.isEmpty && hidden.contains(Self.offKey(provider)) }
+
+    /// Every provider turned off.
+    var offProviders: Set<String> {
+        let suffix = "::\(Self.everyModel)"
+        return Set(hidden.compactMap { $0.hasSuffix(suffix) ? String($0.dropLast(suffix.count)) : nil })
+    }
+
     func extraModels(_ provider: String) -> [String] { extras[Self.providerKey(provider)] ?? [] }
 
     /// A provider's models as the menus offer them: its own, then those added here, without the hidden ones. `keep`: a
     /// model in use stays even when hidden, so the current value never goes blank.
     func visibleModels(provider: String, models: [String], keep: String? = nil) -> [String] {
+        // [provider-off] A provider turned off offers nothing but the model in use.
+        if isOff(provider) { return keep.flatMap { $0.isEmpty ? nil : [$0] } ?? [] }
         var out: [String] = []
         var seen = Set<String>()
         for model in models + extraModels(provider) where seen.insert(model).inserted {
@@ -99,6 +122,16 @@ nonisolated struct ProviderPrefs: Sendable, Equatable, Codable {
     /// Hides (or shows) every one of `models` at once (Show All / Hide All).
     mutating func setHidden(_ hide: Bool, provider: String, models: [String]) {
         for model in models { setHidden(hide, provider: provider, model: model) }
+    }
+
+    /// [provider-off] Turns a whole provider off (or back on). What is hidden or renamed inside it is kept as it was.
+    mutating func setOff(_ off: Bool, provider: String) {
+        let key = Self.offKey(provider)
+        if off { hidden.insert(key) } else { hidden.remove(key) }
+    }
+
+    mutating func setOff(_ off: Bool, providers: [String]) {
+        for provider in providers { setOff(off, provider: provider) }
     }
 
     mutating func addExtra(_ model: String, provider: String) {
@@ -241,11 +274,13 @@ extension ModelOptions {
     func applying(_ prefs: ProviderPrefs) -> ModelOptions {
         guard !prefs.isEmpty else { return self }
         var out = self
-        out.providers = providers.map { row in
+        out.providers = providers.compactMap { row in
             var row = row
             let key = ProviderPrefs.providerKey(row.slug)
             row.customName = prefs.providerNames[key]
             let keep = row.matches(provider) ? model : nil
+            // [provider-off] A provider turned off isn't listed at all, unless the chat is on it now.
+            if prefs.isOff(row.slug), (keep ?? "").isEmpty { return nil }
             row.models = prefs.visibleModels(provider: row.slug, models: row.models, keep: keep)
             var names: [String: String] = [:]
             for (modelKey, name) in prefs.modelNames where modelKey.hasPrefix("\(key)::") {
@@ -266,6 +301,25 @@ extension ModelProviderOption {
         if let name = prefs.providerName(slug) { out.name = name }
         out.models = prefs.visibleModels(provider: slug, models: models, keep: keep)
         return out
+    }
+}
+
+extension Array where Element == ModelProviderOption {
+    /// [provider-off] Settings' provider lists as the menus show them: the providers turned off left out (the one whose
+    /// model is in use kept, with that model alone), the rest renamed and cut down (`ModelProviderOption.applying`).
+    func applying(_ prefs: ProviderPrefs, keepProvider: String = "", keepModel: String = "") -> [ModelProviderOption] {
+        compactMap { row in
+            let keep = !keepProvider.isEmpty && row.slug == keepProvider && !keepModel.isEmpty ? keepModel : nil
+            if prefs.isOff(row.slug), keep == nil { return nil }
+            return row.applying(prefs, keep: keep)
+        }
+    }
+}
+
+extension Array where Element == JobModelProvider {
+    /// [provider-off] A job's model choices: no provider turned off, the rest as `JobModelProvider.applying`.
+    func applying(_ prefs: ProviderPrefs) -> [JobModelProvider] {
+        compactMap { prefs.isOff($0.slug) ? nil : $0.applying(prefs) }
     }
 }
 

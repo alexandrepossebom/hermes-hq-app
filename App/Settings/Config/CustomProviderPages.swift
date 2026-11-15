@@ -57,7 +57,9 @@ final class CustomProvidersModel {
         changed()
         // [provider-manager] Its names, hidden models and added models go with it (adding it again starts fresh).
         if provider(id) == nil, let store = prefsStore ?? ProviderPrefsStore.current ?? account.map({ ProviderPrefsStore.of(accountId: $0) }) {
-            store.update { $0.forget(provider: ProviderPrefs.endpointSlug(id)) }
+            // [provider-off] Under both ids Hermes lists one by (`custom:<key>`, or the bare key).
+            let slug = ProviderPrefs.endpointSlug(id)
+            store.update { $0.forget(provider: slug); $0.forget(provider: String(slug.dropFirst("custom:".count))) }
         }
         if provider(id) == nil, let account { ModelPrefs(accountId: account).removeKnownProvider(ProviderPrefs.endpointSlug(id)) }
         AppLog.note("settings", "custom provider deleted")

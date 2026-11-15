@@ -11,6 +11,16 @@
 // synced to your other devices), Models (every model it offers, a Show switch each, tap a name to rename it, Show All /
 // Hide All, Add Model…), Default Model, its key (or connection), Test Connection for your own, and Remove Provider.
 // What is hidden or renamed applies to every model menu in the app (`ProviderPrefs`); a pick still sends the real ids.
+//
+// [provider-off] Owner 2026-11-15: "I keep having the models change to providers that i don't want to use and i want to
+// clean out a bunch of providers and there isn't an easy way to do it... i need full management of all of this to be
+// very simple". Three things:
+//   - every row has a switch. Off, the provider is in no model menu (`ProviderPrefs.isOff`), whatever models it has or
+//     adds later; its key stays on the gateway, so what else uses it (voice, a job) still works. The same switch leads
+//     the provider's page.
+//   - the list holds every provider the model menus show (`ProviderList.merge`'s catalog rows), so none can be in a
+//     menu with nothing here to switch.
+//   - Select picks several: Turn Off, Turn On, or Remove… them at once, after one confirm.
 
 import Observation
 import SwiftUI
@@ -102,7 +112,85 @@ final class ProvidersModel {
     /// The model catalog's own provider row for a provider (its real slug, models, key and address).
     func catalogRow(_ id: String) -> ModelProviderOption? { catalog.raw.first { ProviderPrefs.providerKey($0.slug) == id } }
 
+    // MARK: [provider-off] On and off
+
+    /// Takes providers out of every model menu, or puts them back. Nothing changes on the gateway.
+    func setOff(_ off: Bool, _ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        update { $0.setOff(off, providers: ids) }
+        Haptics.play(.selection)
+        AppLog.note("settings", "providers turned \(off ? "off" : "on"): \(ids.count)")
+    }
+
     // MARK: Remove
+
+    /// [provider-off] Several at once, after one confirm that says what goes: keys removed, accounts signed out, your
+    /// own providers deleted. One Hermes sets up itself can't be removed here and is turned off instead.
+    func askRemove(_ picked: [ManagedProvider], router: SettingsRouter, done: @escaping () -> Void) {
+        guard !picked.isEmpty else { return }
+        if picked.count == 1 { askRemove(picked[0], router: router, done: done); return }
+        let can = ProviderList.removable(picked)
+        guard !can.isEmpty else {
+            Haptics.play(.warning)
+            let alert = UIAlertController(title: "Can’t Remove These",
+                                          message: "Hermes sets them up itself on \(HostWord.phrase), so there is nothing here to remove. Turn them off to keep them out of your model menus.",
+                                          preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Turn Off", style: .default) { [weak self] _ in
+                self?.setOff(true, picked.map(\.id))
+                done()
+            })
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            FailureAlert.topmost(router.presenter)?.present(alert, animated: true)
+            return
+        }
+        TextPrompt.confirm(title: can.count == 1 ? "Remove 1 Provider?" : "Remove \(can.count) Providers?",
+                           message: ProviderList.removeMessage(picked, prefs: prefs), action: "Remove", from: router.presenter) { [weak self] in
+            Task { await self?.removeSeveral(picked, done: done) }
+        }
+    }
+
+    private func removeSeveral(_ picked: [ManagedProvider], done: () -> Void) async {
+        failure = nil
+        var settled: [String] = []
+        var refused: [String] = []
+        var why: String?
+        var signedOut = false
+        for row in picked {
+            removing = row.id
+            var problem: String?
+            switch row.removal {
+            case .cannot:
+                break   // turned off below
+            case .deleteEndpoint:
+                guard let endpoint = row.endpoint else { continue }
+                do { try await custom.delete(endpoint.id) } catch {
+                    AppLog.note("settings", "custom provider delete failed: \(type(of: error))")
+                    problem = (error as? CustomProviderFailure)?.text ?? SettingsErrorText.save(error)
+                }
+            case .removeKeys(let keys):
+                problem = await take(row, keys: keys, signOut: false)
+            case .removeKeysAndSignOut(let keys):
+                signedOut = true
+                problem = await take(row, keys: keys, signOut: true)
+            case .signOut:
+                signedOut = true
+                problem = await take(row, keys: [], signOut: true)
+            }
+            if let problem { refused.append(row.name(prefs)); why = why ?? problem } else { settled.append(row.id) }
+        }
+        removing = nil
+        let kept = picked.filter { if case .cannot = $0.removal { return true } else { return false } }.map(\.id)
+        if !kept.isEmpty { update { $0.setOff(true, providers: kept) } }
+        await settle(settled.filter { !kept.contains($0) }, accounts: signedOut)
+        AppLog.note("settings", "providers removed: \(settled.count - kept.count), turned off: \(kept.count), refused: \(refused.count)")
+        if refused.isEmpty {
+            Haptics.play(.success)
+        } else {
+            Haptics.play(.error)
+            failure = "Couldn’t remove \(ListFormatter.localizedString(byJoining: refused)). \(why ?? "")"
+        }
+        done()
+    }
 
     /// Remove, after one confirm (or the reason it can't be). `done` runs once it is gone.
     func askRemove(_ row: ManagedProvider, router: SettingsRouter, done: @escaping () -> Void = {}) {
@@ -120,7 +208,11 @@ final class ProvidersModel {
             }) { [weak self] failure in
                 self?.removing = nil
                 self?.failure = failure
-                if failure == nil { done() }
+                guard failure == nil else { return }
+                // [provider-off] The names and switches kept under its catalog id go too (`custom:<key>` went with the
+                // delete; Hermes lists some under the bare key).
+                Task { await self?.settle([row.id], accounts: false) }
+                done()
             }
         case .removeKeys(let keys), .removeKeysAndSignOut(let keys):
             let signOut = row.removal != .removeKeys(keys)
@@ -141,23 +233,30 @@ final class ProvidersModel {
 
     /// A provider no longer in the list loses the names, hidden models and added models kept for it, so adding it again
     /// later starts fresh. (Your own endpoints' are forgotten by `CustomProvidersModel.delete`.)
-    private func forgetIfGone(_ id: String) {
-        guard row(id) == nil else { return }
-        update { $0.forget(provider: id) }
+    private func forgetGone(_ ids: [String]) {
+        let here = Set(rows.map(\.id))
+        let gone = ids.filter { !here.contains($0) }
+        guard !gone.isEmpty else { return }
+        update { prefs in gone.forEach { prefs.forget(provider: $0) } }
         // [ghost-stars] Its starred models leave the Switch Model menus now, not after each chat's next catalog read.
-        if let account { ModelPrefs(accountId: account).removeKnownProvider(id) }
+        if let account { gone.forEach { ModelPrefs(accountId: account).removeKnownProvider($0) } }
     }
 
-    private func remove(_ row: ManagedProvider, keys: [String], signOut: Bool, done: () -> Void) async {
-        removing = row.id
-        failure = nil
-        defer { removing = nil }
+    /// After a remove: the lists read again, and what is gone is forgotten.
+    private func settle(_ ids: [String], accounts: Bool) async {
+        if accounts { await loadAccounts() }
+        if let account { ModelCatalogCache.shared.markStale(account: account) }
+        await catalog.load()
+        forgetGone(ids)
+    }
+
+    /// Removes a provider's keys and ends its sign-in on the gateway. The reason, when Hermes refused.
+    private func take(_ row: ManagedProvider, keys: [String], signOut: Bool) async -> String? {
         for key in keys {
             guard await env.remove(key) else {
-                failure = env.failure ?? "Couldn’t remove the key."
+                let why = env.failure ?? "Couldn’t remove the key."
                 env.dismissFailure()
-                Haptics.play(.error)
-                return
+                return why
             }
         }
         if signOut, let account = row.account, let api {
@@ -166,18 +265,25 @@ final class ProvidersModel {
                 AppLog.note("settings", "provider signed out: \(account.id)")
             } catch {
                 AppLog.note("settings", "provider sign out failed: \(type(of: error))")
-                failure = SettingsErrorText.save(error)
-                Haptics.play(.error)
-                await loadAccounts()
-                return
+                return SettingsErrorText.save(error)
             }
-            await loadAccounts()
         }
         AppLog.note("settings", "provider removed: \(row.id) (\(keys.count) keys\(signOut ? ", signed out" : ""))")
+        return nil
+    }
+
+    private func remove(_ row: ManagedProvider, keys: [String], signOut: Bool, done: () -> Void) async {
+        removing = row.id
+        failure = nil
+        defer { removing = nil }
+        if let problem = await take(row, keys: keys, signOut: signOut) {
+            failure = problem
+            Haptics.play(.error)
+            if signOut { await loadAccounts() }
+            return
+        }
         Haptics.play(.success)
-        if let account { ModelCatalogCache.shared.markStale(account: account) }
-        await catalog.load()
-        forgetIfGone(row.id)
+        await settle([row.id], accounts: signOut)
         done()
     }
 }
@@ -190,6 +296,9 @@ struct ProvidersPageView: View {
     /// [provider-add] Opened from the model list's Add Provider…: the chooser goes over it once it shows.
     private let startAdding: Bool
     @State private var startedAdding = false
+    /// [provider-off] Select: rows are picked, not opened, and a bar at the foot acts on the pick.
+    @State private var selecting = false
+    @State private var picked: Set<String> = []
 
     init(router: SettingsRouter, startAdding: Bool = false) {
         self.router = router
@@ -218,15 +327,20 @@ struct ProvidersPageView: View {
                     }
                     ForEach(rows) { row in
                         ProviderListRow(row: row, prefs: prefs, catalog: model.catalog.raw, removing: model.removing == row.id,
-                                        readOnly: model.readOnly) {
-                            ProviderPages.open(row.id, model: model, router: router)
+                                        readOnly: model.readOnly, picked: selecting ? picked.contains(row.id) : nil) {
+                            if selecting { pick(row.id) } else { ProviderPages.open(row.id, model: model, router: router) }
+                        } setOn: { on in
+                            model.setOff(!on, [row.id])
                         } rename: {
                             ProviderPages.rename(row, model: model, router: router)
                         } remove: {
                             model.askRemove(row, router: router)
+                        } select: {
+                            picked = [row.id]
+                            withAnimation { selecting = true }
                         }
                     }
-                    if !model.readOnly {
+                    if !model.readOnly, !selecting {
                         Button(action: openAdd) {
                             if DeviceWord.isMac {
                                 MacAddRowLabel(title: "Add Provider…")
@@ -238,7 +352,7 @@ struct ProvidersPageView: View {
                         .accessibilityIdentifier("custom-providers.add")
                     }
                 } footer: { HQSectionFooter {
-                    Text(footer)
+                    Text(footer(rows)).accessibilityIdentifier("providers.footer")
                 } }
                 // The accounts Hermes is signed in to are missing from the list above until this reads.
                 if let error = model.accountsError {
@@ -251,8 +365,29 @@ struct ProvidersPageView: View {
         .task { await model.load() }
         .refreshable { await model.load() }
         // [provider-add] Owner 2026-11-04 ("more easily add them"): + opens Add Provider, at the top of the page.
+        .onChange(of: rows.map(\.id)) { _, ids in picked.formIntersection(ids) }
         .toolbar {
-            if !model.readOnly {
+            if !model.readOnly, selecting {
+                ToolbarItem(placement: .primaryAction) {
+                    let _ = Theme.touch()
+                    Button("Done") { endSelecting() }
+                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("providers.select-done")
+                }
+                .sharedBackgroundVisibility(Theme.isDesktop || DeviceWord.isMac ? .hidden : .automatic)
+            } else if !model.readOnly {
+                if rows.count > 1 {
+                    ToolbarItem(placement: .primaryAction) {
+                        let _ = Theme.touch()
+                        Button("Select") {
+                            Haptics.play(.selection)
+                            picked = []
+                            withAnimation { selecting = true }
+                        }
+                        .accessibilityIdentifier("providers.select")
+                    }
+                    .sharedBackgroundVisibility(Theme.isDesktop || DeviceWord.isMac ? .hidden : .automatic)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     let _ = Theme.touch()
                     Button(action: openAdd) { Image(systemName: "plus") }
@@ -274,13 +409,44 @@ struct ProvidersPageView: View {
             }
         }
         .accessibilityIdentifier("providers.list")
+        // [provider-off] Select's bar stands at the foot of the page, over the list, while several are being picked.
+        // (After the list's identifier, which everything inside it without a control of its own would take.)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if selecting { ProviderSelectBar(rows: rows, prefs: prefs, picked: $picked, busy: model.removing != nil, act: act) }
+        }
     }
 
-    private var footer: String {
+    private func footer(_ rows: [ManagedProvider]) -> String {
+        if selecting {
+            return "Turn Off keeps a provider’s key on \(HostWord.phrase) and takes it out of every model menu. Remove takes its key off \(HostWord.phrase)."
+        }
+        let count = ProviderList.onOffLine(rows, prefs: model.prefs).map { "\($0). " } ?? ""
         let how = DeviceWord.isMac
-            ? "Click one to rename it or choose which of its models show. \(DeviceWord.hold) one to remove it."   // Mac polish #135
-            : "Tap one to rename it or choose which of its models show. Swipe one to remove it."
-        return "The providers your bots can use. \(how) More services are under +."
+            ? "Click a name to rename it or choose which of its models show. \(DeviceWord.hold) one to remove it."   // Mac polish #135
+            : "Tap a name to rename it or choose which of its models show. Swipe one to remove it."
+        return "\(count)Switch a provider off to take it out of every model menu; its key stays on \(HostWord.phrase), so anything else that uses it still works. \(how) Select changes several at once."
+    }
+
+    // MARK: [provider-off] Select
+
+    private func pick(_ id: String) {
+        Haptics.play(.selection)
+        if picked.contains(id) { picked.remove(id) } else { picked.insert(id) }
+    }
+
+    private func endSelecting() {
+        withAnimation { selecting = false }
+        picked = []
+    }
+
+    private func act(_ action: ProviderSelectBar.Action) {
+        let rows = model.rows.filter { picked.contains($0.id) }
+        guard !rows.isEmpty else { return }
+        switch action {
+        case .off: model.setOff(true, rows.map(\.id)); endSelecting()
+        case .on: model.setOff(false, rows.map(\.id)); endSelecting()
+        case .remove: model.askRemove(rows, router: router) { endSelecting() }
+        }
     }
 
     private func openAdd() {
@@ -288,64 +454,87 @@ struct ProvidersPageView: View {
     }
 }
 
-/// One provider in the list: its name, what it is, how many models show.
+/// One provider in the list: its name, how many models show and what it is, and its switch.
 private struct ProviderListRow: View {
     let row: ManagedProvider
     let prefs: ProviderPrefs
     let catalog: [ModelProviderOption]
     let removing: Bool
     let readOnly: Bool
+    /// [provider-off] Select: whether this row is picked (a tick leads it and the switch steps aside); nil outside it.
+    let picked: Bool?
+    /// Opens its page; picks it in Select.
     let open: () -> Void
+    let setOn: (Bool) -> Void
     let rename: () -> Void
     let remove: () -> Void
+    let select: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            // [provider-rows] Owner 2026-11-10 (design pick 4): two lines a row. How many models show stands at the
-            // trailing edge of the name's line (it was a third line), and a dot leads the second line: green, or
-            // orange with an orange "No models" when the provider has nothing to pick from.
-            let edge = ProviderList.shownEdge(row, catalog: catalog, prefs: prefs)
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(row.name(prefs)).foregroundStyle(Color.hqLabel).fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(removing ? "Removing…" : edge.text)
-                            .font(Font.hq(.footnote)).monospacedDigit()
-                            .foregroundStyle(edge.none && !removing ? Color.hqOrange : Color.hqLabel2)
-                            .lineLimit(1).fixedSize()
-                    }
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Circle().fill(edge.none ? Color.hqOrange : Color(uiColor: .systemGreen))
-                            .frame(width: 7, height: 7)
-                            .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 1 }
+        // [provider-rows] Owner 2026-11-10 (design pick 4): two lines a row, a dot leading the second: green, or orange
+        // when the provider has nothing to pick from. [provider-off] Owner 2026-11-15: the switch has the trailing
+        // edge, so how many models show leads the second line; a provider turned off is grey and says "Off".
+        let line = ProviderList.rowLine(row, catalog: catalog, prefs: prefs)
+        let name = row.name(prefs)
+        HStack(spacing: 12) {
+            Button(action: open) {
+                HStack(spacing: 12) {
+                    if let picked {
+                        Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+                            .font(Font.hq(.title3))
+                            .foregroundStyle(picked ? Color.hqTint : Color.hqLabel3)
                             .accessibilityHidden(true)
-                        Text(row.endpoint?.isCurrent == true ? "\(row.sourceLine) · Default" : row.sourceLine)
-                            .font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2).lineLimit(1)
                     }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name).foregroundStyle(line.off ? Color.hqLabel2 : Color.hqLabel).fixedSize(horizontal: false, vertical: true)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Circle().fill(line.off ? Color.hqLabel3 : line.none ? Color.hqOrange : Color(uiColor: .systemGreen))
+                                .frame(width: 7, height: 7)
+                                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 1 }
+                                .accessibilityHidden(true)
+                            // Only the count is orange when there is nothing to pick; what the provider is stays grey.
+                            (removing ? Text("Removing…")
+                                : Text(line.count).foregroundStyle(line.none ? Color.hqOrange : Color.hqLabel2) + Text(" · \(line.source)"))
+                                .font(Font.hq(.footnote)).monospacedDigit()
+                                .foregroundStyle(Color.hqLabel2)
+                                .lineLimit(2).multilineTextAlignment(.leading)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                SettingsChevron()
+                .contentShape(Rectangle())
             }
-            .hqRowPadding(4)   // [mac] Stress test 2026-10-28 round 9: the list's one room on the Mac
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            // "Anthropic, Built into Hermes · Key saved, 4 models shown"; "…, Off" for one turned off.
+            .accessibilityLabel([name, row.sourceLine, row.endpoint?.isCurrent == true ? "Default" : nil,
+                                 removing ? "Removing…" : line.off ? "Off" : ProviderList.shownLine(row, catalog: catalog, prefs: prefs)]
+                .compactMap { $0 }.joined(separator: ", "))
+            .accessibilityAddTraits(picked == true ? [.isButton, .isSelected] : .isButton)
+            .accessibilityIdentifier("provider.\(row.id)")
+            if picked == nil {
+                Toggle("On", isOn: Binding(get: { !line.off }, set: setOn))
+                    .labelsHidden()
+                    .disabled(readOnly || removing)
+                    .accessibilityLabel("\(name) in model menus")
+                    .accessibilityIdentifier("provider.on.\(row.id)")
+            }
         }
-        .accessibilityElement(children: .ignore)
-        // The words as before the edge: "Anthropic, Built into Hermes · Key saved, 4 models shown".
-        .accessibilityLabel([row.name(prefs), row.sourceLine, row.endpoint?.isCurrent == true ? "Default" : nil,
-                             removing ? "Removing…" : ProviderList.shownLine(row, catalog: catalog, prefs: prefs)]
-            .compactMap { $0 }.joined(separator: ", "))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier("provider.\(row.id)")
+        .hqRowPadding(4)   // [mac] Stress test 2026-10-28 round 9: the list's one room on the Mac
         // Red, not the destructive role, which animates the row out before the confirm (GatewayPageView's rows). A row
         // that can't be removed still offers Remove, which says why.
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if !readOnly, !removing { Button(removeWord) { remove() }.tint(.red) }
+            if !readOnly, !removing, picked == nil { Button(removeWord) { remove() }.tint(.red) }
         }
         // A mouse has no swipe: the same on a right-click (and a touch and hold).
         .contextMenu {
-            if !readOnly {
+            if !readOnly, picked == nil {
+                Button(line.off ? "Turn On" : "Turn Off", systemImage: line.off ? "eye" : "eye.slash") { setOn(line.off) }
+                    .accessibilityIdentifier("provider.menu-onoff")
                 Button("Rename…", systemImage: "pencil") { rename() }
                     .accessibilityIdentifier("provider.menu-rename")
+                Button("Select", systemImage: "checkmark.circle") { select() }
+                    .accessibilityIdentifier("provider.menu-select")
                 Button("\(removeWord)…", systemImage: removeIcon, role: .destructive) { remove() }
                     .accessibilityIdentifier("provider.menu-remove")
             }
@@ -354,6 +543,68 @@ private struct ProviderListRow: View {
 
     private var removeWord: String { row.removal == .signOut ? "Sign Out" : "Remove" }
     private var removeIcon: String { row.removal == .signOut ? "rectangle.portrait.and.arrow.right" : "trash" }
+}
+
+/// [provider-off] Select's bar at the foot of the Providers list: how many are picked, Select All, and what to do with
+/// them. Turn Off leads (it is the one that can't break anything); Remove asks first.
+private struct ProviderSelectBar: View {
+    enum Action { case off, on, remove }
+
+    let rows: [ManagedProvider]
+    let prefs: ProviderPrefs
+    @Binding var picked: Set<String>
+    let busy: Bool
+    let act: (Action) -> Void
+
+    var body: some View {
+        let chosen = rows.filter { picked.contains($0.id) }
+        let anyOn = chosen.contains { !prefs.isOff($0.id) }
+        let anyOff = chosen.contains { prefs.isOff($0.id) }
+        let all = !rows.isEmpty && chosen.count == rows.count
+        VStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(chosen.isEmpty ? "Select Providers" : "\(chosen.count) Selected")
+                    .font(Font.hq(.subheadline).weight(.semibold)).foregroundStyle(Color.hqLabel).monospacedDigit()
+                    .accessibilityIdentifier("providers.select-count")
+                Spacer(minLength: 8)
+                Button(all ? "Deselect All" : "Select All") {
+                    Haptics.play(.selection)
+                    picked = all ? [] : Set(rows.map(\.id))
+                }
+                .font(Font.hq(.subheadline))
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("providers.select-all")
+            }
+            HStack(spacing: 8) {
+                Button { act(.off) } label: { label("Turn Off") }
+                    .hqProminentButtonStyle()
+                    .disabled(!anyOn || busy)
+                    .accessibilityIdentifier("providers.select-off")
+                Button { act(.on) } label: { label("Turn On") }
+                    .buttonStyle(.bordered)
+                    .disabled(!anyOff || busy)
+                    .accessibilityIdentifier("providers.select-on")
+                Button(role: .destructive) { act(.remove) } label: { label(busy ? "Removing…" : "Remove…") }
+                    .buttonStyle(.bordered)
+                    .disabled(chosen.isEmpty || busy)
+                    .accessibilityIdentifier("providers.select-remove")
+            }
+            .buttonBorderShape(.capsule)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 520)
+        .hqGlassEffect(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)   // no identifier of the bar's own: its controls would all take it
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text).font(Font.hq(.subheadline).weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity).frame(height: HQFont.scaled(30))
+    }
 }
 
 // MARK: - Pushes and prompts
@@ -453,6 +704,7 @@ struct ProviderPageView: View {
                 SaveFailureSection(text: failure, detail: nil, retry: nil, dismiss: { self.failure = nil; model.failure = nil })
             }
             if let row {
+                onSection(row)
                 nameSection(row)
                 modelsSection(row)
                 defaultSection(row)
@@ -478,6 +730,22 @@ struct ProviderPageView: View {
 
     private var prefs: ProviderPrefs { model.prefs }
     private var locked: Bool { model.readOnly || busy }
+
+    // MARK: [provider-off] On or off
+
+    private func onSection(_ row: ManagedProvider) -> some View {
+        let off = prefs.isOff(row.id)
+        return Section {
+            SwitchRow(title: "Show in Model Menus", isOn: Binding(get: { !off }, set: { on in model.setOff(!on, [row.id]) }),
+                      disabled: model.readOnly)
+                .hqRowPadding(4)
+                .accessibilityIdentifier("provider-page.on")
+        } footer: { HQSectionFooter {
+            Text(off
+                ? "Off: none of its models are in the model menus in Hermes HQ, on all your devices, including any it adds later. A chat already on one of them keeps it. Its key stays on \(HostWord.phrase), so anything else that uses it still works."
+                : "Switch it off to take every one of its models out of the model menus in Hermes HQ, on all your devices. Its key stays on \(HostWord.phrase), so anything else that uses it still works.")
+        } }
+    }
 
     // MARK: Name
 
@@ -507,6 +775,7 @@ struct ProviderPageView: View {
         }
         let anyHidden = all.contains { prefs.isHidden(provider: row.id, model: $0) }
         let anyShown = all.contains { !prefs.isHidden(provider: row.id, model: $0) }
+        let off = prefs.isOff(row.id)   // [provider-off] none shows while it is off: the switches wait, greyed
         return Section {
             if all.count > 12 {
                 TextField("Search Models", text: $query)
@@ -517,7 +786,7 @@ struct ProviderPageView: View {
             }
             // [provider-models] Owner 2026-11-10 (design pick 20): on the iPhone and iPad, Show All and Hide All sit on
             // the Models heading's line (as the list's first row they read as a model); the Mac keeps the row.
-            if all.count > 1, DeviceWord.isMac {
+            if all.count > 1, DeviceWord.isMac, !off {
                 HStack(spacing: 20) {
                     Button("Show All") { setAll(all, hide: false, row) }
                         .disabled(!anyHidden || model.readOnly)
@@ -536,8 +805,8 @@ struct ProviderPageView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .hqRowPadding(4)
             }
-            ForEach(shown, id: \.self) { id in modelRow(id, row) }
-            if !model.readOnly {
+            ForEach(shown, id: \.self) { id in modelRow(id, row).disabled(off).opacity(off ? 0.5 : 1) }
+            if !model.readOnly, !off {
                 Button { addModel(row) } label: {
                     if DeviceWord.isMac { MacAddRowLabel(title: "Add Model…") } else { Label("Add Model…", systemImage: "plus") }
                 }
@@ -546,7 +815,7 @@ struct ProviderPageView: View {
                 .accessibilityIdentifier("provider-models.add")
             }
         } header: { HQSectionLabel {
-            if all.count > 1, !DeviceWord.isMac {
+            if all.count > 1, !DeviceWord.isMac, !off {
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
                     Text("Models")
                     Spacer(minLength: 8)
@@ -566,6 +835,8 @@ struct ProviderPageView: View {
         } } footer: { HQSectionFooter {
             if !words.isEmpty, shown.isEmpty {
                 Text("No model matches “\(query)”.")
+            } else if off {
+                Text("None of these show while the provider is off. Switch it on above to choose which do.")
             } else {
                 Text("Switch a model off to leave it out of the model menus; one a bot is using still shows there. \(DeviceWord.Tap) a name to rename it.")
             }
