@@ -1246,7 +1246,11 @@ final class ActivityEndToEndTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.8)
         shot("large-text-subagents-card")
         try event(account, "subagent.complete", ["goal": "x", "task_count": 1, "task_index": 0, "subagent_id": "sa_ax", "status": "completed"])
-        app.buttons["chat.more"].tap()
+        // The first tap can land while the subagents card is closing: tap again until the ⋯ is open.
+        for _ in 0..<3 where !app.anyChatMoreRow.exists {
+            app.buttons["chat.more"].tap()
+            _ = app.anyChatMoreRow.waitForExistence(timeout: 3)
+        }
         // At the largest text size the DEBUG item sits under the menu's fold: scroll the menu to it.
         let toolCalls = app.buttons["Tool Calls"]
         for _ in 0..<4 where !toolCalls.waitForExistence(timeout: 1) { app.visibleChatMoreRow.swipeUp() }
