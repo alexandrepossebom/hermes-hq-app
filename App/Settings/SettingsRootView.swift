@@ -1586,8 +1586,10 @@ struct SettingsCategoryColumn: View {
                     let on = model.category == category && model.query.isEmpty && !model.gatewayMarked
                     Button { model.query = ""; model.category = category; model.columnChanged?() } label: {
                         HStack(spacing: 10) {
+                            // [type-body] On the Mac the glyph at its words' size (MacIcon.rowSize, the body), as Mail's and
+                            // Finder's sidebars draw theirs: 16 × UI Scale stood a size bigger than 13 pt words.
                             Image(systemName: category.symbol)
-                                .font(.system(size: HQFont.scaled(16)))   // a11y-font-ok: as above
+                                .font(.system(size: DeviceWord.isMac ? MacIcon.rowSize : HQFont.scaled(16)))   // a11y-font-ok: as above
                                 .foregroundStyle(Color.hqTintText)
                                 .frame(width: 30)
                             Text(category.title)
