@@ -689,6 +689,10 @@ private struct SignInButtonStyle: ViewModifier {
     func body(content: Content) -> some View {
         if prominent {
             content.hqGlassProminentButtonStyle().tint(Color.hqTint)
+        } else if DeviceWord.isMac {
+            // [macpass-settings2] The Mac's plain push button, the same height as Sign in with Nous above it (iOS's
+            // glass capsule stood 48 pt tall under the 32 pt prominent button).
+            content.hqBorderedButtonStyle()
         } else {
             content.hqGlassButtonStyle()
         }

@@ -409,7 +409,12 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
             navigationItem.hqPlaceClose(close)   // [mac] Stress test 2026-10-28 #55: trailing on the Mac
             navigationItem.largeTitleDisplayMode = .never
         }
+        // [macpass-settings2] The category column's width follows UI Scale: the pane beside it moves when it changes.
+        themeWatch = NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.view.setNeedsLayout() }
+        }
     }
+    private var themeWatch: NSObjectProtocol?
 
     #if targetEnvironment(macCatalyst)
     /// [mac] Stress test 2026-10-28 #66: whether the More list (gateway card first) is beside this page, checked as the
@@ -1366,7 +1371,7 @@ struct SettingsRootView: View {
             HStack(spacing: 12) {
                 SettingsRowLabel(title: "Share Menu", systemImage: "square.and.arrow.up")
                 Spacer(minLength: 16)
-                Button("Open System Settings…") {
+                Button("Open System Settings") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences?extensionPointIdentifier=com.apple.share-services") {
                         UIApplication.shared.open(url)
                     }
@@ -1479,7 +1484,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 struct SettingsCategoryColumn: View {
     @Bindable var model: SettingsRootModel
     let router: SettingsRouter
-    static let width: CGFloat = 270
+    /// [macpass-settings2] Grows with UI Scale, as `MacForm.labelWidth` does: at a fixed 270 the field's "Search
+    /// Settings" was cut to "Search Setti" at 130 %, and the category names came close to the edge.
+    static var width: CGFloat {
+        (270 * CGFloat(ThemeTable.current.state.uiScalePercent) / 100).rounded()
+    }
     /// The chosen category's fill and corners: the sidebar's on the Mac (the only place the column is drawn).
     private static var mark: Color {
         #if targetEnvironment(macCatalyst)

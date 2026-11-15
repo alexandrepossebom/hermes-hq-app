@@ -407,6 +407,10 @@ struct GuideActionButton: View {
         .accessibilityIdentifier(id)
         if prominent {
             button.hqGlassProminentButtonStyle().tint(Color.hqTint)
+        } else if DeviceWord.isMac {
+            // [macpass-settings2] The Mac's plain push button, as the prominent one above is its default push button:
+            // iOS's glass capsule stood 48 pt tall under a 32 pt Get Started, and sat 14 pt off the bottom at 600 pt.
+            button.hqBorderedButtonStyle()
         } else {
             button.hqGlassButtonStyle()
         }
