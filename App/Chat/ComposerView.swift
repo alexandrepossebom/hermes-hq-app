@@ -786,25 +786,34 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     static var macPlainBox: Bool { DeviceWord.isMac && !Theme.isDesktop }
     /// [mac-message-box] The page's own colour under the box: the chat scrolls behind the composer, and round a box
     /// that is no longer see-through its bubbles showed in the 12 pt beside it and the strip under it (a blue corner
-    /// past the box's end). The transcript fades out over the 24 pt at the box's top edge and nothing shows below
-    /// that. Not over a Chat Background: the picture is the page there, and it runs to the window's foot.
+    /// past the box's end). Not over a Chat Background: the picture is the page there, and it runs to the window's foot.
+    /// [mac-top-glass] Owner 2026-11-15: "nothing at the bottom of the chats. the chat text just needs to disappear in
+    /// to the text input area", as in Claude's and ChatGPT's apps. The fade used to run 24 pt and end 10 pt above the
+    /// box, so the words stopped on a hard line over a page-coloured strip. Now it starts where the newest message rests
+    /// (`ChatMetrics.composerContentGap` above the box, so nothing is dimmed at rest) and eases to the full page colour
+    /// at the box's top edge: the words thin out over the last 32 pt and are gone as they reach the box.
     private let macBacking = UIView()
     private let macBackingFade = CAGradientLayer()
-    private static let backingRise: CGFloat = 14
 
     private func layoutMacBacking(box: CGRect) {
-        let shown = Self.macPlainBox && !Backdrop.chats.shows
+        // In both looks on the Mac (the Desktop Look's square box cut the words off on a hard line too).
+        let shown = DeviceWord.isMac && !Backdrop.chats.shows
         if macBacking.isHidden == shown { macBacking.isHidden = !shown }
         guard shown else { return }
+        let rise = ChatMetrics.composerContentGap
+        let solidAt = rise + 2
         // Past the composer's own foot to the window's (the composer stands a little above it).
-        let frame = CGRect(x: 0, y: box.minY - Self.backingRise, width: bounds.width, height: bounds.height - box.minY + Self.backingRise + 400)
+        let frame = CGRect(x: 0, y: box.minY - rise, width: bounds.width, height: bounds.height - box.minY + rise + 400)
         let page = ChatPalette.page.resolvedColor(with: traitCollection)
+        let end = Double(min(1, solidAt / frame.height))
+        // An eased ramp (smoothstep), not a straight one: a straight fade reads as a band with edges.
+        let steps = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         macBacking.frame = frame
         macBackingFade.frame = macBacking.bounds
-        macBackingFade.colors = [page.withAlphaComponent(0).cgColor, page.cgColor, page.cgColor]
-        macBackingFade.locations = [0, NSNumber(value: Double(min(1, (Self.backingRise + 10) / frame.height))), 1]
+        macBackingFade.colors = steps.map { t in page.withAlphaComponent(t * t * (3 - 2 * t)).cgColor } + [page.cgColor]
+        macBackingFade.locations = steps.map { NSNumber(value: $0 * end) } + [1]
         CATransaction.commit()
     }
     /// [mac] The iOS look's one box: rounded, not the Desktop Look's square corners.

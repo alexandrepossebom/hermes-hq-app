@@ -214,8 +214,9 @@ nonisolated enum ChatMetrics {
     static let jumpTrailing: CGFloat = 16
     static let jumpAboveComposer: CGFloat = 16
     /// Space between the newest row and the composer's top. [mac-ui-issues] 16 on the Mac: its box rises 3 pt above the
-    /// row, so at 8 the newest bubble sat 4 px above the box on the screen and read as stuck to it.
-    static let composerContentGap: CGFloat = DeviceWord.isMac ? 16 : 8
+    /// row, so at 8 the newest bubble sat 4 px above the box on the screen and read as stuck to it. [mac-top-glass] 32
+    /// since 2026-11-15: the words fade out over this space as they scroll toward the box (`ComposerView.macBacking`).
+    static let composerContentGap: CGFloat = DeviceWord.isMac ? 32 : 8
     /// Transcript top: 12 pt below the bar plus the status line's reserved height.
     static let transcriptTopGap: CGFloat = 12
     static let statusLineHeight: CGFloat = 22

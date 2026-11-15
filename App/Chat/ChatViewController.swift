@@ -182,13 +182,11 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private let backdrop = BackdropView(place: .chats)
     #if targetEnvironment(macCatalyst)
     /// [mac] Stress test 2026-10-31 #1: the Mac draws no soft edge under the clear bar, so words scrolled under it ran
-    /// straight through the bot's name and face. A page-coloured backing behind the bar, fading out 16 pt below it,
-    /// comes in once a row reaches under the bar; at rest it is clear (the Bots list's, `EdgeHostScrollView`). The
-    /// iPhone keeps its see-through top (owner 2026-10-18), where the system's soft edge does the job.
-    private let barBacking = UIView()
-    private let barBackingFade = CAGradientLayer()
-    /// Owner 2026-11-09 ("Looks too solid?"): over a Chat Background the backing is a soft blur of the picture, not the
-    /// page colour (a white band over the picture), fading out under the bar as the iPhone's soft edge does.
+    /// straight through the bot's name and face. A backing behind the bar comes in once a row reaches under it; at rest
+    /// it is clear. [mac-top-glass] Owner 2026-11-15: "a translucent bar across the top of chats just like we have in the
+    /// ios app": the backing is a frosted blur of the transcript (it was the page colour, a solid band that hid the
+    /// words), full strength down to the bar's foot and fading out below it, as the iPhone's soft edge. Over a Chat
+    /// Background it blurs the picture the same way (owner 2026-11-09, "Looks too solid?").
     private let barBlur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let barBlurMask = UIView()
     private let barBlurFade = CAGradientLayer()
@@ -651,26 +649,20 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         view.addSubview(edgeHost)
         setContentScrollView(edgeHost, for: .top)
         #if targetEnvironment(macCatalyst)
-        barBacking.isUserInteractionEnabled = false
-        barBacking.alpha = 0
-        barBacking.accessibilityIdentifier = "chat.barBacking"
-        barBackingFade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
-        barBacking.layer.mask = barBackingFade
-        view.insertSubview(barBacking, aboveSubview: edgeHost)
         barBlur.isUserInteractionEnabled = false
         barBlur.alpha = 0
         barBlur.accessibilityIdentifier = "chat.barBlur"
-        barBlurFade.colors = barBackingFade.colors
+        barBlurFade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
         barBlurMask.layer.addSublayer(barBlurFade)
         barBlur.mask = barBlurMask
-        view.insertSubview(barBlur, aboveSubview: barBacking)
+        view.insertSubview(barBlur, aboveSubview: edgeHost)
         barBackingWatch = tableView.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.updateBarBacking() }
         }
         noticeBacking.isUserInteractionEnabled = false
         noticeBacking.alpha = 0
         noticeBacking.accessibilityIdentifier = "chat.noticeBacking"
-        noticeBackingFade.colors = barBackingFade.colors
+        noticeBackingFade.colors = barBlurFade.colors
         noticeBacking.layer.mask = noticeBackingFade
         view.insertSubview(noticeBacking, aboveSubview: barBlur)   // under the status line and the notice, added later
         noticeToast.onShowingChange = { [weak self] in
@@ -3222,34 +3214,18 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     // MARK: Scrolling
 
-    /// [mac] The bar's backing (`barBacking`): how far the transcript reaches up under the bar sets how much shows.
+    /// [mac] The bar's backing (`barBlur`): how far the transcript reaches up under the bar sets how much shows.
     private func updateBarBacking() {
         #if targetEnvironment(macCatalyst)
-        guard barBacking.superview != nil else { return }
+        guard barBlur.superview != nil else { return }
         let barBottom = view.safeAreaInsets.top
-        // [Mac UI check 2026-11-13] L14: in the iOS look your blue bubble came out from under the bar cut hard where the
-        // grey ones faded: over 16 pt a saturated fill can't fade. The page's fade under the bar is twice as long there.
-        let height = barBottom + (Theme.isDesktop ? 16 : 32)
-        let frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: height)
-        if barBacking.frame != frame {
-            CATransaction.begin(); CATransaction.setDisableActions(true)
-            barBacking.frame = frame
-            barBackingFade.frame = barBacking.bounds
-            barBackingFade.locations = [0, NSNumber(value: Double(barBottom / max(height, 1))), 1]
-            CATransaction.commit()
-        }
-        barBacking.backgroundColor = ChatPalette.page
         // The table is flipped: the end of its content is the transcript's top on screen.
         let contentTop = tableView.convert(CGPoint(x: 0, y: tableView.contentSize.height), to: view).y
         let under = barBottom - contentTop
-        // Owner 2026-11-09 ("Why no top bar here?"): over a chat background too. It was left clear there so the picture
-        // showed behind the bar, and the messages ran through the bot's name and the bar's buttons; the picture still
-        // shows there while nothing is under the bar. There it is the blur (`barBlur`), reaching a little further down.
         let alpha = min(max(under / 10, 0), 1)
-        let picture = Backdrop.chats.shows
-        let solidAlpha = picture ? 0 : alpha
-        if barBacking.alpha != solidAlpha { barBacking.alpha = solidAlpha }
-        let blurHeight = barBottom + 28
+        // Full frost to the bar's foot, then a 24 pt fade, so the words come out from under it softly (a saturated
+        // bubble cut on a short fade looked hard: Mac UI check 2026-11-13 L14).
+        let blurHeight = barBottom + 24
         let blurFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: blurHeight)
         if barBlur.frame != blurFrame {
             CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -3259,8 +3235,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             barBlurFade.locations = [0, NSNumber(value: Double(barBottom / max(blurHeight, 1))), 1]
             CATransaction.commit()
         }
-        let blurAlpha = picture ? alpha : 0
-        if barBlur.alpha != blurAlpha { barBlur.alpha = blurAlpha }
+        if barBlur.alpha != alpha { barBlur.alpha = alpha }
         // The notice's backing: from the top down past the notice, in at the notice's pace and out at its fade.
         let noticeBottom = noticeToast.frame.maxY
         let noticeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: noticeBottom + 16)
