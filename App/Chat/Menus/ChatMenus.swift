@@ -143,40 +143,9 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         #if targetEnvironment(macCatalyst)
         return Self.macSections(bySlot)
         #else
-        return compactElements(state, bySlot)
+        return Slot.allCases.flatMap { bySlot[$0] ?? [] }
         #endif
     }
-
-    #if !targetEnvironment(macCatalyst)
-    /// [menu-tidy] Owner 2026-11-15: the iPhone's ⋯ had grown a row per feature (3 tiles and 12 rows) until Archive sat
-    /// below the fold. Now it is ordered by use and fits without scrolling: Find · Pin · Archive tiles (`ChatMenuModel
-    /// .compact`); Model, Prompts, Usage & Limits, Model Prices, Read Replies Aloud, Watch Browser and Rename…; then
-    /// More ▸ with Mark as Unread, Share and Info, the workspace (Files, Changes, Branch, Export), and Delete Chat last
-    /// in red, short enough that it never scrolls. Info is also the title's tap. The Mac keeps its own sections (`macSections`).
-    private func compactElements(_ state: ChatMenuState, _ bySlot: [Slot: [UIMenuElement]]) -> [UIMenuElement] {
-        let menu = ChatMenuModel.compact(state, listActions: session is ChatSessionMoreActions)
-        var out: [UIMenuElement] = [
-            UIMenu(title: "", options: .displayInline, preferredElementSize: .medium, children: menu.tiles.map(menuAction)),
-        ]
-        out += bySlot[.model] ?? []
-        // Owner 2026-11-15, round 2: "so that More doesn't have to scroll": Prompts, Usage & Limits and Model Prices
-        // sit under Model (their subtitles read the model), which leaves More ▸ short enough to show whole.
-        out += bySlot[.tools] ?? []
-        out += bySlot[.readAloud] ?? []
-        out += bySlot[.browser] ?? []
-        if session is ChatSessionActions, let rename = menu.rename { out.append(menuAction(rename)) }
-        var more: [UIMenuElement] = []
-        let sections: [[UIMenuElement]] = [menu.chat.map(menuAction), menu.workspace.map(menuAction),
-                                           menu.delete.map { [menuAction($0)] } ?? []]
-        for section in sections where !section.isEmpty {
-            more.append(UIMenu(title: "", options: .displayInline, children: section))
-        }
-        if !more.isEmpty { out.append(UIMenu(title: "More", image: UIImage(systemName: "ellipsis.circle"), children: more)) }
-        // [activity] DEBUG items other streams add here (Tool Calls) stay in the ⋯ itself, after More.
-        out += slotItems[.more]?() ?? []
-        return out
-    }
-    #endif
 
     #if targetEnvironment(macCatalyst)
     /// [mac-audit] Owner 2026-11-02 (Mac audit #16): on the Mac the ⋯ is a real menu of up to 19 rows, and as one flat

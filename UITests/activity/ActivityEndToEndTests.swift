@@ -1249,7 +1249,7 @@ final class ActivityEndToEndTests: XCTestCase {
         app.buttons["chat.more"].tap()
         // At the largest text size the DEBUG item sits under the menu's fold: scroll the menu to it.
         let toolCalls = app.buttons["Tool Calls"]
-        for _ in 0..<4 where !toolCalls.waitForExistence(timeout: 1) { app.visibleChatMoreRow.swipeUp() }
+        for _ in 0..<4 where !toolCalls.waitForExistence(timeout: 1) { app.buttons["chat.more.share"].firstMatch.swipeUp() }
         toolCalls.tap()
         XCTAssertTrue(app.navigationBars["Tool Calls"].waitForExistence(timeout: 3))
         // Tool Call Style is checkmark rows at every size now, each with a line saying what it does (UX study #111): at

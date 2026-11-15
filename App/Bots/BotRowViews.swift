@@ -14,22 +14,16 @@ struct BotAvatar: View {
     var faceArc = false
     /// The unread dot on the face's corner (rows and pinned tiles; not Bot Info's header).
     var presence = true
-    /// [working-ring] Theme › Working Ring (owner 2026-11-15: where the ring was all that said a bot works, say it).
-    @AppStorage(WorkingRing.key) private var ringOn = true
 
     var body: some View {
         // [perf] The face's ring shape (a head resolve and a photo lookup) only when the ring is drawn: a row never is.
-        // [working-ring] The working state only: the ring's own gate reads Working Ring, so it follows the switch live.
-        let arc = faceArc && BotList.showsArc(bot, ring: true)
+        let arc = faceArc && BotList.showsArc(bot)
         HeadImage(raw: bot.head, profile: bot.id, size: size, working: bot.isWorking, moods: true)
             .workingArc(arc, shape: arc ? WorkingArc.faceShape(raw: bot.head, profile: bot.id, size: size) : .circle,
                         lineWidth: WorkingArc.faceLine, outset: WorkingArc.faceOutset)
             .overlay(alignment: .bottomTrailing) {
                 let status = tile ? BotList.rowStatus(bot) : .idle
-                // [working-ring] A standing problem stays until the bot's next good reply, so a tile asked to try again
-                // showed only the orange badge, the ring alone saying it works. Ring off: the working dots while it works.
-                let workingOverProblem = BotList.tileShowsWorkingOverProblem(bot, status: status, ringOn: ringOn)
-                if status == .attention && !workingOverProblem {
+                if status == .attention {
                     AttentionBadge(height: Self.badgeSize(size)).offset(x: 2, y: 2)
                 } else if status == .waking {
                     ProgressView().controlSize(.small)
@@ -256,7 +250,7 @@ struct BotRowView: View {
             .botAccessibilityActions(actions.moves)
         }
         .frame(height: DesktopRows.height)
-        .rowArc(BotList.showsArc(bot, ring: true))   // [working-ring] the gate reads the switch
+        .rowArc(BotList.showsArc(bot))
     }
 
     private var iosBody: some View {
@@ -289,7 +283,7 @@ struct BotRowView: View {
             .botAccessibilityActions(actions.moves)
         }
         .frame(minHeight: large ? 0 : BotRowMetrics.minHeight)
-        .rowArc(BotList.showsArc(bot, ring: true))   // [working-ring] the gate reads the switch
+        .rowArc(BotList.showsArc(bot))
     }
 
     private var topLine: some View {

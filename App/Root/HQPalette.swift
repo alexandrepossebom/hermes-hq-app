@@ -209,6 +209,7 @@ enum ListBarAppearance {
             let clear = UINavigationBarAppearance()
             clear.configureWithTransparentBackground()
             macTitle(clear)
+            BackdropBarInk.paint(clear, for: item)   // [backdrop-ink] over the app's picture: the ink that reads on it
             item.scrollEdgeAppearance = clear
             item.standardAppearance = clear
             item.compactAppearance = clear
@@ -220,6 +221,7 @@ enum ListBarAppearance {
             let clear = UINavigationBarAppearance()
             clear.configureWithTransparentBackground()
             macTitle(clear)
+            BackdropBarInk.paint(clear, for: item)   // [backdrop-ink]
             item.scrollEdgeAppearance = clear
             item.standardAppearance = clear
             item.compactAppearance = clear
@@ -260,6 +262,12 @@ enum ListBarAppearance {
     /// [backdrop] A tab's list whose title sits on a band of the page colour (not the soft edge's clear bar): with App
     /// Background on, the band is a copy of the picture instead (`PageBackdrop`).
     static func hasBand(_ item: UINavigationItem) -> Bool { objc_getAssociatedObject(item, &softBarKey) == nil }
+
+    /// [backdrop-ink] Whether `item`'s bar is drawn here (a tab's pinned title: `pinTitle`), so a change to its ink
+    /// goes through `apply`.
+    static func owns(_ item: UINavigationItem) -> Bool {
+        objc_getAssociatedObject(item, &softBarKey) != nil || objc_getAssociatedObject(item, &groupedBarKey) != nil
+    }
 
     /// [backdrop] The picture's band shows behind the bar (clear) or not (the page colour again).
     static func setPictureBand(_ shows: Bool, on item: UINavigationItem) {

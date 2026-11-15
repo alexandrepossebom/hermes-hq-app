@@ -62,9 +62,8 @@ final class MenusTests: XCTestCase {
         openBotChat(app)
         XCTAssertEqual(calls(account, "model.options").count, 0, "no catalog read before the first ⋯ open")
         openMore(app)
-        // [menu-tidy] A bot's own chat has no Archive: Share takes the third tile; Info is the title's tap and More ▸'s.
-        for id in ["find", "pin", "share"] { XCTAssertTrue(app.buttons["chat.more.\(id)"].exists, "\(id) tile") }
-        XCTAssertFalse(app.buttons["chat.more.info"].exists, "Info is under More")
+        XCTAssertTrue(app.buttons["chat.more.share"].exists, "Share tile")
+        XCTAssertTrue(app.buttons["chat.more.info"].exists, "Info tile")
         let model = app.buttons["chat.more.model"]
         XCTAssertTrue(model.waitForExistence(timeout: 3))
         XCTAssertEqual(model.label, "Model, Sonnet 5 · Medium")
@@ -718,7 +717,7 @@ final class MenusTests: XCTestCase {
         try account.control("/__menus/mode", ["optionsDelay": 0])
         // Info: the model's name, its provider under it, Reasoning.
         openMore(app)
-        app.chatMoreRow("info").tap()
+        app.buttons["chat.more.info"].tap()
         // The provider as the Models sheet names it (the catalog's "Anthropic").
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Model' AND value == 'Sonnet 5, Anthropic'")).firstMatch
             .waitForExistence(timeout: 5), "the model's name with its provider under it")
@@ -810,7 +809,7 @@ final class MenusTests: XCTestCase {
         shot(app, "ax3-slash-output")
         // Info: the Model row's value and its provider stack under the label, nothing clipped.
         openMore(app)
-        app.chatMoreRow("info").tap()
+        app.buttons["chat.more.info"].tap()
         let model = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Model' AND value == 'Sonnet 5, Anthropic'")).firstMatch
         XCTAssertTrue(model.waitForExistence(timeout: 5), "Info's Model row")
         shot(app, "ax3-info-sheet")
@@ -963,7 +962,7 @@ final class MenusTests: XCTestCase {
         let more = app.buttons["chat.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 5))
         more.tap()
-        XCTAssertTrue(app.anyChatMoreRow.waitForExistence(timeout: 5), "the ⋯ menu opens")
+        XCTAssertTrue(app.buttons["chat.more.info"].waitForExistence(timeout: 5), "the ⋯ menu opens")
     }
 
     /// ⋯ › Model: the model panel (owner 2026-11-01, one place for the model, its thinking and Fast).

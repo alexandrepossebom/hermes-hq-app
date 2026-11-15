@@ -4,11 +4,6 @@
 import XCTest
 
 extension SessionsTests {
-    /// [working-ring] These look at the ring itself: Working Ring on for the launch, whatever an earlier test left saved
-    /// (test28 turns it off and on through Settings; a failure between left the ring away and these still passed, the
-    /// row's spinner moving on its own).
-    static let ringOn = ["-hqn.workingRing", "<true/>"]
-
     @MainActor private func runTrip(_ app: XCUIApplication) {
         XCTAssertTrue(row(app, "s-trip").waitForExistence(timeout: 15))
         openChat(app, "s-trip")
@@ -28,9 +23,6 @@ extension SessionsTests {
     @MainActor private func arcRound(_ app: XCUIApplication, _ name: String) {
         runTrip(app)
         assertMoves(row(app, "s-trip"), "\(name) session row")
-        if name == "ios" {   // the ring itself, not only the row's spinner (the line `ringPixels` reads is the iOS look's)
-            XCTAssertGreaterThan(ringPixels(row(app, "s-trip")), 20, "the ring is drawn round the working row")
-        }
         shot(app, "arc-\(name)-sessions")
         for step in 1...3 {                     // a third of a lap apart: the lit arcs travel round the row
             Thread.sleep(forTimeInterval: 0.25)
@@ -51,12 +43,12 @@ extension SessionsTests {
 
     @MainActor func test23_WorkingArcInTheIOSLook() throws {
         fixture("/__fixture/mode", ["prompts": "hold"])
-        arcRound(launch(extra: Self.ringOn), "ios")
+        arcRound(launch(), "ios")
     }
 
     @MainActor func test24_WorkingArcInTheDesktopLook() throws {
         fixture("/__fixture/mode", ["prompts": "hold"])
-        arcRound(launch(extra: ["-HQDebugDesktopLook", "YES"] + Self.ringOn), "desktop")
+        arcRound(launch(extra: ["-HQDebugDesktopLook", "YES"]), "desktop")
     }
 
     /// The iOS look: a working row between two others wears a rounded ring with no hairline touching it, on Sessions
@@ -66,7 +58,7 @@ extension SessionsTests {
         for id in ["s-garden", "s-trip", "s-budget"] {
             fixture("/__fixture/rows", ["id": id, "set": ["pinned": true], "event": true])
         }
-        let app = launch(extra: extra + Self.ringOn)
+        let app = launch(extra: extra)
         runTrip(app)
         Thread.sleep(forTimeInterval: 0.6)
         shot(app, "arc-\(name)-between")
@@ -91,7 +83,7 @@ extension SessionsTests {
     /// Reduce Motion: the ring holds still at its start, as the desktop's `animation: none` leaves it.
     @MainActor func test25_WorkingArcStillUnderReduceMotion() throws {
         fixture("/__fixture/mode", ["prompts": "hold"])
-        let app = launch(extra: ["-HQA11yReduceMotion", "YES"] + Self.ringOn)
+        let app = launch(extra: ["-HQA11yReduceMotion", "YES"])
         runTrip(app)
         Thread.sleep(forTimeInterval: 0.5)
         shot(app, "arc-reduced-sessions")

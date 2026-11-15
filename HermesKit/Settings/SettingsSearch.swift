@@ -61,9 +61,6 @@ nonisolated enum SettingsSearch {
     /// stay searchable as keywords).
     static let introSplashLabel = "Greeting on Empty Chats"
     static let fileBrowserLabel = "Files Button in Chats"
-    /// [working-ring] Theme › Working Ring: the ring that travels round a working bot or chat.
-    static let workingRingLabel = "Working Ring"
-    static let workingRingNote = "Working Ring is the moving line around a bot or chat while it works. Off, its working dots and “Working…” still show."
     static let sendWhileBusyLabel = "Send While Replying"   // [send-while-busy]
     static let openLinksInLabel = "Open Links In"   // [links-browser]
     static let sessionsPageTitle = "Archiving & Project Folder"   // UX study 2026-10-21 #117: the page's two sections
@@ -104,8 +101,6 @@ nonisolated enum SettingsSearch {
         // [desktoplook]
         .init(id: "app:theme", label: "Theme", context: "Appearance", keywords: themeKeywords, target: .root("theme")),
         // [density] On Theme, with UI Scale (both looks).
-        // [working-ring] On Theme, beside Density (both looks).
-        .init(id: "app:working-ring", label: workingRingLabel, context: "Theme", keywords: ["working animation", "ring", "arc", "outline", "glow", "spinner", "busy", "running", "motion"], target: .root("theme")),
         .init(id: "app:density", label: "Density", context: "Theme", keywords: ["compact", "dense", "smaller rows", "fit more", "ui scale", "zoom", "smaller text"], target: .root("theme")),
         // [macpass-settings] The control's own name: "scale" found only Density and Desktop Look.
         .init(id: "app:ui-scale", label: "UI Scale", context: "Theme", keywords: ["text size", "bigger text", "smaller text", "larger", "zoom", "make text bigger", "font", "font size", "type size"], target: .root("theme")),

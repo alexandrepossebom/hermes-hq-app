@@ -19,7 +19,6 @@ final class OtherAppsViewController: UIViewController, UICollectionViewDelegate 
     private var reloadPending = false
     private var refreshGeneration = 0
     private var lookObserver: NSObjectProtocol?
-    private var ringObserver: NSObjectProtocol?   // [working-ring]
 
     init(list: SessionsViewController, store: SessionStore) {
         self.list = list
@@ -33,7 +32,6 @@ final class OtherAppsViewController: UIViewController, UICollectionViewDelegate 
 
     isolated deinit {
         if let lookObserver { NotificationCenter.default.removeObserver(lookObserver) }
-        if let ringObserver { NotificationCenter.default.removeObserver(ringObserver) }
     }
 
     override func viewDidLoad() {
@@ -58,11 +56,6 @@ final class OtherAppsViewController: UIViewController, UICollectionViewDelegate 
                 self.collectionView.collectionViewLayout.invalidateLayout()
                 self.reload(animated: false, redrawAll: true)
             }
-        }
-        // [working-ring] Working Ring on or off: the hairlines beside a working row are asked again (the ring itself
-        // follows the switch on its own, `WorkingRingGate`).
-        ringObserver = NotificationCenter.default.addObserver(forName: WorkingRing.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reload(animated: false) }
         }
         reload(animated: false)
     }

@@ -411,12 +411,17 @@ class BackdropCardView: UICollectionReusableView {
 @MainActor final class BackdropPlates: NSObject {
     private weak var list: UIScrollView?
     private let shows: () -> Bool
+    /// [backdrop-ink] The mode whose colours read on the picture behind this list (`BackdropView.pageInk`), for its
+    /// section titles and notes while Soft Cards is off: they stand straight on the picture then.
+    private let ink: () -> UIUserInterfaceStyle
+    /// The titles and notes drawn in another mode just now (put back when it no longer applies).
+    private let inked = NSHashTable<UIView>.weakObjects()
     private var plates: [SoftCardSurface] = []
     private var watches: [NSKeyValueObservation] = []
     private var scheduled = false
     /// How far the list's start is moved so its first card stands one gap under the bar (`lift`).
     private var lifted: CGFloat = 0
-    private var switchWatch: NSObjectProtocol?
+    private var switchWatches: [NSObjectProtocol] = []
     /// Soft cards are drawn just now (the rows are clear on them).
     private(set) var active = false
     /// Supplementary kinds that are not a section's title or note (More's links under its last group).
@@ -432,9 +437,10 @@ class BackdropCardView: UICollectionReusableView {
     /// How far a card reaches past its section's rows.
     static let rim: CGFloat = 6
 
-    private init(list: UIScrollView, loose: Set<String>, shows: @escaping () -> Bool) {
+    private init(list: UIScrollView, loose: Set<String>, ink: @escaping () -> UIUserInterfaceStyle, shows: @escaping () -> Bool) {
         self.list = list
         self.shows = shows
+        self.ink = ink
         self.loose = loose
         super.init()
         watches = [
@@ -449,21 +455,32 @@ class BackdropCardView: UICollectionReusableView {
             guard change.newValue == false else { return }
             MainActor.assumeIsolated { self?.restEdge() }
         })
-        switchWatch = NotificationCenter.default.addObserver(forName: Backdrop.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.schedule() }
+        // (`pictureReady`: [backdrop-ink] the picture's tones are known once it is made.)
+        switchWatches = [Backdrop.didChange, Backdrop.pictureReady].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.schedule() }
+            }
         }
     }
 
-    isolated deinit { switchWatch.map(NotificationCenter.default.removeObserver) }
+    isolated deinit { switchWatches.forEach(NotificationCenter.default.removeObserver) }
 
     /// Attaches (once) to a table or a SwiftUI list; again later only redraws.
-    static func attach(to list: UIScrollView, loose: Set<String> = [], shows: @escaping () -> Bool) {
+    /// `ink`: [backdrop-ink] the mode whose colours read on the picture behind the list (its page's `pageInk`).
+    static func attach(to list: UIScrollView, loose: Set<String> = [], ink: @escaping () -> UIUserInterfaceStyle = { .unspecified },
+                       shows: @escaping () -> Bool) {
         guard list is UITableView || list is UICollectionView else { return }
         if let existing = objc_getAssociatedObject(list, key) as? BackdropPlates { existing.schedule(); return }
-        let plates = BackdropPlates(list: list, loose: loose, shows: shows)
+        let plates = BackdropPlates(list: list, loose: loose, ink: ink, shows: shows)
         objc_setAssociatedObject(list, key, plates, .OBJC_ASSOCIATION_RETAIN)
+        // [backdrop-ink] A grouped list's rows keep their own cards in the page's mode: only its titles and notes take
+        // the picture's ink (`PageBackdrop` may have set the whole list's before this was attached).
+        if list.overrideUserInterfaceStyle != .unspecified { list.overrideUserInterfaceStyle = .unspecified }
         plates.schedule()
     }
+
+    /// [backdrop-ink] Whether `list` is a grouped list (its sections are this type's to draw).
+    static func isAttached(to list: UIScrollView) -> Bool { objc_getAssociatedObject(list, key) is BackdropPlates }
 
     static func refresh(_ list: UIScrollView?) {
         guard let list, let plates = objc_getAssociatedObject(list, key) as? BackdropPlates else { return }
@@ -528,6 +545,7 @@ class BackdropCardView: UICollectionReusableView {
             }
             if let grid = list as? UICollectionView { grid.visibleCells.forEach { $0.setNeedsUpdateConfiguration() } }
         }
+        inkSections(of: list, style: on || !shows() || Theme.isDesktop ? .unspecified : ink())
         let boxes = on ? sections(of: list, near: list.bounds.insetBy(dx: 0, dy: -600)) : []
         while plates.count < boxes.count {
             let plate = SoftCardSurface()
@@ -566,6 +584,34 @@ class BackdropCardView: UICollectionReusableView {
         }
     }
 
+    /// [backdrop-ink] With Soft Cards off a grouped list's rows keep iOS's cards, but its section titles and notes
+    /// stand straight on the picture: those on screen are drawn in `style`, the mode whose colours read there
+    /// (`.unspecified`: the page's own, and on a card). A reused title is put back when it no longer applies.
+    private func inkSections(of list: UIScrollView, style: UIUserInterfaceStyle) {
+        var views: [UIView] = []
+        if style != .unspecified {
+            if let table = list as? UITableView {
+                for index in 0..<table.numberOfSections where table.rect(forSection: index).intersects(table.bounds) {
+                    views += [table.headerView(forSection: index), table.footerView(forSection: index)].compactMap { $0 }
+                }
+            } else if let grid = list as? UICollectionView {
+                let near = grid.collectionViewLayout.layoutAttributesForElements(in: grid.bounds.insetBy(dx: 0, dy: -200)) ?? []
+                for item in near where item.representedElementCategory == .supplementaryView {
+                    guard let kind = item.representedElementKind, let view = grid.supplementaryView(forElementKind: kind, at: item.indexPath) else { continue }
+                    views.append(view)
+                }
+            }
+        }
+        for view in inked.allObjects where !views.contains(where: { $0 === view }) {
+            view.overrideUserInterfaceStyle = .unspecified
+            inked.remove(view)
+        }
+        for view in views {
+            if view.overrideUserInterfaceStyle != style { view.overrideUserInterfaceStyle = style }
+            inked.add(view)
+        }
+    }
+
     /// [soft-cards] Owner 2026-11-13: "Stuff is just not consistent." Each page's first card began where that page's
     /// first row happened to (8 to 40 pt under the bar: Settings, Files, Bot Profiles, Passwords all differed), because
     /// every kind of page keeps its own room over its first section. On Soft Cards the list's start is moved so the
@@ -601,16 +647,9 @@ class BackdropCardView: UICollectionReusableView {
     /// list's own start, drew its edge over the bar as if rows had scrolled under: a frosted band with a hard line,
     /// at rest, with nothing under it. While such a list rests (or is pulled down) its top edge is hidden; it shows
     /// as soon as rows do go under. A list whose edge someone else hides (a tab's, drawn by its still host) is left be.
-    ///
-    /// The hold is Soft Cards' own: once the cards aren't drawn (Desktop Look on, the picture or Soft Cards off) the edge
-    /// is let go at once, though the list still sits lifted until the next `update`. Owner 2026-11-15, build 1013: Desktop
-    /// Look turned on over a picture with Soft Cards froze the app on Settings › Theme. Inside the one layout the switch
-    /// forces, SwiftUI showed the list's edge on each of its updates, this hid it again for a rest the look no longer
-    /// has, and that layout never ended (the main thread spun until iOS killed the app).
     private func restEdge() {
         guard let list else { return }
-        let drawn = shows() && Backdrop.app.cards && !Theme.isDesktop
-        let rests = drawn && Self.hidesTopEdge(lifted: lifted, past: list.contentOffset.y + list.adjustedContentInset.top)
+        let rests = Self.hidesTopEdge(lifted: lifted, past: list.contentOffset.y + list.adjustedContentInset.top)
         let edge = list.topEdgeEffect
         if rests {
             if !edge.isHidden { heldEdge = true; edge.isHidden = true }
@@ -831,6 +870,12 @@ final class BackdropStateView: UIView, UIContentView {
         state.frame = bounds
         // The page's own picture (`PageBackdrop`): a state on a page without one, or in a sheet, keeps the plain look.
         let owner = sequence(first: self as UIResponder, next: \.next).first { $0 is UIViewController } as? UIViewController
+        // [backdrop-ink] Off a card the state stands straight on the page's picture: drawn in the mode whose colours
+        // read there (the page's own on a card, or with no picture).
+        defer {
+            let style = card.isHidden && window != nil ? PageBackdrop.inkStyle(on: owner) : .unspecified
+            if state.overrideUserInterfaceStyle != style { state.overrideUserInterfaceStyle = style }
+        }
         guard window != nil, BackdropCards.on(owner) else { card.isHidden = true; return }
         state.layoutIfNeeded()
         let box = Self.content(in: state, to: self)

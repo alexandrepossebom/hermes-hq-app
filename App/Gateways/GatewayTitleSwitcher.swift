@@ -17,6 +17,8 @@ import UIKit
     var onDeactivate: (() -> Void)?
     private(set) var isActive = false
     private var token: UUID?
+    /// [backdrop-ink] The bar's ink changed (the app's picture, its Dim, the mode): the line is drawn again.
+    private var inkWatch: NSObjectProtocol?
 
     init(host: UIViewController, services: any AppServices, settings: any SettingsServices, baseTitle: String) {
         self.host = host
@@ -24,11 +26,15 @@ import UIKit
         self.settings = settings
         self.baseTitle = baseTitle
         token = settings.gateways.observe { [weak self] in self?.refresh() }
+        inkWatch = NotificationCenter.default.addObserver(forName: BackdropBarInk.didChange, object: host.navigationItem, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.apply() }
+        }
         refresh()
     }
 
     isolated deinit {
         if let token { settings.gateways.stopObserving(token) }
+        inkWatch.map(NotificationCenter.default.removeObserver)
     }
 
     var gateways: any GatewayAccounts { settings.gateways }
@@ -84,7 +90,9 @@ import UIKit
             title += dot
         }
         var words = AttributedString(text)
-        words.foregroundColor = HQPalette.label2
+        // [backdrop-ink] Straight on the app's picture: the ink that reads on it (the second label otherwise).
+        let ink = BackdropBarInk.ink(of: item)?.label2 ?? HQPalette.label2
+        words.foregroundColor = ink
         words.font = HQFont.preferred(.footnote)
         title += words
         // [botslist] One spoken line (parity §2 L128). The page's name is left out: the large title beside this button is
@@ -97,6 +105,7 @@ import UIKit
         for button in subtitleButtons {
             var config = button.configuration ?? .plain()
             config.attributedTitle = title
+            config.baseForegroundColor = ink   // the chevron
             button.configuration = config
             button.accessibilityLabel = spoken
             button.accessibilityHint = "Shows your gateways."

@@ -973,6 +973,9 @@ final class SettingsEndToEndTests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         return (environment["HQN_SHOTS_DARK"] == "1" ? ["-hqn.appearance", "dark"] : [])
             + (environment["HQN_UI_DESKTOPLOOK"] == "1" ? ["-HQDebugDesktopLook", "YES"] : [])
+            // TEST_RUNNER_HQN_UI_EXTRA_ARGS="-HQDebugAppBackground <id | path> -HQDebugAppBackgroundDim 0": more launch
+            // arguments, split at spaces (the suite on an app background, for looking at its bars).
+            + (environment["HQN_UI_EXTRA_ARGS"].map { $0.split(separator: " ").map(String.init) } ?? [])
     }
 
     @MainActor func signIn(_ app: XCUIApplication, _ fixture: SettingsFixture) {

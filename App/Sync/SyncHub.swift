@@ -101,8 +101,7 @@ import UIKit
         let center = NotificationCenter.default
         for name in [IntroSplash.didChange, FileBrowserPref.didChange, MessageReactionsPref.didChange, ToolCallSettings.didChange,
                      KanbanTabOverride.didChange, AttachmentLimit.didChange, TalkController.readRepliesAloudChanged,
-                     TalkController.engineChanged, PhoneVoiceChoice.changed, WordFixes.changed, ArtifactPins.viewChanged,
-                     WorkingRing.didChange] {
+                     TalkController.engineChanged, PhoneVoiceChoice.changed, WordFixes.changed, ArtifactPins.viewChanged] {
             center.post(name: name, object: nil)
         }
     }

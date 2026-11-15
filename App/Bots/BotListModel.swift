@@ -199,15 +199,8 @@ nonisolated enum BotList {
     enum RowBadge: Sendable { case working, computer }
 
     /// The working arc (V:store/session-dot-state.ts:75 `showsRunningArc`): a running turn, but not one waiting on the
-    /// person, whose orange cue is the louder one. [working-ring] Never while Settings › Appearance › Working Ring is off.
-    static func showsArc(_ bot: Bot, ring: Bool = WorkingRing.isOn) -> Bool { ring && bot.isWorking && bot.needsInput == nil }
-
-    /// [working-ring] A pinned tile's corner (`status`: its `rowStatus`): a standing problem lasts until the bot's next
-    /// good reply, so a bot asked to try again wore the orange badge with only the ring saying it works. With the ring
-    /// off, the working dots take the corner while it works; the badge is back if the turn fails again.
-    static func tileShowsWorkingOverProblem(_ bot: Bot, status: RowStatus, ringOn: Bool) -> Bool {
-        !ringOn && status == .attention && bot.isWorking
-    }
+    /// person, whose orange cue is the louder one.
+    static func showsArc(_ bot: Bot) -> Bool { bot.isWorking && bot.needsInput == nil }
 
     /// The unread circle (row, tile, time colour, VoiceOver, tab badge): not while the face shows the working dots. A
     /// running turn moves the chat's `last_active`, so a bot marked itself unread the moment it started on your message

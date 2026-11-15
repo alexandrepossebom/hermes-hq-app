@@ -224,25 +224,11 @@ extension WorkingArc {
     }
 }
 
-/// [working-ring] Settings › Appearance › Working Ring, read where the ring is drawn. A row's SwiftUI body is drawn again
-/// only when its own inputs change, so a switch read as global state inside it left the ring on a running row until the
-/// row changed for another reason (seen in the simulator: off, the ring kept travelling). `@AppStorage` follows the key,
-/// so the ring goes and comes back at once, for a change made here or taken from another device.
-private struct WorkingRingGate<Ring: View>: View {
-    @AppStorage(WorkingRing.key) private var allowed = true
-    var on: Bool
-    @ViewBuilder var ring: () -> Ring
-    var body: some View {
-        if on && allowed { ring() }
-    }
-}
-
 extension View {
-    /// The row's working arc (both looks), round the whole row like the desktop's sidebar. `on`: the row is working;
-    /// Working Ring off draws none (`WorkingRingGate`).
+    /// The row's working arc (both looks), round the whole row like the desktop's sidebar.
     func rowArc(_ on: Bool) -> some View {
         overlay {
-            WorkingRingGate(on: on) {
+            if on {
                 WorkingArc(shape: .rounded(WorkingArc.rowCorner), lineWidth: WorkingArc.rowLine)
                     .padding(WorkingArc.rowInsets)
                     .allowsHitTesting(false)
@@ -250,10 +236,10 @@ extension View {
         }
     }
 
-    /// The working arc over this view while `on`: a ring `outset` outside its frame. Working Ring off draws none.
+    /// The working arc over this view while `on`: a ring `outset` outside its frame.
     func workingArc(_ on: Bool, shape: WorkingArc.Shape, lineWidth: CGFloat, outset: CGFloat = 0) -> some View {
         overlay {
-            WorkingRingGate(on: on) {
+            if on {
                 WorkingArc(shape: shape, lineWidth: lineWidth).padding(-outset).allowsHitTesting(false)
             }
         }

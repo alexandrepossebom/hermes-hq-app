@@ -34,27 +34,6 @@ enum IntroSplash {
     }
 }
 
-/// [working-ring] Settings › Appearance › Theme › Working Ring (owner 2026-11-15: "a toggle to be able to remove the animation
-/// that goes around a bot or session to show it's working"). On, the default: a working bot's row, its pinned face and a
-/// working chat's row wear the travelling ring (`WorkingArc`). Off: no ring anywhere; the working dots on a bot's face
-/// and a chat's "Working…" line still say it is busy. Synced with the other Appearance settings.
-nonisolated enum WorkingRing {
-    static let key = "hqn.workingRing"
-    /// Posted when the switch changes here (or is taken from another device): the Bots, Sessions and Other Apps lists
-    /// ask their hairlines again. The ring itself reads the key through `@AppStorage` (`WorkingRingGate`).
-    static let didChange = Notification.Name("hqn.workingRing.changed")
-
-    static var isOn: Bool {
-        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
-        set {
-            guard newValue != isOn else { return }
-            // On, the default, is stored as nothing.
-            if newValue { UserDefaults.standard.removeObject(forKey: key) } else { UserDefaults.standard.set(false, forKey: key) }
-            NotificationCenter.default.post(name: didChange, object: nil)
-        }
-    }
-}
-
 /// [settings] File Browser (`vendor/.../store/layout.ts` `$fileBrowserOpen`, default off). A phone has no "beside the
 /// chat": on, a chat that has a project folder gets a Files button in its top bar; off, Files stays under ⋯ › More
 /// (docs/spec/3x-settings.md §12).

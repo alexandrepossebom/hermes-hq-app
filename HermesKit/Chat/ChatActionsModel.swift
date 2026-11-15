@@ -94,36 +94,6 @@ nonisolated enum ChatMenuModel {
 
     /// Every row the ⋯ offers, in order (the Model ▸ and Watch Browser rows are the screen's own).
     static func all(_ s: ChatMenuState) -> [ChatMenuRow] { tiles(s) + rows(s) + more(s) + danger(s) }
-
-    /// [menu-tidy] The iPhone's and iPad's ⋯, by how often each row is used (owner 2026-11-15: "insanely busy. Things
-    /// like being able to easily archive a session are hidden"). Three tiles for what you do to the chat most — Find,
-    /// Pin, Archive; where one isn't offered (a bot's own chat has no Archive) the next of Share and Info takes its
-    /// place. Rename… stays a row; everything else goes under More ▸, with Delete Chat last and in red. `listActions`:
-    /// the chat can be pinned, archived and searched (`ChatSessionMoreActions`); the demo's stand-in can't.
-    static func compact(_ s: ChatMenuState, listActions: Bool = true) -> ChatMenuCompact {
-        let offered = tiles(s) + rows(s) + danger(s)
-        func pick(_ id: ChatMenuItemID) -> ChatMenuRow? { offered.first { $0.id == id } }
-        let order: [ChatMenuItemID] = listActions ? [.find, .pin, .archive, .share, .info] : [.share, .info]
-        let tiles = Array(order.compactMap(pick).prefix(3))
-        let tiled = Set(tiles.map(\.id))
-        let chat = listActions ? [ChatMenuItemID.unread, .share, .info].filter { !tiled.contains($0) }.compactMap(pick)
-            : [ChatMenuItemID.share, .info].filter { !tiled.contains($0) }.compactMap(pick)
-        return ChatMenuCompact(tiles: tiles, rename: pick(.rename), chat: chat, workspace: listActions ? more(s) : [],
-                               delete: listActions ? pick(.delete) : nil)
-    }
-}
-
-/// [menu-tidy] The iPhone's ⋯ (`ChatMenuModel.compact`): tiles, Rename…, and what More ▸ holds.
-nonisolated struct ChatMenuCompact: Hashable, Sendable {
-    /// Up to three: Find · Pin · Archive, then Share and Info fill a gap.
-    var tiles: [ChatMenuRow]
-    var rename: ChatMenuRow?
-    /// More ▸, first: Mark as Read/Unread, and Share and Info when they aren't tiles.
-    var chat: [ChatMenuRow]
-    /// More ▸: Files, Changes, Branch in New Chat, Export Chat….
-    var workspace: [ChatMenuRow]
-    /// More ▸, last and in red.
-    var delete: ChatMenuRow?
 }
 
 // MARK: - A message's hold menu

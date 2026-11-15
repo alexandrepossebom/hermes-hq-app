@@ -514,6 +514,12 @@ final class BackdropView: UIView {
     let place: Backdrop.Place
     /// Called when the picture comes or goes (a page turns its list clear while it shows).
     var onShowChange: ((Bool) -> Void)?
+    /// [backdrop-ink] Called when the ink for words standing straight on the picture changed (`barInk`, `pageInk`).
+    var onInkChange: (() -> Void)?
+    /// [backdrop-ink] The ink for the words in the bar over this page (read from the picture behind the bar) and for
+    /// words on the page itself (the whole picture as shown); nil while no picture is drawn. App/Theme/BackdropInk.swift.
+    private(set) var barInk: BackdropInk?
+    private(set) var pageInk: BackdropInk?
     /// A page's background is the app's, not a sheet's: hidden in a presented page.
     var hidesInSheets = false
     /// A copy over part of a page (behind its bar): the picture is laid out over this view's bounds, so it lines up with
@@ -567,6 +573,30 @@ final class BackdropView: UIView {
         imageView.bounds = CGRect(origin: .zero, size: frame.size)
         imageView.center = CGPoint(x: frame.midX, y: frame.midY)
         veil.frame = frame.union(bounds)
+        readInk()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        readInk()
+    }
+
+    /// [backdrop-ink] Reads the two inks off the picture on show, as it is laid out here, and says so when one changed.
+    private func readInk() {
+        var bar: BackdropInk?, page: BackdropInk?
+        if !isHidden, let image = imageView.image, let tones = BackdropTones.of(image) {
+            let size = imageView.bounds.size, dim = Double(backdrop.dim) / 100
+            // The bar's words stand over the stretch above the page's safe area (a fifth of the page before it is known).
+            let band = safeAreaInsets.top > 20 ? safeAreaInsets.top : size.height * 0.2
+            bar = BackdropInk.make(picture: tones.tone(in: BackdropInkMath.region(image: image.size, view: size, band: band)),
+                                   dim: dim, traits: traitCollection)
+            page = BackdropInk.make(picture: tones.tone(in: BackdropInkMath.region(image: image.size, view: size, band: nil)),
+                                    dim: dim, traits: traitCollection)
+        }
+        guard bar != barInk || page != pageInk else { return }
+        barInk = bar
+        pageInk = page
+        onInkChange?()
     }
 
     /// The picture this view has up for its traits (nil with none on show): two pages with the same one keep it still
@@ -588,6 +618,7 @@ final class BackdropView: UIView {
         }
         refresh()
         BackdropStill.follow(self)
+        onInkChange?()   // [backdrop-ink] the page it stands on is known now (its bar takes the ink)
     }
 
     func refresh() {
@@ -612,6 +643,7 @@ final class BackdropView: UIView {
             holding = false
         }
         if was != !isHidden { onShowChange?(!isHidden) }
+        readInk()   // [backdrop-ink] another picture, another Dim, the other mode
     }
 }
 
@@ -783,6 +815,7 @@ nonisolated(unsafe) private var pageBackdropKey: UInt8 = 0
         }
         for view in [controller.view!] + views { clear(view) }
         view.onShowChange = { [weak self] _ in self?.apply() }
+        view.onInkChange = { [weak self] in self?.apply() }   // [backdrop-ink]
         // [backdrop-cards] Soft Cards turned on or off while the page is up.
         switchWatch = NotificationCenter.default.addObserver(forName: Backdrop.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.apply() }
@@ -801,6 +834,21 @@ nonisolated(unsafe) private var pageBackdropKey: UInt8 = 0
         return backdrop.view.showsPicture
     }
 
+    /// [backdrop-ink] The mode whose colours read on the page's picture just now (`.unspecified`: the page's own).
+    static func inkStyle(on controller: UIViewController?) -> UIUserInterfaceStyle {
+        guard let controller, let backdrop = objc_getAssociatedObject(controller, &pageBackdropKey) as? PageBackdrop,
+              backdrop.view.showsPicture else { return .unspecified }
+        return backdrop.view.pageInk?.style ?? .unspecified
+    }
+
+    /// [backdrop-ink] A page whose picture is not a `PageBackdrop`'s (a table page, a SwiftUI grouped page): its bar's
+    /// title takes the ink that reads on the picture behind it, and its list's titles and notes are drawn again.
+    fileprivate static func inkChanged(_ backdrop: BackdropView, list: UIScrollView?) {
+        let owner = sequence(first: backdrop as UIResponder, next: \.next).first { $0 is UIViewController } as? UIViewController
+        if let owner, backdrop.window != nil { BackdropBarInk.set(backdrop.showsPicture ? backdrop.barInk : nil, on: owner) }
+        BackdropPlates.refresh(list)
+    }
+
     private var carded: Bool?
     private var switchWatch: NSObjectProtocol?
     /// [soft-cards] Called after the page's lists went on cards or came off them (a page whose rows draw differently
@@ -813,6 +861,15 @@ nonisolated(unsafe) private var pageBackdropKey: UInt8 = 0
         for page in cleared { page.view.value?.backgroundColor = shows ? .clear : page.colour }
         // [backdrop-cards] The lists lay their sections out again, on cards or off them.
         let cards = shows && Backdrop.app.cards
+        // [backdrop-ink] The bar's title takes the ink that reads on the picture behind it. With Soft Cards off a plain
+        // list's rows stand straight on the picture: they are drawn in the mode whose colours read there. (A grouped
+        // list keeps its rows' own cards; its titles and notes are `BackdropPlates`'.)
+        if let controller { BackdropBarInk.set(shows ? view.barInk : nil, on: controller) }
+        let rowStyle = shows && !cards ? view.pageInk?.style ?? .unspecified : .unspecified
+        for page in cleared {
+            guard let list = page.view.value as? UIScrollView, !BackdropPlates.isAttached(to: list) else { continue }
+            if list.overrideUserInterfaceStyle != rowStyle { list.overrideUserInterfaceStyle = rowStyle }
+        }
         // Flipped, or on from the start: a page that lays itself out for cards hears of both.
         let flipped = carded != cards && (carded != nil || cards)
         carded = cards
@@ -843,7 +900,12 @@ nonisolated(unsafe) private var pageBackdropKey: UInt8 = 0
             BackdropPlates.refresh(table)   // [backdrop-cards]
         }
         backdrop.onShowChange?(backdrop.showsPicture)
-        BackdropPlates.attach(to: table) { [weak backdrop] in backdrop?.showsPicture == true }   // [backdrop-cards]
+        backdrop.onInkChange = { [weak table, weak backdrop] in   // [backdrop-ink]
+            if let backdrop { inkChanged(backdrop, list: table) }
+        }
+        BackdropPlates.attach(to: table, ink: { [weak backdrop] in backdrop?.pageInk?.style ?? .unspecified }) { [weak backdrop] in   // [backdrop-cards]
+            backdrop?.showsPicture == true
+        }
         return backdrop
     }
 }
@@ -860,6 +922,9 @@ struct PageBackdropLayer: UIViewRepresentable {
         backdrop.onShowChange = { [weak holder] shows in
             holder?.backgroundColor = shows ? .clear : HQPalette.groupedPage
             BackdropPlates.refresh(holder?.list)   // [backdrop-cards]
+        }
+        backdrop.onInkChange = { [weak holder, weak backdrop] in   // [backdrop-ink]
+            if let backdrop { PageBackdrop.inkChanged(backdrop, list: holder?.list) }
         }
         holder.addSubview(backdrop)
         holder.backdrop = backdrop
@@ -889,7 +954,9 @@ struct PageBackdropLayer: UIViewRepresentable {
                         guard let current = ancestor else { return }
                         if let list = Self.firstList(in: current, depth: 6) {
                             self.list = list
-                            BackdropPlates.attach(to: list) { [weak self] in self?.backdrop?.showsPicture == true }
+                            BackdropPlates.attach(to: list, ink: { [weak self] in self?.backdrop?.pageInk?.style ?? .unspecified }) { [weak self] in
+                                self?.backdrop?.showsPicture == true
+                            }
                             return
                         }
                         ancestor = current.superview
