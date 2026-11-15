@@ -16,8 +16,12 @@ enum TopEdgeStyle {
         #endif
     }
 
+    /// [desktop-hard-edge] Owner 2026-11-15: in the Desktop Look every page's top is the hard edge, as its chats' and the
+    /// Mac's; the Top Edge choice applies to the iOS look.
     static var current: UIScrollEdgeEffect.Style {
-        offered && Theme.shared.state.topEdge == .hard ? .hard : .soft
+        guard offered else { return .soft }
+        if Theme.isDesktop { return .hard }
+        return Theme.shared.state.topEdge == .hard ? .hard : .soft
     }
 
     /// Sets `scroll`'s top edge to the chosen style now and again whenever the theme changes.

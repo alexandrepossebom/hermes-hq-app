@@ -168,10 +168,24 @@ enum ListBarAppearance {
         // the page; rows scrolled under it blur.
         if Theme.isDesktop {
             let rest = ThemeChrome.solidBar(solid: true), scrolled = ThemeChrome.solidBar(solid: true)   // pinned: see `pinTitle`
+            #if !targetEnvironment(macCatalyst)
+            // [desktop-hard-edge] Owner 2026-11-15: every page's top as the chat's (build 1016): a list in its still host
+            // (`pinTitle(softEdgeAround:)`) draws the system's hard edge in the look, so the bar itself is clear (its
+            // own faint frost stopped above Sessions' chips and let rows read through).
+            if objc_getAssociatedObject(item, &softBarKey) != nil {
+                for bar in [rest, scrolled] {
+                    bar.configureWithTransparentBackground()
+                    bar.shadowColor = .clear
+                }
+            } else {
+                for bar in [rest, scrolled] { DesktopFrost.barAppearance(bar, color: grouped ? HQPalette.groupedPage : HQPalette.page) }
+            }
+            #else
+            for bar in [rest, scrolled] { DesktopFrost.barAppearance(bar, color: grouped ? HQPalette.groupedPage : HQPalette.page) }
+            #endif
             // [mac] Stress test 2026-10-28 #57: the right pane's bars are the look's frost (`ThemeChrome.apply`) and the
             // list's were solid, so the two pane headers never matched. Owner 2026-11-01: the phone's tabs too, so a
-            // tab's bar and a pushed page's are the same in the look.
-            for bar in [rest, scrolled] { DesktopFrost.barAppearance(bar, color: grouped ? HQPalette.groupedPage : HQPalette.page) }
+            // tab's bar and a pushed page's are the same in the look (on the phone, the hard edge since 2026-11-15).
             #if targetEnvironment(macCatalyst)
             // [Mac UI check 2026-11-13] V17, owner: "Unify". On the Mac a list column's title (Sessions, Jobs, More) is
             // a page title like every other place's, bold at the left (`MacType.pageTitle`, the look's own face), not
@@ -317,7 +331,10 @@ enum ListBarAppearance {
             host.showsVerticalScrollIndicator = false
             host.scrollsToTop = false
             host.clipsToBounds = false
-            TopEdgeStyle.follow(host)          // [top-edge] Theme › Themes › Top Edge: hard, or soft
+            TopEdgeStyle.follow(host)          // [top-edge] Theme › Themes › Top Edge: hard, or soft (hard in the look)
+            #if !targetEnvironment(macCatalyst)
+            DesktopEdges.leaveAlone(host)      // [desktop-hard-edge] the look keeps this edge: it is the hard band
+            #endif
             host.bottomEdgeEffect.isHidden = true      // the list keeps its own fade under the tab bar
             list.topEdgeEffect.isHidden = true         // the host draws the top one
             controller.view.insertSubview(host, belowSubview: list)

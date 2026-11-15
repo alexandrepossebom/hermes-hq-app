@@ -456,7 +456,9 @@ final class ChatTitleView: UIView {
 
     private func applyLook() {
         let desktop = Theme.isDesktop
-        rule.isHidden = !desktop
+        // [desktop-hard-edge] Owner 2026-11-15: with the bar's hard frosted band the accent rule was a second line 15 pt
+        // over the band's foot ("is the blue line … too much now?" — yes). The name and face stay; the rule is off.
+        rule.isHidden = true
         if desktop {
             if glass.effect != nil { glass.effect = nil }
             glass.backgroundColor = .clear
