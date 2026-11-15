@@ -10,9 +10,10 @@
 // picture under Dim), measured, not assumed from the mode:
 // - a page's title in the bar and the line under it (a tab's, a pushed page's, a Settings page's): `barInk`, read from
 //   the stretch of picture behind the bar;
-// - with Soft Cards off, a plain list's rows (Bots, Sessions, Jobs…) and a grouped page's section titles and notes:
-//   `pageInk`, read from the whole picture. They are drawn in the mode whose colours read there, so every colour in
-//   them follows (names, times, the tint), not only the label.
+// - with Soft Cards off, a page's lists (Bots, Sessions, Jobs…; More, Settings and their pages): `pageInk`, read from
+//   the whole picture. They are drawn in the mode whose colours read there, so every colour in them follows (names,
+//   times, the tint, a grouped page's own cards), not only the label. A skin with one look has no other mode: there
+//   the app lays on the least Dim its words need (`dimNeeded`).
 // The mode's own ink is kept wherever it measures 4.5:1 (WCAG), so a picture of the mode's own tone looks as it did.
 // Liquid Glass (the bar's buttons, the tab bar, the pills) picks its own ink from what is under it; cards carry their
 // own page colour. Chats are not touched: their messages stand in bubbles.
@@ -50,6 +51,23 @@ nonisolated enum BackdropInkMath {
                                          (.white, ratio(1, ground)), (.black, ratio(0, ground))]
         // The first of the best: the mode's own wins a tie.
         return choices.max { $0.1 < $1.1 - 0.001 }?.0 ?? .own
+    }
+
+    /// The most Dim the app lays on by itself (`leastDim`).
+    static let dimCeiling = 0.9
+
+    /// The least Dim (from `dim` up, in steps of 5 %) at which an ink of luminance `ink` at `alpha` reads on a picture
+    /// of tone `picture` under the page colour; `dimCeiling` if none does. "Reads" is `contrast`, or as well as the
+    /// ink reads on the plain page where that is less (a skin's faint second label): Dim can do no better than the page.
+    static func leastDim(from dim: Double, picture: Double, page: Double, ink: Double, alpha: Double) -> Double {
+        func measured(_ dim: Double) -> Double {
+            let under = ground(picture: picture, dim: dim, page: page)
+            return ratio(landed(ink: ink, alpha: alpha, on: under), under)
+        }
+        let wanted = min(contrast, measured(1) * 0.9)
+        let first = Int((min(max(dim, 0), dimCeiling) * 100).rounded()), last = Int((dimCeiling * 100).rounded())
+        for percent in stride(from: first, to: last, by: 5) where measured(Double(percent) / 100) >= wanted { return Double(percent) / 100 }
+        return max(dimCeiling, Double(first) / 100)
     }
 
     /// The part of a picture a view of `view` size shows (it fills the view from its centre), then the stretch of
@@ -157,6 +175,19 @@ struct BackdropInk: Equatable {
         var ink = BackdropInk(label: label, label2: secondReads ? second : label, style: style)
         ink.replacesLabel2 = !secondReads
         return ink
+    }
+
+    /// A skin with one look draws the same colours in Light and in Dark, so its rows cannot be drawn in the other mode
+    /// when the picture is the wrong tone for them. There, with Soft Cards off (rows, titles and notes stand straight
+    /// on the picture), the app lays on the least Dim at which the skin's second label reads: this is that Dim (0…1),
+    /// never under the person's own `dim`. Every other skin, and Soft Cards: `dim` itself.
+    @MainActor static func dimNeeded(picture: Double, dim: Double, cards: Bool, traits: UITraitCollection) -> Double {
+        guard !cards, ThemeTable.set(generation: traits[ThemeGenerationTrait.self]).forcedDark != nil else { return dim }
+        let ink = HQPalette.label2.resolvedColor(with: traits)
+        var alpha: CGFloat = 1
+        ink.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+        return BackdropInkMath.leastDim(from: dim, picture: picture, page: SoftCard.luminance(HQPalette.page.resolvedColor(with: traits)),
+                                        ink: SoftCard.luminance(ink.withAlphaComponent(1)), alpha: Double(alpha))
     }
 }
 

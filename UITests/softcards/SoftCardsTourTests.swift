@@ -31,6 +31,8 @@ final class SoftCardsTourTests: XCTestCase {
                                "-HQDebugAppearance", mode, "-hqn.appearance", mode,
                                "-HQDebugAppBackground", environment["HQN_SOFT_PIC"] ?? "doodleTravel",
                                "-HQDebugAppBackgroundCards", environment["HQN_SOFT_CARDS"] ?? "YES"]
+        // TEST_RUNNER_HQN_UI_EXTRA_ARGS: more launch arguments, split at spaces (`-HQDebugAppBackgroundDim 0`).
+        app.launchArguments += environment["HQN_UI_EXTRA_ARGS"].map { $0.split(separator: " ").map(String.init) } ?? []
         app.launch()
         self.app = app
         XCTAssertTrue(tab("Bots").waitForExistence(timeout: 30), "signed in")

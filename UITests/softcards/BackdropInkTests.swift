@@ -61,7 +61,7 @@ final class BackdropInkTests: XCTestCase {
 
     // MARK: The app
 
-    @MainActor private func launch(mode: String, picture: String, dim: Int, cards: Bool) throws {
+    @MainActor private func launch(mode: String, picture: String, dim: Int, cards: Bool, skin: String = "nous", more: [String] = []) throws {
         let account = try FixtureAccount.load()
         let app = XCUIApplication()
         app.launchEnvironment["HQN_SIGNIN_URL"] = account.url
@@ -70,10 +70,10 @@ final class BackdropInkTests: XCTestCase {
         // (Accounts reset: a gateway another suite left signed in, and since stopped, puts its notice over the Bots title.)
         app.launchArguments = ["-HQDebugResetAccounts", "YES",
                                "-HQDebugNoSwipePeek", "YES", "-HQDebugTalkIntroSeen", "YES", "-HQDebugResetTheme", "YES",
-                               "-HQDebugSkin", "nous", "-HQDebugDesktopLook", "NO",
+                               "-HQDebugSkin", skin, "-HQDebugDesktopLook", "NO",
                                "-HQDebugAppearance", mode, "-hqn.appearance", mode,
                                "-HQDebugAppBackground", picture, "-HQDebugAppBackgroundDim", "\(dim)",
-                               "-HQDebugAppBackgroundCards", cards ? "YES" : "NO"]
+                               "-HQDebugAppBackgroundCards", cards ? "YES" : "NO"] + more
         app.launch()
         self.app = app
         XCTAssertTrue(tab("Bots").waitForExistence(timeout: 30), "signed in")
@@ -188,11 +188,60 @@ final class BackdropInkTests: XCTestCase {
         checkBars("dark-in-light-no-cards")
         // A grouped page's rows keep their cards; its section titles stand on the picture.
         expectReadable(app.staticTexts["Appearance"].firstMatch, "no cards: Settings' Appearance title")
+        // And rows with no card of their own: a page's introduction.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        let composio = app.cells["more-row-composio"]
+        guard composio.waitForExistence(timeout: 6) else { return XCTFail("no Composio row") }
+        composio.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        shot("dark-in-light-no-cards-composio")
+        expectReadable(app.staticTexts["Let your bots use your apps"].firstMatch, "no cards: Composio's introduction")
     }
 
     /// Dim turned up lays enough of the page colour over the picture for the mode's own ink: nothing is changed then.
     @MainActor func testInk5_DimKeepsOwnInk() throws {
         try launch(mode: "light", picture: try nightSky(), dim: 80, cards: true)
         checkBars("dark-in-light-dim80")
+    }
+
+    /// A skin with one look (Midnight: dark only) can't draw its rows in the other mode: on a pale photo with Soft
+    /// Cards off the app lays on as much Dim as its words need.
+    @MainActor func testInk7_OneLookSkin() throws {
+        try launch(mode: "light", picture: try paleSky(), dim: 0, cards: false, skin: "midnight")
+        shot("midnight-pale-bots")
+        tab("Sessions").tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        shot("midnight-pale-sessions")
+        expectReadable(app.staticTexts["Plan next week"].firstMatch, "one look: a chat's title on Sessions")
+        expectReadable(app.navigationBars.staticTexts["Sessions"].firstMatch, "one look: the Sessions title")
+        tab("More").tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        shot("midnight-pale-more")
+    }
+
+    /// For looking at: a chat on the same picture (chats use the app's background until they have their own), its Dim
+    /// down too. Pictures of a chat at rest, scrolled up, and a new empty chat.
+    @MainActor func testInk6_ChatLook() throws {
+        let mode = environment["HQN_INK_MODE"] ?? "light"
+        try launch(mode: mode, picture: mode == "light" ? try nightSky() : try paleSky(), dim: 0, cards: true,
+                   more: ["-HQDebugChatBackgroundSame", "YES", "-HQDebugChatBackgroundDim", "0"])
+        tab("Sessions").tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        let row = app.staticTexts["Plan next week"].firstMatch
+        guard row.waitForExistence(timeout: 6) else { return XCTFail("no chat to open") }
+        row.tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        shot("chat-\(mode)-1-rest")
+        app.swipeDown()
+        Thread.sleep(forTimeInterval: 1.0)
+        shot("chat-\(mode)-2-scrolled")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        tab("Bots").tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        app.cells.element(boundBy: 2).tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        shot("chat-\(mode)-3-bot")
     }
 }

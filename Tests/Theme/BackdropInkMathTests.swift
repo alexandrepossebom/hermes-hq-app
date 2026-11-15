@@ -58,6 +58,37 @@ import UIKit
         #expect(BackdropInkMath.landed(ink: 0.9, alpha: 1, on: 0.01) == SoftCard.decoded(SoftCard.encoded(0.9)))
     }
 
+    // MARK: A skin with one look
+
+    private func measured(dim: Double, picture: Double, page: Double, ink: Double, alpha: Double) -> Double {
+        let under = BackdropInkMath.ground(picture: picture, dim: dim, page: page)
+        return BackdropInkMath.ratio(BackdropInkMath.landed(ink: ink, alpha: alpha, on: under), under)
+    }
+
+    @Test func aOneLookSkinGetsOnlyAsMuchDimAsItsWordsNeed() {
+        // A dark-only skin (light words at 60 %) on a pale photo: more Dim, and at that Dim the words read.
+        let needed = BackdropInkMath.leastDim(from: 0, picture: 0.85, page: 0.004, ink: 0.9, alpha: 0.6)
+        #expect(needed > 0 && needed < BackdropInkMath.dimCeiling)
+        #expect(measured(dim: needed, picture: 0.85, page: 0.004, ink: 0.9, alpha: 0.6) >= BackdropInkMath.contrast)
+        // One step less would not read.
+        #expect(measured(dim: needed - 0.05, picture: 0.85, page: 0.004, ink: 0.9, alpha: 0.6) < BackdropInkMath.contrast)
+    }
+
+    @Test func aPictureItsWordsReadOnKeepsThePersonsDim() {
+        #expect(BackdropInkMath.leastDim(from: 0, picture: 0.01, page: 0.004, ink: 0.9, alpha: 0.6) == 0)
+        #expect(BackdropInkMath.leastDim(from: 0.45, picture: 0.01, page: 0.004, ink: 0.9, alpha: 0.6) == 0.45)
+        // Never under the person's own Dim.
+        #expect(BackdropInkMath.leastDim(from: 0.8, picture: 0.85, page: 0.004, ink: 0.9, alpha: 0.6) >= 0.8)
+    }
+
+    @Test func aFaintInkIsHeldOnlyToWhatItManagesOnThePlainPage() {
+        // Words that measure under 4.5:1 on the skin's own page: a picture of the page's tone needs no Dim at all,
+        // and no picture sends Dim to the ceiling for a contrast the page itself can't give.
+        #expect(measured(dim: 1, picture: 0.5, page: 0.95, ink: 0.01, alpha: 0.4) < BackdropInkMath.contrast)
+        #expect(BackdropInkMath.leastDim(from: 0, picture: 0.95, page: 0.95, ink: 0.01, alpha: 0.4) == 0)
+        #expect(BackdropInkMath.leastDim(from: 0, picture: 0.005, page: 0.95, ink: 0.01, alpha: 0.4) < BackdropInkMath.dimCeiling)
+    }
+
     // MARK: Where the words stand
 
     @Test func aPictureOfThePagesShapeIsShownWhole() {

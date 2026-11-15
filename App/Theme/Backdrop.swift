@@ -584,15 +584,19 @@ final class BackdropView: UIView {
     /// [backdrop-ink] Reads the two inks off the picture on show, as it is laid out here, and says so when one changed.
     private func readInk() {
         var bar: BackdropInk?, page: BackdropInk?
+        var dim = Double(backdrop.dim) / 100
         if !isHidden, let image = imageView.image, let tones = BackdropTones.of(image) {
-            let size = imageView.bounds.size, dim = Double(backdrop.dim) / 100
+            let size = imageView.bounds.size
+            let whole = tones.tone(in: BackdropInkMath.region(image: image.size, view: size, band: nil))
+            // A one-look skin's rows can't take the other mode's ink: with Soft Cards off, more Dim instead.
+            if place == .app { dim = BackdropInk.dimNeeded(picture: whole, dim: dim, cards: Backdrop.app.cards, traits: traitCollection) }
             // The bar's words stand over the stretch above the page's safe area (a fifth of the page before it is known).
             let band = safeAreaInsets.top > 20 ? safeAreaInsets.top : size.height * 0.2
             bar = BackdropInk.make(picture: tones.tone(in: BackdropInkMath.region(image: image.size, view: size, band: band)),
                                    dim: dim, traits: traitCollection)
-            page = BackdropInk.make(picture: tones.tone(in: BackdropInkMath.region(image: image.size, view: size, band: nil)),
-                                    dim: dim, traits: traitCollection)
+            page = BackdropInk.make(picture: whole, dim: dim, traits: traitCollection)
         }
+        if !isHidden, abs(veil.alpha - CGFloat(dim)) > 0.001 { veil.alpha = CGFloat(dim) }
         guard bar != barInk || page != pageInk else { return }
         barInk = bar
         pageInk = page

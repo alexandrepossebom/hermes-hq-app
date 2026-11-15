@@ -411,11 +411,9 @@ class BackdropCardView: UICollectionReusableView {
 @MainActor final class BackdropPlates: NSObject {
     private weak var list: UIScrollView?
     private let shows: () -> Bool
-    /// [backdrop-ink] The mode whose colours read on the picture behind this list (`BackdropView.pageInk`), for its
-    /// section titles and notes while Soft Cards is off: they stand straight on the picture then.
+    /// [backdrop-ink] The mode whose colours read on the picture behind this list (`BackdropView.pageInk`): the list
+    /// is drawn in it while Soft Cards is off (`inkList`).
     private let ink: () -> UIUserInterfaceStyle
-    /// The titles and notes drawn in another mode just now (put back when it no longer applies).
-    private let inked = NSHashTable<UIView>.weakObjects()
     private var plates: [SoftCardSurface] = []
     private var watches: [NSKeyValueObservation] = []
     private var scheduled = false
@@ -473,9 +471,6 @@ class BackdropCardView: UICollectionReusableView {
         if let existing = objc_getAssociatedObject(list, key) as? BackdropPlates { existing.schedule(); return }
         let plates = BackdropPlates(list: list, loose: loose, ink: ink, shows: shows)
         objc_setAssociatedObject(list, key, plates, .OBJC_ASSOCIATION_RETAIN)
-        // [backdrop-ink] A grouped list's rows keep their own cards in the page's mode: only its titles and notes take
-        // the picture's ink (`PageBackdrop` may have set the whole list's before this was attached).
-        if list.overrideUserInterfaceStyle != .unspecified { list.overrideUserInterfaceStyle = .unspecified }
         plates.schedule()
     }
 
@@ -545,7 +540,7 @@ class BackdropCardView: UICollectionReusableView {
             }
             if let grid = list as? UICollectionView { grid.visibleCells.forEach { $0.setNeedsUpdateConfiguration() } }
         }
-        inkSections(of: list, style: on || !shows() || Theme.isDesktop ? .unspecified : ink())
+        inkList(list, style: on || !shows() || Theme.isDesktop ? .unspecified : ink())
         let boxes = on ? sections(of: list, near: list.bounds.insetBy(dx: 0, dy: -600)) : []
         while plates.count < boxes.count {
             let plate = SoftCardSurface()
@@ -584,32 +579,17 @@ class BackdropCardView: UICollectionReusableView {
         }
     }
 
-    /// [backdrop-ink] With Soft Cards off a grouped list's rows keep iOS's cards, but its section titles and notes
-    /// stand straight on the picture: those on screen are drawn in `style`, the mode whose colours read there
-    /// (`.unspecified`: the page's own, and on a card). A reused title is put back when it no longer applies.
-    private func inkSections(of list: UIScrollView, style: UIUserInterfaceStyle) {
-        var views: [UIView] = []
-        if style != .unspecified {
-            if let table = list as? UITableView {
-                for index in 0..<table.numberOfSections where table.rect(forSection: index).intersects(table.bounds) {
-                    views += [table.headerView(forSection: index), table.footerView(forSection: index)].compactMap { $0 }
-                }
-            } else if let grid = list as? UICollectionView {
-                let near = grid.collectionViewLayout.layoutAttributesForElements(in: grid.bounds.insetBy(dx: 0, dy: -200)) ?? []
-                for item in near where item.representedElementCategory == .supplementaryView {
-                    guard let kind = item.representedElementKind, let view = grid.supplementaryView(forElementKind: kind, at: item.indexPath) else { continue }
-                    views.append(view)
-                }
-            }
-        }
-        for view in inked.allObjects where !views.contains(where: { $0 === view }) {
-            view.overrideUserInterfaceStyle = .unspecified
-            inked.remove(view)
-        }
-        for view in views {
-            if view.overrideUserInterfaceStyle != style { view.overrideUserInterfaceStyle = style }
-            inked.add(view)
-        }
+    /// [backdrop-ink] With Soft Cards off, a grouped page has words straight on the picture all over it: section titles
+    /// and notes, and rows with no card of their own (an empty state, an introduction, a row of chips). Which those are
+    /// can't be told from outside, so the whole list is drawn in `style`, the mode whose colours read on the picture
+    /// (`.unspecified`: the page's own, and always on Soft Cards). Its rows' cards follow, so the words on them read too.
+    private func inkList(_ list: UIScrollView, style: UIUserInterfaceStyle) {
+        if list.overrideUserInterfaceStyle != style { list.overrideUserInterfaceStyle = style }
+        // A table's picture is inside the table: it keeps the page's own mode (its Dim is the page's colour, and the
+        // ink is measured against that).
+        guard let picture = (list as? UITableView)?.backgroundView as? BackdropView else { return }
+        let own: UIUserInterfaceStyle = style == .unspecified ? .unspecified : style == .dark ? .light : .dark
+        if picture.overrideUserInterfaceStyle != own { picture.overrideUserInterfaceStyle = own }
     }
 
     /// [soft-cards] Owner 2026-11-13: "Stuff is just not consistent." Each page's first card began where that page's
