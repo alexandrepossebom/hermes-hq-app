@@ -36,8 +36,27 @@ enum ProjectCardSlice {
     static let rowGap: CGFloat = 0
     static var radius: CGFloat { Theme.isDesktop ? 10 : 22 }
     /// The face column: 40 pt from the list's edge plus 20 pt in, as Pinned's rows, so faces line up with Pinned's.
-    static var column: CGFloat { Theme.isDesktop ? DesktopRows.face : Density.ios(40, 32) }   // [density] the chat rows' column too
-    static var columnGap: CGFloat { Theme.isDesktop ? DesktopRows.gap : Density.ios(12, 10) }
+    /// [card-gutters] Owner 2026-11-15 (a screenshot of Sessions, Bot Faces off): "there's less open space on the right
+    /// hand side than there is on the left … the stuff that's on the left should move over to the left". Under Group By
+    /// Recent no face is wider than `face`, so the column is the face's own width (40 pt left 6 pt of air each side of a
+    /// folder and 16 pt each side of a dot): the folder starts where "Projects" and Pinned's titles do, and a chat's
+    /// title 14 pt further left. The other groupings keep the 40 pt column of their 40 pt faces.
+    /// [slim-rail] Owner 2026-11-15 (build 1017 on his phone, Bot Faces off): "You happy with the spacing on the
+    /// left???", then "Slim the rail ~10pt more (Bot Faces off)". With no faces the column held an 8 pt dot in 28 pt:
+    /// it is `slimColumn` wide, the folder stands in it without its box, and the names start 10 pt further left.
+    static var column: CGFloat {
+        Theme.isDesktop ? DesktopRows.face : slim ? slimColumn : fresh ? face : Density.ios(40, 32)   // [density] the chat rows' column too
+    }
+    static var slimColumn: CGFloat { Density.ios(18, 16) }
+    /// [slim-rail] Group By Recent with Bot Faces off, outside the Desktop Look (the list sets it as it reloads).
+    static var facesOff = false
+    static var slim: Bool { fresh && facesOff && !Theme.isDesktop }
+    static var columnGap: CGFloat { Theme.isDesktop ? DesktopRows.gap : fresh ? Density.ios(10, 8) : Density.ios(12, 10) }
+    /// [card-gutters] Group By Recent is drawn (the list sets it as it reloads, and draws every row again when it flips).
+    static var fresh = false
+    /// [card-gutters] The least room between a title and its time in a card's or Recent's row (it was 8: a long title
+    /// read as running into its time).
+    static let titleGap: CGFloat = 12
     /// [soft-cards] Owner 2026-11-13 (a screenshot of Sessions): on a soft card the chats stand `side` in from the list's
     /// edge and the projects did not, so a project's folder stood 10 pt left of the faces over and under it. On a card
     /// the projects, and the chats inside an open one, keep the same column as every other chat.
@@ -45,15 +64,17 @@ enum ProjectCardSlice {
     /// The line's centre: the middle of the face column.
     static var lineX: CGFloat { lead + column / 2 }
     static let lineWidth: CGFloat = 2
-    /// The text's trailing edge inside the card.
-    static let trailing: CGFloat = 26
+    /// The text's trailing edge inside the card. [card-gutters] On a soft card, as far in from the card's right edge as
+    /// the captions and the folders are from its left (20 pt): the times, the ⋯ and See All end on one edge.
+    static var trailing: CGFloat { soft ? 20 + BackdropCards.side : 26 }
     /// The same edges in the card's own cells (a chat, Show More, New Chat), which start at the card's edge, so a swipe
     /// moves a chat inside the card and its buttons sit inside it.
     static var cellLead: CGFloat { lead - inset }
     static var cellTrailing: CGFloat { trailing - inset }
     static var cellLineX: CGFloat { lineX - inset }
     /// A closed project's trailing edge on the page: a chat row's, so its count stands under Pinned's times.
-    static let pageTrailing: CGFloat = 20
+    /// [card-gutters] On a soft card, the card's own edge (a closed project's ⋯ stood 12 pt from the card's side).
+    static var pageTrailing: CGFloat { soft ? 20 + BackdropCards.side : 20 }
     /// A chat's face, and the space above and below it in its row (a one-line row is 44 pt, as Pinned's).
     static var face: CGFloat { Theme.isDesktop ? HQFont.scaled(22) : Density.ios(28, 22) }
     static var rowPad: CGFloat { Theme.isDesktop ? 7 : Density.ios(8, 5) }
@@ -128,10 +149,10 @@ final class ProjectCardSliceView: UIView {
     /// Draws the card's edges (the Desktop Look's); without them it stands clear of where they go.
     var edged = true { didSet { setNeedsLayout() } }
     var slice: ProjectCardSlice { didSet { if slice != oldValue { setNeedsLayout() } } }
-    /// [card-line-swipe] The project's line through a chat's own piece, at `ProjectCard.cellLineX`, with a gap round its
-    /// face (`node`, from the top, `clear` each way). The piece hides while the chat slides, and the line with it (owner
+    /// [card-line-swipe] The project's line through a chat's own piece, at `x` (`ProjectCard.cellLineX`, handed in so the
+    /// line moves when the column does), with a gap round its face (`node`, from the top, `clear` each way). The piece hides while the chat slides, and the line with it (owner
     /// 2026-11-04: the lines above and below went with the row; "The line should disappear when sliding a session").
-    enum Line: Equatable { case none, node(y: CGFloat, clear: CGFloat) }
+    enum Line: Equatable { case none, node(x: CGFloat, y: CGFloat, clear: CGFloat) }
     var line: Line = .none { didSet { if line != oldValue { setNeedsLayout() } } }
     private let fillLayer = CAShapeLayer()
     private let markLayer = CAShapeLayer()
@@ -181,11 +202,11 @@ final class ProjectCardSliceView: UIView {
 
     /// As `ProjectLine` draws it.
     private func linePath() -> CGPath? {
-        let x = ProjectCard.cellLineX, end = bounds.height
+        let end = bounds.height
         let path = UIBezierPath()
         switch line {
         case .none: return nil
-        case .node(let y, let clear):
+        case .node(let x, let y, let clear):
             if y - clear > 0 { path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: y - clear)) }
             if end > y + clear { path.move(to: CGPoint(x: x, y: y + clear)); path.addLine(to: CGPoint(x: x, y: end)) }
         }
@@ -555,9 +576,12 @@ struct ProjectLinePiece: UIViewRepresentable {
     var top: CGFloat
     var shown: Bool
     var fades: Bool
+    /// [card-gutters] The line's centre, handed in: the column is narrower under Group By Recent.
+    var x = ProjectCard.lineX
 
     final class LineView: UIView {
         var top: CGFloat = 0 { didSet { if top != oldValue { setNeedsLayout() } } }
+        var x: CGFloat = 0 { didSet { if x != oldValue { setNeedsLayout() } } }
         private let line = CAShapeLayer()
 
         override init(frame: CGRect) {
@@ -576,7 +600,6 @@ struct ProjectLinePiece: UIViewRepresentable {
             super.layoutSubviews()
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            let x = ProjectCard.lineX
             line.path = bounds.height > top ? UIBezierPath(rect: CGRect(x: x, y: top, width: 0, height: bounds.height - top)).cgPath : nil
             line.strokeColor = ProjectCard.line.resolvedColor(with: traitCollection).cgColor   // read again: the theme may have changed
             CATransaction.commit()
@@ -586,12 +609,14 @@ struct ProjectLinePiece: UIViewRepresentable {
     func makeUIView(context: Context) -> LineView {
         let view = LineView()
         view.top = top
+        view.x = x
         view.alpha = shown ? 1 : 0
         return view
     }
 
     func updateUIView(_ view: LineView, context: Context) {
         view.top = top
+        view.x = x
         ProjectCardPiece.fade(view, shown: shown, fades: fades)
     }
 }
@@ -640,6 +665,9 @@ struct ProjectBot: Hashable {
 /// the right the working dots while a bot works in it (closed), its unread count, and the time of its newest chat
 /// (closed). Its bots are VoiceOver's alone: an open card's chats show their own faces.
 struct ProjectCardHeader: View {
+    /// [card-gutters] The column in use, as an input: the row is drawn again when the grouping (or Bot Faces) changes
+    /// it (a header whose own values had not changed kept the old column).
+    var column = ProjectCard.column
     var title: String
     var summary: SessionProjectSummary
     var favorite = false
@@ -700,7 +728,8 @@ struct ProjectCardHeader: View {
         // stood while its row moved), the move down is the list's.
         .background(alignment: .topLeading) {
             // An open card's line leaves the folder for the first chat.
-            ProjectLinePiece(top: topPad + boxSize + ProjectCard.lineClearance, shown: open, fades: motion != nil)
+            // [slim-rail] The bare folder is shorter than its box: the line starts closer under it.
+            ProjectLinePiece(top: topPad + boxSize + ProjectCard.lineClearance - (ProjectCard.slim ? 5 : 0), shown: open, fades: motion != nil)
         }
         .background {
             // [project-unfold] The top of a card unless a closed row is held as a drop target: closing, a whole card's
@@ -770,9 +799,11 @@ struct ProjectCardHeader: View {
         Image(systemName: summary.home ? "house" : "folder")
             .font(.system(size: boxSize * 0.52, weight: .medium))     // a11y-font-ok: sized to the face column, as the faces
             .foregroundStyle(Color.hqLabel2)
-            .frame(width: boxSize, height: boxSize)
+            // [slim-rail] In the slim column the folder stands alone, as wide as the column: no box.
+            .frame(width: ProjectCard.slim ? ProjectCard.column : boxSize, height: boxSize)
             .background(RoundedRectangle(cornerRadius: desk ? 6 : 8, style: .continuous)
-                .fill(Color(uiColor: carded && !ProjectCard.soft ? ProjectCard.box : ProjectCard.boxOnPage)))
+                .fill(Color(uiColor: carded && !ProjectCard.soft ? ProjectCard.box : ProjectCard.boxOnPage))
+                .opacity(ProjectCard.slim ? 0 : 1))
             .overlay {
                 // The Desktop Look's page and card are close in light: its outline keeps the box.
                 if let edge = ProjectCard.edge {
@@ -807,7 +838,7 @@ struct ProjectCardHeader: View {
     @ViewBuilder private var time: some View {
         if !summary.time.isEmpty {
             Text(summary.time)
-                .font(Font.hq(desk ? .caption2 : DeviceWord.isMac ? .caption : .subheadline))
+                .font(Font.hq(desk ? .caption2 : DeviceWord.isMac ? .caption : ProjectCard.fresh ? .footnote : .subheadline))   // [card-gutters] as its chats' times
                 .foregroundStyle(summary.unread > 0 ? Color.hqTint : Color.hqLabel2)
                 .monospacedDigit()
                 .lineLimit(1)
@@ -945,6 +976,7 @@ private struct WorkingDots: View {
 /// The card's foot: New Chat, the next stop on the line. A tap asks which bot: the project's own bots first (the one
 /// with its newest chat, or the picked chip's, ticked), then Other Bots… (every bot, Choose a Bot).
 struct ProjectNewChatRow: View {
+    var column = ProjectCard.column   // [card-gutters] drawn again when the column changes
     var title: String
     var bots: [ProjectBot]
     var pick: String?
@@ -954,6 +986,8 @@ struct ProjectNewChatRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     private var desk: Bool { Theme.isDesktop && !typeSize.isAccessibilitySize }
     private var picked: ProjectBot? { bots.first { $0.profile == pick } ?? bots.first }
+    /// [slim-rail] A smaller ring in the slim column (a face's size stood 5 pt out of it each side).
+    private var ring: CGFloat { ProjectCard.slim ? ProjectCard.slimColumn + 2 : ProjectCard.face }
 
     var body: some View {
         // One tap starts the chat with the bot shown (owner, 2026-11-02: the menu first was "not good UX"); the bot
@@ -963,9 +997,9 @@ struct ProjectNewChatRow: View {
         } label: {
             HStack(spacing: ProjectCard.columnGap) {
                 Image(systemName: "plus")
-                    .font(.system(size: ProjectCard.face * 0.5, weight: .medium))     // a11y-font-ok: sized to the node, as the faces
+                    .font(.system(size: ring * 0.5, weight: .medium))     // a11y-font-ok: sized to the node, as the faces
                     .foregroundStyle(Color.hqTint)
-                    .frame(width: ProjectCard.face, height: ProjectCard.face)
+                    .frame(width: ring, height: ring)
                     .overlay(Circle().strokeBorder(Color.hqTint, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2.5])))
                     .frame(width: ProjectCard.column)
                 Text("New Chat")
@@ -988,7 +1022,7 @@ struct ProjectNewChatRow: View {
             if let picked { botMenu(picked) }
         }
         .background(alignment: .topLeading) {
-            ProjectLine(x: ProjectCard.cellLineX, bottom: ProjectCard.nodeY - ProjectCard.face / 2 - ProjectCard.lineClearance, dashed: true)
+            ProjectLine(x: ProjectCard.cellLineX, bottom: ProjectCard.nodeY - ring / 2 - ProjectCard.lineClearance, dashed: true)
         }
         .padding(.bottom, ProjectCard.cardTop)
         .background { ProjectCardFill(slice: .bottom) }
@@ -1027,8 +1061,9 @@ struct ProjectNewChatRow: View {
         }
         .buttonStyle(.plain)
         .menuOrder(.fixed)
-        // The name 4 pt in from the times above it, so the capsule keeps clear of the card's edge.
-        .padding(.trailing, ProjectCard.cellTrailing - 4)
+        // The name 4 pt in from the times above it, so the capsule keeps clear of the card's edge. [card-gutters] On a
+        // soft card the times stand further in: the capsule ends on their edge.
+        .padding(.trailing, ProjectCard.soft ? ProjectCard.cellTrailing : ProjectCard.cellTrailing - 4)
         .accessibilityLabel("Bot for New Chat")
         .accessibilityValue(picked.name)
         .accessibilityIdentifier("sessions.project.newChatBot")
@@ -1037,6 +1072,7 @@ struct ProjectNewChatRow: View {
 
 /// Show More inside a card: a hollow node on the line, then "Show More (X)" or "Show Less".
 struct ProjectShowMoreRow: View {
+    var column = ProjectCard.column   // [card-gutters] drawn again when the column changes
     var more: Int
     @Environment(\.dynamicTypeSize) private var typeSize
     private var desk: Bool { Theme.isDesktop && !typeSize.isAccessibilitySize }

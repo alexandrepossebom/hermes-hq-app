@@ -280,9 +280,9 @@ extension SessionsTests {
         XCTAssertTrue(more.waitForExistence(timeout: 8), "the chat's ⋯", file: file, line: line)
         for _ in 0..<3 {
             more.tap()
-            if app.buttons["chat.more.info"].waitForExistence(timeout: 4) { break }
+            if app.anyChatMoreRow.waitForExistence(timeout: 4) { break }
         }
-        app.buttons["chat.more.info"].tap()
+        app.chatMoreRow("info").tap()
         XCTAssertTrue(app.tables["info.list"].waitForExistence(timeout: 6), "Session Info", file: file, line: line)
     }
 

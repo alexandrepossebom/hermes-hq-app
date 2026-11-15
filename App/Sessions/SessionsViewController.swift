@@ -463,7 +463,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             cell.configurationUpdateHandler = { cell, state in
                 if card != nil {
                     cell.backgroundConfiguration = ProjectCard.background(
-                        .middle, state, edged: false, line: .node(y: ProjectCard.nodeY, clear: SessionRowView.cardLineClear(faces: faces)))
+                        .middle, state, edged: false, line: .node(x: ProjectCard.cellLineX, y: ProjectCard.nodeY, clear: SessionRowView.cardLineClear(faces: faces)))
                     return
                 }
                 #if targetEnvironment(macCatalyst)
@@ -1403,6 +1403,12 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         }
         sessionsByID = Dictionary(sessions.map { (Self.key($0), $0) }, uniquingKeysWith: { first, _ in first })
         let fresh = !searching && freshLayout
+        // [card-gutters] Group By Recent's narrower face column: every row is drawn again as the grouping flips.
+        // [slim-rail] And Bot Faces off's slimmer one.
+        let columnWas = ProjectCard.column
+        ProjectCard.fresh = freshLayout
+        ProjectCard.facesOff = !(store?.view.botFaces ?? true)
+        let columnFlipped = ProjectCard.column != columnWas
         let pinnedKeys = searching ? [] : Set(groups.first { $0.id == "pinned" }?.sessions.map(Self.key) ?? [])
         compactKeys = fresh ? [] : pinnedKeys
         freshPinnedKeys = fresh ? pinnedKeys : []
@@ -1473,7 +1479,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         for group in groups where !group.collapsed && SessionListPipeline.isProject(group.id) {
             next[Self.newKey(group.id)] = newChatSign(group)
         }
-        let changed = snapshot.itemIdentifiers.filter { id in signatures[id].map { $0 != next[id] } ?? false }
+        let changed = columnFlipped ? snapshot.itemIdentifiers
+            : snapshot.itemIdentifiers.filter { id in signatures[id].map { $0 != next[id] } ?? false }
         if !changed.isEmpty { snapshot.reconfigureItems(changed) }
         if !searching {
             AppLog.trace("sessions", "list drawn: \(groups.count) sections, \(sessions.count) rows, \(changed.count) reconfigured")

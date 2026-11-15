@@ -324,11 +324,10 @@ extension TalkEndToEndTests {
         XCTAssertTrue(item.label.hasPrefix("Read Replies Aloud"), item.label)
         XCTAssertFalse(item.isSelected, "no checkmark")
         let rename = app.buttons["chat.more.rename"]
-        // After Rename… (a bot's main chat on the stand-in gateway has no Rename… row: the item sits in its place,
-        // after Mark as Unread and before More; the screenshot shows it).
-        if rename.exists { XCTAssertGreaterThan(item.frame.midY, rename.frame.midY, "after Rename…") }
-        let unread = app.buttons["chat.more.unread"]
-        if unread.exists { XCTAssertGreaterThan(item.frame.midY, unread.frame.midY, "after Mark as Unread") }
+        // [menu-tidy] Under Model, before Rename… (a bot's main chat on the stand-in gateway has no Rename… row) and More.
+        let model = app.buttons["chat.more.model"]
+        if model.exists { XCTAssertGreaterThan(item.frame.midY, model.frame.midY, "after Model") }
+        if rename.exists { XCTAssertLessThan(item.frame.midY, rename.frame.midY, "before Rename…") }
         shot(app, "E16a-more-menu-off")
         item.tap()
         XCTAssertTrue(waitUntil(timeout: 4) { self.probe(app)["readReplies"] as? Bool == true }, "tapping turns it on")

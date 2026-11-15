@@ -918,7 +918,22 @@ final class ChatEdgeStandIn: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// [desktop-hard-edge] The Desktop Look's chat edge is the hard one: the stand-in is a frosted band cut off straight
+    /// at its foot, as the system's hard edge it hands over to.
+    var hard = false {
+        didSet { if hard != oldValue { updateColors() } }
+    }
+
     private func updateColors() {
+        if hard {
+            blur.isHidden = HQAccessibility.reduceTransparency
+            blur.layer.mask = nil
+            let page = ChatPalette.page.resolvedColor(with: traitCollection)
+            wash.colors = [page.withAlphaComponent(blur.isHidden ? 1 : 0.6).cgColor, page.withAlphaComponent(blur.isHidden ? 1 : 0.6).cgColor]
+            wash.locations = [0, 1]
+            return
+        }
+        blur.layer.mask = blurMask
         let page = ChatPalette.page.resolvedColor(with: traitCollection)
         // [a11y] Reduce Transparency: a solid band of the page colour, nothing showing through (the web's chat bar takes
         // the page colour, phone-ui-chat.css:286-288). The band still ends in a short fade so no hard line is drawn.

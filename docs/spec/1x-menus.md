@@ -374,6 +374,19 @@ Every **write** row (Pin, Unread, Rename, Model rows, Watch Browser) is disabled
 **"Offline"** (`phone-chat-menu-model.ts:38-39`; `title-menu.ts:29`). Offline (native) = `connection != .ready`.
 Picks play a **selection** haptic (`phone-chat-menu.tsx:201`).
 
+**iPhone and iPad since 2026-11-15 (owner: "insanely busy. Things like being able to easily archive a session are
+hidden").** The rows above grew one per feature until the ⋯ held 3 tiles and 12 rows and Archive sat below the fold.
+The phone and pad now order it by use (`ChatMenuModel.compact`, `ChatMenus.compactElements`):
+
+1. Tiles: **Find · Pin · Archive**. Where one isn't offered, the next of Share and Info takes its place (a bot's own
+   chat: Find · Pin · Share; a task's chat: Find · Share · Info; an empty chat: Pin · Archive · Info).
+2. Model, Prompts, Usage & Limits, Model Prices, Read Replies Aloud, Watch Browser, Rename….
+3. **More ▸**, in sections: Mark as Unread, Share and Info (when not tiles); Files, Changes, Branch in New Chat,
+   Export Chat…; **Delete Chat** last, in red. Owner, same day: More ▸ must not scroll, so the three model tools sit
+   under Model instead.
+
+Every row is still offered; the title's tap still opens Info. The Mac keeps its own sections (`macSections`).
+
 ### 4.2 Native construction
 
 - Replace `ChatViewController.moreMenu: UIMenu?` (`NAT/App/Chat/ChatViewController.swift:18-19,627-637`) with a

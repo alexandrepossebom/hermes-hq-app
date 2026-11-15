@@ -36,6 +36,8 @@ struct SessionRowView: View {
     /// Group By Recent is on: a card chat follows its Preview (`previewLine`); the other groupings' cards keep one line.
     var recentLayout = false
     enum Fresh { case pinned, recent }
+    /// [working-ring] Theme › Working Ring: off, a working chat whose row has no "Working…" line gets the working dots.
+    @AppStorage(WorkingRing.key) private var ringOn = true
     @Environment(\.dynamicTypeSize) private var typeSize
     private var large: Bool { typeSize.isAccessibilitySize }
     /// [desktoplook2] The desktop's session row, unified with the Bots row: 32 pt face, 14 pt semibold title, one line
@@ -85,7 +87,7 @@ struct SessionRowView: View {
             }
             .frame(width: ProjectCard.column, height: face)
             VStack(alignment: .leading, spacing: 0) {
-                SessionTitleLine(spacing: 8) {
+                SessionTitleLine(spacing: ProjectCard.titleGap) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if let origin {
                             PlatformMark(source: origin, size: desk ? 14 : 16)
@@ -140,7 +142,7 @@ struct SessionRowView: View {
                     .frame(width: desk ? DesktopRows.face : ProjectCard.column, height: line)
             }
             VStack(alignment: .leading, spacing: 1) {
-                SessionTitleLine(spacing: 8) {
+                SessionTitleLine(spacing: ProjectCard.titleGap) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if let origin {
                             PlatformMark(source: origin, size: desk ? 14 : 16)
@@ -159,10 +161,14 @@ struct SessionRowView: View {
                     }
                     HStack(alignment: .center, spacing: 8) {
                         trailingText
-                        Circle()
-                            .fill(session.status == .needsInput ? Color.hqOrange : session.unread ? Color.hqTint : Color.clear)
-                            .frame(width: 8, height: 8)
-                            .accessibilityHidden(true)
+                        // [card-gutters] Room for the dot only while there is one: a read chat's time ends on the
+                        // row's edge, as a project's (every time stood 16 pt short of it).
+                        if session.status == .needsInput || session.unread {
+                            Circle()
+                                .fill(session.status == .needsInput ? Color.hqOrange : Color.hqTint)
+                                .frame(width: 8, height: 8)
+                                .accessibilityHidden(true)
+                        }
                     }
                 }
                 .frame(minHeight: line)
@@ -322,6 +328,35 @@ struct SessionRowView: View {
     /// [working-ring] The working state only: `rowArc`'s gate reads Working Ring, so the ring follows the switch live.
     private var showsArc: Bool { Self.showsArc(session, busy: busy, ring: true) }
 
+    /// [working-ring] Owner 2026-11-15: with the ring off, a row that had only the ring to say its chat works says it
+    /// with the working dots (the Bots row's badge) beside its time: Pinned's one-line rows (both groupings) have no
+    /// second line, and a search result's second line is the match, not "Working…". The face is no help there: it is
+    /// still in Low Power Mode and under Reduce Motion, a photo never moves, and Show › Bot Faces can hide it.
+    private var showsWorkingDots: Bool {
+        Self.showsWorkingDots(ringOn: ringOn, arc: showsArc, card: card != nil, fresh: fresh, compact: compact, large: large,
+                              snippet: session.searchSnippet)
+    }
+
+    /// `arc`: the chat works and the ring would show (`showsArc`). The row's own words say it works on a card's or
+    /// Recent's status line and on the full row's second line, unless that line is a search match.
+    static func showsWorkingDots(ringOn: Bool, arc: Bool, card: Bool, fresh: Fresh?, compact: Bool, large: Bool,
+                                 snippet: String?) -> Bool {
+        guard !ringOn, arc else { return false }
+        let linesSayWorking: Bool
+        if card { linesSayWorking = true }
+        else if let fresh { linesSayWorking = fresh == .recent }
+        else if compact && !large { linesSayWorking = false }
+        else { linesSayWorking = snippet?.isEmpty ?? true }
+        return !linesSayWorking
+    }
+
+    /// The Bots row's working dots, on the time's line: no page-coloured halo (it is not over a face).
+    private var workingDots: some View {
+        WorkingBadge(height: desk ? HQFont.scaled(14) : Density.ios(17, 15))
+            .environment(\.hqBadgeRing, Color.clear)
+            .accessibilityIdentifier("session-row.working-dots")
+    }
+
     /// [working-ring] Never while Settings › Appearance › Working Ring is off ("Working…" still says it).
     static func showsArc(_ session: SessionSummary, busy: Bool, ring: Bool = WorkingRing.isOn) -> Bool {
         ring && (session.isRunning || session.status == .working) && session.status != .needsInput && !busy
@@ -332,6 +367,7 @@ struct SessionRowView: View {
             ProgressView().controlSize(.small).accessibilityLabel("Deleting")
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
+                if showsWorkingDots { workingDots }   // [working-ring]
                 if session.pinned && !compact && fresh != .pinned {   // [sessions-layout] Pinned's own rows need no pin
                     Image(systemName: "pin.fill")
                         .font(Font.hq(.caption2))
@@ -386,7 +422,9 @@ struct SessionRowView: View {
     private func trailingWords(_ words: String) -> some View {
         Text(words)
             // [mac] Stress test 2026-10-28 #68: the iOS look's time at the Bots row's size (it was a size larger).
-            .font(Font.hq(DeviceWord.isMac ? .footnote : desk ? .caption2 : .subheadline))   // [type] Mac: Jobs', Tasks' and Artifacts' time
+            // [card-gutters] A card's and Recent's one-line rows: a size under the title's line, so the time reads as its
+            // detail (at the subheadline it stood nearly as large as the title beside it).
+            .font(Font.hq(DeviceWord.isMac ? .footnote : desk ? .caption2 : card != nil || fresh != nil ? .footnote : .subheadline))   // [type] Mac: Jobs', Tasks' and Artifacts' time
             .monospacedDigit()
             .foregroundStyle(session.unread && fresh == nil ? Color.hqTintText : Color.hqLabel2)   // [sessions-fresh] the dot says it
             .lineLimit(large ? 3 : 1)                 // under the second line at the largest sizes: it wraps, never "$…"
@@ -1016,6 +1054,7 @@ struct HeaderMenuSpot: PreferenceKey {
 
 /// Under a capped project: "Show More (12)" opens it in place; "Show Less" closes it to its newest chats again.
 struct SessionShowMoreRow: View {
+    var column = ProjectCard.column   // [card-gutters] drawn again when the column changes
     var more: Int
     var body: some View {
         HStack(spacing: ProjectCard.columnGap) {

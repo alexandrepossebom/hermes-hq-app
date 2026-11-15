@@ -12,17 +12,18 @@ extension MenusTests {
         let (account, app) = try start()
         openBotChat(app)
         openMore(app)
-        for id in ["share", "find", "info", "pin", "unread"] {
+        // [menu-tidy] Owner 2026-11-15: Find · Pin · Archive tiles (a bot's own chat: Share in Archive's place), the
+        // rest of the chat's rows under More ▸.
+        for id in ["find", "pin", "share", "model", "prompts", "usage", "prices"] {
             XCTAssertTrue(app.buttons["chat.more.\(id)"].exists, "⋯ › \(id) in the bot's chat")
         }
         XCTAssertEqual(app.buttons["chat.more.pin"].label, "Pin")
-        XCTAssertEqual(app.buttons["chat.more.unread"].label, "Mark as Unread")
-        for id in ["rename", "archive", "delete"] {
-            XCTAssertFalse(app.buttons["chat.more.\(id)"].exists, "a bot's own chat has no \(id)")
+        for id in ["rename", "archive", "delete", "unread", "info"] {
+            XCTAssertFalse(app.buttons["chat.more.\(id)"].exists, "no \(id) on the bot chat's ⋯ itself")
         }
         shot(app, "chat-more-menu-bot")
-        menuItem(app, "More").tap()
-        for id in ["files", "changes", "branch", "export"] {
+        XCTAssertEqual(app.chatMoreRow("unread").label, "Mark as Unread")
+        for id in ["info", "files", "changes", "branch", "export"] {
             XCTAssertTrue(app.buttons["chat.more.\(id)"].waitForExistence(timeout: 3), "More › \(id)")
         }
         shot(app, "chat-more-submenu")
@@ -30,11 +31,18 @@ extension MenusTests {
         goBack(app)
         openTrip(app)
         openMore(app)
-        for id in ["rename", "pin", "unread", "archive", "delete"] {
+        for id in ["find", "pin", "archive", "rename"] {
             XCTAssertTrue(app.buttons["chat.more.\(id)"].exists, "⋯ › \(id) in a session")
         }
-        XCTAssertEqual(app.buttons["chat.more.delete"].label, "Delete Chat")
+        let tiles = ["find", "pin", "archive"].map { app.buttons["chat.more.\($0)"].frame }
+        XCTAssertTrue(tiles.allSatisfy { abs($0.midY - tiles[0].midY) < 4 }, "Find · Pin · Archive share the tile row")
+        XCTAssertTrue(app.buttons["chat.more.archive"].isHittable, "Archive is in reach without scrolling the menu")
+        XCTAssertTrue(app.buttons["chat.more.rename"].isHittable, "the ⋯ shows whole: Rename…, its last row but More, needs no scroll")
         shot(app, "chat-more-menu-session")
+        XCTAssertTrue(app.chatMoreRow("unread").exists, "More › Mark as Unread")
+        XCTAssertEqual(app.buttons["chat.more.delete"].label, "Delete Chat")
+        XCTAssertTrue(app.buttons["chat.more.delete"].isHittable, "More ▸ shows whole: its last row needs no scroll")
+        shot(app, "chat-more-submenu-session")
         dismissMenu(app)
         // Offline: the writes wait ("Offline"); Share, Find and Info don't.
         try account.control("/__menus/mode", ["offline": true])
@@ -42,9 +50,10 @@ extension MenusTests {
             || app.staticTexts["Offline"].exists || app.staticTexts["Reconnecting…"].exists }, "the chat is offline")
         openMore(app)
         XCTAssertFalse(app.buttons["chat.more.pin"].isEnabled, "Pin waits offline")
-        XCTAssertFalse(app.buttons["chat.more.delete"].isEnabled, "Delete waits offline")
+        XCTAssertFalse(app.buttons["chat.more.archive"].isEnabled, "Archive waits offline")
         XCTAssertTrue(app.buttons["chat.more.find"].isEnabled, "Find works offline")
         shot(app, "chat-more-menu-offline")
+        XCTAssertFalse(app.chatMoreRow("delete").isEnabled, "Delete waits offline")
         dismissMenu(app)
         try account.control("/__menus/mode", ["offline": false])
         try assertActionsWire(account)
@@ -96,12 +105,13 @@ extension MenusTests {
         XCTAssertTrue((pin?["query"] as? String ?? "").contains("profile=default"))
         openMore(app)
         XCTAssertEqual(app.buttons["chat.more.pin"].label, "Unpin")
-        app.buttons["chat.more.unread"].tap()
+        app.chatMoreRow("unread").tap()
         XCTAssertTrue(waitUntil(timeout: 5) { self.rowFlag(account, "unread") == true }, "PATCH {unread: true}")
         openMore(app)
-        XCTAssertEqual(app.buttons["chat.more.unread"].label, "Mark as Read")
+        let read = app.chatMoreRow("unread")
+        XCTAssertEqual(read.label, "Mark as Read")
         shot(app, "chat-more-pinned-unread")
-        app.buttons["chat.more.unread"].tap()
+        read.tap()
         XCTAssertTrue(waitUntil(timeout: 5) { self.rowFlag(account, "unread") == false }, "PATCH {unread: false}")
         // Export Chat: every stored row, in the web's file shape, through the share sheet.
         openMore(app)
@@ -250,7 +260,7 @@ extension MenusTests {
         let relaunched = launch(account, reset: true)
         openTrip(relaunched)
         openMore(relaunched)
-        relaunched.buttons["chat.more.delete"].tap()
+        relaunched.chatMoreRow("delete").tap()
         let confirm = relaunched.sheets.firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "the confirm sheet")
         XCTAssertTrue(confirm.staticTexts["Delete “Trip planning”?"].exists)

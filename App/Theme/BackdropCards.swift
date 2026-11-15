@@ -627,9 +627,16 @@ class BackdropCardView: UICollectionReusableView {
     /// list's own start, drew its edge over the bar as if rows had scrolled under: a frosted band with a hard line,
     /// at rest, with nothing under it. While such a list rests (or is pulled down) its top edge is hidden; it shows
     /// as soon as rows do go under. A list whose edge someone else hides (a tab's, drawn by its still host) is left be.
+    ///
+    /// The hold is Soft Cards' own: once the cards aren't drawn (Desktop Look on, the picture or Soft Cards off) the edge
+    /// is let go at once, though the list still sits lifted until the next `update`. Owner 2026-11-15, build 1013: Desktop
+    /// Look turned on over a picture with Soft Cards froze the app on Settings › Theme. Inside the one layout the switch
+    /// forces, SwiftUI showed the list's edge on each of its updates, this hid it again for a rest the look no longer
+    /// has, and that layout never ended (the main thread spun until iOS killed the app).
     private func restEdge() {
         guard let list else { return }
-        let rests = Self.hidesTopEdge(lifted: lifted, past: list.contentOffset.y + list.adjustedContentInset.top)
+        let drawn = shows() && Backdrop.app.cards && !Theme.isDesktop
+        let rests = drawn && Self.hidesTopEdge(lifted: lifted, past: list.contentOffset.y + list.adjustedContentInset.top)
         let edge = list.topEdgeEffect
         if rests {
             if !edge.isHidden { heldEdge = true; edge.isHidden = true }

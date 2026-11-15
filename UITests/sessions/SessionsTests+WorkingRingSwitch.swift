@@ -81,6 +81,54 @@ extension SessionsTests {
         Thread.sleep(forTimeInterval: 0.8)
     }
 
+    /// Strongly coloured pixels in the right 45 % of a row (the time and its marks; the working dots are the tint).
+    private static func colouredOnTheRight(_ image: UIImage) -> Int {
+        guard let cg = image.cgImage, cg.width > 40, cg.height > 10 else { return 0 }
+        let w = cg.width, h = cg.height
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return 0 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var count = 0
+        for y in 0..<h {
+            for x in Int(Double(w) * 0.55)..<w {
+                let i = (y * w + x) * 4
+                let r = Int(data[i]), g = Int(data[i + 1]), b = Int(data[i + 2])
+                if max(r, g, b) - min(r, g, b) > 80 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// [working-ring] Owner 2026-11-15: where the ring was all that said a chat works, say it another way. Pinned's
+    /// one-line row has no "Working…" line: with the ring off it shows the working dots beside its time.
+    @MainActor func test29_RingOffPinnedRowShowsWorkingDots() throws {
+        fixture("/__fixture/mode", ["prompts": "hold"])
+        for id in ["s-garden", "s-trip", "s-budget"] {
+            fixture("/__fixture/rows", ["id": id, "set": ["pinned": true], "event": true])
+        }
+        let app = launch(extra: ["-hqn.workingRing", "<false/>"])
+        XCTAssertTrue(row(app, "s-trip").waitForExistence(timeout: 15))
+        let idle = Self.colouredOnTheRight(row(app, "s-trip").screenshot().image)
+        openChat(app, "s-trip")
+        type(app, "Add a fourth hotel", send: true)
+        XCTAssertTrue(app.buttons["composer.stop"].waitForExistence(timeout: 8), "the turn runs")
+        backToList(app)
+        XCTAssertTrue(waitUntil(8) { self.labelOf(self.row(app, "s-trip")).contains("Working") }, "VoiceOver says it works")
+        Thread.sleep(forTimeInterval: 0.6)
+        let working = Self.colouredOnTheRight(row(app, "s-trip").screenshot().image)
+        shot(app, "working-dots-pinned")
+        XCTAssertGreaterThan(working, idle + 30, "the working dots beside the time (coloured \(working), idle \(idle))")
+        XCTAssertLessThanOrEqual(ringPixels(row(app, "s-trip")), 60, "and no ring")
+        fixture("/__fixture/emit", ["type": "message.complete", "session_id": "s-trip", "payload": ["text": "Added the Ribeira Inn."]])
+        XCTAssertTrue(waitUntil(8) { !self.labelOf(self.row(app, "s-trip")).contains("Working") })
+        Thread.sleep(forTimeInterval: 0.6)
+        let done = Self.colouredOnTheRight(row(app, "s-trip").screenshot().image)
+        shot(app, "working-dots-pinned-done")
+        XCTAssertLessThan(done, working - 30, "the dots go when the turn ends (coloured \(done))")
+    }
+
     @MainActor func test28_WorkingRingSwitch() throws {
         fixture("/__fixture/mode", ["prompts": "hold"])
         let app = launch()

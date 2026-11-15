@@ -64,6 +64,47 @@ struct ChatMenuModelTests {
         #expect(all.first { $0.id == .share }?.disabled == false)
         #expect(all.first { $0.id == .files }?.disabled == false)
     }
+
+    // MARK: [menu-tidy] The iPhone's ⋯ by use (owner 2026-11-15)
+
+    @Test func compactSessionPutsArchiveOnATile() {
+        let m = ChatMenuModel.compact(ChatMenuState())
+        #expect(ids(m.tiles) == [.find, .pin, .archive])
+        #expect(m.rename?.id == .rename)
+        #expect(ids(m.chat) == [.unread, .share, .info])
+        #expect(ids(m.workspace) == [.files, .changes, .branch, .export])
+        #expect(m.delete?.destructive == true && m.delete?.title == "Delete Chat")
+        #expect(ChatMenuModel.compact(ChatMenuState(pinned: true, archived: true)).tiles.map(\.title) == ["Find", "Unpin", "Unarchive"])
+    }
+
+    @Test func compactBotChatFillsTheArchiveTileWithShare() {
+        let m = ChatMenuModel.compact(ChatMenuState(botChat: true))
+        #expect(ids(m.tiles) == [.find, .pin, .share])
+        #expect(m.rename == nil && m.delete == nil)
+        #expect(ids(m.chat) == [.unread, .info])
+    }
+
+    @Test func compactTaskAndEmptyAndDemoChats() {
+        #expect(ids(ChatMenuModel.compact(ChatMenuState(taskChat: true)).tiles) == [.find, .share, .info])
+        #expect(ChatMenuModel.compact(ChatMenuState(taskChat: true)).delete == nil)
+        let empty = ChatMenuModel.compact(ChatMenuState(empty: true))
+        #expect(ids(empty.tiles) == [.pin, .archive, .info])
+        #expect(empty.chat.isEmpty)
+        let demo = ChatMenuModel.compact(ChatMenuState(), listActions: false)
+        #expect(ids(demo.tiles) == [.share, .info])
+        #expect(demo.chat.isEmpty && demo.workspace.isEmpty && demo.delete == nil)
+    }
+
+    /// Nothing is lost: every row the ⋯ offered before is a tile, Rename…, or under More ▸.
+    @Test func compactKeepsEveryRow() {
+        for s in [ChatMenuState(), ChatMenuState(botChat: true), ChatMenuState(taskChat: true), ChatMenuState(empty: true),
+                  ChatMenuState(unread: true, empty: true), ChatMenuState(offline: true)] {
+            let m = ChatMenuModel.compact(s)
+            let placed = m.tiles + [m.rename].compactMap { $0 } + m.chat + m.workspace + [m.delete].compactMap { $0 }
+            #expect(Set(placed) == Set(ChatMenuModel.all(s)), "\(s)")
+            #expect(placed.count == ChatMenuModel.all(s).count, "no row twice")
+        }
+    }
 }
 
 // MARK: - The hold menu (S:ui-chat/message-menu.ts `messageMenuItems`)
