@@ -1821,6 +1821,14 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         activity.jumpWidthChanged(jumpButton.preferredWidth)
         statusPillTop.constant = ChatMetrics.statusPillTop
         var clear: UINavigationBarAppearance? = desktop ? ThemeChrome.solidBar() : nil
+        #if !targetEnvironment(macCatalyst)
+        // [desktop-hard-edge] Owner 2026-11-15: the Desktop Look's chat top on the iPhone as on the Mac (Mac 1009,
+        // `barBlur`): the hard edge, a frosted band cut off on a straight line, instead of the soft fade. The main look
+        // keeps the soft fade ([chat-soft-edge]).
+        let edgeStyle: UIScrollEdgeEffect.Style = desktop ? .hard : .soft
+        if edgeHost.topEdgeEffect.style != edgeStyle { edgeHost.topEdgeEffect.style = edgeStyle }
+        edgeStandIn.hard = desktop
+        #endif
         #if targetEnvironment(macCatalyst)
         // [mac-audit #5] Owner 2026-11-02: in the Desktop Look the chat's bar showed the list pane's band (and a
         // hairline) only until the sidebar folded or the window was resized, then went flat until the chat was opened

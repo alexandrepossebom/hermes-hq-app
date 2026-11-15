@@ -67,6 +67,42 @@ import Testing
         }
     }
 
+    /// Owner 2026-11-15: "There could be places where the working animation was the only thing that showed that the
+    /// session or bot was working … find a solution to show that they're still working." With the ring off, the
+    /// working dots go where the row's own words do not say it.
+    @Test func ringOffPutsTheDotsWhereNoWordsSayItWorks() {
+        func dots(ringOn: Bool = false, arc: Bool = true, card: Bool = false, fresh: SessionRowView.Fresh? = nil,
+                  compact: Bool = false, large: Bool = false, snippet: String? = nil) -> Bool {
+            SessionRowView.showsWorkingDots(ringOn: ringOn, arc: arc, card: card, fresh: fresh, compact: compact, large: large, snippet: snippet)
+        }
+        // Rows with nothing but the ring to say it: Pinned's one line (both groupings), and a search match.
+        #expect(dots(compact: true), "Pinned's one-line row")
+        #expect(dots(fresh: .pinned), "Group By Recent's Pinned row")
+        #expect(dots(snippet: "the **fourth** hotel"), "a search result: its second line is the match")
+        // Rows whose words say "Working…" already.
+        #expect(!dots(), "a full row's second line says Working…")
+        #expect(!dots(snippet: ""), "an empty match leaves Working… on the line")
+        #expect(!dots(fresh: .recent), "Recent's status line")
+        #expect(!dots(card: true), "a project card's status line")
+        #expect(!dots(compact: true, large: true), "Pinned at the accessibility sizes keeps the full row")
+        // The ring on, or nothing working (or waiting on you, or being deleted: `showsArc` false): no dots.
+        #expect(!dots(ringOn: true, compact: true))
+        #expect(!dots(arc: false, compact: true))
+    }
+
+    @Test func aPinnedTileTryingAgainShowsItWorksOverItsProblem() {
+        var bot = Bot(id: "otto", name: "Otto", role: nil, preview: nil, lastActive: nil, isWorking: true, unread: false,
+                      pinned: true, pinOrder: nil, sectionName: nil, hidden: false, canonicalSessionId: "c", head: nil)
+        bot.attention = Attention.providerQuotaLimit.words
+        let status = BotList.rowStatus(bot)
+        #expect(status == .attention, "the problem stays until a good reply")
+        #expect(BotList.tileShowsWorkingOverProblem(bot, status: status, ringOn: false))
+        #expect(BotList.rowBadge(bot) == .working, "the dots it then shows")
+        #expect(!BotList.tileShowsWorkingOverProblem(bot, status: status, ringOn: true), "the ring says it")
+        bot.isWorking = false
+        #expect(!BotList.tileShowsWorkingOverProblem(bot, status: BotList.rowStatus(bot), ringOn: false), "idle: the orange badge")
+    }
+
     @Test func isFoundInSettingsSearch() {
         func find(_ words: String) -> [SettingsSearchEntry] { SettingsSearch.results(words, in: SettingsSearch.appRows) }
         for words in ["working ring", "Working Ring", "working animation", "ring"] {
