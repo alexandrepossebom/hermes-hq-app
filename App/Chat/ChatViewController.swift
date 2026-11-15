@@ -184,12 +184,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// [mac] Stress test 2026-10-31 #1: the Mac draws no soft edge under the clear bar, so words scrolled under it ran
     /// straight through the bot's name and face. A backing behind the bar comes in once a row reaches under it; at rest
     /// it is clear. [mac-top-glass] Owner 2026-11-15: "a translucent bar across the top of chats just like we have in the
-    /// ios app": the backing is a frosted blur of the transcript (it was the page colour, a solid band that hid the
-    /// words), full strength down to the bar's foot and fading out below it, as the iPhone's soft edge. Over a Chat
-    /// Background it blurs the picture the same way (owner 2026-11-09, "Looks too solid?").
+    /// ios app", then, of Mac 1008's frost that faded out below the bar: "that doesn't look like the hard banner type
+    /// that we have on the ios app". It is the iPhone's hard top edge (Theme › Top Edge › Hard): a frosted band of the
+    /// transcript the bar's height, cut off on a straight line at the bar's foot. Over a Chat Background too.
     private let barBlur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
-    private let barBlurMask = UIView()
-    private let barBlurFade = CAGradientLayer()
     private var barBackingWatch: NSKeyValueObservation?
     /// Owner 2026-11-07 (yes to the polish pass's call): while a notice shows under the bar (the voice banner, "Switching
     /// to …"), the page colour reaches down behind it and fades out 16 pt below, so no half-covered line of the
@@ -652,9 +650,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         barBlur.isUserInteractionEnabled = false
         barBlur.alpha = 0
         barBlur.accessibilityIdentifier = "chat.barBlur"
-        barBlurFade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
-        barBlurMask.layer.addSublayer(barBlurFade)
-        barBlur.mask = barBlurMask
         view.insertSubview(barBlur, aboveSubview: edgeHost)
         barBackingWatch = tableView.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.updateBarBacking() }
@@ -662,7 +657,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         noticeBacking.isUserInteractionEnabled = false
         noticeBacking.alpha = 0
         noticeBacking.accessibilityIdentifier = "chat.noticeBacking"
-        noticeBackingFade.colors = barBlurFade.colors
+        noticeBackingFade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
         noticeBacking.layer.mask = noticeBackingFade
         view.insertSubview(noticeBacking, aboveSubview: barBlur)   // under the status line and the notice, added later
         noticeToast.onShowingChange = { [weak self] in
@@ -3223,16 +3218,11 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let contentTop = tableView.convert(CGPoint(x: 0, y: tableView.contentSize.height), to: view).y
         let under = barBottom - contentTop
         let alpha = min(max(under / 10, 0), 1)
-        // Full frost to the bar's foot, then a 24 pt fade, so the words come out from under it softly (a saturated
-        // bubble cut on a short fade looked hard: Mac UI check 2026-11-13 L14).
-        let blurHeight = barBottom + 24
-        let blurFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: blurHeight)
+        // Straight across at the bar's foot, no fade (the hard edge).
+        let blurFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: barBottom)
         if barBlur.frame != blurFrame {
             CATransaction.begin(); CATransaction.setDisableActions(true)
             barBlur.frame = blurFrame
-            barBlurMask.frame = barBlur.bounds
-            barBlurFade.frame = barBlurMask.bounds
-            barBlurFade.locations = [0, NSNumber(value: Double(barBottom / max(blurHeight, 1))), 1]
             CATransaction.commit()
         }
         if barBlur.alpha != alpha { barBlur.alpha = alpha }
