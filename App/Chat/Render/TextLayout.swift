@@ -1712,7 +1712,7 @@ nonisolated enum RetryCapsuleMetrics {
 
     /// The glyph's box grows with the label (the text size, and the Mac's 13 pt floor) so the arrow keeps its 14 : 11.5.
     static func glyph(_ style: ChatStyle) -> CGFloat { max(14, (14 * font(style).pointSize / 11.5).rounded()) }
-    static func font(_ style: ChatStyle) -> UIFont { HQFont.face(ofSize: HQFont.legible((11.5 * style.body.pointSize / 17).rounded(toPlaces: 1)), weight: .medium) }
+    static func font(_ style: ChatStyle) -> UIFont { HQFont.face(ofSize: HQFont.legible((11.5 * style.chromeBody / 17).rounded(toPlaces: 1)), weight: .medium) }
 
     static func size(style: ChatStyle) -> CGSize {
         let f = font(style)

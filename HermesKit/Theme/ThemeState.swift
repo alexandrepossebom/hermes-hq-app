@@ -53,33 +53,43 @@ nonisolated struct ThemeState: Sendable, Hashable {
     /// [density] Compact draws only in the iOS look.
     var compact: Bool { !desktopLook && density == .compact }
 
-    /// [mac] What 100 % is on the Mac, per look: Grok Bot's Mac app's sizes (owner 2026-10-27: "mimic that closely
-    /// while sticking to our brand"). The Mac draws the iPad layout at 77 %, so the Desktop Look's 15 pt body came out
-    /// at 11.5 pt on the screen and the iOS look's 17 at 13. × 1.3 and × 1.15 put both on Grok's 15 pt chat text;
-    /// faces, rows and icons grow with it.
+    /// [mac] What 100 % is on the Mac, per look. × 1.3 and × 1.15 are Grok Bot's Mac app's sizes (owner 2026-10-27:
+    /// "mimic that closely while sticking to our brand"): the Mac draws the iPad layout at 77 %, so the Desktop Look's
+    /// 15 pt body came out at 11.5 pt on the screen and the iOS look's 17 at 13, and those put both on 15 pt. Then
+    /// `macBody` puts the app's body text on the Mac's own 13 pt (owner 2026-11-14); faces, rows and icons follow it.
+    /// Chat text stays on 15 (`chatText`).
     static func macBase(desktopLook: Bool) -> Double {
         #if targetEnvironment(macCatalyst)
-        (desktopLook ? 1.3 : 1.15) * macBodyTrial
+        (desktopLook ? 1.3 : 1.15) * macBody
         #else
         1
         #endif
     }
 
-    /// [type-body] A trial, not the shipping look (owner 2026-11-14, type pass): a Debug build launched with
-    /// `-HQTypeBody 13` draws the Mac's text, faces and rows smaller by the ratio that puts body text (15 pt on the
-    /// screen in both looks) on `13`, as a UI Scale would, without storing a UI Scale. The launch's own arguments,
-    /// read once a launch, never saved; 1 otherwise and always in Release. The sidebar keeps its own sizes
-    /// (`SidebarType`; `-HQSidebarType native` is its 13 pt scheme).
-    static let macBodyTrial: Double = {
-        #if DEBUG && targetEnvironment(macCatalyst)
+    /// [type-body] The Mac's body text size on the screen over 15 pt (owner 2026-11-14: 13 pt body across the Mac
+    /// app, as Finder, Mail and Notes; chat messages stay 15). 13 / 15 on the Mac in every build, 1 on the iPhone and
+    /// iPad. A Debug build launched with `-HQTypeBody <points>` (10 to 20) draws that size instead, to compare:
+    /// `-HQTypeBody 15` is the look through Mac 1000. The launch's own arguments, read once a launch, never saved.
+    /// UI Scale multiplies on top. The sidebar keeps its own sizes (`SidebarType`).
+    static let macBody: Double = {
+        #if targetEnvironment(macCatalyst)
+        #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
-        guard let at = arguments.firstIndex(of: "-HQTypeBody"), at + 1 < arguments.count,
-              let body = Double(arguments[at + 1]), (10...20).contains(body) else { return 1 }
-        return body / 15
+        if let at = arguments.firstIndex(of: "-HQTypeBody"), at + 1 < arguments.count,
+           let body = Double(arguments[at + 1]), (10...20).contains(body) { return body / 15 }
+        #endif
+        return 13.0 / 15
         #else
         return 1
         #endif
     }()
+
+    /// [type-body] The chat's own factor over the app's text (owner 2026-11-14: chat messages stay 15 pt while the
+    /// rest of the Mac goes to 13): the text in your and the bot's bubbles, the Markdown inside replies (headings,
+    /// lists, code, tables keep their relation to the body) and what you type in the message box. 15 / 13 on the Mac
+    /// (whatever `-HQTypeBody` says, chat stays on 15 pt at UI Scale 100 %), 1 on the iPhone and iPad. Applied once,
+    /// where the chat's fonts are made (`ChatStyle`).
+    static var chatText: Double { 1 / macBody }
 
     /// UI Scale × the look's own 100 % on the Mac. [density] Both looks, everywhere: the web's `appliedUIScale`
     /// (ui-scale.ts:21) kept the iOS look at 100 %, and so did the iPhone until 2026-11-09 (the Mac stopped in October,

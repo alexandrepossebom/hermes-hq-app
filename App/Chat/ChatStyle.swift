@@ -10,7 +10,13 @@ nonisolated struct ChatStyle: @unchecked Sendable {
     /// phone with Bold Text on, `systemFont` and `preferredFont` are already heavier and a second step would double up.
     let bold: Bool
 
+    /// The message text: your and the bot's bubbles and the Markdown inside replies, and the message box's words.
+    /// [type-body] × `ThemeState.chatText`, so it stays 15 pt on the Mac's screen while the app around it is 13.
     let body: UIFont
+    /// [type-body] The app's own body size around the chat (13 pt on the Mac's screen, the same as `body` on the
+    /// iPhone and iPad), for cards and controls in the transcript that are sized from the body but aren't message
+    /// text (the Tasks offer and Added cards, the delegate card, the Try Again capsule).
+    let chromeBody: CGFloat
     let bodyBold: UIFont
     let bodyItalic: UIFont
     let bodyBoldItalic: UIFont
@@ -76,7 +82,15 @@ nonisolated struct ChatStyle: @unchecked Sendable {
             return UIFont(descriptor: d, size: f.pointSize)
         }
 
-        let body = font(.body)
+        // [type-body] The chat's one factor (`ThemeState.chatText`, 15 / 13 on the Mac, 1 elsewhere): the message
+        // text and everything in the reply that keeps its relation to it (bold, italic, inline code, code blocks and
+        // their label, tables, headings, line heights, paragraph gaps, list indents). Times, the day line, tool
+        // rows, notices and error cards stay the app's size.
+        let chat = CGFloat(ThemeState.chatText)
+        func chatFont(_ f: UIFont) -> UIFont { chat == 1 ? f : f.withSize(MacTypeSteps.whole((f.pointSize * chat * 2).rounded() / 2)) }
+        let uiBody = font(.body)
+        chromeBody = uiBody.pointSize
+        let body = chatFont(uiBody)
         self.body = body
         bodyBold = bold ? HQFont.face(ofSize: body.pointSize, weight: .heavy) : withTraits(body, .traitBold)
         bodyItalic = withTraits(body, .traitItalic)
@@ -85,12 +99,13 @@ nonisolated struct ChatStyle: @unchecked Sendable {
         bodyLineHeight = (body.pointSize * (DeviceWord.isMac ? 1.45 : 1.3)).rounded(.up)
         inlineCode = HQFont.monoFace(ofSize: (body.pointSize * 0.9).rounded(), weight: w(.regular))
         let footnote = font(.footnote)
-        code = HQFont.monoFace(ofSize: footnote.pointSize, weight: w(.regular))
-        codeLineHeight = (footnote.pointSize * 1.5).rounded(.up)
-        codeLabel = capped(.caption1, 20, weight: .medium)
-        table = HQFont.face(ofSize: footnote.pointSize, weight: w(.regular))
-        tableBold = HQFont.face(ofSize: footnote.pointSize, weight: w(.semibold))
-        tableLineHeight = (footnote.pointSize * 1.4).rounded(.up)
+        let chatFootnote = chatFont(footnote)
+        code = HQFont.monoFace(ofSize: chatFootnote.pointSize, weight: w(.regular))
+        codeLineHeight = (chatFootnote.pointSize * 1.5).rounded(.up)
+        codeLabel = chatFont(capped(.caption1, 20, weight: .medium))
+        table = HQFont.face(ofSize: chatFootnote.pointSize, weight: w(.regular))
+        tableBold = HQFont.face(ofSize: chatFootnote.pointSize, weight: w(.semibold))
+        tableLineHeight = (chatFootnote.pointSize * 1.4).rounded(.up)
         headings = [1.25, 1.125, 1.0625].map { HQFont.face(ofSize: (body.pointSize * $0).rounded(), weight: w(.semibold)) }
         time = capped(.caption2, 20, tabular: true)
         timeBold = capped(.caption2, 20, weight: .semibold)

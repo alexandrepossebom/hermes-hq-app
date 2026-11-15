@@ -53,8 +53,8 @@ nonisolated enum MacTypeSteps {
         return max(1, (size * catalyst).rounded()) / catalyst
     }
 
-    /// A text style's size as made today (`size`, the app's points) on its step, × UI Scale (and the `-HQTypeBody`
-    /// trial), then on a whole point.
+    /// A text style's size as made today (`size`, the app's points) on its step, × UI Scale (and the Mac's 13 pt
+    /// body, `ThemeState.macBody`), then on a whole point.
     static func style(_ style: UIFont.TextStyle, size: CGFloat, state: ThemeState) -> CGFloat {
         guard on else { return size }
         guard let step = step(style, desktopLook: state.desktopLook) else { return whole(size) }

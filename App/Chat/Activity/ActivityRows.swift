@@ -688,9 +688,9 @@ nonisolated enum ActivityLayouts {
 
     private static func tasksOffer(_ t: TasksOfferRow, row: ChatRow, width: CGFloat, style: ChatStyle) -> RowLayout {
         let columnW = min(TextLayout.replyWidth(width), 360)
-        let font = HQFont.face(ofSize: (16 * style.body.pointSize / 17).rounded())
+        let font = HQFont.face(ofSize: (16 * style.chromeBody / 17).rounded())
         let headFont = HQFont.face(ofSize: font.pointSize, weight: .semibold)
-        let detailFont = HQFont.face(ofSize: (13 * style.body.pointSize / 17).rounded())
+        let detailFont = HQFont.face(ofSize: (13 * style.chromeBody / 17).rounded())
         let lineH = ceil(font.lineHeight), detailH = ceil(detailFont.lineHeight)
         let pad: CGFloat = 14
         let left = ChatMetrics.sideInset
@@ -745,8 +745,8 @@ nonisolated enum ActivityLayouts {
 
     private static func tasksAdded(_ t: TasksAddedRow, row: ChatRow, width: CGFloat, style: ChatStyle) -> RowLayout {
         let columnW = min(TextLayout.replyWidth(width), 360)
-        let font = HQFont.face(ofSize: (16 * style.body.pointSize / 17).rounded())
-        let detailFont = HQFont.face(ofSize: (13 * style.body.pointSize / 17).rounded())
+        let font = HQFont.face(ofSize: (16 * style.chromeBody / 17).rounded())
+        let detailFont = HQFont.face(ofSize: (13 * style.chromeBody / 17).rounded())
         let lineH = ceil(font.lineHeight), detailH = ceil(detailFont.lineHeight)
         let pad: CGFloat = 14
         let left = ChatMetrics.sideInset
@@ -924,7 +924,7 @@ nonisolated enum ActivityLayouts {
     // MARK: Delegate card (§11.2)
 
     static func delegateFont(_ style: ChatStyle) -> UIFont {
-        HQFont.face(ofSize: (14 * style.body.pointSize / 17).rounded())
+        HQFont.face(ofSize: (14 * style.chromeBody / 17).rounded())
     }
 
     private static func delegate(_ d: DelegateCardRow, row: ChatRow, width: CGFloat, style: ChatStyle) -> RowLayout {
