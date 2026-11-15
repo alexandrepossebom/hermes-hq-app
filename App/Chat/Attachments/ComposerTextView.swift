@@ -50,8 +50,12 @@ final class ComposerTextView: UITextView {
         contentOffset.y = bottom
     }
 
+    /// [mac] The draft is clipped at the text's insets whenever it scrolls (not only at accessibility sizes).
+    private static var clipsAtInsets: Bool { DeviceWord.isMac }
+
     private func updateEdgeFade() {
-        guard isScrollEnabled, traitCollection.preferredContentSizeCategory.isAccessibilityCategory, bounds.height > 0 else {
+        guard isScrollEnabled, Self.clipsAtInsets || traitCollection.preferredContentSizeCategory.isAccessibilityCategory,
+              bounds.height > 0 else {
             if edgeFade != nil { layer.mask = nil; edgeFade = nil }
             return
         }
@@ -65,9 +69,19 @@ final class ComposerTextView: UITextView {
         let below = contentOffset.y < contentSize.height - h + adjustedContentInset.bottom - 0.5
         let top = above ? band : 0, bottom = below ? band : 0
         fade.frame = bounds
-        fade.colors = [(above ? UIColor.clear : UIColor.black).cgColor, UIColor.black.cgColor, UIColor.black.cgColor,
-                       (below ? UIColor.clear : UIColor.black).cgColor]
-        fade.locations = [0, NSNumber(value: top), NSNumber(value: 1 - bottom), 1]
+        if Self.clipsAtInsets, !traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
+            // [mac] A scrolled draft's top line was cut flush at the box's edge: the lines stop at the box's inner
+            // padding (the text's own inset), top and foot, as a clean edge.
+            let clipTop = above ? textContainerInset.top / h : 0, clipBottom = below ? textContainerInset.bottom / h : 0
+            let clear = UIColor.clear.cgColor, black = UIColor.black.cgColor
+            fade.colors = [clear, clear, black, black, clear, clear]
+            fade.locations = [0, NSNumber(value: clipTop), NSNumber(value: clipTop), NSNumber(value: 1 - clipBottom),
+                              NSNumber(value: 1 - clipBottom), 1]
+        } else {
+            fade.colors = [(above ? UIColor.clear : UIColor.black).cgColor, UIColor.black.cgColor, UIColor.black.cgColor,
+                           (below ? UIColor.clear : UIColor.black).cgColor]
+            fade.locations = [0, NSNumber(value: top), NSNumber(value: 1 - bottom), 1]
+        }
         if edgeFade == nil { edgeFade = fade; layer.mask = fade }
         CATransaction.commit()
     }
