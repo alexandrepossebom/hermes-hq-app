@@ -263,8 +263,11 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
         updatePrimary()
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
+    /// [login-fill-both] The typing starts once the sheet is up, not as it slides in. Focused in viewWillAppear, before
+    /// the sheet was on screen, iOS took the username field for a lone field: a login picked from the keyboard's
+    /// Passwords (Apple’s or 1Password) filled the username and left the password empty (the owner, 2026-11-14).
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
         if fields.allSatisfy({ !$0.isFirstResponder }) { (fields.first { ($0.text ?? "").isEmpty } ?? fields.first)?.becomeFirstResponder() }
     }
 
