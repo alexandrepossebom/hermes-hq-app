@@ -255,6 +255,39 @@ import Testing
         #expect(tally.declined == ["a"] && tally.reason == nil, "left as it was at the owner's Cancel: not a failure")
     }
 
+    /// [update-consent-match] hermes-plugins#3: the add-on (0.9.58) gets what the owner was shown, and answers Hermes's
+    /// own question yes only when Hermes asks about exactly that; a caution scan is no longer forced through.
+    @Test func theAddOnIsToldWhatTheOwnerWasShown() throws {
+        #expect(PluginUpdateConsent.checked(["pluginUpdates": true, "pluginUpdatesChecked": true]))
+        #expect(!PluginUpdateConsent.checked(["pluginUpdates": true]), "0.9.52 to 0.9.57: Hermes's own update, forced, as before")
+        let caution = PluginResult.read(try Self.row(["ok": false, "scan_blocked": true, "scan_verdict": "caution",
+                                                      "scan_findings": [["severity": "high", "category": "network", "file": "clip/fetch.py", "line": 12,
+                                                                         "description": "posts data"]]]))
+        let found = PluginScanFinding(severity: "high", category: "network", file: "clip/fetch.py", line: 12)
+        #expect(caution.scanFound == [found])
+
+        let packages = PluginUpdateConsent.Approved(packages: "tzdata, requests>=2.31", findings: [found], capabilities: ["Tools: clip_page"])
+            .body(profile: "finance", name: "clip")
+        #expect(packages["packages"] as? String == "tzdata, requests>=2.31", "as Hermes's refusal named them, versions and all")
+        #expect((packages["findings"] as? [[String: Any]])?.first?["line"] as? Int == 12)
+        #expect(packages["capabilities"] as? [String] == ["Tools: clip_page"])
+        #expect(packages["profile"] as? String == "finance" && packages["name"] as? String == "clip")
+
+        let plain = PluginUpdateConsent.Approved(packages: "tzdata").body(profile: "default", name: "x")
+        #expect(plain["findings"] == nil && plain["capabilities"] == nil, "nothing shown: nothing approved")
+        #expect(plain["force"] as? Bool == false && plain["accept_capabilities"] as? Bool == false)
+    }
+
+    @Test func aPluginThatChangedSinceTheOwnerLookedIsNotInstalled() {
+        let changed = PluginUpdateConsent.result(["state": "failed", "output": "Update declined.",
+                                                  "held": ["kind": "packages", "now": "tzdata, numpy", "changed": true]])
+        #expect(changed == .failed(PluginUpdateWords.changedSince))
+        let scan = PluginUpdateConsent.result(["state": "failed", "held": ["kind": "findings", "now": [] as [Any], "changed": false]])
+        #expect(scan == .failed(PluginUpdateWords.changedSince), "a scan finding the owner never saw")
+        let new = PluginUpdateConsent.result(["state": "failed", "held": ["kind": "packages", "now": "tzdata", "changed": false]])
+        #expect(new == .computer(packages: "tzdata"), "packages behind a caution the owner accepted: asked about next")
+    }
+
     // MARK: The sheet itself
 
     @Test func theAddOnSheetRunsAPluginUpdate() {

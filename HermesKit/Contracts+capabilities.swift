@@ -365,6 +365,9 @@ nonisolated struct PluginResult: Sendable, Hashable {
     /// and what it found, a line each.
     var scanVerdict: String? = nil
     var scanFindings: [String] = []
+    /// [update-consent-match] The same findings as Hermes reported them, for the add-on to compare with what Hermes's
+    /// own terminal update prints before its "Update anyway?" (hermes-hq-push 0.9.58).
+    var scanFound: [PluginScanFinding] = []
 
     var needsRestart: Bool { restartRequired && !gatewayReloaded }
 
@@ -378,6 +381,28 @@ nonisolated struct PluginResult: Sendable, Hashable {
                      scanFindings: (value["scan_findings"]?.array ?? []).compactMap { finding in
                          guard let what = RosterText.trimmed(finding["description"]) ?? RosterText.trimmed(finding["category"]) else { return nil }
                          return RosterText.trimmed(finding["file"]).map { "\(what) (\($0))" } ?? what
-                     })
+                     },
+                     scanFound: (value["scan_findings"]?.array ?? []).map(PluginScanFinding.read))
+    }
+}
+
+/// [update-consent-match] One thing Hermes's security scan found in an update: what the owner is shown before Update
+/// Anyway, and what the add-on checks Hermes still finds before it answers yes (hermes-hq-plugins#3).
+nonisolated struct PluginScanFinding: Sendable, Hashable {
+    var severity: String
+    var category: String
+    var file: String
+    var line: Int?
+
+    static func read(_ value: JSONValue) -> PluginScanFinding {
+        PluginScanFinding(severity: value["severity"]?.string ?? "", category: value["category"]?.string ?? "",
+                          file: value["file"]?.string ?? "", line: value["line"]?.int)
+    }
+
+    /// As POST /plugins/update takes it.
+    var body: [String: Any] {
+        var out: [String: Any] = ["severity": severity, "category": category, "file": file]
+        if let line { out["line"] = line }
+        return out
     }
 }
