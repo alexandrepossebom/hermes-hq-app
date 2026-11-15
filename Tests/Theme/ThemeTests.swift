@@ -1473,6 +1473,52 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
     }
 }
 
+/// [plain-replies] Chat Bubbles › Reply Bubbles: off draws a bot's replies with no bubble, full width, in the iOS look.
+@Suite struct PlainRepliesTests {
+    @Test func bubblesUntilTurnedOffAndStoredOnlyWhenOff() {
+        let suite = defaults()
+        let store = ThemeStore(defaults: suite)
+        #expect(!store.load().plainReplies && store.load() == .default)
+        store.setPlainReplies(true)
+        #expect(suite.object(forKey: "hqn.theme.plainReplies") as? Bool == true)
+        #expect(ThemeStore(defaults: suite).load().plainReplies)
+        store.setPlainReplies(false)
+        #expect(suite.object(forKey: "hqn.theme.plainReplies") == nil)
+        suite.set("yes", forKey: "hqn.theme.plainReplies")
+        #expect(!store.load().plainReplies, "a value that isn't a Bool reads as bubbles")
+        suite.set(true, forKey: "hqn.theme.plainReplies")
+        store.reset()
+        #expect(suite.object(forKey: "hqn.theme.plainReplies") == nil, "reset forgets it")
+        #expect(SyncedSettingKeys.settings.contains("hqn.theme.plainReplies"), "it follows the owner to the other devices")
+    }
+
+    @Test func appliesInTheIOSLookAndTheDesktopLookStaysPlain() {
+        var state = ThemeState.default
+        #expect(!state.appliedPlainReplies)
+        state.plainReplies = true
+        #expect(state.appliedPlainReplies)
+        #expect(state.layoutSignature != ThemeState.default.layoutSignature, "a change lays the chats out again")
+        var look = ThemeState.default
+        look.desktopLook = true
+        #expect(look.appliedPlainReplies, "the Desktop Look's replies are plain either way")
+        look.highContrast = true
+        #expect(!look.appliedPlainReplies, "High Contrast still boxes them")
+    }
+
+    @MainActor @Test func aPlainReplyKeepsNoBubblePadding() {
+        var state = ThemeState.default
+        state.plainReplies = true
+        ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
+            #expect(HQShape.plainReplies)
+            #expect(TextLayout.sidePad(mine: false) == 0)
+            #expect(TextLayout.sidePad(mine: true) == ChatMetrics.bubblePadH, "your own messages keep their bubble")
+        }
+        ThemeTable.$testSet.withValue(ThemeResolver.resolve(.default)) {
+            #expect(!HQShape.plainReplies && TextLayout.sidePad(mine: false) == ChatMetrics.bubblePadH)
+        }
+    }
+}
+
 /// [density] Theme › Density: Standard or Compact, the iOS look's only, stored only when Compact.
 @Suite struct DensityTests {
     @Test func standardUntilPickedAndStoredOnlyWhenCompact() {

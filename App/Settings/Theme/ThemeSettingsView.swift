@@ -376,8 +376,18 @@ struct ChatBubblesSettingsView: View {
         let state = theme.state
         // UX #118: no "Chat Bubbles" header, under a bar already titled Chat Bubbles.
         List { Group {
+            // [plain-replies] Owner 2026-11-15: replies full width and plain, as in Claude's app, as a switch.
             Section {
-                BubbleCornersRow(stored: state.bubbleCorners, style: bubbleStyle(state)) { points in theme.setBubbleCorners(points) }
+                Toggle("Reply Bubbles", isOn: Binding(get: { !state.plainReplies }, set: { setPlainReplies(!$0) }))
+                    .tint(Color.hqTint)
+                    .accessibilityIdentifier("theme.replyBubbles")
+            } footer: { HQSectionFooter {
+                Text(Self.replyBubblesNote).accessibilityIdentifier("theme.replyBubblesNote")
+            } }
+            Section {
+                BubbleCornersRow(stored: state.bubbleCorners, style: bubbleStyle(state), plainReply: state.plainReplies) { points in
+                    theme.setBubbleCorners(points)
+                }
                     .hqRowPadding(4)
                 bubbleStylePicker(state)
                 // [message-colour] Owner 2026-11-11: your own messages in a colour of your choosing.
@@ -408,6 +418,17 @@ struct ChatBubblesSettingsView: View {
         .hqMacForm(settings: true)
         .hqGroupedPage()
         .listStyle(.insetGrouped)
+    }
+
+    /// [plain-replies] What Reply Bubbles changes.
+    static let replyBubblesNote = "Off: a bot’s replies have no bubble. Their words go the full width of the chat, straight on the page. Your own messages keep theirs."
+
+    /// [plain-replies] Chat Bubbles › Reply Bubbles.
+    private func setPlainReplies(_ on: Bool) {
+        guard on != theme.state.plainReplies else { return }
+        Haptics.play(.selection)
+        theme.setPlainReplies(on)
+        AppLog.trace("settings", "reply bubbles \(on ? "off" : "on")")
     }
 
     /// [message-colour] Chat Bubbles › Colour.
@@ -456,6 +477,8 @@ private struct BubbleCornersRow: View {
     var style: BubbleStyle
     /// [desktop-corners] Set in the Desktop Look: its preview, with the text box this look draws.
     var composer: DesktopComposer?
+    /// [plain-replies] Reply Bubbles off: the preview's reply has no bubble, as in the chat.
+    var plainReply = false
     var commit: (Int) -> Void
     @State private var draft: Double?
     @State private var dragging = false
@@ -469,7 +492,7 @@ private struct BubbleCornersRow: View {
             if let composer {
                 DesktopCornersPreview(radius: CGFloat(points), composer: composer)
             } else {
-                ChatGroundPanel { ground in BubbleCornersPreview(radius: CGFloat(points), style: style, ground: ground) }
+                ChatGroundPanel { ground in BubbleCornersPreview(radius: CGFloat(points), style: style, ground: ground, plainReply: plainReply) }
             }
             HStack(alignment: .firstTextBaseline) {
                 Text("Corners").foregroundStyle(Color.hqLabel)
@@ -580,6 +603,8 @@ struct BubbleCornersPreview: View {
     var style: BubbleStyle
     /// [tinted-bubbles] The chat background the preview stands on, in `ChatGround.space`; nil on a plain row.
     var ground: ChatGround?
+    /// [plain-replies] Reply Bubbles off: the reply's words straight on the page, no bubble or tail.
+    var plainReply = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.colorScheme) private var scheme
@@ -596,7 +621,20 @@ struct BubbleCornersPreview: View {
         .accessibilityHidden(true)
     }
 
+    @ViewBuilder
     private func bubble(_ text: String, mine: Bool, joinsAbove: Bool = false, joinsBelow: Bool = false, tail: Bool) -> some View {
+        if plainReply && !mine {
+            Text(text)
+                .font(Font.hq(.body))
+                .foregroundStyle(Color.hqLabel)
+                .padding(.vertical, ChatMetrics.bubblePadV)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            solidBubble(text, mine: mine, joinsAbove: joinsAbove, joinsBelow: joinsBelow, tail: tail)
+        }
+    }
+
+    private func solidBubble(_ text: String, mine: Bool, joinsAbove: Bool, joinsBelow: Bool, tail: Bool) -> some View {
         let glassy = style == .glass && GlassBubbles.offered && !reduceTransparency
         // Glass takes rounded corners only: no tail, its corner as round as the rest.
         let outline = BubbleOutline(radius: radius, mine: mine, joinsAbove: joinsAbove, joinsBelow: joinsBelow, tail: tail && !glassy)

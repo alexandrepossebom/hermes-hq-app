@@ -39,6 +39,11 @@ nonisolated struct ThemeState: Sendable, Hashable {
     /// picked (owner 2026-11-11: "keep the blue but make an option for Mac and iOS where you can change the color").
     /// Only with the Desktop Look off: the look keeps its own boxes.
     var messageColour = MessageColour.theme
+    /// [plain-replies] Chat Bubbles › Reply Bubbles off: a bot's reply has no bubble in the iOS look, its words full
+    /// width straight on the page, as in Claude's app (owner 2026-11-15: "turn off the bot's chat bubbles so that their
+    /// responses show full width just plain in the chat"). Your own messages keep theirs. Off unless picked; the
+    /// Desktop Look's replies are plain already (`appliedPlainReplies`).
+    var plainReplies = false
 
     static let `default` = ThemeState()
     static let scalePresets = [90, 100, 110, 125, 150]
@@ -121,6 +126,9 @@ nonisolated struct ThemeState: Sendable, Hashable {
     var appliedTintedBubbles: Bool { appliedBubbleStyle == .tinted }
     /// [message-colour] The Desktop Look keeps its skin's own box for your messages.
     var appliedMessageColour: MessageColour { desktopLook ? .theme : messageColour }
+    /// [plain-replies] Replies drawn with no bubble: always in the Desktop Look (unless High Contrast boxes them), and in
+    /// the iOS look when Reply Bubbles is off.
+    var appliedPlainReplies: Bool { desktopLook ? !contrastApplies : plainReplies }
     /// Everything a layout depends on (the mode is colours only; High Contrast boxes the look's replies, which then
     /// keep a bubble's padding).
     var layoutSignature: Int {
@@ -132,6 +140,8 @@ nonisolated struct ThemeState: Sendable, Hashable {
         hasher.combine(desktopLook ? skin.sansFamily : nil)
         // Photo albums and voice memos inside a bubble keep its corner in their layouts.
         hasher.combine(appliedBubbleCorners)
+        // [plain-replies] A plain reply keeps no bubble padding.
+        hasher.combine(appliedPlainReplies)
         return hasher.finalize()
     }
 }
@@ -226,7 +236,7 @@ nonisolated enum TopEdge: String, Sendable, Hashable, CaseIterable {
     case hard
 }
 
-/// Reads and writes the fourteen `hqn.theme.*` keys.
+/// Reads and writes the fifteen `hqn.theme.*` keys.
 nonisolated struct ThemeStore: @unchecked Sendable {
     enum Key {
         static let skin = "hqn.theme.skin"
@@ -252,8 +262,10 @@ nonisolated struct ThemeStore: @unchecked Sendable {
         static let density = "hqn.theme.density"
         /// [message-colour] `MessageColour.stored`, stored only when it isn't the theme's own.
         static let messageColour = "hqn.theme.messageColour"
+        /// [plain-replies] Stored only when on (`true`).
+        static let plainReplies = "hqn.theme.plainReplies"
         static let all = [skin, chosen, desktopLook, skinBeforeLook, highContrast, uiScale, bubbleCorners, glassBubbles, bubbleStyle, topEdge,
-                          desktopCorners, desktopComposer, density, messageColour]
+                          desktopCorners, desktopComposer, density, messageColour, plainReplies]
     }
 
     var defaults: UserDefaults = .standard
@@ -305,6 +317,7 @@ nonisolated struct ThemeStore: @unchecked Sendable {
         if let edge = (defaults.object(forKey: Key.topEdge) as? String).flatMap(TopEdge.init(rawValue:)) { state.topEdge = edge }
         if let density = (defaults.object(forKey: Key.density) as? String).flatMap(ListDensity.init(rawValue:)) { state.density = density }
         state.messageColour = MessageColour(stored: defaults.object(forKey: Key.messageColour))
+        state.plainReplies = flag(Key.plainReplies)
         return state
     }
 
@@ -395,6 +408,11 @@ nonisolated struct ThemeStore: @unchecked Sendable {
     /// [message-colour] The theme's own, the default, is stored as nothing.
     func setMessageColour(_ colour: MessageColour) {
         if let stored = colour.stored { defaults.set(stored, forKey: Key.messageColour) } else { defaults.removeObject(forKey: Key.messageColour) }
+    }
+
+    /// [plain-replies] Bubbles on, the default, is stored as nothing.
+    func setPlainReplies(_ on: Bool) {
+        if on { defaults.set(true, forKey: Key.plainReplies) } else { defaults.removeObject(forKey: Key.plainReplies) }
     }
 
     func reset() { Key.all.forEach(defaults.removeObject(forKey:)) }

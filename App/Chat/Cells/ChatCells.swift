@@ -245,12 +245,15 @@ final class BubbleShapeView: UIView {
         updateFill()
     }
 
-    private var wantsGlass: Bool { allowsGlass && GlassBubbles.applies }
+    private var wantsGlass: Bool { allowsGlass && GlassBubbles.applies && !plainReply }
+
+    /// [plain-replies] A reply in the iOS look with Chat Bubbles › Reply Bubbles off: no bubble, as the Desktop Look's.
+    private var plainReply: Bool { !Theme.isDesktop && HQShape.plainReplies && fill == ChatPalette.botBubble }
 
     /// [tinted-bubbles] Picked and possible, and the bubble stands in a chat (its background is found once it's in a
     /// window).
     private var wantsTint: Bool {
-        guard allowsGlass, TintedBubbles.applies, window != nil else { return false }
+        guard allowsGlass, !plainReply, TintedBubbles.applies, window != nil else { return false }
         if !anchorLooked {
             anchorLooked = true
             tintAnchor = TintedBubbles.anchor(for: self)
@@ -441,6 +444,12 @@ final class BubbleShapeView: UIView {
             }
         }
         setTinted(false)
+        if plainReply {
+            shapeLayer.fillColor = UIColor.clear.cgColor
+            shapeLayer.lineWidth = 0
+            shapeLayer.strokeColor = nil
+            return
+        }
         // [desktoplook] Replies have no bubble (text straight on the page); your message is a bordered box
         // (phone-ui-desktop.css:230-266). High Contrast boxes a reply too, softly: half the card's fill over the page
         // and an edge of the text at an eighth (owner, 2026-10-26: half, a third and a fifth were still too heavy,

@@ -137,6 +137,12 @@ final class Theme {
         reload()
     }
 
+    /// [plain-replies] Chat Bubbles › Reply Bubbles (the iOS look).
+    func setPlainReplies(_ on: Bool) {
+        store.setPlainReplies(on)
+        reload()
+    }
+
     /// [top-edge] Theme › Themes › Top Edge.
     func setTopEdge(_ edge: TopEdge) {
         store.setTopEdge(edge)

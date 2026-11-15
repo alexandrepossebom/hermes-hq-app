@@ -513,7 +513,8 @@ private struct BackdropPreview: View {
                         .background(.thinMaterial, in: .capsule)
                     BubbleCornersPreview(radius: CGFloat(Theme.shared.state.bubbleCorners),
                                          style: BubbleStyles.shown(Theme.shared.state.bubbleStyle),
-                                         ground: image == nil || size == .zero ? nil : ChatGround(size: size))
+                                         ground: image == nil || size == .zero ? nil : ChatGround(size: size),
+                                         plainReply: Theme.shared.state.plainReplies)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
