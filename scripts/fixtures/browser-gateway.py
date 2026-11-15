@@ -11,7 +11,7 @@ Plugin routes (cookie session for REST, a `ticket=` for websockets, like /api/ws
                                                            take/give, input; a fake sign-in page whose username box is
                                                            at y 30–38 % and password box at 42–50 % (x 30–70 %)
 Fixture control:
-  POST /__fixture/browser  {active?, listed?, url?, ask?, choice_feature?, dialogs_feature?, plugin?: "ready"|"missing", frame_fps?,
+  POST /__fixture/browser  {active?, listed?, url?, ask?, driver?: a session id of another chat using the browser now, choice_feature?, dialogs_feature?, plugin?: "ready"|"missing", frame_fps?,
                             blocked?: {profile: reason},   a bot whose browser the plugin doesn't run (3.6.2 codes)
                             dialog?: {id, kind, …} | null}  a box the page opened (3.7.0); an `answer` closes it
   GET  /__fixture/browser  {inputs, acks, frames_sent, hellos, views, control, choice (default's), choices, blocked,
@@ -64,7 +64,10 @@ def bump():
 def row():
     sid = base.voice.SIDS['default']
     now = time.time()
-    return {'id': BROWSER_ID, 'profile': 'default', 'session_id': sid, 'session_ids': [sid], 'opened_at': now - 60,
+    # `driver`: another chat of the bot (a job, a side chat) uses the browser now; the Bot Chat used it before.
+    driver = STATE.get('driver') or sid
+    ids = [sid] if driver == sid else [sid, driver]
+    return {'id': BROWSER_ID, 'profile': 'default', 'session_id': driver, 'session_ids': ids, 'opened_at': now - 60,
             'agent_at': now if STATE['active'] else now - 600, 'url': STATE['url'], 'busy': 1 if STATE['active'] else 0,
             'active': STATE['active'], 'control': STATE['control'], 'ask': STATE['ask']}
 
@@ -493,7 +496,7 @@ def handler(gateway):
             if path == '/__fixture/browser':
                 body = self.body()
                 with LOCK:
-                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'cloud_feature', 'cloud_all_feature', 'cloud_skip', 'hosted', 'plugin', 'frame_fps', 'dialog'):
+                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'cloud_feature', 'cloud_all_feature', 'cloud_skip', 'hosted', 'plugin', 'frame_fps', 'dialog', 'driver'):
                         if key in body:
                             STATE[key] = body[key]
                     if isinstance(body.get('blocked'), dict):

@@ -51,7 +51,8 @@ final class BrowserChatCard {
     func update() {
         guard let chat, subscription != nil else { return }
         let scope = self.scope()
-        let row = BrowserCard.row(scope.row(in: service.activity.rows), showing: showing, turnRunning: chat.session.isRunning)
+        // Only the browser this chat is driving (`drivenRow`): the bot's other chats say nothing about it.
+        let row = BrowserCard.row(scope.drivenRow(in: service.activity.rows), showing: showing, turnRunning: chat.session.isRunning)
         let changed = row?.id != showing?.id
         showing = row
         let chip = row.map { (words: BrowserCard.words($0, name: scope.title.isEmpty ? "This bot" : scope.title),

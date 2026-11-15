@@ -115,6 +115,9 @@ nonisolated struct BrowserScope: Sendable, Hashable {
     var title: String
     /// Another chat of the bot (not its own chat): only a browser of this chat's sessions, none while it has no ids yet.
     var chatOnly = false
+    /// A Bot Chat's sessions, this one and its earlier ones (`BotStore.ownChatIds`): for the card only
+    /// (`drivenRow`), so the viewer opened from a Bot Chat still finds any browser of the bot.
+    var ownChats: [String] = []
 
     /// This bot's browser: its profile's, and when the scope names chats, one of theirs. Newest bot use first.
     func row(in rows: [BrowserRow]) -> BrowserRow? {
@@ -124,6 +127,24 @@ nonisolated struct BrowserScope: Sendable, Hashable {
             row.profile == profile && (ids.isEmpty || ids.contains(row.sessionId) || row.sessionIds.contains(where: ids.contains))
         }
     }
+
+    /// The browser a chat's card speaks for: one this chat is driving now. The owner 2026-11-15: a bot browsing for
+    /// its Bot Chat showed "Browsing…" on every chat of that bot. A bot has one Chrome, and the plugin's `session_ids`
+    /// keeps the last sixteen chats that ever used it, so matching that history lit the card in every chat that had
+    /// once browsed. Only the chat that used the browser last (`session_id`, the history's newest when that is
+    /// empty) counts. No ids: none (the viewer, not the card, shows "any browser of the bot").
+    func drivenRow(in rows: [BrowserRow]) -> BrowserRow? {
+        let ids = Set((sessionIds + ownChats).filter { !$0.isEmpty })
+        guard !ids.isEmpty else { return nil }
+        return rows.sorted { $0.agentAt > $1.agentAt }.first { row in
+            row.profile == profile && ids.contains(row.driver)
+        }
+    }
+}
+
+extension BrowserRow {
+    /// The chat that used this browser last.
+    nonisolated var driver: String { sessionId.isEmpty ? (sessionIds.last ?? "") : sessionId }
 }
 
 nonisolated enum BrowserCard {
@@ -157,8 +178,7 @@ nonisolated enum BrowserCard {
             guard row.profile == profile else { return false }
             if row.ask != nil || row.control != .bot { return true }
             guard let ownChats else { return true }
-            let chat = row.sessionId.isEmpty ? (row.sessionIds.last ?? "") : row.sessionId
-            return ownChats.contains(chat)
+            return ownChats.contains(row.driver)
         }
     }
 

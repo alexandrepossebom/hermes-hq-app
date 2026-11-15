@@ -61,6 +61,34 @@ struct BrowserWireTests {
         #expect(BrowserScope(profile: "wren", sessionIds: ["zz"], title: "Wren").row(in: [a, b]) == nil)
     }
 
+    /// The owner 2026-11-15: a bot browsing for its Bot Chat said "Browsing…" in every chat of that bot. Its one
+    /// Chrome lists the last sixteen chats that used it; only the chat driving it now gets the card.
+    @Test func theCardIsOnlyInTheChatDrivingTheBrowser() {
+        let chrome = BrowserRow(id: id, profile: "wren", sessionId: "bot-chat", sessionIds: ["side", "job", "bot-chat"],
+                                url: "https://example.test", busy: 1, agentAt: 20, active: true)
+        let botChat = BrowserScope(profile: "wren", title: "Wren", ownChats: ["bot-chat-earlier", "bot-chat"])
+        let side = BrowserScope(profile: "wren", sessionIds: ["side"], title: "Wren", chatOnly: true)
+        let job = BrowserScope(profile: "wren", sessionIds: ["job"], title: "Wren", chatOnly: true)
+        #expect(botChat.drivenRow(in: [chrome])?.id == chrome.id)
+        #expect(side.drivenRow(in: [chrome]) == nil, "a chat that browsed earlier says nothing about the Bot Chat's browsing")
+        #expect(job.drivenRow(in: [chrome]) == nil)
+        #expect(side.row(in: [chrome])?.id == chrome.id, "its Watch Browser still finds the bot's browser")
+
+        var sideNow = chrome
+        sideNow.sessionId = "side"
+        #expect(side.drivenRow(in: [sideNow])?.id == chrome.id, "the side chat browsing gets its own card")
+        #expect(botChat.drivenRow(in: [sideNow]) == nil, "and the Bot Chat no longer claims it")
+        #expect(BrowserScope(profile: "wren", title: "Wren").row(in: [sideNow])?.id == chrome.id,
+                "the Bot Chat's viewer still shows any browser of the bot")
+
+        var noCurrent = chrome
+        noCurrent.sessionId = ""
+        #expect(botChat.drivenRow(in: [noCurrent])?.id == chrome.id, "no session_id: the history's newest drives it")
+        #expect(side.drivenRow(in: [noCurrent]) == nil)
+        #expect(BrowserScope(profile: "wren", title: "Wren").drivenRow(in: [chrome]) == nil, "no ids: no card")
+        #expect(BrowserScope(profile: "ivy", sessionIds: ["bot-chat"], title: "Ivy").drivenRow(in: [chrome]) == nil)
+    }
+
     @Test func theCardStaysForTheRunningTurnAndSaysWhatItNeeds() {
         var idle = BrowserRow(id: id, profile: "wren", url: "https://www.example.test/x")
         let showing = BrowserRow(id: id, profile: "wren", active: true)

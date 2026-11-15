@@ -6,13 +6,16 @@ import UIKit
 
 extension AppModel {
     /// The scope a chat's card and ⋯ item show: a bot's own chat any browser of that bot; another chat only its own.
+    /// The card matches the chat's sessions (a Bot Chat's `ownChats`, its earlier ones too) against the chat driving the
+    /// browser now (`BrowserScope.drivenRow`); the viewer keeps the wider match.
     func browserScope(for model: any ChatSessionModel) -> BrowserScope {
         let live = model as? LiveChatSession
         let name = live?.botName ?? botStore?.bot(named: model.profile)?.name ?? model.title
-        if live?.menus.isBotChat ?? false {
-            return BrowserScope(profile: model.profile, title: name)
-        }
         let ids = [live?.storedSessionId, live?.runtimeSessionId].compactMap { $0 }.filter { !$0.isEmpty }
+        if live?.menus.isBotChat ?? false {
+            let own = botStore?.ownChatIds(model.profile) ?? []
+            return BrowserScope(profile: model.profile, title: name, ownChats: Array(Set(ids).union(own)).sorted())
+        }
         return BrowserScope(profile: model.profile, sessionIds: ids, title: name, chatOnly: true)
     }
 

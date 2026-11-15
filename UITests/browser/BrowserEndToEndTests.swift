@@ -493,6 +493,24 @@ final class BrowserEndToEndTests: XCTestCase {
         XCTAssertFalse(app.alerts["Update the Browser Add-on?"].exists, "the offer comes once")
     }
 
+    /// The owner 2026-11-15: browsing in one chat showed the card in every chat of that bot. Another chat of the bot
+    /// (a job, a side chat) drives the browser the Bot Chat used before: the Bot Chat shows no card, then gets it back
+    /// once it drives the browser again.
+    @MainActor func test9_CardOnlyInTheChatDrivingTheBrowser() throws {
+        try account.control("/__fixture/browser", ["active": true, "driver": "20260929_120000_ffee0001"])
+        launch()
+        openChat()
+        let chip = app.buttons["chat.shelf.browser"]
+        RunLoop.current.run(until: Date().addingTimeInterval(6))
+        attach("chat-other-chat-browsing")
+        XCTAssertFalse(chip.exists, "another chat's browsing is not this chat's news: \(chip.exists ? chip.label : "")")
+
+        try account.control("/__fixture/browser", ["driver": ""])
+        XCTAssertTrue(chip.waitForExistence(timeout: 15), "this chat browsing gets its card")
+        XCTAssertTrue(chip.label.contains("Browsing example.test"), chip.label)
+        attach("chat-this-chat-browsing")
+    }
+
     /// With a 3.7 add-on there is nothing to offer.
     @MainActor func test8_CurrentAddOnOffersNothing() throws {
         try account.control("/__fixture/browser", ["active": true])
