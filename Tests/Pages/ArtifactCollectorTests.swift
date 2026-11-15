@@ -386,7 +386,7 @@ struct ArtifactCandidateTests {
 
     @Test func cutOffURLs() {
         #expect(ArtifactCollector.urlCutOff("https://example.co…"))
-        #expect(ArtifactCollector.urlCutOff("https://example.co"))
+        #expect(ArtifactCollector.urlCutOff("https://example.zz"))   // two letters that are no country's
         #expect(ArtifactCollector.urlCutOff("https://example.co..."))
         #expect(!ArtifactCollector.urlCutOff("https://example.org/papers/open-planning"))
         #expect(!ArtifactCollector.urlCutOff("https://github.com/a/b/compare/main...feature"))
