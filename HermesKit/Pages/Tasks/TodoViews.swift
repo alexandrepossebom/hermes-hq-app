@@ -463,12 +463,17 @@ nonisolated enum TodoViews {
 /// tasks), "Task check" (one run when a watched task's check is due) and "Task ideas" (the daily look). Owner
 /// 2026-11-12: they showed among your own jobs ("Task ideas" and "Task check" among 53). They are told by their name
 /// and the add-on's own instruction, so a job of yours that happens to be called "Task check" still shows.
+/// Where a job of yours already holds one of the names, the add-on (from 0.9.56) leaves it alone and names its own
+/// with `taken` after it ("Task check (Hermes HQ)"): that one is the add-on's too.
 nonisolated enum TodoRunnerJobs {
     static let names: Set<String> = ["Task prep", "Task check", "Task ideas"]
+    static let taken = " (Hermes HQ)"
     static let openings = ["Work through Tasks prep.", "Find task ideas for the user."]
 
     static func isOne(_ job: CronJob) -> Bool {
-        guard let name = job.name?.trimmingCharacters(in: .whitespaces), names.contains(name) else { return false }
+        guard var name = job.name?.trimmingCharacters(in: .whitespaces) else { return false }
+        if name.hasSuffix(taken) { name.removeLast(taken.count) }
+        guard names.contains(name) else { return false }
         let prompt = (job.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return openings.contains { prompt.hasPrefix($0) }
     }

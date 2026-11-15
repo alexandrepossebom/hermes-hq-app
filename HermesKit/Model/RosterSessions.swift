@@ -339,9 +339,14 @@ nonisolated struct SessionUnreadState: Codable, Sendable, Hashable {
     /// Unread when the server says so (not overridden), an explicit marker exists, or (non-messaging rows) the
     /// stored count passed the seen watermark. The selected chat skips the local half (markers and watermark) like
     /// the web's `recomputeUnread`; the server's flag still counts (`session-dot-state.ts`).
-    func isUnread(_ row: SidebarSessionRow, messaging: Bool = false, serverOverride: Bool? = nil, selected: Bool = false) -> Bool {
+    /// [unread-working] `running`: a turn still at work has stored its steps, its helpers' results and its notes, not
+    /// a reply to read, so neither the stored count nor the server's flag (both move with every stored row) makes
+    /// the chat unread until the turn ends; the count is still past the watermark then, and the dot comes with the
+    /// reply. A marker the person set themselves shows either way.
+    func isUnread(_ row: SidebarSessionRow, messaging: Bool = false, serverOverride: Bool? = nil, selected: Bool = false,
+                  running: Bool = false) -> Bool {
         if !selected, markers[row.profile]?.contains(row.id) == true { return true }
-        if messaging { return false }
+        if messaging || running { return false }
         var server = serverOverride ?? row.unread ?? false
         if server, let cleared = localReads[row.id], (row.lastActive ?? 0) <= cleared { server = false }
         if server { return true }

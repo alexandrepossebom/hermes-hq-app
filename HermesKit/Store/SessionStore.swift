@@ -303,6 +303,9 @@ final class SessionStore {
     /// leaves it, until another chat is focused. Its stored count is absorbed on every read and its local dot is
     /// skipped, so the chat the user just used does not come back unread (the server's own flag still shows).
     @ObservationIgnored private var selectedSessionId: String?
+    /// [unread-working] The selected chat's lineage (`durableId`), learnt from its listed row. The gateway lists a
+    /// chat it compacted under its newest part's id, so the id alone would lose the chat on screen mid-turn.
+    @ObservationIgnored private var selectedLineage: String?
     /// Our own `unread` writes not yet answered by a list page read after the gateway acknowledged them.
     @ObservationIgnored private var unreadWrites: [String: UnreadWrite] = [:]
     @ObservationIgnored private var unreadWriteTokens = 0
@@ -473,6 +476,7 @@ final class SessionStore {
     /// every refresh and it shows no local dot.
     func setFocusedSession(_ id: String?) {
         guard let id else { return }
+        if id != selectedSessionId { selectedLineage = nil }
         selectedSessionId = id
         absorbSelected()
         persistState()
@@ -545,6 +549,7 @@ final class SessionStore {
     func markOpened(_ session: SessionSummary) {
         guard let row = listedRow(id: session.id, profile: session.profile) else { return }
         selectedSessionId = row.id
+        selectedLineage = Self.durableId(row)
         let serverUnread = row.unread == true
         device.unread.opened(row, clearServerLocally: serverUnread && readOnlyGateway)
         persistState()
@@ -669,7 +674,7 @@ final class SessionStore {
         cron.removeAll { $0.id == id && $0.profile == profile }
         messaging.removeAll { $0.id == id && $0.profile == profile }
         guard recents.count + cron.count + messaging.count != before else { return }
-        if selectedSessionId == id { selectedSessionId = nil }
+        if selectedSessionId == id { selectedSessionId = nil; selectedLineage = nil }
         lastFingerprint = nil
         writeCache()
         rebuild()
@@ -708,7 +713,7 @@ final class SessionStore {
 
     /// [sessions-m9] Either unread source says this listed chat is unread (the row's own rule, §5.6 `anyUnread`).
     func isUnreadNow(_ row: SidebarSessionRow) -> Bool {
-        device.unread.isUnread(row, messaging: false, selected: row.id == selectedSessionId)
+        device.unread.isUnread(row, messaging: false, selected: row.id == selectedSessionId, running: running.contains(row.id))
     }
 
     // MARK: - Pipeline
@@ -1042,9 +1047,18 @@ final class SessionStore {
     }
 
     /// The selected chat is on screen or was just read: what it holds is seen.
+    /// [unread-working] A selected chat the gateway compacted is listed under a new id with the same lineage: the
+    /// selection follows it, or the chat on screen would count as one never opened and take a dot at its next row.
     private func absorbSelected() {
         guard let id = selectedSessionId else { return }
-        for row in recents + cron + messaging where row.id == id { device.unread.opened(row, clearServerLocally: false) }
+        let rows = recents + cron + messaging
+        if let row = rows.first(where: { $0.id == id }) {
+            selectedLineage = Self.durableId(row)
+        } else if let lineage = selectedLineage, let moved = rows.first(where: { $0.lineageRootId == lineage }) {
+            selectedSessionId = moved.id
+        }
+        guard let now = selectedSessionId else { return }
+        for row in rows where row.id == now { device.unread.opened(row, clearServerLocally: false) }
     }
 
     func writeCache() {
@@ -1105,7 +1119,8 @@ final class SessionStore {
         var summary = SessionSummary(id: row.id, profile: row.profile, title: shown.title, preview: shown.preview,
                                      lastActive: row.recency > 0 ? Date(timeIntervalSince1970: row.recency) : nil,
                                      source: row.source,
-                                     unread: device.unread.isUnread(row, messaging: messaging, selected: selected),
+                                     unread: device.unread.isUnread(row, messaging: messaging, selected: selected,
+                                                                    running: running.contains(row.id)),
                                      isRunning: running.contains(row.id))
         // [sessions-m9] Sort By, Row Detail, the status and the pending line (docs/spec/3x-sessions.md §3.1, §3.3, §9).
         summary.startedAt = (row.startedAt ?? 0) > 0 ? Date(timeIntervalSince1970: row.startedAt ?? 0) : nil

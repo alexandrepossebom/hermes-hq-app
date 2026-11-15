@@ -275,6 +275,72 @@ import Testing
         other.stop()
     }
 
+    /// [unread-working] A chat still at work is not New for You for what its own turn stored (steps, helpers' results,
+    /// notes): the dot comes with the reply, when the turn ends. A tester's chats sat under New and Working at once.
+    @Test func aWorkingChatIsUnreadOnlyOnceItsTurnEnds() async throws {
+        let rows = BotsTestBox([Self.srow("busy", count: 2), Self.srow("flagged", count: 3), Self.srow("marked", count: 4)])
+        let client = BotsFakeGatewayClient()
+        client.onREST { method, _, _, _ in
+            method == "PATCH" ? try! (["ok": true, "unread": true] as JSONValue).encoded() : Self.sidebar(rows.value)
+        }
+        let store = makeStore(client)
+        #expect(await BotsTest.waitUntil { store.loadState == .ready })
+        store.setRunning(["busy", "flagged", "marked"])
+        // Rows stored mid-turn move the count, and the gateway's own flag with it.
+        rows.value = [Self.srow("busy", count: 9), Self.srow("flagged", count: 7, unread: true), Self.srow("marked", count: 4)]
+        await store.refresh()
+        #expect(store.sessions.count == 3)
+        #expect(store.sessions.allSatisfy { !$0.unread && $0.isRunning })
+        #expect(store.unreadCount == 0)
+        #expect(!store.anyUnread)
+
+        // Mark as Unread is the person's own word: it shows on a working chat too.
+        store.setUnread(store.sessions.first { $0.id == "marked" }!, true)
+        #expect(store.sessions.first { $0.id == "marked" }?.unread == true)
+        #expect(store.sessions.first { $0.id == "busy" }?.unread == false)
+
+        // The turns end: the replies are there to read.
+        store.setRunning([])
+        #expect(store.sessions.allSatisfy { $0.unread && !$0.isRunning })
+        #expect(store.unreadCount == 3)
+        store.stop()
+    }
+
+    /// [unread-working] The gateway lists a chat it compacted under its newest part's id, with that part's short count.
+    /// The chat on screen stays the selected one through that, so its next stored row is seen, not a dot.
+    @Test func theSelectedChatStaysReadThroughACompaction() async throws {
+        func part(_ id: String, count: Int) -> JSONValue {
+            guard case .object(var row) = Self.srow(id, count: count) else { return .null }
+            row["_lineage_root_id"] = "open"
+            return .object(row)
+        }
+        let rows = BotsTestBox([Self.srow("open", count: 40), Self.srow("other", count: 2)])
+        let client = BotsFakeGatewayClient()
+        client.onREST { _, _, _, _ in Self.sidebar(rows.value) }
+        let store = makeStore(client)
+        #expect(await BotsTest.waitUntil { store.loadState == .ready })
+        store.setFocusedSession("open")
+
+        rows.value = [part("open-2", count: 3), Self.srow("other", count: 2)]
+        await store.refresh()
+        rows.value = [part("open-2", count: 6), Self.srow("other", count: 2)]
+        await store.refresh()
+        #expect(store.sessions.first { $0.id == "open-2" }?.unread == false)
+        // A second compaction, from the part the selection moved to.
+        rows.value = [part("open-3", count: 2), Self.srow("other", count: 2)]
+        await store.refresh()
+        rows.value = [part("open-3", count: 5), Self.srow("other", count: 2)]
+        await store.refresh()
+        #expect(store.sessions.first { $0.id == "open-3" }?.unread == false)
+
+        // Another chat takes the selection: the compacted one is an ordinary chat again.
+        store.setFocusedSession("other")
+        rows.value = [part("open-3", count: 8), Self.srow("other", count: 2)]
+        await store.refresh()
+        #expect(store.sessions.first { $0.id == "open-3" }?.unread == true)
+        store.stop()
+    }
+
     @Test func readOnlyGatewayClearsLocallyWithoutWriting() async throws {
         let rows = BotsTestBox([Self.srow("srv", count: 5, unread: true)])
         let client = BotsFakeGatewayClient()
