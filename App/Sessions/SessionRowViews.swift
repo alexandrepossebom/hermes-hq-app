@@ -686,6 +686,9 @@ struct SessionDateHeaderView: View {
                     if let onFavorite = order.onFavorite {
                         Button(order.favorite ? "Remove from Favorites" : "Add to Favorites", action: onFavorite)
                     }
+                    if let onArchive = order.onArchive {
+                        Button(order.archived ? "Unarchive Project" : "Archive Project", action: onArchive)
+                    }
                     if let up = order.onMoveUp { Button("Move Up", action: up) }
                     if let down = order.onMoveDown { Button("Move Down", action: down) }
                     Button(order.reorderTitle, action: order.onReorder)
@@ -972,6 +975,9 @@ struct SessionHeaderOrder {
     var onFavorite: (() -> Void)?
     var onMoveUp: (() -> Void)?
     var onMoveDown: (() -> Void)?
+    /// [project-pills] Archive Project / Unarchive Project (project pills only).
+    var archived = false
+    var onArchive: (() -> Void)?
     /// "Reorder Projects…" or "Reorder Bots…".
     var reorderTitle: String
     var onReorder: () -> Void
@@ -1028,6 +1034,13 @@ private struct ProjectHeaderMenuItems: View {
                               systemImage: order.favorite ? "star.slash" : "star")
                     }
                     .accessibilityIdentifier("sessions.header.favorite")
+                }
+                if let onArchive = order.onArchive {
+                    Button(action: onArchive) {
+                        Label(order.archived ? "Unarchive Project" : "Archive Project",
+                              systemImage: order.archived ? "tray.and.arrow.up" : "archivebox")
+                    }
+                    .accessibilityIdentifier("sessions.header.archive")
                 }
                 Button(action: order.onMoveUp ?? {}) { Label("Move Up", systemImage: "arrow.up") }
                     .disabled(order.onMoveUp == nil)

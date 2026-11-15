@@ -41,17 +41,18 @@ extension SessionsTests {
         tapFilter(app, "group", "group.project")
         closeFilter(app)
 
-        // The default: the project with the newest chat first, Home last.
-        XCTAssertTrue(waitUntil(8) { self.groupTitles(app) == ["App", "Reading", "Website", "Home"] }, "\(groupTitles(app))")
+        // The default: [project-pills] what needs you first (Website's unread reply), then the project with the newest
+        // chat first, Home last.
+        XCTAssertTrue(waitUntil(8) { self.groupTitles(app) == ["Website", "App", "Reading", "Home"] }, "\(groupTitles(app))")
 
         // Home moves like any project.
         headerMenu(app, "Home", "Move Up")
-        XCTAssertTrue(waitUntil(6) { self.groupTitles(app) == ["App", "Reading", "Home", "Website"] }, "Home up: \(groupTitles(app))")
+        XCTAssertTrue(waitUntil(6) { self.groupTitles(app) == ["Website", "App", "Home", "Reading"] }, "Home up: \(groupTitles(app))")
 
-        // A favorite goes on top and says so.
-        headerMenu(app, "Website", "Add to Favorites")
-        XCTAssertTrue(waitUntil(6) { self.groupTitles(app) == ["Website", "App", "Reading", "Home"] }, "Website a favorite: \(groupTitles(app))")
-        XCTAssertTrue(headers(app).contains { $0.hasPrefix("Website, Favorite") }, "\(headers(app))")
+        // A favorite goes on top of its kind (the quiet ones here) and says so.
+        headerMenu(app, "Reading", "Add to Favorites")
+        XCTAssertTrue(waitUntil(6) { self.groupTitles(app) == ["Website", "Reading", "App", "Home"] }, "Reading a favorite: \(groupTitles(app))")
+        XCTAssertTrue(headers(app).contains { $0.hasPrefix("Reading, Favorite") }, "\(headers(app))")
         shot(app, "order-favorite-project")
 
         // The Reorder page lists them in the list's order, the favorite under Favorites.
@@ -64,12 +65,12 @@ extension SessionsTests {
         shot(app, "order-reorder-page")
         app.buttons["group-order.default"].tap()
         app.buttons["sheet.close"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(6) { self.groupTitles(app) == ["Website", "App", "Reading", "Home"] }, "default again, the favorite on top")
+        XCTAssertTrue(waitUntil(6) { self.groupTitles(app) == ["Website", "Reading", "App", "Home"] }, "default again, the favorite on top of the quiet ones")
 
         // Kept across launches.
         app.terminate()
         var again = launch(keepView: true, drag: true)
-        XCTAssertTrue(waitUntil(15) { self.groupTitles(again) == ["Website", "App", "Reading", "Home"] }, "after relaunch: \(groupTitles(again))")
+        XCTAssertTrue(waitUntil(15) { self.groupTitles(again) == ["Website", "Reading", "App", "Home"] }, "after relaunch: \(groupTitles(again))")
 
         // Group By Bot: one group per bot (Deploys' chat is pinned), the bot with the newest chat first; a bot moves.
         openFilter(again)
@@ -159,9 +160,10 @@ extension SessionsTests {
         openFilter(app)
         tapFilter(app, "group", "group.project")
         closeFilter(app)
-        XCTAssertTrue(waitUntil(8) { self.groupTitles(app) == ["App", "Reading", "Website", "Home"] }, "\(groupTitles(app))")
-        // [sessions-layout] Projects start folded: open the ones the drags read.
-        for project in ["App", "Reading", "Website"] { openProject(app, project) }
+        XCTAssertTrue(waitUntil(8) { self.groupTitles(app) == ["Website", "App", "Reading", "Home"] }, "\(groupTitles(app))")
+        // [sessions-layout] Projects start folded: open the ones the drags read. [project-pills] Website (first now, as
+        // it holds an unread reply) opens only for its drop, so Home's header stays on screen for the first drag.
+        for project in ["App", "Reading"] { openProject(app, project) }
         shot(app, "drag-project-before")
 
         // Onto Home: nothing moves (a chat leaves a project only by its folder).
@@ -181,6 +183,7 @@ extension SessionsTests {
         shot(app, "drag-project-other-bot")
 
         // Hermes's Garden plan (in App) onto Website's header: its own bot's project.
+        openProject(app, "Website")
         dragRow(app, row(app, "s-garden"), ontoHeader: header(app, "Website"))
         XCTAssertTrue(waitUntil(6) { self.rpc("session.workspace.move").contains {
             $0["session_key"] as? String == "s-garden" && $0["cwd"] as? String == "/home/hermes/site" } }, "\(rpc("session.workspace.move"))")

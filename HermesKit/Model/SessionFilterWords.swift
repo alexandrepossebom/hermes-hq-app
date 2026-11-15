@@ -59,6 +59,97 @@ nonisolated enum SessionProjects {
               let id = SessionProject.owner(of: cwd, in: projects), let project = projects.first(where: { $0.id == id }) else { return homeKey }
         return key(project, profile: profile)
     }
+
+    /// [project-pills] What each project's chats are doing now (`SessionProjectState`), by project key: every state
+    /// one of its chats is in. Archived chats count for nothing.
+    static func states(_ sessions: [SessionSummary], projectsByProfile: [String: [SessionProject]]) -> [String: Set<SessionProjectState>] {
+        var out: [String: Set<SessionProjectState>] = [:]
+        for session in sessions where !session.archived {
+            let found = SessionProjectState.of(session)
+            guard !found.isEmpty else { continue }
+            let key = key(cwd: session.cwd, profile: session.profile, projectsByProfile: projectsByProfile)
+            out[key, default: []].formUnion(found)
+        }
+        return out
+    }
+
+    /// [project-pills] The project pills, in order: what needs the owner first (Needs You, then Ready, then Working,
+    /// then the quiet ones), favorites first within each, then the user's order (Reorder Projects…), then the newest
+    /// chat, then by name (`entries`' order). Home is not a pill. An archived project is left out, unless `showArchived`:
+    /// then it comes last, marked.
+    static func pillEntries(_ entries: [SessionProjectEntry], newest: [String: Double], order: [String],
+                            favorites: Set<String>, states: [String: Set<SessionProjectState>] = [:],
+                            archived: Set<String> = [], showArchived: Bool = false) -> [SessionProjectPill] {
+        let projects = entries.filter { $0.key != homeKey && (showArchived || !archived.contains($0.key)) }
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let place = Dictionary(projects.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let pills = projects.map { entry in
+            SessionProjectPill(entry: entry, states: states[entry.key] ?? [], archived: archived.contains(entry.key))
+        }
+        return pills.sorted { a, b in
+            if a.archived != b.archived { return b.archived }
+            if a.state != b.state { return a.state.rawValue < b.state.rawValue }
+            let fa = favorites.contains(a.key), fb = favorites.contains(b.key)
+            if fa != fb { return fa }
+            let ra = rank[a.key], rb = rank[b.key]
+            if let ra, let rb, ra != rb { return ra < rb }
+            if (ra != nil) != (rb != nil) { return ra != nil }
+            let ta = newest[a.key] ?? -.infinity, tb = newest[b.key] ?? -.infinity
+            if ta != tb { return ta > tb }
+            return (place[a.key] ?? 0) < (place[b.key] ?? 0)
+        }
+    }
+}
+
+/// [project-pills] Owner 2026-11-15 ("a way to manage coding projects"): a project's state comes from its chats, never
+/// set by hand (it would be stale the moment a bot finished); only Archive is the owner's. In rank order.
+nonisolated enum SessionProjectState: Int, Hashable, Sendable, CaseIterable {
+    /// A bot waits on the owner there (an approval, a question).
+    case needsYou
+    /// A bot finished and its reply is not read yet: go and review it.
+    case ready
+    /// A bot is at work there now.
+    case working
+    case quiet
+
+    /// The states one chat puts its project in.
+    static func of(_ session: SessionSummary) -> Set<SessionProjectState> {
+        var out = Set<SessionProjectState>()
+        if session.status == .needsInput { out.insert(.needsYou) }
+        if session.unread { out.insert(.ready) }
+        if session.isRunning || session.status == .working { out.insert(.working) }
+        return out
+    }
+
+    /// VoiceOver's word for it; nil when quiet.
+    var spoken: String? {
+        switch self {
+        case .needsYou: "Needs you"
+        case .ready: "Ready"
+        case .working: "Working"
+        case .quiet: nil
+        }
+    }
+}
+
+/// [project-pills] One project pill: the project, what its chats are doing, and whether it is archived.
+nonisolated struct SessionProjectPill: Hashable, Sendable, Identifiable {
+    var entry: SessionProjectEntry
+    var states: Set<SessionProjectState> = []
+    var archived = false
+    var id: String { entry.key }
+    var key: String { entry.key }
+    var label: String { entry.label }
+    /// The first of its states in rank order (`quiet` with none).
+    var state: SessionProjectState { SessionProjectState.allCases.first(where: states.contains) ?? .quiet }
+
+    /// A status pill (New, Working) beside the project pills keeps the projects it stands for.
+    func matches(_ chip: SessionStatusChip) -> Bool {
+        switch chip {
+        case .new: states.contains(.needsYou) || states.contains(.ready)
+        case .working: states.contains(.working)
+        }
+    }
 }
 
 // MARK: - State and words
@@ -127,12 +218,21 @@ nonisolated enum SessionFilterWords {
         state.prefs.projectFilter.intersection(state.projects.map(\.key))
     }
 
+    /// [project-pills] The projects the button and the strip count: none while the pills are the projects (the lit
+    /// pill says which, as a bot pill does).
+    static func countedProjects(_ state: SessionFilterState) -> Set<String> {
+        state.prefs.pills == .projects ? [] : effectiveProjects(state)
+    }
+
     static func filterCount(_ state: SessionFilterState) -> Int {
-        state.prefs.statusFilter.count + effectiveProjects(state).count
+        state.prefs.statusFilter.count + countedProjects(state).count
     }
 
     /// A chip is a filter for the end row, the deeper read and the empty state; not for the button or the strip.
-    static func filtersActive(_ state: SessionFilterState) -> Bool { filterCount(state) > 0 || state.botFilter != nil }
+    /// [project-pills] Nor is a project pill.
+    static func filtersActive(_ state: SessionFilterState) -> Bool {
+        filterCount(state) > 0 || state.botFilter != nil || !effectiveProjects(state).isEmpty
+    }
 
     /// The button's accessible name (`filter-button.tsx:13-33`).
     static func buttonLabel(_ state: SessionFilterState) -> String {
@@ -144,7 +244,7 @@ nonisolated enum SessionFilterWords {
     static func token(_ state: SessionFilterState) -> String? {
         let count = filterCount(state)
         guard count > 0 else { return nil }
-        let picked = effectiveProjects(state)
+        let picked = countedProjects(state)
         let names = SessionStatus.allCases.filter(state.prefs.statusFilter.contains).map(name)
             + state.projects.filter { picked.contains($0.key) }.map(\.label)
         return names.count == count && count <= 2 ? names.joined(separator: " · ") : "\(count) \(count == 1 ? "Filter" : "Filters")"
@@ -153,7 +253,7 @@ nonisolated enum SessionFilterWords {
     /// The strip (`filterStripText`): status names in menu order, then "Project" / "N Projects"; one or two joined
     /// " · ", else "N Filters" (projects count once). Never the chip's bot, nor Show's choices.
     static func stripText(_ state: SessionFilterState) -> String? {
-        let projects = effectiveProjects(state).count
+        let projects = countedProjects(state).count
         let names = SessionStatus.allCases.filter(state.prefs.statusFilter.contains).map(name)
             + (projects == 0 ? [] : [projects == 1 ? "Project" : "\(projects) Projects"])
         guard !names.isEmpty else { return nil }
@@ -353,8 +453,9 @@ nonisolated enum SessionFilterMenuModel {
             last = SessionFilterNode(id: "sessions.filter.readall", title: "Mark All as Read", symbol: "envelope.open",
                                      disabled: active || !state.hasUnread, kind: .action(.readAll))
         }
+        let view = [sort, group, detail]
         return [
-            SessionFilterNode(id: "sessions.filter.view", title: "", kind: .inline, children: [sort, group, detail]),
+            SessionFilterNode(id: "sessions.filter.view", title: "", kind: .inline, children: view),
             SessionFilterNode(id: "sessions.filter.filters", title: "Filter", kind: .inline, children: filter),
             SessionFilterNode(id: "sessions.filter.end", title: "", kind: .inline, children: [last]),
         ]
@@ -370,8 +471,15 @@ nonisolated enum SessionFilterApply {
     static func apply(_ action: SessionFilterAction, to state: inout SessionFilterState, homeBot: String) -> Bool {
         switch action {
         case .sort(let value): state.prefs.sortBy = value
-        case .group(let value): state.prefs.groupBy = value
-        case .detail(.preview) where SessionListPipeline.isFresh(state.prefs): state.prefs.recentPreview.toggle()
+        case .group(let value):
+            // [project-pills] Into or out of Group By Project the pills change: the pick the old pills made goes with
+            // them (a bot pill's bot, or a project pill's project), as it would narrow the list with no lit pill.
+            let was = state.prefs.pills
+            state.prefs.groupBy = value
+            if state.prefs.pills != was {
+                if state.prefs.pills == .projects { state.botFilter = nil } else { state.prefs.projectFilter = [] }
+            }
+        case .detail(.preview) where state.prefs.recentRows: state.prefs.recentPreview.toggle()
         case .detail(let value): state.prefs.rowDetail.formSymmetricDifference([value])
         case .status(let value): state.prefs.statusFilter.formSymmetricDifference([value])
         case .project(let key): state.prefs.projectFilter.formSymmetricDifference([key])

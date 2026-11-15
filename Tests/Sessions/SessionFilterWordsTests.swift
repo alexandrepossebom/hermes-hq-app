@@ -75,7 +75,10 @@ import Testing
         let detail = try #require(node("sessions.filter.detail", in: SessionFilterMenuModel.nodes(s)))
         #expect(detail.children.filter(\.checked).map(\.title) == ["Time", "Preview"])
         #expect(SessionFilterWords.detailSubtitle(s) == "Time, Preview")
+        // [project-pills] Group By Project's rows are Recent's too, with the same switch; Status keeps `rowDetail`'s.
         s.prefs.groupBy = .project
+        #expect(s.prefs.shownDetail == [.preview, .time])
+        s.prefs.groupBy = .status
         SessionFilterApply.apply(.detail(.preview), to: &s, homeBot: "default")
         #expect(s.prefs.recentPreview && s.prefs.rowDetail == [.time] && s.prefs.shownDetail == [.time])
         // Kept across a save.
@@ -120,8 +123,8 @@ import Testing
         #expect(SessionFilterWords.picked(["Working", "Unread"]) == "Working, Unread")
         #expect(SessionFilterWords.picked(["a", "b", "c"]) == "3 Selected")
         #expect(SessionFilterWords.detailSubtitle(state { $0.prefs.rowDetail = [] }) == "None")
-        #expect(SessionFilterWords.detailSubtitle(state { $0.prefs.groupBy = .project; $0.prefs.rowDetail = [.time, .preview, .tokens] }) == "3 Selected")
-        #expect(SessionFilterWords.detailSubtitle(state { $0.prefs.groupBy = .project; $0.prefs.rowDetail = Set(SessionRowDetail.allCases) }) == "4 Selected")
+        #expect(SessionFilterWords.detailSubtitle(state { $0.prefs.groupBy = .status; $0.prefs.rowDetail = [.time, .preview, .tokens] }) == "3 Selected")
+        #expect(SessionFilterWords.detailSubtitle(state { $0.prefs.groupBy = .status; $0.prefs.rowDetail = Set(SessionRowDetail.allCases) }) == "4 Selected")
         #expect(SessionFilterWords.detailSubtitle(state { $0.prefs.rowDetail = [.cost, .time] }) == "Time, Cost")     // menu order
         #expect(SessionFilterWords.statusSubtitle(state { $0.prefs.statusFilter = [.unread, .working] }) == "Working, Unread")
         #expect(SessionFilterWords.projectSubtitle(state { $0.prefs.projectFilter = ["/s"] }) == "Site")
@@ -275,5 +278,46 @@ import Testing
         #expect(SessionProjects.key(cwd: "/w/2/src", profile: "a", projectsByProfile: by) == "/w/2")
         #expect(SessionProjects.key(cwd: "/w/2/src", profile: "b", projectsByProfile: by) == SessionProjects.homeKey)
         #expect(SessionProjects.key(cwd: nil, profile: "a", projectsByProfile: by) == SessionProjects.homeKey)
+    }
+
+    /// [project-pills] Owner 2026-11-15: the pills can be the projects, and that replaces Group By Project: Group By ›
+    /// Project is the project pills (no separate Pills choice). A project pill's pick is not counted on the button or the
+    /// strip (the lit pill says it), but Clear Filters and the empty state still see it; moving into or out of Group By
+    /// Project drops the old pills' pick.
+    @Test func projectPills() throws {
+        #expect(node("sessions.filter.pills", in: SessionFilterMenuModel.nodes(state())) == nil)
+        var s = state { $0.botFilter = "research" }
+        #expect(s.prefs.pills == .bots)
+        SessionFilterApply.apply(.group(.project), to: &s, homeBot: "default")
+        #expect(s.prefs.pills == .projects && s.botFilter == nil)
+        s.prefs.projectFilter = ["/s"]
+        #expect(SessionFilterWords.filterCount(s) == 0 && SessionFilterWords.token(s) == nil && SessionFilterWords.stripText(s) == nil)
+        #expect(SessionFilterWords.filtersActive(s))
+        s.prefs.statusFilter = [.working]
+        #expect(SessionFilterWords.token(s) == "Working" && SessionFilterWords.stripText(s) == "Working")
+        SessionFilterApply.apply(.group(.status), to: &s, homeBot: "default")
+        #expect(s.prefs.pills == .bots && s.prefs.projectFilter.isEmpty && s.prefs.statusFilter == [.working])
+        // Staying put keeps the pick; a bot pill under the other groupings stays too.
+        s.botFilter = "research"
+        SessionFilterApply.apply(.group(.date), to: &s, homeBot: "default")
+        #expect(s.botFilter == "research")
+        var prefs = SessionsViewPrefs(); prefs.pills = .projects
+        #expect(prefs.groupBy == .project)
+        prefs.pills = .bots
+        #expect(prefs.groupBy == .date)
+
+        let order = SessionProjects.pillEntries(Self.projects, newest: ["/t": 30, "/r": 10], order: [], favorites: [])
+        #expect(order.map(\.key) == ["/t", "/r", "/s"])                                   // newest chat first, no Home
+        #expect(SessionProjects.pillEntries(Self.projects, newest: ["/t": 30], order: ["/s"], favorites: ["/r"]).map(\.key) == ["/r", "/s", "/t"])
+        // What needs the owner first: Needs You, Ready, Working, then quiet (favorites and the rest only within each).
+        let states: [String: Set<SessionProjectState>] = ["/s": [.working], "/t": [.ready, .working], "/r": []]
+        let ranked = SessionProjects.pillEntries(Self.projects, newest: [:], order: [], favorites: ["/r"], states: states)
+        #expect(ranked.map(\.key) == ["/t", "/s", "/r"] && ranked.map(\.state) == [.ready, .working, .quiet])
+        #expect(ranked[0].matches(.new) && ranked[0].matches(.working) && !ranked[1].matches(.new) && !ranked[2].matches(.working))
+        // Archived: gone, or last and marked with Show › Archived.
+        #expect(SessionProjects.pillEntries(Self.projects, newest: [:], order: [], favorites: [], states: states, archived: ["/t"]).map(\.key) == ["/s", "/r"])
+        let shown = SessionProjects.pillEntries(Self.projects, newest: [:], order: [], favorites: [], states: states, archived: ["/t"], showArchived: true)
+        #expect(shown.map(\.key) == ["/s", "/r", "/t"] && shown.last?.archived == true)
+
     }
 }

@@ -14,6 +14,8 @@ struct BotPillRail<Extra: View>: View {
     var picked: String?
     var allPicked: Bool
     var identifier: String
+    /// [project-pills] VoiceOver's name for the row: "Projects" when its pills are projects.
+    var label = "Bots"
     var onPick: (String?) -> Void
     var onPickAll: () -> Void
     @ViewBuilder var extra: () -> Extra
@@ -67,7 +69,7 @@ struct BotPillRail<Extra: View>: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Bots")
+        .accessibilityLabel(label)
         .accessibilityIdentifier("\(identifier)s")
     }
 }

@@ -43,6 +43,13 @@ nonisolated struct SessionGroup: Hashable, Sendable {
     /// All N"), and whether all of them are drawn ("Show Less"). nil and false on every other group.
     var projectsTotal: Int? = nil
     var projectsAll = false
+    /// [project-pills] The project page's header (`SessionListPipeline.pageId`): the project's key, its newest chat's
+    /// branch, and how many chats need the owner, are ready to review and are at work.
+    var pageKey: String? = nil
+    var branch: String? = nil
+    var needs = 0
+    var ready = 0
+    var busy = 0
 }
 
 nonisolated enum SessionGrouping {

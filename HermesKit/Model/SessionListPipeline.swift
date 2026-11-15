@@ -71,6 +71,9 @@ nonisolated struct SessionListInput: Sendable {
     var projectOrder: [String] = []
     var botOrder: [String] = []
     var favoriteProjects: Set<String> = []
+    /// [project-pills] Archived projects (keys): with project pills, their chats are off the list until Show › Archived
+    /// (or the project is picked).
+    var archivedProjects: Set<String> = []
     /// Group By Bot's headers: each bot's display name by profile (missing: the profile).
     var botNames: [String: String] = [:]
     /// [sessions-fresh] The header's New or Working chip (in memory, as the bot chip).
@@ -127,12 +130,25 @@ nonisolated enum SessionListPipeline {
     }
 
     /// [sessions-fresh] The chips' counts under the bot chip (the Filter menu's filters do not narrow them).
+    /// [project-pills] While the pills are the projects, under the project pill's project(s) instead.
     static func chipCounts(_ input: SessionListInput) -> [SessionStatusChip: Int] {
         var counts: [SessionStatusChip: Int] = [:]
+        let picked = input.prefs.pills == .projects ? input.prefs.projectFilter.intersection(input.projects.map(\.key)) : []
+        let hidden = hiddenProjects(input)
         for session in input.live where input.botFilter == nil || session.profile == input.botFilter {
+            if !picked.isEmpty || !hidden.isEmpty {
+                let found = SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: input.projectsByProfile)
+                if !picked.isEmpty, !picked.contains(found) { continue }
+                if picked.isEmpty, hidden.contains(found) { continue }
+            }
             for chip in SessionStatusChip.allCases where matches(chip, session) { counts[chip, default: 0] += 1 }
         }
         return counts
+    }
+
+    /// [project-pills] The archived projects the list leaves out: with project pills and Show › Archived off.
+    static func hiddenProjects(_ input: SessionListInput) -> Set<String> {
+        input.prefs.pills == .projects && !input.prefs.showArchived ? input.archivedProjects : []
     }
 
     static func groups(_ input: SessionListInput) -> [SessionGroup] {
@@ -186,7 +202,8 @@ nonisolated enum SessionListPipeline {
         // A chat in both (archived a moment ago, the recents not read since) is listed once, as the live row.
         var pool = prefs.showArchived ? input.live + input.archived : input.live
         if foldersShown { pool += input.outside.filter(\.pinned) }        // a pinned platform chat sits in Pinned
-        let needsProject = !picked.isEmpty || isFresh(prefs) || (prefs.groupBy == .project && !isFlat(prefs))
+        let hidden = picked.isEmpty ? hiddenProjects(input) : []
+        let needsProject = !picked.isEmpty || !hidden.isEmpty || isFresh(prefs) || (prefs.groupBy == .project && !isFlat(prefs))
         var projectOf: [String: String] = [:]
         func key(_ session: SessionSummary) -> String { session.profile + "\u{1F}" + session.id }
         func project(_ session: SessionSummary) -> String { projectOf[key(session)] ?? SessionProjects.homeKey }
@@ -211,10 +228,14 @@ nonisolated enum SessionListPipeline {
             if needsProject {
                 let found = SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: input.projectsByProfile)
                 if !picked.isEmpty, !picked.contains(found) { continue }
+                if hidden.contains(found) { continue }               // [project-pills] an archived project
                 projectOf[id] = found
             }
             guard seen.insert(id).inserted else { continue }
             rows.append(session)
+        }
+        if prefs.pills == .projects, picked.count == 1, input.statusChip == nil, !isFlat(prefs), let key = picked.first {
+            return projectPage(key, rows: rows, input: input)
         }
         if let chip = input.statusChip {
             // [sessions-fresh] A status chip: its chats alone, newest first, in one run (Pinned's too).
@@ -309,7 +330,17 @@ nonisolated enum SessionListPipeline {
             if !working.isEmpty { out.append(SessionGroup(id: "status-working", title: "Working", sessions: working)) }
             if !done.isEmpty { out.append(SessionGroup(id: "status-done", title: "Done", sessions: done)) }
         case .project:
-            out += projectGroups(projectRows)
+            // [project-pills] In the project pills' order: what needs the owner first (Needs You, Ready, Working, then
+            // the quiet ones), the order above within each (Home last by default, but it moves like any project).
+            let groups = projectGroups(projectRows)
+            func rank(_ group: SessionGroup) -> Int {
+                let states = group.sessions.reduce(into: Set<SessionProjectState>()) { $0.formUnion(SessionProjectState.of($1)) }
+                return (SessionProjectState.allCases.first(where: states.contains) ?? .quiet).rawValue
+            }
+            out += groups.enumerated().sorted { a, b in
+                let ra = rank(a.element), rb = rank(b.element)
+                return ra != rb ? ra < rb : a.offset < b.offset
+            }.map(\.element)
         case .bot:
             // [manual-order] One group per bot, the bot with the newest chat first, then the user's order.
             var groups = bucketed(rest) { session in
@@ -329,6 +360,47 @@ nonisolated enum SessionListPipeline {
             }
         }
         return out + folders
+    }
+
+    // MARK: The project page [project-pills]
+
+    /// The project page's header group; its one item is drawn by the view controller.
+    static let pageId = "page"
+    /// The page's sections: `statePrefix` + needs / ready / working / earlier.
+    static let statePrefix = "state-"
+
+    /// [project-pills] Owner 2026-11-15: a project pill opens the project as a page of its own: a header (its name,
+    /// folder, branch and bots; how many chats need the owner, are ready to review, are at work; New Chat in it), then
+    /// its chats by what they wait on: Needs You, Ready to Review, Working, then Earlier. A chat is in the first of
+    /// these it fits (`SessionProjectState`, its rank). Pinned chats sit in their section like any other.
+    static func projectPage(_ key: String, rows: [SessionSummary], input: SessionListInput) -> [SessionGroup] {
+        var buckets: [SessionProjectState: [SessionSummary]] = [:]
+        for session in rows {
+            let state = SessionProjectState.allCases.first(where: SessionProjectState.of(session).contains) ?? .quiet
+            buckets[state, default: []].append(session)
+        }
+        let label = input.projects.first { $0.key == key }?.label ?? key
+        var page = SessionGroup(id: pageId, title: "", sessions: [])
+        page.pageKey = key
+        page.latestTitle = label
+        let newest = sort(rows, by: .updated)
+        page.newest = newest.first.flatMap { $0.lastActive ?? $0.startedAt }
+        page.branch = newest.lazy.compactMap(\.branch).first
+        var seen = Set<String>()
+        page.profiles = newest.map(\.profile).filter { seen.insert($0).inserted }
+        page.needs = buckets[.needsYou]?.count ?? 0
+        page.ready = buckets[.ready]?.count ?? 0
+        page.busy = buckets[.working]?.count ?? 0
+        page.total = rows.count
+        var out = [page]
+        let titles: [(SessionProjectState, String, String)] = [(.needsYou, "needs", "Needs You"), (.ready, "ready", "Ready to Review"),
+                                                                (.working, "working", "Working"), (.quiet, "earlier", "Earlier")]
+        for (state, id, title) in titles {
+            guard let chats = buckets[state], !chats.isEmpty else { continue }
+            let sorted = state == .quiet ? sort(chats, by: input.prefs.sortBy == .manual ? .updated : input.prefs.sortBy) : sort(chats, by: .updated)
+            out.append(SessionGroup(id: statePrefix + id, title: title, sessions: sorted))
+        }
+        return out
     }
 
     /// A titled group can fold to its header; a project draws its newest `projectFirstRows` until opened. `total` is

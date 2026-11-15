@@ -17,6 +17,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     private var sessionsByID: [String: SessionSummary] = [:]
     /// What the Other Apps row last drew (a change reconfigures it).
     private var otherAppsSign = ""
+    private var pageSign = ""            // [project-pills] the project page's header, as last drawn
     /// The Other Apps page while it is in the stack (its rows' actions and reloads go through this list).
     private weak var otherAppsPage: OtherAppsViewController?
     /// The roster by profile, rebuilt once per reload: rows draw their owner's name and head from it.
@@ -452,7 +453,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 SessionRowView(session: session, ownerName: owner.name, ownerHead: owner.head,
                                time: ListTime.string(session.lastActive), busy: busy, detail: detail, muted: muted,
                                origin: origin, compact: compact, shortPreview: short, card: card, fresh: fresh, faces: faces,
-                               recentLayout: self.freshLayout)
+                               recentLayout: self.freshLayout || self.projectLayout)
             }
             .margins(.all, 0)
             // [sessions-layout] A one-line row is as tall as it draws itself (44 pt), not the list's taller least row.
@@ -492,6 +493,26 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 cell.backgroundConfiguration = background
             }
         }
+        // [project-pills] The project page's header: name, folder, branch, bots, the three counts and New Chat.
+        let pageRegistration = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, _ in
+            guard let self, let group = self.groups.first(where: { $0.id == SessionListPipeline.pageId }), let key = group.pageKey else { return }
+            let bots = group.profiles.map { profile -> ProjectPageHeader.BotFace in
+                let bot = self.owners[profile]
+                return .init(id: profile, name: bot?.name ?? Self.readableProfileName(profile),
+                             head: Head.resolve(bot?.head, profile: profile))
+            }
+            let header = ProjectPageHeader(
+                name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
+                needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
+                onJump: { [weak self] section in self?.scrollToPageSection(section) },
+                onNewChat: self.organizer == nil || self.store?.readOnlyGateway == true ? nil : { [weak self] in
+                    Haptics.play(.selection)
+                    self?.organizer?.newChat(inProject: key, profile: self?.pickedBot)
+                })
+            cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
+            cell.accessibilityIdentifier = "sessions.projectPage"
+            cell.backgroundConfiguration = .clear()
+        }
         let moreRegistration = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, id in
             guard let self, let group = self.groups.first(where: { $0.id == Self.groupId(moreKey: id) }) else { return }
             let more = group.more
@@ -526,6 +547,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             let cell: UICollectionViewCell
             if id == Self.otherAppsKey {
                 cell = collectionView.dequeueConfiguredReusableCell(using: appsRegistration, for: indexPath, item: id)
+            } else if id == Self.pageKey {
+                cell = collectionView.dequeueConfiguredReusableCell(using: pageRegistration, for: indexPath, item: id)
             } else if Self.groupId(moreKey: id) != nil {
                 cell = collectionView.dequeueConfiguredReusableCell(using: moreRegistration, for: indexPath, item: id)
             } else if Self.groupId(newKey: id) != nil {
@@ -1252,6 +1275,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// `default` → "Hermes"; else the profile name in Title Case with `-`/`_` as spaces (spec 02 §6.1).
     /// The Other Apps row's item (never a session key, which is profile + "\u{1F}" + id).
     static let otherAppsKey = "\u{1F}other-apps"
+    /// [project-pills] The project page's header item.
+    static let pageKey = "\u{1F}project-page"
 
     /// Other Apps: a page with a section per platform; its rows open and act as the list's rows do.
     func openOtherApps() {
@@ -1436,14 +1461,22 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 return key
             }
             if card { for item in items { cardKeys[item] = group.title } }
-            if !searching && ((fresh && recent) || group.id == SessionListPipeline.chipId) { freshKeys.formUnion(items) }
+            if !searching && ((fresh && recent) || group.id == SessionListPipeline.chipId || (projectLayout && !card)) { freshKeys.formUnion(items) }
             snapshot.appendItems(items, toSection: section)
             if group.id == SessionListPipeline.otherAppsId { snapshot.appendItems([Self.otherAppsKey], toSection: section) }
+            if group.id == SessionListPipeline.pageId { snapshot.appendItems([Self.pageKey], toSection: section) }
             // [sessions-fresh] Group By Recent's Pinned says See All in its header instead.
             if !group.collapsed, group.more > 0 || group.expanded, !(fresh && group.id == "pinned") {
                 snapshot.appendItems([Self.moreKey(group.id)], toSection: section)
             }
             if card, !group.collapsed, organizer != nil { snapshot.appendItems([Self.newKey(group.id)], toSection: section) }
+        }
+        // [project-pills] The project page's header redraws when what it says changes.
+        if let page = groups.first(where: { $0.id == SessionListPipeline.pageId }) {
+            let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","),
+                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)"].joined(separator: "|")
+            if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
+            pageSign = sign
         }
         // The Other Apps row redraws when its platforms, count or time change.
         if let apps = groups.first(where: { $0.id == SessionListPipeline.otherAppsId }) {
@@ -1511,7 +1544,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         #endif
         // The Other Apps row holds no sessions of its own, but it is a row: nothing empty is drawn behind it. A closed
         // group draws no rows but its header is there: every group closed is not "No Chats Yet" (owner, 2026-10-29).
-        let listEmpty = sessions.isEmpty && !groups.contains { $0.id == SessionListPipeline.otherAppsId || $0.collapsed }
+        let listEmpty = sessions.isEmpty && !groups.contains {
+            $0.id == SessionListPipeline.otherAppsId || $0.id == SessionListPipeline.pageId || $0.collapsed     // [project-pills]
+        }
         if listEmpty {
             if searching {
                 // A spinner while the gateway search runs; the magnifier only once it has answered.
@@ -1745,6 +1780,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             openOtherApps()
             return
         }
+        if id == Self.pageKey { collectionView.deselectItem(at: indexPath, animated: false); return }   // [project-pills]
         if let group = Self.groupId(moreKey: id) {
             collectionView.deselectItem(at: indexPath, animated: false)
             toggleShowMore(group)
@@ -1756,11 +1792,19 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
 
     /// [project-cards] New Chat is not a row to select: its menu takes the tap.
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
-        dataSource.itemIdentifier(for: indexPath).map { Self.groupId(newKey: $0) == nil } ?? true
+        dataSource.itemIdentifier(for: indexPath).map { Self.groupId(newKey: $0) == nil && $0 != Self.pageKey } ?? true
     }
 
     func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
-        dataSource.itemIdentifier(for: indexPath).map { Self.groupId(newKey: $0) == nil } ?? true
+        dataSource.itemIdentifier(for: indexPath).map { Self.groupId(newKey: $0) == nil && $0 != Self.pageKey } ?? true
+    }
+
+    /// [project-pills] A count on the project page's header: its section to the top.
+    func scrollToPageSection(_ id: String) {
+        guard let section = groups.firstIndex(where: { $0.id == id }),
+              collectionView.numberOfSections > section, collectionView.numberOfItems(inSection: section) > 0 else { return }
+        Haptics.play(.selection)
+        collectionView.scrollToItem(at: IndexPath(item: 0, section: section), at: .top, animated: !HQMotion.reduced)
     }
 
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
@@ -1891,6 +1935,10 @@ extension SessionsViewController {
 
     /// [sessions-fresh] Group By Recent: Pinned and Projects say See All, Recent's rows are one line.
     var freshLayout: Bool { store.map { SessionListPipeline.isFresh($0.view) } ?? false }
+
+    /// [project-pills] Group By Project (the project pills and pages): every row is Recent's size (owner 2026-11-15, "I
+    /// need all sessions sized like the way we have them sized in the Recent group by view").
+    var projectLayout: Bool { store.map { $0.view.groupBy == .project && !SessionListPipeline.isFlat($0.view) } ?? false }
 
     /// [backdrop-cards] A project's section: its rows are cards of their own.
     func isProjectSection(_ section: Int) -> Bool {
@@ -2040,19 +2088,37 @@ extension SessionsViewController {
         crossfade { store.setStatusChip(chip); self.reload(animated: false) }
     }
 
-    /// [sessions-fresh] All: every bot, and no status chip.
-    func pickAll() {
-        guard let store, store.statusChip != nil || store.botFilter != nil else { return }
+    /// [project-pills] A project pill: that project's chats alone (Filter › Project with it alone); nil: every project.
+    func pickProject(_ key: String?) {
+        guard var state = filterStateNow() else { return }
+        let picked: Set<String> = key.map { [$0] } ?? []
+        guard state.prefs.projectFilter != picked else { return }
         Haptics.play(.selection)
+        state.prefs.projectFilter = picked
+        apply(state)
+    }
+
+    /// [sessions-fresh] All: every bot, and no status chip. [project-pills] With project pills, every project too.
+    func pickAll() {
+        guard let store else { return }
+        let projectPills = !DeviceWord.isMac && store.view.pills == .projects
+        let clearsProjects = projectPills && !store.view.projectFilter.isEmpty
+        guard store.statusChip != nil || store.botFilter != nil || clearsProjects else { return }
+        Haptics.play(.selection)
+        func cleared(_ state: SessionFilterState) -> SessionFilterState {
+            var state = state
+            state.botFilter = nil
+            if projectPills { state.prefs.projectFilter = [] }
+            return state
+        }
         guard store.statusChip != nil else {
-            if var state = filterStateNow() { state.botFilter = nil; apply(state) }
+            if let state = filterStateNow() { apply(cleared(state)) }
             return
         }
         crossfade {
             store.statusChip = nil
-            if var state = self.filterStateNow(), state.botFilter != nil {
-                state.botFilter = nil
-                self.apply(state, animated: false)
+            if let state = self.filterStateNow(), state.botFilter != nil || clearsProjects {
+                self.apply(cleared(state), animated: false)
             } else {
                 self.reload(animated: false)
             }
@@ -2105,6 +2171,14 @@ extension SessionsViewController {
         let counts = store.chipCounts
         if headerModel.statusChips != counts { headerModel.statusChips = counts; headerChanged = true }
         if headerModel.status != store.statusChip { headerModel.status = store.statusChip; headerChanged = true }
+        // [project-pills] The projects as the pills (Group By › Project).
+        let pills = DeviceWord.isMac ? .bots : state.prefs.pills
+        if headerModel.pills != pills { headerModel.pills = pills; headerChanged = true }
+        let pillProjects = pills == .projects ? store.pillProjects(order: bots.map(\.id)) : []
+        if headerModel.projects != pillProjects { headerModel.projects = pillProjects; headerChanged = true }
+        let pickedProjects = SessionFilterWords.effectiveProjects(state)
+        if headerModel.pickedProjects != pickedProjects { headerModel.pickedProjects = pickedProjects; headerChanged = true }
+        if headerModel.botPicked != (state.botFilter != nil) { headerModel.botPicked = state.botFilter != nil; headerChanged = true }
         // UX study 2026-10-19 #36: the field names what it searches: every bot's chats, or the picked chip's bot's.
         let placeholder = SessionsSearchWords.placeholder(botName: state.botFilter.flatMap { id in bots.first { $0.id == id }?.name })
         if let bar = navigationItem.searchController?.searchBar, bar.placeholder != placeholder {
@@ -2186,6 +2260,12 @@ extension SessionsViewController {
         headerModel.onPick = { [weak self] profile in self?.pickBot(profile) }
         headerModel.onPickStatus = { [weak self] chip in self?.pickStatus(chip) }
         headerModel.onPickAll = { [weak self] in self?.pickAll() }
+        headerModel.onPickProject = { [weak self] key in self?.pickProject(key) }
+        headerModel.onArchiveProject = { [weak self] key, on in
+            Haptics.play(.selection)
+            self?.store?.setArchivedProject(key, on)
+            self?.reload(animated: true)
+        }
         headerModel.onClearStrip = { [weak self] in
             guard let self, var state = self.filterStateNow() else { return }
             Haptics.play(.selection)

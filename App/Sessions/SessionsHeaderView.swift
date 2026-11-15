@@ -34,7 +34,24 @@ final class SessionsHeaderModel {
     /// bot chip, and the one picked. A chip shows while it has a chat or is picked.
     var statusChips: [SessionStatusChip: Int] = [:]
     var status: SessionStatusChip?
+    /// [project-pills] The pills are the bots or the projects (Filter › Pills); the project pills, in order, and the
+    /// lit one(s) (Filter › Project's picks).
+    var pills: SessionPills = .bots
+    var projects: [SessionProjectPill] = []
+    var pickedProjects: Set<String> = []
+    /// [project-pills] A bot picked another way (Filter › All Bots off) keeps All from lighting.
+    var botPicked = false
     @ObservationIgnored var onPick: (String?) -> Void = { _ in }
+    @ObservationIgnored var onPickProject: (String?) -> Void = { _ in }
+    /// [project-pills] A project pill's hold: Archive Project / Unarchive Project.
+    @ObservationIgnored var onArchiveProject: (String, Bool) -> Void = { _, _ in }
+
+    /// [project-pills] The project pills drawn: a status pill (New, Working) keeps the projects it stands for (and the
+    /// picked one, so it can be tapped off).
+    var shownProjects: [SessionProjectPill] {
+        guard let status else { return projects }
+        return projects.filter { $0.matches(status) || pickedProjects.contains($0.key) }
+    }
     @ObservationIgnored var onPickStatus: (SessionStatusChip?) -> Void = { _ in }
     /// All: every bot and no status chip.
     @ObservationIgnored var onPickAll: () -> Void = {}
@@ -48,7 +65,14 @@ final class SessionsHeaderModel {
     var isEmpty: Bool { !hasRail && strip == nil }
     /// The rail shows with a second bot, or a status chip. Not on the Mac: its bots are the bar's "All Bots ⌄"
     /// ([Mac full pass 2026-11-14], `SessionsViewController.placeBotsItem`), where every other list has it.
-    var hasRail: Bool { !DeviceWord.isMac && (!bots.isEmpty || !shownStatus.isEmpty) }
+    var hasRail: Bool { !DeviceWord.isMac && (hasPills || !shownStatus.isEmpty) }
+    /// [project-pills] A bot pill or a project pill to draw.
+    var hasPills: Bool { pills == .projects ? !projects.isEmpty : !bots.isEmpty }
+    /// The lit project pill's scroll id (the first picked, in the pills' order).
+    var pickedProjectId: String? {
+        projects.first { pickedProjects.contains($0.key) }.map { SessionsHeaderModel.projectPillId($0.key) }
+    }
+    static func projectPillId(_ key: String) -> String { "project:" + key }
 }
 
 struct SessionsHeaderView: View {
@@ -171,27 +195,74 @@ struct SessionsHeaderView: View {
     /// [sessions-layout] iPhone and iPad: the bots as slim pills (a small face before the name) in one row, so the
     /// rail is about 50 pt tall rather than 80 and shows more of the roster. The Mac keeps its faces rail.
     /// [bot-pills] The rail is `BotPillRail`, which Tasks draws too; Sessions adds New and Working after All.
-    private var pillRail: some View {
+    @ViewBuilder private var pillRail: some View {
+        if model.pills == .projects { projectRail } else { botRail }
+    }
+
+    private var botRail: some View {
         BotPillRail(bots: model.bots, picked: model.picked, allPicked: model.picked == nil && model.status == nil,
                     identifier: "sessions.chip", onPick: model.onPick, onPickAll: model.onPickAll) {
             // [sessions-fresh] New and Working, then a rule before the bots.
-            ForEach(model.shownStatus, id: \.self) { chip in
-                let count = model.statusChips[chip] ?? 0
-                let word = chip == .new ? "New" : "Working"
-                SessionPill(caption: "\(word) \(count)", name: "\(word), \(count) \(count == 1 ? "chat" : "chats")",
-                            picked: model.status == chip, identifier: "sessions.chip.status.\(chip.rawValue)",
-                            hasFace: true, lead: 12) {
-                    model.onPickStatus(model.status == chip ? nil : chip)
-                } face: {
-                    StatusChipMark(chip: chip, picked: model.status == chip)
-                }
-                .id("status-\(chip.rawValue)")
+            statusPills
+            if !model.shownStatus.isEmpty, !model.bots.isEmpty { railRule }
+        }
+    }
+
+    @ViewBuilder private var statusPills: some View {
+        ForEach(model.shownStatus, id: \.self) { chip in
+            let count = model.statusChips[chip] ?? 0
+            let word = chip == .new ? "New" : "Working"
+            SessionPill(caption: "\(word) \(count)", name: "\(word), \(count) \(count == 1 ? "chat" : "chats")",
+                        picked: model.status == chip, identifier: "sessions.chip.status.\(chip.rawValue)",
+                        hasFace: true, lead: 12) {
+                model.onPickStatus(model.status == chip ? nil : chip)
+            } face: {
+                StatusChipMark(chip: chip, picked: model.status == chip)
             }
-            if !model.shownStatus.isEmpty, !model.bots.isEmpty {
-                Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 1, height: 22)
-                    .accessibilityHidden(true)
+            .id("status-\(chip.rawValue)")
+        }
+    }
+
+    /// [project-pills] Owner 2026-11-15: the same row with the projects as its pills: All, New and Working, then each
+    /// project (a folder before its name). A tap picks that project alone (Filter › Project); the lit pill goes back to
+    /// All. New and Working count that project's chats.
+    private var projectRail: some View {
+        BotPillRail(bots: [], picked: model.pickedProjectId,
+                    allPicked: model.pickedProjects.isEmpty && model.status == nil && !model.botPicked,
+                    identifier: "sessions.chip", label: "Projects", onPick: { _ in }, onPickAll: model.onPickAll) {
+            statusPills
+            if !model.shownStatus.isEmpty, !model.shownProjects.isEmpty { railRule }
+            ForEach(Array(model.shownProjects.enumerated()), id: \.element.key) { index, project in
+                let picked = model.pickedProjects.contains(project.key)
+                let spoken = [project.label + " project", project.state.spoken, project.archived ? "Archived" : nil]
+                    .compactMap { $0 }.joined(separator: ", ")
+                SessionPill(caption: project.label, name: spoken, picked: picked,
+                            identifier: "sessions.chip.project.\(index)", hasFace: true, lead: 12) {
+                    model.onPickProject(picked ? nil : project.key)
+                } face: {
+                    ProjectPillMark(state: project.state, archived: project.archived, picked: picked)
+                }
+                .opacity(project.archived && !picked ? 0.6 : 1)
+                .contextMenu {
+                    Button {
+                        model.onArchiveProject(project.key, !project.archived)
+                    } label: {
+                        Label(project.archived ? "Unarchive Project" : "Archive Project",
+                              systemImage: project.archived ? "tray.and.arrow.up" : "archivebox")
+                    }
+                    .accessibilityIdentifier("sessions.chip.project.archive")
+                }
+                .accessibilityAction(named: project.archived ? "Unarchive Project" : "Archive Project") {
+                    model.onArchiveProject(project.key, !project.archived)
+                }
+                .id(SessionsHeaderModel.projectPillId(project.key))
             }
         }
+    }
+
+    private var railRule: some View {
+        Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 1, height: 22)
+            .accessibilityHidden(true)
     }
 
     private var railScroll: some View {
@@ -472,6 +543,35 @@ private struct StatusChipMark: View {
             }
             .frame(width: 12, height: 12)
         }
+    }
+}
+
+/// [project-pills] A project pill's mark: what its chats are doing. Needs You an orange dot, Ready the tint's dot,
+/// Working the still quarter ring (the rail draws no motion), quiet a folder; archived an archive box.
+private struct ProjectPillMark: View {
+    var state: SessionProjectState
+    var archived: Bool
+    var picked: Bool
+
+    var body: some View {
+        let ink = picked ? Color.hqOnTint : Color.hqLabel
+        Group {
+            if archived {
+                Image(systemName: "archivebox").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium)).foregroundStyle(ink.opacity(0.7))
+            } else {
+                switch state {
+                case .needsYou: Circle().fill(picked ? Color.hqOnTint : Color.hqOrange).frame(width: 8, height: 8)
+                case .ready: Circle().fill(picked ? Color.hqOnTint : Color.hqTint).frame(width: 8, height: 8)
+                case .working: StatusChipMark(chip: .working, picked: picked)
+                case .quiet:
+                    Image(systemName: picked ? "folder.fill" : "folder")
+                        .font(Font.hqSystem(size: HQFont.scaled(14), weight: .medium))
+                        .foregroundStyle(picked ? Color.hqOnTint : Color.hqLabel2)
+                }
+            }
+        }
+        .frame(minWidth: 14)
+        .accessibilityHidden(true)
     }
 }
 

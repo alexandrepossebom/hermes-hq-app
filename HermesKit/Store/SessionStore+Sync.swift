@@ -18,6 +18,7 @@ extension SessionStore: GatewaySynced {
             "projectOrder": .array(device.projectOrder.map { .string($0) }),
             "botGroupOrder": .array(device.botGroupOrder.map { .string($0) }),
             "favoriteProjects": .array(device.favoriteProjects.map { .string($0) }),
+            "archivedProjects": .array(device.archivedProjects.map { .string($0) }),       // [project-pills]
             "colors": .object(device.colors.mapValues { .number(Double($0)) }),
             "sortBy": .string(view.sortBy.rawValue),
             "groupBy": .string(view.groupBy.rawValue),
@@ -43,6 +44,7 @@ extension SessionStore: GatewaySynced {
             device.projectOrder = joined(strings("projectOrder"), merge == .firstContact ? device.projectOrder : [])
             device.botGroupOrder = joined(strings("botGroupOrder"), merge == .firstContact ? device.botGroupOrder : [])
             device.favoriteProjects = joined(strings("favoriteProjects"), merge == .firstContact ? device.favoriteProjects : [])
+            device.archivedProjects = joined(strings("archivedProjects"), merge == .firstContact ? device.archivedProjects : [])
             var colors = merge == .firstContact ? device.colors : [:]
             for (key, raw) in value["colors"]?.object ?? [:] { if let index = raw.int { colors[key] = index } }
             device.colors = colors

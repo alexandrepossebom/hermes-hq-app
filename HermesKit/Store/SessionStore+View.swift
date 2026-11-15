@@ -98,7 +98,44 @@ extension SessionStore {
 
     /// [sessions-fresh] The chips' counts under the bot chip.
     var chipCounts: [SessionStatusChip: Int] {
-        SessionListPipeline.chipCounts(SessionListInput(live: sessions, botFilter: botFilter))
+        SessionListPipeline.chipCounts(SessionListInput(live: sessions, prefs: view, botFilter: botFilter,
+                                                        projectsByProfile: projectsByProfile,
+                                                        projects: view.pills == .projects ? projectEntries(bot: botFilter) : [],
+                                                        archivedProjects: archivedProjects))
+    }
+
+    /// [project-pills] The project pills, in their order (`SessionProjects.pillEntries`): every bot's projects, Home
+    /// left out.
+    func pillProjects(order: [String] = []) -> [SessionProjectPill] {
+        var newest: [String: Double] = [:]
+        let mine = sessions.filter { botFilter == nil || $0.profile == botFilter }
+        for session in mine {
+            let key = SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: projectsByProfile)
+            newest[key] = max(newest[key] ?? -.infinity, SessionListPipeline.recency(session))
+        }
+        return SessionProjects.pillEntries(projectEntries(order: order, bot: botFilter), newest: newest,
+                                           order: device.projectOrder, favorites: Set(device.favoriteProjects),
+                                           states: SessionProjects.states(mine, projectsByProfile: projectsByProfile),
+                                           archived: archivedProjects, showArchived: view.showArchived)
+    }
+
+    /// [project-pills] Projects the owner archived (keys).
+    var archivedProjects: Set<String> { Set(device.archivedProjects) }
+
+    /// [project-pills] Archive Project / Unarchive Project: out of the pills and the list (project pills) until Show ›
+    /// Archived. Kept with the other hand-picked parts (synced). Archiving the picked project lets the list go back to
+    /// every project.
+    func setArchivedProject(_ key: String, _ on: Bool) {
+        var keys = device.archivedProjects
+        if on { guard !keys.contains(key) else { return }; keys.append(key) } else {
+            guard keys.contains(key) else { return }
+            keys.removeAll { $0 == key }
+        }
+        device.archivedProjects = keys
+        if on, !view.showArchived, view.projectFilter.contains(key) { view.projectFilter.remove(key); device.view = view }
+        AppLog.trace("sessions", "project \(on ? "archived" : "unarchived") (\(keys.count) archived)")
+        persistState()
+        onChange?()
     }
 
     // MARK: - The list
@@ -114,6 +151,7 @@ extension SessionStore {
                                                     expandedGroups: expandedGroups[groupScope] ?? [],
                                                     chatOrder: device.chatOrder, projectOrder: device.projectOrder,
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
+                                                    archivedProjects: archivedProjects,
                                                     botNames: botNames, statusChip: statusChip, now: now, calendar: calendar))
     }
 

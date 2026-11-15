@@ -219,4 +219,100 @@ extension SessionsTests {
         XCTAssertFalse(row(app, "s-garden").exists || row(app, "s-budget").exists || row(app, "s-release").exists, "hits are Research's only (\(order(app)))")
         shot(app, "C-search-with-chip")
     }
+
+    /// [project-pills] Owner 2026-11-15: "the pills at the top are the projects so that you can filter by project".
+    /// Group By › Project swaps the bot pills for the projects (what needs you first); a project pill narrows the
+    /// list to that project and lights, with no strip (the pill says it); All shows every project again.
+    @MainActor func test40b_ProjectPills() throws {
+        fixture("/__fixture/mode", ["working": ["s-trip"]])          // a turn at work in Reading
+        defer { fixture("/__fixture/mode", ["working": [String]()]) }
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        // [project-pills] Group By › Project is the project pills (owner 2026-11-15, "replace the Projects view"). The
+        // projects are read when the menu first opens; Project is offered once they are known.
+        var offered = false
+        for _ in 0..<4 where !offered {
+            openFilter(app)
+            tapFilter(app, "group")
+            offered = filterItem(app, "group.project").waitForExistence(timeout: 3)
+            if !offered { closeFilter(app) }
+        }
+        XCTAssertTrue(offered, "Group By offers Project")
+        tapFilter(app, "group.project")
+        closeFilter(app)
+        let rail = app.scrollViews["sessions.chips"]
+        XCTAssertTrue(waitUntil(6) { rail.label == "Projects" }, "the rail is the projects (\(rail.label))")
+        XCTAssertFalse(chip(app, "research").exists, "no bot pills")
+        let pills = (0..<3).map { app.buttons["sessions.chip.project.\($0)"] }
+        XCTAssertTrue(pills.allSatisfy(\.exists), "three project pills\n\(rail.debugDescription)")
+        XCTAssertEqual(pills.map(\.label), ["Website project, Ready", "Reading project, Working", "App project"],
+                       "what needs you first: Website's unread reply, Reading's working chat, then App")
+        XCTAssertTrue(chip(app, nil).isSelected, "All is lit")
+        shot(app, "P1-project-pills")
+        pills[0].tap()
+        XCTAssertTrue(waitUntil(6) { let o = self.order(app); return o.contains("s-budget") && !o.contains("s-garden") && !o.contains("s-trip") },
+                      "only Website's chats (\(order(app)))")
+        XCTAssertTrue(pills[0].isSelected, "its pill lights")
+        XCTAssertFalse(chip(app, nil).isSelected)
+        XCTAssertFalse(strip(app).exists, "the lit pill says it: no strip")
+        // The project page: its header (name, folder, counts, New Chat), then its chats by what they wait on.
+        let page = app.cells["sessions.projectPage"]
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "the project page's header")
+        XCTAssertTrue(app.staticTexts["Website"].exists, "the project's name")
+        XCTAssertEqual(app.buttons["sessions.projectPage.ready"].label, "Ready, 1 chat")
+        XCTAssertEqual(app.buttons["sessions.projectPage.needs"].label, "Needs You, 0 chats")
+        XCTAssertTrue(app.buttons["sessions.projectPage.newChat"].exists, "New Chat in the project")
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Ready to Review"] }, "its sections (\(headers(app)))")
+        shot(app, "P2-project-pill-picked")
+        // Reading's page: its working chat under Working.
+        pills[1].tap()
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Working"] && self.order(app) == ["s-trip"] }, "Reading's page (\(headers(app)), \(order(app)))")
+        XCTAssertEqual(app.buttons["sessions.projectPage.working"].label, "Working, 1 chat")
+        shot(app, "P2b-project-page-working")
+        pills[1].tap()
+        XCTAssertTrue(waitUntil(6) { !page.exists && self.headers(app).contains("Website") }, "every project again (\(headers(app)))")
+        pills[0].tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6))
+        // The lit pill goes back to every project, as a lit bot pill does.
+        pills[0].tap()
+        XCTAssertTrue(waitUntil(6) { !page.exists && self.headers(app).contains("Website") }, "every project again (\(headers(app)))")
+        XCTAssertFalse(pills[0].isSelected)
+        XCTAssertTrue(waitUntil(4) { self.chip(app, nil).isSelected }, "All lights again")
+        // Working narrows the pills to the projects at work.
+        app.buttons["sessions.chip.status.working"].tap()
+        XCTAssertTrue(waitUntil(6) { pills[0].exists && pills[0].label == "Reading project, Working" && !pills[1].exists },
+                      "Working keeps Reading alone\n\(rail.debugDescription)")
+        shot(app, "P3-working-projects")
+        app.buttons["sessions.chip.status.working"].tap()
+        XCTAssertTrue(waitUntil(6) { pills[2].exists }, "every project again")
+        // Hold a pill: Archive Project. It leaves the pills and its chat the list; Show › Archived brings both back.
+        pills[1].press(forDuration: 1.0)
+        let archive = app.buttons["sessions.chip.project.archive"]
+        XCTAssertTrue(archive.waitForExistence(timeout: 5), "Archive Project in the pill's menu")
+        archive.tap()
+        XCTAssertTrue(waitUntil(6) { pills[1].label == "App project" && !pills[2].exists }, "Reading's pill is gone\n\(rail.debugDescription)")
+        XCTAssertTrue(waitUntil(6) { !self.headers(app).contains("Reading") }, "Reading's card leaves the list (\(headers(app)))")
+        shot(app, "P4-project-archived")
+        openFilter(app)
+        tapFilter(app, "show", "archived")
+        closeFilter(app)
+        XCTAssertTrue(waitUntil(6) { pills[2].exists && pills[2].label.contains("Archived") }, "Reading comes back last, marked")
+        XCTAssertTrue(waitUntil(6) { self.headers(app).contains("Reading") }, "and its card (\(headers(app)))")
+        rail.swipeLeft()
+        XCTAssertTrue(waitUntil(4) { pills[2].isHittable })
+        shot(app, "P5-archived-shown")
+        pills[2].press(forDuration: 1.0)
+        XCTAssertTrue(archive.waitForExistence(timeout: 5))
+        XCTAssertEqual(archive.label, "Unarchive Project")
+        archive.tap()
+        XCTAssertTrue(waitUntil(6) { pills[1].label == "Reading project, Working" }, "unarchived, in its place (\(pills[1].label))")
+        openFilter(app)
+        tapFilter(app, "show", "archived")
+        closeFilter(app)
+        // Back to the bot pills.
+        openFilter(app)
+        tapFilter(app, "group", "group.date")
+        closeFilter(app)
+        XCTAssertTrue(waitUntil(6) { self.chip(app, "research").exists && rail.label == "Bots" }, "the bot pills again")
+    }
 }

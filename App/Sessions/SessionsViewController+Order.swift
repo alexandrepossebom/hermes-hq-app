@@ -29,11 +29,20 @@ extension SessionsViewController {
         // A favorite moves among the favorites, the rest among the rest.
         let lane = shownGroupKeys(bots: bots).filter { favorites.contains($0) == favorite }
         let index = lane.firstIndex(of: key) ?? 0
+        // [project-pills] With project pills, a project (not Home) can be archived from its header too.
+        let archivable = !bots && key != SessionProjects.homeKey && !DeviceWord.isMac && store?.view.pills == .projects
+        let archived = store?.archivedProjects.contains(key) ?? false
         return SessionHeaderOrder(
             favorite: favorite,
             onFavorite: bots ? nil : { [weak self] in self?.setFavoriteProject(key, !favorite) },
             onMoveUp: index > 0 ? { [weak self] in self?.moveGroup(key, by: -1, bots: bots) } : nil,
             onMoveDown: index < lane.count - 1 ? { [weak self] in self?.moveGroup(key, by: 1, bots: bots) } : nil,
+            archived: archived,
+            onArchive: archivable ? { [weak self] in
+                Haptics.play(.selection)
+                self?.store?.setArchivedProject(key, !archived)
+                self?.reload(animated: true)
+            } : nil,
             reorderTitle: bots ? "Reorder Bots…" : "Reorder Projects…",
             onReorder: { [weak self] in self?.openGroupOrder(bots: bots) })
     }

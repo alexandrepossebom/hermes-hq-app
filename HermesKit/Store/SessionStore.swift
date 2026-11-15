@@ -77,13 +77,15 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     var botGroupOrder: [String] = []
     /// [manual-order] Projects marked Favorite: always first under Group By Project (owner, 2026-10-29).
     var favoriteProjects: [String] = []
+    /// [project-pills] Projects the owner archived (keys): out of the project pills and the list until Show › Archived.
+    var archivedProjects: [String] = []
 
     init() {}
 
     // Fields added later decode as absent, so an older file keeps its unread state.
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
-        case chatOrder, projectOrder, botGroupOrder, favoriteProjects, openGroups
+        case chatOrder, projectOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects
     }
 
     init(from decoder: Decoder) throws {
@@ -102,6 +104,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         botGroupOrder = (try? c.decodeIfPresent([String].self, forKey: .botGroupOrder)) ?? []
         favoriteProjects = (try? c.decodeIfPresent([String].self, forKey: .favoriteProjects)) ?? []
         openGroups = (try? c.decodeIfPresent([String: [String]].self, forKey: .openGroups)) ?? [:]
+        archivedProjects = (try? c.decodeIfPresent([String].self, forKey: .archivedProjects)) ?? []
     }
 }
 
@@ -1128,6 +1131,7 @@ final class SessionStore {
         summary.cost = row.costUsd
         summary.cwd = row.cwd
         summary.owner = row.userId
+        summary.branch = row.gitBranch.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         summary.metadata = SessionRowWords.metadata(branch: row.gitBranch, model: row.model, messages: row.messageCount,
                                                     toolCalls: row.toolCallCount)
         summary.pending = pendingLine?(row.profile, row.id)

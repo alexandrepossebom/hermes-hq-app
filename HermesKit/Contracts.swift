@@ -262,6 +262,8 @@ nonisolated struct SessionSummary: Identifiable, Hashable, Sendable {
     var cost: Double = 0
     /// "main · hermes-4 · 2 messages · 1 tool call": the second line when Preview is off or there is none.
     var metadata: String = ""
+    /// [project-pills] The chat's git branch (`git_branch`), for the project page's header.
+    var branch: String? = nil
     var status: SessionStatus = .idle
     var pending: SessionPending? = nil
     var cwd: String? = nil

@@ -41,12 +41,26 @@ nonisolated struct SessionsViewPrefs: Codable, Hashable, Sendable {
     /// chat's title. Its own setting, off by default, so the one-line Recent rows stay as they were; the other
     /// groupings keep `rowDetail`'s Preview (a tester, 2026-11-12: "toggling previews doesn't do anything").
     var recentPreview = false
+    /// [project-pills] What the pills under the bar are: the bots, or under Group By Project the projects. Owner
+    /// 2026-11-15: "the pills at the top are the projects so that you can filter by project", and then "I want this to
+    /// replace the Projects view": Group By › Project is the project pills and their project pages. A project pill is
+    /// Filter › Project with that one project. Setting it picks the grouping.
+    var pills: SessionPills {
+        get { groupBy == .project ? .projects : .bots }
+        set {
+            if newValue == .projects { groupBy = .project } else if groupBy == .project { groupBy = .date }
+        }
+    }
 
     init() {}
 
-    /// What the rows show: `rowDetail`, with Preview from `recentPreview` under Group By Recent.
+    /// [project-pills] Recent's one-line rows, and its own Preview switch: Group By Recent, and Group By Project (owner
+    /// 2026-11-15, "all sessions sized like the way we have them sized in the Recent group by view").
+    var recentRows: Bool { SessionListPipeline.isFresh(self) || (groupBy == .project && !SessionListPipeline.isFlat(self)) }
+
+    /// What the rows show: `rowDetail`, with Preview from `recentPreview` under Group By Recent (and Project).
     var shownDetail: Set<SessionRowDetail> {
-        guard SessionListPipeline.isFresh(self) else { return rowDetail }
+        guard recentRows else { return rowDetail }
         return recentPreview ? rowDetail.union([.preview]) : rowDetail.subtracting([.preview])
     }
 
@@ -79,6 +93,9 @@ nonisolated struct SessionsViewPrefs: Codable, Hashable, Sendable {
         try c.encode(recentPreview, forKey: .recentPreview)
     }
 }
+
+/// [project-pills] The Sessions pills: one per bot, or one per project.
+nonisolated enum SessionPills: String, Codable, CaseIterable, Sendable { case bots, projects }
 
 // MARK: - The row's pending line (§9.4)
 
