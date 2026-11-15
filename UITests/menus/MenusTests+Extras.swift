@@ -12,13 +12,14 @@ extension MenusTests {
 
         // The three rows under Model; the second open's subtitles come from the warmed catalog.
         openMore(app)
-        XCTAssertTrue(app.buttons["chat.more.prompts"].waitForExistence(timeout: 3), "Prompts")
+        XCTAssertTrue(app.chatMoreRow("prompts").exists, "More › Prompts")
         XCTAssertTrue(app.buttons["chat.more.usage"].exists, "Usage & Limits")
         XCTAssertTrue(app.buttons["chat.more.prices"].exists, "Model Prices")
         dismissMenu(app)
         XCTAssertTrue(waitUntil(timeout: 5) { self.calls(account, "model.options").count == 1 }, "the warm-up read")
         Thread.sleep(forTimeInterval: 0.5)
         openMore(app)
+        _ = app.chatMoreRow("usage")
         XCTAssertEqual(menuItem(app, "Usage & Limits").label, "Usage & Limits, Opus weekly · 6% left")
         XCTAssertEqual(menuItem(app, "Model Prices").label, "Model Prices, $3.00 in · $15.00 out")
         shot(app, "extras-more-menu")
@@ -61,7 +62,7 @@ extension MenusTests {
         shot(app, "extras-hold-save-prompt")
         save.tap()
         openMore(app)
-        XCTAssertEqual(menuItem(app, "Prompts").label, "Prompts, 2 saved")
+        XCTAssertEqual(app.chatMoreRow("prompts").label, "Prompts, 2 saved")
 
         // Usage & Limits: bars per window, a pool's logins, a rate limit, this chat, credits, the /usage report.
         app.buttons["chat.more.usage"].tap()
@@ -105,7 +106,7 @@ extension MenusTests {
 
         // Model Prices: the chat's provider first, its model checked; a subscription says Included; search narrows.
         openMore(app)
-        app.buttons["chat.more.prices"].tap()
+        app.chatMoreRow("prices").tap()
         XCTAssertTrue(app.otherElements["prices.row.anthropic::claude-sonnet-5"].waitForExistence(timeout: 10)
                       || labelled(app, "$3.00 in · $15.00 out · $0.30 cached").waitForExistence(timeout: 2), "Anthropic's prices")
         shot(app, "extras-prices")
@@ -132,7 +133,7 @@ extension MenusTests {
         try account.control("/__menus/model", ["profile": "default", "model": "moonshotai/kimi-k2-thinking", "provider": "openrouter"])
         openBotChat(app)
         openMore(app)
-        let usage = app.buttons["chat.more.usage"]
+        let usage = app.chatMoreRow("usage")
         XCTAssertTrue(usage.waitForExistence(timeout: 3))
         usage.tap()
         let router = app.descendants(matching: .any)["usage.balance.openrouter"]
@@ -219,7 +220,7 @@ extension MenusTests {
         try account.control("/__menus/model", ["profile": "default", "model": "moonshotai/kimi-k2-thinking", "provider": "openrouter"])
         openBotChat(app)
         openMore(app)
-        let usage = app.buttons["chat.more.usage"]
+        let usage = app.chatMoreRow("usage")
         XCTAssertTrue(usage.waitForExistence(timeout: 3))
         usage.tap()
         let router = app.descendants(matching: .any)["usage.balance.openrouter"]
