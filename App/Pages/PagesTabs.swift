@@ -451,7 +451,9 @@ final class PagesTabs {
         // [mac-layout] Owner 2026-11-03 (the layout study, "I'd like to see it all built"): More dissolves on the Mac.
         // The pages you work in (Workspace, Insights) are the sidebar's Tools, each a place as one added from More is.
         // Then Marketplace and the plugin pages (Mac polish #33).
-        var tools: [String] = sections.filter { Self.toolSections.contains($0.id) }.flatMap { $0.rows() }
+        // [more-bots] Bots, while it is no place: the list of bots, first of the Tools (the sidebar has no bots then).
+        var tools: [String] = rows[Self.botsRowID] == nil ? [] : [Self.botsRowID]
+        tools += sections.filter { Self.toolSections.contains($0.id) }.flatMap { $0.rows() }
             .filter { $0.card == nil && TabChoice.pageIDs.contains($0.id) && !chosen.contains($0.id) }.map(\.id)
         tools += Self.toolPages.filter { rows[$0] != nil && !chosen.contains($0) }
         tools += sections.filter { $0.id == PluginPagesMore.section }.flatMap { $0.rows() }.map(\.id)
@@ -511,6 +513,7 @@ final class PagesTabs {
     }
 
     /// [more-bots] More › Bots, while the Bots tab is hidden: the list on More's stack (`BotsViewController.inMore`).
+    /// [mac] The same list as the first of the sidebar's Tools.
     static let botsRowID = "bots"
 
     func makeBots() -> UIViewController {
@@ -560,8 +563,10 @@ final class PagesTabs {
         }
         var all = Self.merged(sections)   // [morepages] appended rows
         // [more-bots] A tester, 2026-11-14: a hidden Bots tab is a page in More too, first under Bots (above
-        // Bot Profiles). The Mac has no More; its bots are in the sidebar.
-        if !DeviceWord.isMac, !shown.contains(.main(.bots)) {
+        // Bot Profiles). [mac] The owner, 2026-11-15: "it needs to be on the Mac build too in some way". The Mac has no
+        // More, and with Bots off its sidebar loses the bots: there the row is the first of the sidebar's Tools
+        // (`pageTabs`).
+        if !shown.contains(.main(.bots)) {
             let rest = all["bots"]
             let bots = MoreRow(id: Self.botsRowID, title: "Bots", symbol: nil, image: TabIcons.bot,
                                tile: UIColor(red: 0x32 / 255, green: 0xAD / 255, blue: 0xE6 / 255, alpha: 1)) { [weak self] in self?.makeBots() }

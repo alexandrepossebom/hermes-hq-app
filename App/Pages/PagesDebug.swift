@@ -22,6 +22,8 @@
 // - `-HQPagesTileRollBack YES`   …and ask Roll Back's question on Version 1
 // - `-HQPagesReadOnly YES`       refuse every page write, as a read-only gateway does (PagesTabs)
 // - `-HQPagesOpenSession <id>`   open that stored chat as a tapped alert does (NotificationHub.open), 4 s after the tabs show
+// - `-HQPagesBotsCopyOpen <id>` [more-bots] the hidden Bots list's copy (More › Bots; the Mac's Tools › Bots, `-HQPagesTab 1000`)
+//                                opens that bot's chat, as a click on its row, 5 s after the tabs show
 
 #if DEBUG
 import UIKit
@@ -37,6 +39,13 @@ enum PagesDebug {
                 for _ in 0..<60 where MainTabController.current?.view.window == nil { try? await Task.sleep(for: .milliseconds(500)) }
                 try? await Task.sleep(for: .seconds(4))
                 NotificationHub.shared.open(stored, profile: nil)
+            }
+        }
+        if let bot = defaults.string(forKey: "HQPagesBotsCopyOpen") {
+            Task { @MainActor in
+                for _ in 0..<60 where BotsViewController.copies.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
+                try? await Task.sleep(for: .seconds(5))
+                BotsViewController.copies.first { $0.viewIfLoaded?.window != nil }?.open(bot)
             }
         }
         guard let tab = defaults.object(forKey: "HQPagesTab") as? Int ?? Int(defaults.string(forKey: "HQPagesTab") ?? "") else { return }

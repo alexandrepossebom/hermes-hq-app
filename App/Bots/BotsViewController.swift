@@ -127,11 +127,16 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
 
     /// [more-bots] A tester, 2026-11-14: with the Bots tab turned off (Settings › Tabs) there was no way back to
     /// the list, and the main bot's chat (where a plugin update's restart is asked) could only be reached from it. More
-    /// then lists Bots, and this is that page: the same list, pushed on More's stack, where its chats open too. The
+    /// then lists Bots, and this is that page: the same list, pushed on More's stack, where its chats open too. [mac]
+    /// On the Mac, which has no More and whose sidebar loses the bots with the place, it is the first of Tools. The
     /// tab's own list stays the one the roster and the rooms report to (`services.onBotsChange` has one listener) and
     /// the one everything else opens chats through; it passes each change on to the copies (`setNeedsReload`).
     let inMore: Bool
     private static let moreCopies = NSHashTable<BotsViewController>.weakObjects()
+    #if DEBUG
+    /// `-HQPagesBotsCopyOpen` (PagesDebug): the copies alive now.
+    static var copies: [BotsViewController] { moreCopies.allObjects }
+    #endif
 
     init(services: any AppServices, makeChat: @escaping (any ChatSessionModel) -> UIViewController, inMore: Bool = false) {
         self.services = services
@@ -1365,6 +1370,8 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
 
     /// Marks the row (and tile) of the bot whose chat the right pane shows, or of the group chat (`room`); nil clears it.
     func markOnShow(_ id: String?, room: String? = nil, keepsSelection: Bool) {
+        // [more-bots] The copies beside the pane (the Mac's Tools › Bots, the iPad's More › Bots) mark the row too.
+        if !inMore { for copy in Self.moreCopies.allObjects { copy.markOnShow(id, room: room, keepsSelection: keepsSelection) } }
         paneKeepsSelection = keepsSelection
         onShowKey = keepsSelection ? id : nil
         onShowRoom = keepsSelection ? room : nil
