@@ -221,8 +221,8 @@ struct ClarifySettledTests {
 
     @Test func parsesALiveObjectAndAHistoryString() throws {
         let rows = try #require(ClarifySettled.parse(result))
-        #expect(rows == [ClarifyQA(question: "Which branch?", answer: "main", unanswered: false),
-                         ClarifyQA(question: "Skip?", answer: "Lint, docs too", unanswered: false),
+        #expect(rows == [ClarifyQA(question: "Which branch?", answer: "main", unanswered: false, choices: ["main", "staging"]),
+                         ClarifyQA(question: "Skip?", answer: "Lint, docs too", unanswered: false, choices: ["Tests", "Lint"]),
                          ClarifyQA(question: "Name?", answer: "", unanswered: true),
                          ClarifyQA(question: "Other?", answer: "", unanswered: false)])
         let text = String(decoding: try result.encoded(), as: UTF8.self)
@@ -250,5 +250,48 @@ struct ClarifySettledTests {
         }.first
         #expect(call?.name == "clarify")
         #expect(ClarifySettled.rows(fromSummary: call?.summary)?.first?.answer == "main")
+    }
+}
+
+@Suite("Questions: answering a skipped question later")
+struct ClarifyLateTests {
+    private func user(_ text: String, _ id: String = "u") -> ChatMessage {
+        ChatMessage(id: id, role: .user, parts: [.text(text)], timestamp: nil, rowId: nil)
+    }
+
+    @Test func theMessageNamesTheCardAndReadsBack() throws {
+        let key = ClarifyLate.key(["May I spend\nmore credits?", "Which cut?"])
+        #expect(key.hasPrefix("q-") && key.count == 10)
+        #expect(key == ClarifyLate.key(["May I spend more credits?", "Which cut?"]))   // one line or two, the same card
+        #expect(key != ClarifyLate.key(["May I spend more credits?"]))
+        let text = ClarifyLate.message(key: key, answers: [("May I spend\nmore credits?", "Yes, go ahead"), ("Which cut?", "The short one")])
+        #expect(text.hasPrefix("[Hermes HQ question \(key): answer]\nMy answers to the questions you asked earlier"))
+        #expect(text.contains("Q: May I spend more credits?\nA: Yes, go ahead\n\nQ: Which cut?\nA: The short one"))
+        let found = try #require(ClarifyLate.answer(in: text))
+        #expect(found.key == key)
+        #expect(found.answers == ["May I spend more credits?": "Yes, go ahead", "Which cut?": "The short one"])
+        #expect(ClarifyLate.bubbleWords(text) == "Yes, go ahead\nThe short one")
+        #expect(ClarifyLate.answer(in: "Yes you can proceed.") == nil)
+        #expect(ClarifyLate.bubbleWords("[Hermes HQ question nope: answer]") == nil)
+        let one = ClarifyLate.message(key: key, answers: [("Proceed?", "Yes\nbut slowly")])
+        #expect(one.contains("My answer to the question you asked earlier, which went unanswered:"))
+        #expect(ClarifyLate.bubbleWords(one) == "Yes\nbut slowly")
+    }
+
+    @Test func answersFillTheCardsBlanks() {
+        let rows = [ClarifyQA(question: "Proceed?", answer: "", unanswered: true, choices: ["Yes", "No"]),
+                    ClarifyQA(question: "Name?", answer: "Ivy", unanswered: false)]
+        let key = ClarifyLate.key(rows.map(\.question))
+        let messages = [user("hello", "a"), user(ClarifyLate.message(key: key, answers: [("Proceed?", "Yes")]), "b")]
+        let found = ClarifyLate.answers(messages)
+        #expect(found[key]?.index == 1)
+        let (filled, later) = ClarifyLate.filled(rows, found[key])
+        #expect(later)
+        #expect(filled[0].answer == "Yes" && !filled[0].unanswered)
+        #expect(filled[1].answer == "Ivy")
+        #expect(ClarifyLate.filled(rows, nil).later == false)
+        // A queued answer counts, and is newest.
+        let queued = ClarifyLate.answers([user("hello")], queued: [ClarifyLate.message(key: key, answers: [("Proceed?", "No")])])
+        #expect(queued[key] == ClarifyLate.Found(answers: ["Proceed?": "No"], index: .max))
     }
 }

@@ -8,6 +8,7 @@ extension ChatViewController: ChatPromptCellHandling {
     func promptExpiryLabel(clockKey: String, firstSeen: Date) -> String { promptsUI?.expiryLabel(firstSeen: firstSeen) ?? "" }
     func draftCard(_ draft: DraftCardRow, tapped button: DraftButton) { draftCardTapped(draft, button) }   // [drafts]
     func draftCardToggle(rowId: String) { chatCellToggle(rowId: rowId) }
+    func clarifyCardAnswer(_ card: SettledClarifyCard) { promptsUI?.answerLater(card) }   // [questions]
     /// The conversation a draft answers, in a sheet (the step sheet's blocks, on the app's glass): every message the
     /// bot attached, whole, each under who wrote it and when; a long press copies one. A conversation opens at its
     /// newest message (scroll up to read back); one message opens at its top.
@@ -26,5 +27,40 @@ extension ChatViewController: ChatPromptCellHandling {
             let bottom = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
             scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top, bottom)), animated: false)
         }
+    }
+}
+
+// [questions] A skipped question answered later (HermesKit/Chat/PromptLogic.swift `ClarifyLate`).
+extension ChatViewController {
+    /// Later answers still waiting behind a running reply: their cards show them as answered too.
+    var clarifyLateQueuedTexts: [String] {
+        (session as? LiveChatSession)?.queuedMessages.map(\.text).filter { $0.hasPrefix(ClarifyLate.markLead) } ?? []
+    }
+
+    /// The chat changed: a card whose later answer arrived (from here, another device, the queue going out) is drawn
+    /// again. Returns the messages to rebuild.
+    func clarifyLateMessagesToRebuild() -> [String] {
+        let messages = session.messages
+        let now = ClarifyLate.answers(messages, queued: clarifyLateQueuedTexts)
+        guard now != clarifyLateShown else { return [] }
+        let changed = Set(now.keys).union(clarifyLateShown.keys).filter { now[$0] != clarifyLateShown[$0] }
+        clarifyLateShown = now
+        return messages.filter { m in
+            m.role == .assistant && m.parts.contains { part in
+                guard case .tool(let call) = part, call.name == "clarify",
+                      let rows = ClarifySettled.rows(fromSummary: call.summary), !rows.isEmpty else { return false }
+                return changed.contains(ClarifyLate.key(rows.map(\.question)))
+            }
+        }.map(\.id)
+    }
+
+    /// Answer Now's Send: the answers go into the chat as a message of yours (its bubble reads as the answers alone);
+    /// the card then shows them.
+    func sendLateAnswer(_ text: String, messageId: String) {
+        AppLog.trace("questions", "late answer sent \(logTag)")
+        Haptics.play(.selection)
+        // `display` given: the words go out as they are (a task's chat wraps typed words; the mark must lead).
+        sendFromCard(text, display: text)
+        rebuildMessage(messageId)
     }
 }

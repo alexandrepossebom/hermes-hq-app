@@ -50,6 +50,27 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         all.removeLast(first)
         older = all
         if ChatDemo.flag("-HQDemoDrafts") { messages += FakeChatSession.draftMessages }
+        if ChatDemo.flag("-HQDemoSkippedQuestion") { messages += FakeChatSession.skippedQuestionMessages }
+    }
+
+    /// `-HQDemoSkippedQuestion` [questions]: a question that went unanswered while you were away (its card offers Answer
+    /// Now), then the bot's reply waiting on it.
+    static var skippedQuestionMessages: [ChatMessage] {
+        let result: JSONValue = ["responses": [
+            ["question": "May I use up to 40 more render credits for the reshoot? The first cut used 30 of its 40.",
+             "choices_offered": ["Yes, up to 40", "Yes, but only 20", "No, keep the first cut"], "status": "unanswered",
+             "user_response": .null],
+        ], "outcome": "timeout"]
+        let call = ToolCall(id: "late-q1", name: "clarify", title: "Asked a question", argsText: nil,
+                            summary: ClarifySettled.summary(name: "clarify", result: result, fallback: nil), state: .done, durationSeconds: 600)
+        return [
+            ChatMessage(id: "late-u1", role: .user, parts: [.text("Make the second episode better than the first.")],
+                        timestamp: Date().addingTimeInterval(-1500), rowId: 9101),
+            ChatMessage(id: "late-a1", role: .assistant, parts: [
+                .text("The new story and the shot list are ready."), .tool(call),
+                .text("No new credits spent yet: the one thing left is your OK for up to 40 more."),
+            ], timestamp: Date().addingTimeInterval(-700), rowId: 9102),
+        ]
     }
 
     /// `-HQDemoDrafts` [drafts]: two replies that each hold a draft for review (a Slack message, a long email).

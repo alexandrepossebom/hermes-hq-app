@@ -28,6 +28,8 @@ import UIKit
 /// - `-HQDemoPage <path>` (`-HQDemoOpenPage` opens it) Otto's reply with a `::preview` page card for the HTML file at <path> on this Mac (2026-10-31)
 /// - `-HQDemoWideTable` [wide-tables] a reply with a three-column table of long rows (tester 2026-11-06)
 /// - `-HQDemoDrafts` [drafts] two replies that each hold a draft card (a Slack message, a long email)
+/// - `-HQDemoSkippedQuestion` [questions] a question that went unanswered, then the reply waiting on it (Answer Now);
+///   `-HQDemoAnswerNow` taps Answer Now, `-HQDemoAnswerSend <text>` sends that answer
 /// - `-HQDemoLinks` [mac-audit] short plain replies and two bare links (one page without a title)
 enum ChatDemo {
     /// `-HQDemoPage`: a media context whose files are read from this Mac's disk (`MediaLoader.file`).
@@ -211,6 +213,27 @@ final class ChatDemoListViewController: UITableViewController {
                     var request = URLRequest(url: post.appending(path: "\(name).png"))
                     request.httpMethod = "POST"
                     URLSession.shared.uploadTask(with: request, from: data).resume()
+                }
+            }
+        }
+        // [questions] -HQDemoAnswerNow: Answer Now on the newest question card that has a blank; -HQDemoAnswerSend <text>:
+        // its Send with that answer (as a pick and Send would).
+        if ChatDemo.flag("-HQDemoAnswerNow") || ChatDemo.argument("-HQDemoAnswerSend") != nil,
+           let found = chat.session.messages.reversed().lazy.compactMap({ m -> (ChatMessage, [ClarifyQA])? in
+               for case .tool(let c) in m.parts where c.name == "clarify" {
+                   if let rows = ClarifySettled.rows(fromSummary: c.summary), !rows.isEmpty { return (m, rows) }
+               }
+               return nil
+           }).first {
+            let (message, rows) = found
+            let card = SettledClarifyCard(rows: rows, key: ClarifyLate.key(rows.map(\.question)), messageId: message.id,
+                                          answerable: true, answeredLater: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                if let answer = ChatDemo.argument("-HQDemoAnswerSend") {
+                    let open = rows.filter { $0.answer.isEmpty }.map { (question: $0.question, answer: answer) }
+                    chat.sendLateAnswer(ClarifyLate.message(key: card.key, answers: open), messageId: message.id)
+                } else {
+                    chat.clarifyCardAnswer(card)
                 }
             }
         }

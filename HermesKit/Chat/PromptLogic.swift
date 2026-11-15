@@ -176,6 +176,9 @@ nonisolated struct ClarifyQA: Equatable, Sendable, Hashable, Codable {
     var answer: String
     /// Blank and `status == "unanswered"` → "No answer"; any other blank → "Skipped".
     var unanswered: Bool
+    /// The choices it offered (`choices_offered`), for answering it later; nil = an open question (or a card cached
+    /// before they were kept).
+    var choices: [String]? = nil
 }
 
 nonisolated enum ClarifySettled {
@@ -198,7 +201,10 @@ nonisolated enum ClarifySettled {
             default: answer = ""
             }
             let blank = answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            return ClarifyQA(question: question, answer: answer, unanswered: blank && item["status"]?.string == "unanswered")
+            let offered = (item["choices_offered"]?.array ?? []).compactMap(\.string)
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return ClarifyQA(question: question, answer: answer, unanswered: blank && item["status"]?.string == "unanswered",
+                             choices: offered.isEmpty ? nil : offered)
         }
     }
 
@@ -222,5 +228,101 @@ nonisolated enum ClarifySettled {
     static func rows(fromSummary summary: String?) -> [ClarifyQA]? {
         guard let summary, summary.hasPrefix(marker) else { return nil }
         return try? JSONDecoder().decode([ClarifyQA].self, from: Data(summary.dropFirst(marker.count).utf8))
+    }
+}
+
+// MARK: - A skipped question answered later
+
+/// A question that went unanswered (you were away, or skipped it) can still be answered from its card: the answer goes
+/// into the chat as a message of yours naming the card, and the card then shows it (on every device, after a reload),
+/// the way a draft card's answer does (HermesKit/Drafts/DraftCards.swift). The bot's clarify call is long over, so a
+/// plain message is the only way back to it.
+nonisolated enum ClarifyLate {
+    /// One card's answers found in the chat: the question (on one line) → its answer, and the index of the newest
+    /// message that gave them (`Int.max`: still queued behind a running reply).
+    struct Found: Equatable, Sendable, Hashable {
+        var answers: [String: String]
+        var index: Int
+    }
+
+    static let markLead = "[Hermes HQ question "
+    private static let mark = TRx(#"^\s*\[Hermes HQ question (q-[0-9a-f]{8}): answer\]"#)
+
+    /// A question on one line (how the message writes it and how a card looks it up).
+    static func flat(_ question: String) -> String {
+        question.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// The card's name in the message: the same for the same questions on every device and after a reload.
+    static func key(_ questions: [String]) -> String {
+        String(format: "q-%08x", ChatText.fnv1a(questions.map(flat).joined(separator: "\n")))
+    }
+
+    /// What the card's Send sends: the mark, a line saying what it is, then each question and its answer.
+    static func message(key: String, answers: [(question: String, answer: String)]) -> String {
+        let lead = answers.count == 1 ? "My answer to the question you asked earlier, which went unanswered:"
+            : "My answers to the questions you asked earlier, which went unanswered:"
+        let body = answers.map { "Q: \(flat($0.question))\nA: \($0.answer.trimmingCharacters(in: .whitespacesAndNewlines))" }
+        return "\(markLead)\(key): answer]\n\(lead)\n\n" + body.joined(separator: "\n\n")
+    }
+
+    /// The card a message of yours answers, and its answers by question (on one line).
+    static func answer(in text: String) -> (key: String, answers: [String: String])? {
+        guard text.drop(while: \.isWhitespace).hasPrefix(markLead), let groups = mark.groups(text), let key = groups[1] else { return nil }
+        guard let gap = text.range(of: "\n\nQ: ") else { return (key, [:]) }
+        var out: [String: String] = [:]
+        for chunk in text[gap.upperBound...].components(separatedBy: "\n\nQ: ") {
+            guard let split = chunk.range(of: "\nA: ") else { continue }
+            let question = flat(String(chunk[..<split.lowerBound]))
+            let answer = chunk[split.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !question.isEmpty && !answer.isEmpty { out[question] = answer }
+        }
+        return (key, out)
+    }
+
+    /// Your bubble's words: the answers alone, one a line, in the order written (the card above shows the questions).
+    static func bubbleWords(_ text: String) -> String? {
+        guard answer(in: text) != nil else { return nil }
+        var words: [String] = []
+        for chunk in text.components(separatedBy: "\n\nQ: ").dropFirst() {
+            guard let split = chunk.range(of: "\nA: ") else { continue }
+            let answer = chunk[split.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !answer.isEmpty { words.append(answer) }
+        }
+        return words.isEmpty ? nil : words.joined(separator: "\n")
+    }
+
+    /// Every card the chat's messages answer, by key (answers merge; the newest wins). `queued`: answers still waiting
+    /// behind a running reply count too (they are newest).
+    static func answers(_ messages: [ChatMessage], queued: [String] = []) -> [String: Found] {
+        var out: [String: Found] = [:]
+        func take(_ text: String, _ index: Int) {
+            guard let found = answer(in: text) else { return }
+            var entry = out[found.key] ?? Found(answers: [:], index: index)
+            entry.answers.merge(found.answers) { _, new in new }
+            entry.index = index
+            out[found.key] = entry
+        }
+        for (index, message) in messages.enumerated() where message.role == .user {
+            for part in message.parts { if case .text(let text) = part { take(text, index) } }
+        }
+        for text in queued { take(text, .max) }
+        return out
+    }
+
+    /// A settled card's rows with the answers given later filled in; `later` is true when any were.
+    static func filled(_ rows: [ClarifyQA], _ found: Found?) -> (rows: [ClarifyQA], later: Bool) {
+        guard let found, !found.answers.isEmpty else { return (rows, false) }
+        var later = false
+        let out = rows.map { row -> ClarifyQA in
+            guard row.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let answer = found.answers[flat(row.question)] else { return row }
+            later = true
+            var next = row
+            next.answer = answer
+            next.unanswered = false
+            return next
+        }
+        return (out, later)
     }
 }

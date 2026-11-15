@@ -15,6 +15,8 @@ import UIKit
     func draftCardToggle(rowId: String)
     /// The conversation a draft answers, whole, in a sheet.
     func draftCardThread(_ draft: DraftCardRow)
+    /// [questions] Answer Now on a question that went without an answer.
+    func clarifyCardAnswer(_ card: SettledClarifyCard)
 }
 
 final class ChatPromptCell: ChatBaseCell {
@@ -34,6 +36,8 @@ final class ChatPromptCell: ChatBaseCell {
     private let paper = UIView()                             // the panel a draft's words sit on
     private let quote = UIView()                             // the bar beside the conversation a draft answers
     private let threadToggle = UIControl()
+    private var settled: SettledClarifyCard?                 // [questions] a settled question card
+    private let answerNow = UIButton(type: .system)
     private var ticker: Timer?
     private var baseAccessibility = ""
 
@@ -74,6 +78,13 @@ final class ChatPromptCell: ChatBaseCell {
         showAll.accessibilityTraits = .button
         showAll.isAccessibilityElement = true
         contentView.addSubview(showAll)
+        answerNow.isHidden = true
+        answerNow.accessibilityIdentifier = "clarify.answerNow"
+        answerNow.addAction(UIAction { [weak self] _ in
+            guard let self, let card = self.settled, card.answerable else { return }
+            self.handler?.clarifyCardAnswer(card)
+        }, for: .primaryActionTriggered)
+        contentView.addSubview(answerNow)
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (cell: ChatPromptCell, _) in
             cell.updateBorder()
             cell.placeSymbols(cell.symbols)   // the picked mark's palette colours are resolved into its image
@@ -90,6 +101,7 @@ final class ChatPromptCell: ChatBaseCell {
         contentView.alpha = 1
         approval = nil
         draft = nil
+        settled = nil
         stopTicking()
     }
 
@@ -134,6 +146,7 @@ final class ChatPromptCell: ChatBaseCell {
         placeSymbols(l.symbols)
         placeRules(l.rules)
         baseAccessibility = l.accessibility
+        configureAnswerNow(spec, l)
 
         guard case .approval(let a) = spec.kind, let al = l.approval else {
             approval = nil
@@ -151,7 +164,7 @@ final class ChatPromptCell: ChatBaseCell {
                 threadToggle.isHidden = true
                 draftButtons.values.forEach { $0.isHidden = true }
                 card.accessibilityIdentifier = "clarify.note"
-                contentView.accessibilityElements = [card]
+                contentView.accessibilityElements = [card] + (answerNow.isHidden ? [] : [answerNow])
             }
             return
         }
@@ -337,6 +350,34 @@ final class ChatPromptCell: ChatBaseCell {
         if let draft { handler?.draftCardToggle(rowId: draft.rowId); return }
         guard let a = approval else { return }
         handler?.promptCardShowAll(a.id)
+    }
+
+    // MARK: Answer Now ([questions])
+
+    /// A settled question card with a question left unanswered: Answer Now, a tint capsule at the card's trailing foot.
+    private func configureAnswerNow(_ spec: PromptRow, _ l: PromptRowLayout) {
+        guard case .settled(let card) = spec.kind, let frame = l.answerNow, let font = l.answerNowFont else {
+            settled = nil
+            answerNow.isHidden = true
+            return
+        }
+        settled = card
+        answerNow.isHidden = false
+        answerNow.frame = frame
+        var c = UIButton.Configuration.filled()
+        c.baseBackgroundColor = ChatPalette.tint
+        c.baseForegroundColor = .white
+        c.cornerStyle = .capsule
+        c.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
+        c.title = PromptLayout.answerNowTitle
+        c.titleLineBreakMode = .byTruncatingTail
+        c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
+            var a = attrs
+            a.font = font
+            return a
+        }
+        answerNow.configuration = c
+        answerNow.accessibilityHint = card.rows.count == 1 ? "Answers the question now, in the chat" : "Answers the questions now, in the chat"
     }
 
     // MARK: Draft card ([drafts])

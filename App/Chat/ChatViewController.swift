@@ -240,6 +240,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private var pendingTouched: [String] = []
     /// [drafts] The draft answers the rows were last built with (ChatViewController+Drafts.swift).
     var draftAnswersShown: [String: DraftCards.Answer] = [:]
+    /// [questions] The later answers to skipped questions the rows were last built with (ChatViewController+Prompts).
+    var clarifyLateShown: [String: ClarifyLate.Found] = [:]
     private var pendingNewest = false
     private var flushScheduled = false
     private var lastApplyTime: CFTimeInterval = 0
@@ -508,6 +510,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         input.activity = activity.rowsInput()                                                  // [activity]
         input.bots = DeliveryRoster.seats                                                      // [botdm]
         input.drafts = DraftEdits.shared.rowsInput(messages, queued: draftQueuedTexts, scope: scope)                      // [drafts]
+        input.clarifyLate = ClarifyLate.answers(messages, queued: clarifyLateQueuedTexts)                                // [questions]
         input.fewerTimes = ToolCallSettings.fewerTimestamps
         input.externalWorking = externalWorking && !ownerWaiting                                // [external-turn]
         if let source = session as? ChatBackgroundResultSource {
@@ -2070,8 +2073,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         // [drafts] A draft answered some other way than its card's buttons: that card is drawn again.
         switch change {
-        case .appended, .state, .removed: pendingTouched += draftMessagesToRebuild()
-        case .reset: _ = draftMessagesToRebuild()   // everything is rebuilt; only the answers are noted
+        case .appended, .state, .removed: pendingTouched += draftMessagesToRebuild() + clarifyLateMessagesToRebuild()
+        case .reset: _ = draftMessagesToRebuild(); _ = clarifyLateMessagesToRebuild()   // everything is rebuilt; only the answers are noted
         default: break
         }
         activity.sessionChanged()        // [activity] the live Steps sheet, an open step sheet

@@ -57,9 +57,14 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     private var keyboardDown: Bool?
     private let hairline = CAShapeLayer()
 
-    init(prompt: ClarifyPrompt, draft: ClarifyDraft) {
+    /// [questions] A question that went unanswered, answered from its card: Skip reads Cancel (it only closes the dock)
+    /// and Send puts the answers in the chat as a message.
+    let later: Bool
+
+    init(prompt: ClarifyPrompt, draft: ClarifyDraft, later: Bool = false) {
         self.prompt = prompt
         self.draft = draft
+        self.later = later
         super.init(frame: .zero)
         build()
         showPage(draft.page, focus: false)
@@ -127,7 +132,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         stepLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         var skip = UIButton.Configuration.plain()
         // Skip answers {} (spec 1x-questions.md: cancel-all), so on several questions it says it skips them all.
-        skip.title = prompt.questions.count > 1 ? "Skip All" : "Skip"
+        skip.title = later ? "Cancel" : prompt.questions.count > 1 ? "Skip All" : "Skip"
         skip.baseForegroundColor = ChatPalette.tintText
         skip.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 0)
         skip.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
@@ -135,7 +140,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         }
         skipButton.configuration = skip
         skipButton.accessibilityIdentifier = "question.skip"
-        if prompt.questions.count > 1 { skipButton.accessibilityLabel = "Skip All Questions" }
+        if prompt.questions.count > 1 && !later { skipButton.accessibilityLabel = "Skip All Questions" }
         skipButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         skipButton.setContentHuggingPriority(.required, for: .horizontal)
         skipButton.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.dockSkip($0) } }, for: .primaryActionTriggered)

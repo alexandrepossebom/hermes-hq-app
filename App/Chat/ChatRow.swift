@@ -341,6 +341,8 @@ nonisolated enum ChatRowBuilder {
         var diffs: [String: String] = [:]
         /// [drafts] The chat's draft cards: which are answered, your edits, the one being edited (PromptRows.draftRow).
         var drafts = DraftRowsInput()
+        /// [questions] Skipped questions answered later in the chat, by card key (`ClarifyLate.answers`).
+        var clarifyLate: [String: ClarifyLate.Found] = [:]
 
         var speakerName: String {
             let name = botName.trimmingCharacters(in: .whitespaces)
@@ -638,7 +640,8 @@ nonisolated enum ChatRowBuilder {
             } else {
                 let id = "\(m.id)|b0"
                 // [drafts] Your answer to a draft card reads "Send it": the card above shows the words that went.
-                let text = DraftCards.bubbleWords(text) ?? text
+                // [questions] A skipped question answered later reads as the answer: the card above shows the question.
+                let text = DraftCards.bubbleWords(text) ?? ClarifyLate.bubbleWords(text) ?? text
                 rows.append(ChatRow(id: id, messageId: m.id, scope: input.scope, fingerprint: bubbleFingerprint(text, mine: true, speaker: "You"),
                                     kind: .bubble(BubbleRow(mine: true, text: text, markdown: true, partIndex: 0, joinsAbove: false,
                                                             joinsBelow: false, tail: false, time: nil, pending: m.isPending,

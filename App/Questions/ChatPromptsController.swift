@@ -18,6 +18,9 @@ import UIKit
 
     // The dock.
     private var dock: QuestionDockView?
+    /// [questions] The settled card whose unanswered questions the dock is answering now (a live question takes the
+    /// dock back from it).
+    private var late: SettledClarifyCard?
 
     // Sheets and the chip (§4.5): the store keeps them by request id while open (the typed text survives a tuck and
     // leaving the chat).
@@ -274,6 +277,8 @@ import UIKit
 
     private func updateDock(animated: Bool) {
         guard let chat else { return }
+        if prompts.clarify != nil { late = nil }
+        if late != nil, dock?.later == true { return }
         if let clarify = prompts.clarify {
             if let dock, dock.prompt.id == clarify.id {
                 dock.sending = clarify.sending ? (dock.sending == .none ? .send : dock.sending) : .none
@@ -296,6 +301,7 @@ import UIKit
 
     func dockSend(_ dock: QuestionDockView) {
         guard dock.sending == .none else { return }
+        if dock.later { return sendLater(dock) }
         dock.sending = .send
         let id = dock.prompt.id
         prompting.saveClarifyDraft(id, dock.draft)
@@ -314,6 +320,7 @@ import UIKit
 
     func dockSkip(_ dock: QuestionDockView) {
         guard dock.sending == .none else { return }
+        if dock.later { return closeLater() }
         // Skip cancels every question, so answers already given would be lost: it asks first.
         guard dock.prompt.questions.count > 1, dock.answeredCount > 0, let chat else { return skip(dock) }
         let alert = UIAlertController(title: "Skip All Questions?",
@@ -344,7 +351,51 @@ import UIKit
     }
 
     func dockDraftChanged(_ dock: QuestionDockView) {
+        guard !dock.later else { return }   // its picks live in the dock until Send or Cancel
         prompting.saveClarifyDraft(dock.prompt.id, dock.draft)
+    }
+
+    // MARK: Answer Now ([questions])
+
+    /// Answer Now on a settled card: its unanswered questions come back in the dock, with the choices they offered.
+    /// The bot's clarify call is long over, so Send puts the answers in the chat as a message of yours naming the card
+    /// (`ClarifyLate.message`); the card then shows them. A live question owns the dock and wins.
+    func answerLater(_ card: SettledClarifyCard) {
+        guard let chat, prompts.clarify == nil, dock?.later != true || late?.key != card.key else { return }
+        let open = card.rows.filter { $0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !open.isEmpty else { return }
+        let questions = open.enumerated().map { i, row in
+            let choices = (row.choices ?? []).filter { $0.count <= ClarifyText.maxChoiceChars }
+            return ClarifyQuestion(qid: "q\(i)", question: row.question, choices: choices.isEmpty ? nil : choices,
+                                   multiSelect: !choices.isEmpty && card.multi.contains(ClarifyLate.flat(row.question)))
+        }
+        Haptics.play(.selection)
+        AppLog.trace("questions", "answer later \(card.key) (\(questions.count) question(s))")
+        late = card
+        let view = QuestionDockView(prompt: ClarifyPrompt(id: "late|\(card.key)", questions: questions), draft: ClarifyDraft(), later: true)
+        view.delegate = self
+        dock = view
+        chat.setDock(view, for: .question, animated: true)
+    }
+
+    private func sendLater(_ dock: QuestionDockView) {
+        guard let card = late, let chat else { return closeLater() }
+        let rows = ClarifyStaging.sentRows(dock.prompt.questions, dock.draft.stages)
+        let answers = rows.compactMap { row in row.answer.map { (question: row.question, answer: $0) } }
+            .filter { !$0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !answers.isEmpty else { return }
+        dock.endEditing(true)
+        closeLater()
+        chat.sendLateAnswer(ClarifyLate.message(key: card.key, answers: answers), messageId: card.messageId)
+    }
+
+    private func closeLater() {
+        late = nil
+        guard dock?.later == true else { return }
+        dock?.endEditing(true)
+        dock = nil
+        chat?.setDock(nil, for: .question, animated: true)
+        updateDock(animated: true)
     }
 
     var dockView: QuestionDockView? { dock }

@@ -20,6 +20,21 @@ nonisolated enum ClarifyNote: Sendable, Equatable, Hashable {
     case sent([SentClarifyRow])
 }
 
+/// A clarify call's settled card: its questions and answers (answers given later in the chat filled in), and whether a
+/// question still waits for one ("Answer Now").
+nonisolated struct SettledClarifyCard: Sendable, Equatable, Hashable {
+    var rows: [ClarifyQA]
+    /// `ClarifyLate.key` of its questions: what the later answer's message names.
+    var key: String
+    var messageId: String
+    /// The questions (on one line) that took several picks, read from the call's arguments.
+    var multi: Set<String> = []
+    /// A question has no answer, and none came later: the card offers Answer Now.
+    var answerable: Bool
+    /// An answer came later, in the chat.
+    var answeredLater: Bool
+}
+
 nonisolated struct ApprovalCardRow: Sendable, Equatable, Hashable {
     var id: String
     var stackExpired: Bool                 // "Approval expired" (every approval in the stack expired)
@@ -45,7 +60,7 @@ nonisolated struct PromptRow: Sendable {
     enum Kind: Sendable {
         case approval(ApprovalCardRow)
         case note(ClarifyNote)
-        case settled([ClarifyQA])
+        case settled(SettledClarifyCard)
         /// [drafts] A bot's draft for review: its text, Send, Edit and Don't Send (HermesKit/Drafts/DraftCards.swift).
         case draft(DraftCardRow)
     }
@@ -81,7 +96,31 @@ nonisolated enum PromptRows {
             return row(id: id, messageId: message.id, kind: .note(note), scope: input.scope)
         }
         guard let rows = ClarifySettled.rows(fromSummary: call.summary), !rows.isEmpty else { return nil }
-        return row(id: id, messageId: message.id, kind: .settled(rows), scope: input.scope)
+        return row(id: id, messageId: message.id, kind: .settled(settledCard(rows, call: call, message: message, input: input)),
+                   scope: input.scope)
+    }
+
+    /// The settled card: answers you gave later in the chat (after this message) fill its blanks; a blank left over
+    /// offers Answer Now (not in a room, whose sends go to its members).
+    static func settledCard(_ rows: [ClarifyQA], call: ToolCall, message: ChatMessage, input: ChatRowBuilder.Input) -> SettledClarifyCard {
+        let key = ClarifyLate.key(rows.map(\.question))
+        var found = input.clarifyLate[key]
+        if let f = found, f.index != .max, let at = input.messages.lastIndex(where: { $0.id == message.id }), f.index < at { found = nil }
+        let (shown, later) = ClarifyLate.filled(rows, found)
+        let blank = shown.contains { $0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return SettledClarifyCard(rows: shown, key: key, messageId: message.id, multi: multiSelect(call.argsText),
+                                  answerable: blank && input.room == nil, answeredLater: later)
+    }
+
+    /// The questions (on one line) the call asked as multi-select.
+    static func multiSelect(_ argsText: String?) -> Set<String> {
+        guard let argsText, argsText.contains("multi_select"), let data = argsText.data(using: .utf8),
+              let args = try? JSONValue.parseFast(data) else { return [] }
+        var out = Set<String>()
+        for q in args["questions"]?.array ?? [] where q["multi_select"]?.bool == true {
+            if let text = q["question"]?.string { out.insert(ClarifyLate.flat(text)) }
+        }
+        return out
     }
 
     /// The newest running clarify tool part of the last few messages (the live turn's).
@@ -99,7 +138,7 @@ nonisolated enum PromptRows {
         switch kind {
         case .approval(let a): h.combine(0); h.combine(a)
         case .note(let n): h.combine(1); h.combine(n)
-        case .settled(let rows): h.combine(2); h.combine(rows)
+        case .settled(let card): h.combine(2); h.combine(card)
         case .draft(let d): h.combine(3); h.combine(d)
         }
         return ChatRow(id: id, messageId: messageId, scope: scope, fingerprint: h.finalize(), kind: .prompt(PromptRow(kind: kind)),
@@ -152,6 +191,9 @@ nonisolated struct PromptRowLayout: @unchecked Sendable {
     var draft: DraftCardLayout? = nil
     /// VoiceOver's reading of the whole card.
     var accessibility: String
+    /// A settled question card's Answer Now button (a question went without an answer), in row coordinates.
+    var answerNow: CGRect? = nil
+    var answerNowFont: UIFont? = nil
 }
 
 nonisolated enum PromptFonts {
@@ -193,7 +235,7 @@ nonisolated enum PromptLayout {
         switch prompt.kind {
         case .approval(let a): return approval(a, gap: row.gapAbove, width: width, category: style.category)
         case .note(let n): return note(n, gap: row.gapAbove, width: width, category: style.category)
-        case .settled(let rows): return settled(rows, gap: row.gapAbove, width: width, category: style.category)
+        case .settled(let card): return settled(card, gap: row.gapAbove, width: width, category: style.category)
         case .draft(let d): return draft(d, gap: row.gapAbove, width: width, category: style.category)
         }
     }
@@ -459,10 +501,13 @@ nonisolated enum PromptLayout {
         }
     }
 
-    static func settled(_ rows: [ClarifyQA], gap: CGFloat, width: CGFloat, category: UIContentSizeCategory) -> RowLayout {
-        qa(rows.map { ($0.question, $0.answer.trimmingCharacters(in: .whitespacesAndNewlines), $0.unanswered) },
-           gap: gap, width: width, category: category)
+    static func settled(_ card: SettledClarifyCard, gap: CGFloat, width: CGFloat, category: UIContentSizeCategory) -> RowLayout {
+        qa(card.rows.map { ($0.question, $0.answer.trimmingCharacters(in: .whitespacesAndNewlines), $0.unanswered) },
+           gap: gap, width: width, category: category, answerNow: card.answerable,
+           title: card.answeredLater ? (card.rows.count == 1 ? "Answered later" : "Your answers, some later") : nil)
     }
+
+    static let answerNowTitle = "Answer Now"
 
     // The chat's cards (owner 2026-11-09: an outline on the page colour looked bare, and every card of this kind is to
     // look the same): a reply bubble's fill with no edge, a header of a round mark and a semibold title, then the
@@ -507,12 +552,14 @@ nonisolated enum PromptLayout {
 
     /// Each question in Subheadline label-2, its answer under it in Body semibold beside the dock's picked mark; a blank
     /// answer reads "Skipped" or "No answer" in italic label-3 beside a hollow mark. Hairlines between the questions.
+    /// `answerNow`: a trailing Answer Now button under the questions (a question left without an answer).
     private static func qa(_ rows: [(question: String, answer: String, unanswered: Bool)], gap: CGFloat, width: CGFloat,
-                           category: UIContentSizeCategory) -> RowLayout {
+                           category: UIContentSizeCategory, answerNow: Bool = false, title shownTitle: String? = nil) -> RowLayout {
         let side = cardSide
         let cardW = max(120, width - 2 * side), innerW = cardW - 2 * notePadH
         let top = gap + 6, x = side + notePadH
-        let (title, glyph) = answersTitle(rows)
+        var (title, glyph) = answersTitle(rows)
+        if let shownTitle { title = shownTitle }
         let head = noteHeader(title, glyph: glyph, dim: glyph.hasPrefix("minus"), x: x, y: top + notePadV, width: innerW, category: category)
         var texts = [head.text]
         var symbols = [head.symbol]
@@ -523,6 +570,7 @@ nonisolated enum PromptLayout {
         let mark = ceil(min(28, max(18, answerFont.pointSize * 1.06)))
         let answerX = x + mark + 8
         var y = head.maxY + noteHeaderGap + 2
+        var lastLine: (midY: CGFloat, right: CGFloat, blank: Bool)?   // the last answer's first line, for Answer Now
         for (i, row) in rows.enumerated() {
             if i > 0 {
                 y += 12
@@ -541,13 +589,34 @@ nonisolated enum PromptLayout {
             texts.append(PromptPlacedText(text: a, frame: CGRect(x: answerX, y: y + (first - lineH) / 2, width: a.size.width, height: a.size.height)))
             symbols.append(PromptSymbol(frame: CGRect(x: x, y: y + (first - mark) / 2, width: mark, height: mark),
                                         name: blank ? "minus.circle" : "checkmark.circle.fill", style: blank ? .blank : .picked))
+            lastLine = (y + first / 2, answerX + a.size.width, blank && a.size.height <= lineH * 1.5)
             y += max(a.size.height + (first - lineH) / 2, first)
             spoken.append("\(row.question): \(words)")
+        }
+        var answerFrame: CGRect?
+        let buttonFont = PromptFonts.button(category)
+        if answerNow {
+            // One trailing capsule, as a draft card's Send; full width at accessibility sizes.
+            let h = max(44, ceil(buttonFont.lineHeight) + 16)
+            let w = min(innerW, ceil((answerNowTitle as NSString).size(withAttributes: [.font: buttonFont]).width) + 32)
+            if let line = lastLine, line.blank, !category.isAccessibilityCategory, line.right + 16 + w <= x + innerW {
+                // Beside the last "No answer" (owner: no wasted space), centred on its line.
+                // Shorter than the row's own button, so it stays clear of the question above.
+                let inlineH = ceil(buttonFont.lineHeight) + 10
+                let frame = CGRect(x: x + innerW - w, y: (line.midY - inlineH / 2).rounded(), width: w, height: inlineH)
+                answerFrame = frame
+                y = max(y, frame.maxY - 4)
+            } else {
+                y += 12
+                answerFrame = category.isAccessibilityCategory ? CGRect(x: x, y: y, width: innerW, height: h)
+                    : CGRect(x: x + innerW - w, y: y, width: w, height: h)
+                y += h
+            }
         }
         let card = CGRect(x: side, y: top, width: cardW, height: ceil(y + notePadV - top))
         return RowLayout(height: ceil(card.maxY + 6), content: .prompt(PromptRowLayout(
             cardFrame: card, texts: texts, approval: nil, symbols: symbols, rules: rules,
-            accessibility: ([title] + spoken).joined(separator: ". "))))
+            accessibility: ([title] + spoken).joined(separator: ". "), answerNow: answerFrame, answerNowFont: buttonFont)))
     }
 }
 

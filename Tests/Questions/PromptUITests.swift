@@ -59,7 +59,7 @@ struct PromptUITests {
         #expect(short.height == ceil(frame.maxY + 8))
     }
 
-    @Test func theCardAndTheNoteJoinTheNewestEnd() {
+    @Test func theCardAndTheNoteJoinTheNewestEnd() throws {
         let user = ChatMessage(id: "u1", role: .user, parts: [.text("please approve")], timestamp: Date(), rowId: 1)
         var reply = ChatMessage(id: "a1", role: .assistant, parts: [.tool(ToolCall(id: "t1", name: "terminal", title: "Running",
                                                                                    argsText: nil, summary: nil, state: .running,
@@ -86,8 +86,30 @@ struct PromptUITests {
                                         summary: ClarifySettled.summary([ClarifyQA(question: "Which?", answer: "main", unanswered: false)]),
                                         state: .done, durationSeconds: nil))]
         let card = ChatRowBuilder.build(input([user, settled], prompts: nil)).first { $0.id == "a1|qc1" }
-        if case .prompt(let row)? = card?.kind, case .settled(let qa) = row.kind { #expect(qa.first?.answer == "main") }
-        else { Issue.record("expected the settled card") }
+        if case .prompt(let row)? = card?.kind, case .settled(let qa) = row.kind {
+            #expect(qa.rows.first?.answer == "main")
+            #expect(!qa.answerable && !qa.answeredLater)
+        } else { Issue.record("expected the settled card") }
+        // A question that went unanswered offers Answer Now; the answer sent later in the chat fills it.
+        let skipped = [ClarifyQA(question: "Proceed?", answer: "", unanswered: true, choices: ["Yes", "No"])]
+        settled.parts = [.tool(ToolCall(id: "c1", name: "clarify", title: "clarify", argsText: nil,
+                                        summary: ClarifySettled.summary(skipped), state: .done, durationSeconds: nil))]
+        func lateCard(_ messages: [ChatMessage]) -> SettledClarifyCard? {
+            var i = input(messages, prompts: nil)
+            i.clarifyLate = ClarifyLate.answers(messages)
+            guard case .prompt(let row)? = ChatRowBuilder.build(i).first(where: { $0.id == "a1|qc1" })?.kind,
+                  case .settled(let qa) = row.kind else { return nil }
+            return qa
+        }
+        let open = try #require(lateCard([user, settled]))
+        #expect(open.answerable && !open.answeredLater && open.rows.first?.choices == ["Yes", "No"])
+        let lateReply = ChatMessage(id: "u2", role: .user, parts: [.text(ClarifyLate.message(key: open.key, answers: [("Proceed?", "Yes")]))],
+                                timestamp: nil, rowId: nil)
+        let answered = try #require(lateCard([user, settled, lateReply]))
+        #expect(!answered.answerable && answered.answeredLater && answered.rows.first?.answer == "Yes")
+        // An answer from before the card doesn't count (the same question asked again).
+        let before = try #require(lateCard([lateReply, user, settled]))
+        #expect(before.answerable)
         let plain = ChatRowBuilder.build(input([user, asking], prompts: nil))
         #expect(plain.contains { if case .toolRun = $0.kind { true } else { false } })
     }
