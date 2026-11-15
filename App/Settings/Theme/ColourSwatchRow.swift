@@ -64,9 +64,18 @@ struct ColourSwatchRow: View {
             // One row where they all fit (the Mac, the iPad); on the iPhone even rows of six (owner 2026-11-08: no
             // wasted space). The system's colour well is a circle on the iPhone and a wider pill on the Mac.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(swatches) { swatch($0) }
-                    well
+                if DeviceWord.isMac {
+                    // [mac] The row spans the card: the spare width goes evenly between the swatches, not all to
+                    // the right of the well (Bot Info › Settings showed a narrow gap on the left, a wide one right).
+                    HStack(spacing: 0) {
+                        ForEach(swatches) { swatch($0); Spacer(minLength: 8) }
+                        well
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        ForEach(swatches) { swatch($0) }
+                        well
+                    }
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0, alignment: .leading), count: 6), alignment: .leading, spacing: 8) {
                     ForEach(swatches) { swatch($0) }
