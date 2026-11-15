@@ -47,6 +47,8 @@ struct ThemeSettingsView: View {
     /// The look was just flipped by its own switch: the other look's page opens on that switch, not at the top, as
     /// the grid above it is about a screen tall (UX study #110: no long scroll back to the switch just used).
     @State private var flippedHere = false
+    /// [working-ring] Theme › Working Ring (owner 2026-11-15: on the Theme page, not Appearance's root).
+    @AppStorage(WorkingRing.key) private var workingRing = true
     private var theme: Theme { Theme.shared }
     private static let lookRow = "theme.lookRow"
     private static let chatsRow = "theme.desktopChats"
@@ -122,6 +124,7 @@ struct ThemeSettingsView: View {
                         // [chat-soft-edge] No Top Edge here: this look's tabs have their own backing and chats are
                         // always soft, so the choice changed nothing.
                         DesktopGroup(footer: Self.scaleNote) { scalePicker(state) }
+                        DesktopGroup(footer: SettingsSearch.workingRingNote) { workingRingSwitch }   // [working-ring]
                         DesktopGroup(footer: nil) { DesktopThemeRows(model: installer) }
                     }
                     // [mac] Stress test 2026-10-28 round 6: the Mac form's readable width and inset (`hqMacForm`), as on
@@ -166,6 +169,12 @@ struct ThemeSettingsView: View {
                         scalePicker(state)
                     } footer: { HQSectionFooter {
                         Text(Self.densityNote)
+                    } }
+                    // [working-ring] Beside Density: both are how the Bots and Sessions rows look.
+                    Section {
+                        workingRingSwitch
+                    } footer: { HQSectionFooter {
+                        Text(SettingsSearch.workingRingNote)
                     } }
                     Section {
                         DesktopThemeRows(model: installer)
@@ -231,6 +240,18 @@ struct ThemeSettingsView: View {
         .tint(state.desktopLook ? Color.hqTintText : nil)
         .accessibilityIdentifier("theme.desktopLook")
         .id(Self.lookRow)
+    }
+
+    /// [working-ring] The ring that travels round a working bot or chat. The switch itself ticks (a system control).
+    private var workingRingSwitch: some View {
+        Toggle(isOn: Binding(get: { workingRing }, set: { on in
+            WorkingRing.isOn = on
+            AppLog.trace("settings", "working ring \(on ? "on" : "off")")
+        })) {
+            Text(SettingsSearch.workingRingLabel).foregroundStyle(Color.hqLabel)
+        }
+        .tint(Theme.shared.state.desktopLook ? Color.hqTintText : nil)
+        .accessibilityIdentifier("theme.workingRing")
     }
 
     /// [a11y] iOS Increase Contrast (the debug override too) turns High Contrast on: the switch shows it, and is held.

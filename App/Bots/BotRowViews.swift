@@ -17,7 +17,8 @@ struct BotAvatar: View {
 
     var body: some View {
         // [perf] The face's ring shape (a head resolve and a photo lookup) only when the ring is drawn: a row never is.
-        let arc = faceArc && BotList.showsArc(bot)
+        // [working-ring] The working state only: the ring's own gate reads Working Ring, so it follows the switch live.
+        let arc = faceArc && BotList.showsArc(bot, ring: true)
         HeadImage(raw: bot.head, profile: bot.id, size: size, working: bot.isWorking, moods: true)
             .workingArc(arc, shape: arc ? WorkingArc.faceShape(raw: bot.head, profile: bot.id, size: size) : .circle,
                         lineWidth: WorkingArc.faceLine, outset: WorkingArc.faceOutset)
@@ -250,7 +251,7 @@ struct BotRowView: View {
             .botAccessibilityActions(actions.moves)
         }
         .frame(height: DesktopRows.height)
-        .rowArc(BotList.showsArc(bot))
+        .rowArc(BotList.showsArc(bot, ring: true))   // [working-ring] the gate reads the switch
     }
 
     private var iosBody: some View {
@@ -283,7 +284,7 @@ struct BotRowView: View {
             .botAccessibilityActions(actions.moves)
         }
         .frame(minHeight: large ? 0 : BotRowMetrics.minHeight)
-        .rowArc(BotList.showsArc(bot))
+        .rowArc(BotList.showsArc(bot, ring: true))   // [working-ring] the gate reads the switch
     }
 
     private var topLine: some View {

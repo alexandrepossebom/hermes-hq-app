@@ -319,10 +319,12 @@ struct SessionRowView: View {
     private var fixedDeskHeight: Bool { titleLines <= 1 }
 
     /// The working arc (V:store/session-dot-state.ts:75): running, not waiting on the person.
-    private var showsArc: Bool { Self.showsArc(session, busy: busy) }
+    /// [working-ring] The working state only: `rowArc`'s gate reads Working Ring, so the ring follows the switch live.
+    private var showsArc: Bool { Self.showsArc(session, busy: busy, ring: true) }
 
-    static func showsArc(_ session: SessionSummary, busy: Bool) -> Bool {
-        (session.isRunning || session.status == .working) && session.status != .needsInput && !busy
+    /// [working-ring] Never while Settings › Appearance › Working Ring is off ("Working…" still says it).
+    static func showsArc(_ session: SessionSummary, busy: Bool, ring: Bool = WorkingRing.isOn) -> Bool {
+        ring && (session.isRunning || session.status == .working) && session.status != .needsInput && !busy
     }
 
     @ViewBuilder private var trailingText: some View {

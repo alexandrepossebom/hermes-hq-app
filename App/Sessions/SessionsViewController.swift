@@ -44,6 +44,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     private var reloadAfterTransition = false
     private var timeObserver: NSObjectProtocol?
     private var lookObserver: NSObjectProtocol?
+    private var ringObserver: NSObjectProtocol?   // [working-ring]
     /// UX study #248: a bot muted or unmuted redraws its chats' bells.
     private var muteObserver: UUID?
     /// UX study #206: a first read still loading after 15 s says the gateway is slow, with Try Again.
@@ -235,6 +236,11 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             MainActor.assumeIsolated { self?.releaseNew() }
         }
         muteObserver = BotMuteCenter.shared.observe { [weak self] in self?.setNeedsReload(animated: false) }   // UX study #248
+        // [working-ring] Working Ring on or off: the hairlines beside a working row are asked again (the ring itself
+        // follows the switch on its own, `WorkingRingGate`).
+        ringObserver = NotificationCenter.default.addObserver(forName: WorkingRing.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setNeedsReload(animated: false) }
+        }
         slowClock.onSlow = { [weak self] in self?.setNeedsReload(animated: false) }                         // UX study #206
         reload(animated: false)
     }
@@ -243,6 +249,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         if let muteObserver { BotMuteCenter.shared.stopObserving(muteObserver) }
         if let timeObserver { NotificationCenter.default.removeObserver(timeObserver) }
         if let lookObserver { NotificationCenter.default.removeObserver(lookObserver) }
+        if let ringObserver { NotificationCenter.default.removeObserver(ringObserver) }
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         rolloverTimer?.invalidate()
         searchTask?.cancel()
