@@ -40,7 +40,9 @@ extension AppModel: SessionsServices {}
 
     // MARK: - The menu
 
-    func menuNodes(for session: SessionSummary) -> [BotMenuNode] {
+    /// `row`: the list item the menu was opened on (a chat's second row in its project has an id of its own), so Move
+    /// Up / Move Down act in the group that row is in; nil is the chat's own row.
+    func menuNodes(for session: SessionSummary, row: String? = nil) -> [BotMenuNode] {
         let tiles: [BotMenuNode] = [
             .action(session.pinned ? "Unpin" : "Pin", session.pinned ? "pin.slash" : "pin") { [weak self] in self?.pin(session) },
             // UX study 2026-10-19 #35: a verb, as the Bots menus say it; "Mark Read" (not "Mark as Read") fits a third of
@@ -77,10 +79,11 @@ extension AppModel: SessionsServices {}
             BotMenuNode(title: "More", image: "ellipsis.circle", kind: .submenu(more)),
         ]
         // [manual-order] Sort By Manual: the chat's place in its group, without the drag (VoiceOver, Switch Control).
-        let key = SessionListPipeline.key(session)
-        let order: [BotMenuNode] = host?.chatMoves(key).map { moves in [
-            .action("Move Up", "arrow.up", disabled: !moves.up) { [weak self] in self?.host?.moveChat(key, by: -1) },
-            .action("Move Down", "arrow.down", disabled: !moves.down) { [weak self] in self?.host?.moveChat(key, by: 1) },
+        // [pinned-in-project] Opened on a pinned chat's row in its project card, they move it there, not in Pinned.
+        let item = row ?? SessionListPipeline.key(session)
+        let order: [BotMenuNode] = host?.chatMoves(item).map { moves in [
+            .action("Move Up", "arrow.up", disabled: !moves.up) { [weak self] in self?.host?.moveChat(item, by: -1) },
+            .action("Move Down", "arrow.down", disabled: !moves.down) { [weak self] in self?.host?.moveChat(item, by: 1) },
         ] } ?? []
         let end: [BotMenuNode] = [
             .action(session.archived ? "Unarchive" : "Archive", session.archived ? "tray.and.arrow.up" : "archivebox") { [weak self] in
@@ -129,14 +132,15 @@ extension AppModel: SessionsServices {}
         return [BotMenuNode(title: "", kind: .deferred(load))]
     }
 
-    func uiMenu(for session: SessionSummary) -> UIMenu {
-        BotMenuNode.uiMenu(menuNodes(for: session), title: SessionRowView.title(session)).menu
+    func uiMenu(for session: SessionSummary, row: String? = nil) -> UIMenu {
+        BotMenuNode.uiMenu(menuNodes(for: session, row: row), title: SessionRowView.title(session)).menu
     }
 
-    func contextMenu(for session: SessionSummary, key: String) -> UIContextMenuConfiguration {
+    /// `row`: the list item held (see `menuNodes(for:row:)`).
+    func contextMenu(for session: SessionSummary, key: String, row: String? = nil) -> UIContextMenuConfiguration {
         UIContextMenuConfiguration(identifier: key as NSString, previewProvider: nil) { [weak self] _ in
             self?.lentAnchor = nil
-            return self?.uiMenu(for: session)
+            return self?.uiMenu(for: session, row: row)
         }
     }
 

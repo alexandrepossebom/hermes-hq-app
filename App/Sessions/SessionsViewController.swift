@@ -1755,7 +1755,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
               Self.groupId(moreKey: item) == nil, Self.groupId(newKey: item) == nil else { return nil }
         let id = Self.realKey(item)
         if let organizer, let session = sessionsByID[item] {
-            return busy.contains(id) ? nil : organizer.contextMenu(for: session, key: id)
+            return busy.contains(id) ? nil : organizer.contextMenu(for: session, key: id, row: item)
         }
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             UIMenu(children: [UIAction(title: "Open Chat", image: UIImage(systemName: "bubble.left")) { _ in self?.open(id) }])

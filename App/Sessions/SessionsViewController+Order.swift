@@ -114,18 +114,20 @@ extension SessionsViewController {
         return groups.flatMap { $0.sessions.map(SessionListPipeline.key) }.filter { seen.insert($0).inserted }
     }
 
-    /// Under Manual, a row's menu offers Move Up / Move Down inside its group.
-    func chatMoves(_ key: String) -> (up: Bool, down: Bool)? {
-        guard rowsReorder, store?.view.sortBy == .manual, let path = dataSource.indexPath(for: key) else { return nil }
+    /// Under Manual, a row's menu offers Move Up / Move Down inside its group. `item`: the row's list item, a chat's own
+    /// key or its second row's (`copyKey`), so a pinned chat moves in its project from its row there
+    /// ([pinned-in-project]).
+    func chatMoves(_ item: String) -> (up: Bool, down: Bool)? {
+        guard rowsReorder, store?.view.sortBy == .manual, let path = dataSource.indexPath(for: item) else { return nil }
         let keys = rowKeys(path.section)
-        guard let index = keys.firstIndex(of: key) else { return nil }
+        guard let index = keys.firstIndex(of: Self.realKey(item)) else { return nil }
         return (index > 0, index < keys.count - 1)
     }
 
-    func moveChat(_ key: String, by delta: Int) {
-        guard let path = dataSource.indexPath(for: key) else { return }
+    func moveChat(_ item: String, by delta: Int) {
+        guard let path = dataSource.indexPath(for: item) else { return }
         let keys = rowKeys(path.section)
-        guard let from = keys.firstIndex(of: key), keys.indices.contains(from + delta) else { return }
+        guard let from = keys.firstIndex(of: Self.realKey(item)), keys.indices.contains(from + delta) else { return }
         Haptics.play(.selection)
         store?.reorderChats(SessionManualOrder.moved(keys, from: from, to: from + delta), drawn: drawnKeys)
         reload(animated: true)
