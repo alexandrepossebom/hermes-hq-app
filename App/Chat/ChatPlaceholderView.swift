@@ -262,15 +262,19 @@ final class ChatPlaceholderView: UIView {
         unsqueeze()
         let fitting = { self.stack.systemLayoutSizeFitting(CGSize(width: column, height: UIView.layoutFittingCompressedSize.height),
                                                            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel) }
+        // Reserve the card's padding before fitting, not after placing the stack. Otherwise the keyboard can
+        // push the face to y = 0 and placeCard's bounds intersection clips away its entire top inset.
+        let verticalInset: CGFloat = Backdrop.chats.shows ? 20 : 0
+        let availableHeight = max(0, bounds.height - 2 * verticalInset)
         var fit = fitting()
         if case .empty = mode {
-            for view in [head, bodyLabel, roleLabel] as [UIView] where fit.height > bounds.height && !view.isHidden {
+            for view in [head, bodyLabel, roleLabel] as [UIView] where fit.height > availableHeight && !view.isHidden {
                 view.isHidden = true
                 squeezed.append(view)
                 fit = fitting()
             }
         }
-        stack.frame = CGRect(x: side, y: max(0, ((bounds.height - fit.height) / 2 - 20).rounded()), width: column, height: fit.height.rounded(.up))
+        stack.frame = CGRect(x: side, y: max(verticalInset, ((bounds.height - fit.height) / 2 - 20).rounded()), width: column, height: fit.height.rounded(.up))
         placeCard()
         if mode == .loading, window != nil { startShimmer() }
     }
