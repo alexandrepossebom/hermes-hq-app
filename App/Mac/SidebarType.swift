@@ -7,7 +7,8 @@
 // `native`: Finder's, Mail's and Notes' sidebar (13 pt regular rows whose weight never changes when chosen, the
 // selection carries it; 11 pt semibold secondary headings; counts, times and the gateway's name one 11 pt regular
 // secondary size; 28 pt rows with smaller faces and icons to match).
-// Debug builds draw `native` with `-HQSidebarType native` (the launch arguments, read once a launch, never saved).
+// The owner picked `native` (2026-11-14). Debug builds can still draw either with `-HQSidebarType current|native`
+// (the launch arguments, read once a launch, never saved), to compare.
 
 import UIKit
 
@@ -74,8 +75,8 @@ struct SidebarType {
         railPlace: 14, railHead: 14, railPlaceLeast: 13.65, railHeadLeast: 13.65,
         icon: 17, face: 26, faceCompact: 24, placeRow: 37, placeRowCompact: 32, botRow: 37, botRowCompact: 32)
 
-    /// What the app ships with. The owner's pick goes here.
-    static let shipping = current
+    /// What the app ships with: the owner's pick, 2026-11-14 (with 13 pt body text, `ThemeState.macBody`).
+    static let shipping = native
 
     /// The scheme in use: `shipping`, or in a Debug build the one `-HQSidebarType current|native` names.
     static let active: SidebarType = {
