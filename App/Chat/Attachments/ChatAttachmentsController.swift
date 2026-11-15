@@ -164,7 +164,9 @@ private extension AttachmentPrepareError {
         attach.accessibilityIdentifier = "link.attach"
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(attach)
+        #if !targetEnvironment(macCatalyst)
         alert.preferredAction = attach
+        #endif
         if let field = alert.textFields?.first {
             linkDialog.bind(field: field, alert: alert, attach: attach, commit: commit)
         }
@@ -574,6 +576,11 @@ nonisolated enum LibraryImport {
         let text = field.text ?? ""
         let ok = LinkText.isLink(LinkText.normalised(text))
         attach?.isEnabled = ok
+        #if targetEnvironment(macCatalyst)
+        // [mac] A preferred action draws full blue even while disabled, so Attach looked ready with an empty field.
+        // Only an enabled Attach is the default (as TextPrompt does).
+        alert?.preferredAction = ok ? attach : nil
+        #endif
         let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         alert?.message = (ok || empty) ? Self.message : Self.hint
     }
