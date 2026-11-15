@@ -337,7 +337,7 @@ struct ProvidersPageView: View {
                             model.askRemove(row, router: router)
                         } select: {
                             picked = [row.id]
-                            withAnimation { selecting = true }
+                            HQMotion.withAnimation { selecting = true }
                         }
                     }
                     if !model.readOnly, !selecting {
@@ -382,7 +382,7 @@ struct ProvidersPageView: View {
                         Button("Select") {
                             Haptics.play(.selection)
                             picked = []
-                            withAnimation { selecting = true }
+                            HQMotion.withAnimation { selecting = true }
                         }
                         .accessibilityIdentifier("providers.select")
                     }
@@ -435,7 +435,7 @@ struct ProvidersPageView: View {
     }
 
     private func endSelecting() {
-        withAnimation { selecting = false }
+        HQMotion.withAnimation { selecting = false }
         picked = []
     }
 
