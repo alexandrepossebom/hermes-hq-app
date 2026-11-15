@@ -380,6 +380,7 @@ final class AppModel: AppServices {
         }
         connection = client.state
         browser = BrowserService(rest: client, sockets: client)   // [browser]
+        browser?.hostedGateway = CloudGatewayFlow.isCloud(account.baseURL)   // [cloud-hosted]
         registerBrowserMenu()                                     // [browser]
         startPresence()                                           // [presence]
         screen = ScreenService(client: client)                    // [screen]

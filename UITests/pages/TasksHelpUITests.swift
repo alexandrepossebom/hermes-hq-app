@@ -43,7 +43,7 @@ extension PagesTests {
         app = launchSignedIn(["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenTask", "Fix the porch light"])
         let who = app.descendants(matching: .any)["task.who"].firstMatch
         XCTAssertTrue(who.waitForExistence(timeout: 15), "the task opens with its who row")
-        XCTAssertTrue(who.label.contains("Who: Me"), who.label)
+        XCTAssertTrue(who.label.contains("Who: You"), who.label)
         XCTAssertFalse(app.buttons["task.help"].exists, "no Ask Hermes to Help row")
         XCTAssertFalse(app.buttons["task.message"].exists, "nobody to message yet")
         shot("tasks-help-sheet")

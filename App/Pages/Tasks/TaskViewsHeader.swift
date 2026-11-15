@@ -12,7 +12,11 @@ struct TaskViewPill: Identifiable, Equatable {
     var title: String
     /// Its open tasks; nil shows none.
     var count: Int?
+    /// [task-lists] A list's colour and icon: a small mark before its name.
+    var color: TodoListColor?
+    var icon: String?
     var id: String { view.key }
+    var marked: Bool { color != nil || icon != nil }
 
     /// "tasks.view.today", and a list by its name ("tasks.view.list.Work").
     var identifier: String {
@@ -23,6 +27,8 @@ struct TaskViewPill: Identifiable, Equatable {
 
 /// What a hold on a list's pill offers.
 struct TaskListActions {
+    /// [task-lists] The Edit List sheet: name, colour, icon, the bot that keeps it.
+    var edit: (String) -> Void
     var rename: (String) -> Void
     var move: (String, Int) -> Void
     var delete: (String) -> Void
@@ -66,10 +72,12 @@ private struct TaskViewsBand: View {
             // label's ink with a ring, readable on the dimmed fill, and tinted again when the sheet goes.
             let quiet = picked && model.dimmed && !Theme.isDesktop
             SessionPill(caption: pill.title, name: spoken(pill), picked: picked && !quiet,
-                        identifier: pill.identifier, detail: pill.count.flatMap { $0 > 0 ? "\($0)" : nil }) {
+                        identifier: pill.identifier, hasFace: pill.marked, lead: pill.marked ? 11 : nil,
+                        detail: pill.count.flatMap { $0 > 0 ? "\($0)" : nil }) {
                 onPick(pill.view)
             } face: {
-                EmptyView()
+                // [task-lists] The list's icon in its colour, or the colour's dot.
+                TaskListPillMark(color: pill.color, icon: pill.icon, picked: picked && !quiet)
             }
             .overlay {
                 if quiet {
@@ -148,6 +156,7 @@ private struct TaskViewsBand: View {
     @ViewBuilder private func menu(for pill: TaskViewPill) -> some View {
         if case .list(let id) = pill.view, model.editsLists {
             let at = lists.firstIndex(of: id) ?? 0
+            Button { actions.edit(id) } label: { Label("Edit List…", systemImage: "slider.horizontal.3") }
             Button { actions.rename(id) } label: { Label("Rename…", systemImage: "pencil") }
             if at > 0 { Button { actions.move(id, -1) } label: { Label("Move Left", systemImage: "arrow.left") } }
             if at < lists.count - 1 { Button { actions.move(id, 1) } label: { Label("Move Right", systemImage: "arrow.right") } }

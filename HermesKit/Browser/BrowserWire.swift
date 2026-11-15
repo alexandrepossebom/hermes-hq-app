@@ -535,6 +535,15 @@ nonisolated enum BrowserHealth {
     /// Plugin 3.6+: a bot's browser can be switched to a copy of the person's Chrome profile and a normal window.
     static func offersChoice(_ health: JSONValue) -> Bool { health["features"]?["choice"]?.bool == true }
 
+    /// Plugin 3.9+: a bot can browse in Browser Use Cloud on the person's own account (their API key, saved on the
+    /// computer), watched and taken over here like its own Chrome.
+    static func offersCloud(_ health: JSONValue) -> Bool { health["features"]?["cloud"]?.bool == true }
+    /// [cloud-hosted] Plugin 3.11+: it can be told Hermes is hosted, and says whether it is.
+    static func knowsHosted(_ health: JSONValue) -> Bool { health["features"]?["hosted"]?.bool == true }
+    static func hosted(_ health: JSONValue) -> Bool { health["hosted"]?.bool == true }
+    /// The plugin has "Use for All Bots" (3.10+).
+    static func offersCloudForAll(_ health: JSONValue) -> Bool { offersCloud(health) && health["features"]?["cloud_all"]?.bool == true }
+
     /// Plugin 3.7+: the page's popups and boxes reach the phone (`dialog` in the state, `answer` from the phone).
     static func relaysPopups(_ health: JSONValue) -> Bool { health["features"]?["dialogs"]?.bool == true }
 
@@ -552,11 +561,13 @@ nonisolated enum BrowserHealth {
 /// [browser-update] Owner 2026-11-05: "Can we make it something that they can update in the exact same like user
 /// experience as they update our other plugin?" The browser add-on (hermes-hq-browser) is updated by the notification
 /// add-on's update sheet (App/Notifications/AddOnUpdate.swift): the same reminder, row, steps and endings, one restart
-/// for both. This build wants 3.8.1: 3.8.0 was the first that works on Hermes 0.22.6+ (3.7.0 switches itself off there:
-/// `drift`), and 3.8.1 makes the chat's "Browsing …" chip name the page the bot is on (tester 2026-11-07: it
+/// for both. This build wants 3.10.0: 3.8.0 was the first that works on Hermes 0.22.6+ (3.7.0 switches itself off there:
+/// `drift`), 3.8.1 makes the chat's "Browsing …" chip name the page the bot is on (tester 2026-11-07: it
 /// said site-a.example, a scheduled job's tab, while Watch Browser showed site-b.example).
+/// 3.9.0 (owner 2026-11-14) adds Browser Use Cloud: Bot Info › Browser's "In the Cloud" section needs it.
+/// 3.10.0 (owner 2026-11-14) adds "Use for All Bots": Settings › Browser Use Cloud's switch needs it.
 nonisolated enum BrowserAddOn {
-    static let wantedVersion = "3.8.1"
+    static let wantedVersion = "3.10.0"
 
     /// Why an installed browser add-on needs the update.
     enum Need: String, Codable, Sendable, Equatable {

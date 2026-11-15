@@ -768,8 +768,9 @@ final class RootSplitController: UIViewController {
     /// What was open goes back over the list it came from, the same objects a collapse to one pane moves (draft, scroll
     /// and stream kept), and comes back to the right pane when that tab is picked again; a tab with nothing of its own
     /// shows the placeholder. Only a person's tab switch: code that selects a tab and then opens something keeps D7.
-    /// `parked`: what `switchPlace` took off the picked tab's stack before the switch, for the right pane.
-    func followSelectedTab(parked: ParkedScreens? = nil) {
+    func followSelectedTab() {
+        let parked = pendingParked   // what the switch held back from the list's column (`tabWillShow`)
+        pendingParked = nil
         guard isDouble else { parked.map(putBack); return }
         fadePanes()   // [mac-feel] a place cross-fades as a chat picked from a list does (`show`), instead of cutting
         let stacks = tabs.placedTabs.compactMap { $0 as? UINavigationController }
@@ -788,11 +789,7 @@ final class RootSplitController: UIViewController {
         if detailIsEmpty, let selected {
             if let parked, parked.stack === selected {
                 parkedLeft = nil
-                AppLog.trace("nav", "tab switch: \(parked.screens.count) screen(s) left over its list go to the right pane")
-                parked.screens.first?.hidesBottomBarWhenPushed = false
-                origin = selected
-                detail.setViewControllers(parked.screens, animated: false)
-                parked.screens.forEach { ($0 as? PaneNavigationFollowing)?.paneNavigationChanged(detail) }
+                toRightPane(parked)
             } else {
                 let screens = selected.viewControllers
                 if let index = screens.indices.dropFirst().first(where: { !(screens[$0] is ListPaneContent) }) {
@@ -813,10 +810,20 @@ final class RootSplitController: UIViewController {
         applyListFold(animated: true)
     }
 
-    /// Screens taken off a tab's stack, over its list, for the right pane (`switchPlace`).
+    /// Screens taken off a tab's stack, over its list, before the tab came on show (`tabWillShow`).
     struct ParkedScreens {
         let stack: UINavigationController
         let screens: [UIViewController]
+    }
+
+    /// What the tab switch under way held back from the list's column, until the right pane takes it or it is settled.
+    private var pendingParked: ParkedScreens?
+
+    /// A place the person picks (a sidebar row, ⌘1…⌘9, Open Quickly, a bot's head): `select` makes it the tab on show
+    /// and the right pane follows (`followSelectedTab`), with what was left over the picked tab's list.
+    func switchPlace(to target: UIViewController?, _ select: () -> Void) {
+        select()
+        followSelectedTab()
     }
 
     /// [mac] Tester 2026-11-14 (kwojt, Mac 970): clicking Sessions in the sidebar froze the app for good, and macOS
@@ -826,17 +833,56 @@ final class RootSplitController: UIViewController {
     /// the list's column (hidden, just off the window's edge while Bots folds into the sidebar), and UIKit's layout of
     /// it there never finished (MetricKit: 90 s of CPU in 132 s, all in UIKit's layout under the tab switch, inside
     /// `MainTabController.pick`); `followSelectedTab` would only have moved the chat to the right pane after that.
-    /// Not reproduced on a stand-in gateway, so the exact loop is not known.
+    /// Not reproduced on a stand-in gateway, so the exact loop is not known. Mac 986 covered the person's switches
+    /// (`switchPlace`); the code's own (a notification, "N more" under a bot, Bot Info's All Chats, Siri, Talk, New
+    /// Bot) still did it, so every switch passes here now.
     ///
-    /// A place the person picks (a sidebar row, ⌘1…⌘9, Open Quickly, a bot's head): `select` makes it the tab on show
-    /// and the right pane follows (`followSelectedTab`). Screens left over the picked tab's list come off its stack
-    /// first, while the stack is still out of the window, and go straight to the right pane, at the width they are
-    /// shown at: the tab controller never lays them out in the list's column. If the switch lands elsewhere, they go
-    /// back where they were.
-    func switchPlace(to target: UIViewController?, _ select: () -> Void) {
-        let parked = target.flatMap(takeParked)
-        select()
-        followSelectedTab(parked: parked)
+    /// Called by the tab controller just before any tab comes on show, while its stack is still out of the window:
+    /// screens left over that tab's list come off the stack first, so the tab controller never lays them out in the
+    /// list's column. A person's switch hands them to the right pane (`followSelectedTab`); code that pops the list
+    /// to its first screen closes them, as that pop always did (`listPoppedToRoot`); anything else is settled once
+    /// the switch is over (`settlePending`).
+    func tabWillShow(_ target: UIViewController) {
+        guard isViewLoaded, pendingParked == nil, let parked = takeParked(target) else { return }
+        pendingParked = parked
+        AppLog.trace("nav", "tab switch: \(parked.screens.count) screen(s) over its list held back from the list's column")
+        // Two turns: after this one's follow, and after the list's fold that the switch queued (`listFoldMayHaveChanged`).
+        DispatchQueue.main.async { DispatchQueue.main.async { [weak self] in self?.settlePending() } }
+    }
+
+    /// A list stack popped to its first screen: what was held back from it goes too, as the pop meant.
+    func listPoppedToRoot(_ stack: UINavigationController) {
+        guard let parked = pendingParked, parked.stack === stack else { return }
+        pendingParked = nil
+        parked.screens.forEach { ($0 as? ChatViewController)?.movingBetweenPanes = false }
+        AppLog.trace("nav", "tab switch: \(parked.screens.count) held-back screen(s) closed by a pop to the list")
+    }
+
+    /// What no follow or pop took: back over its list where that column is on show (or the switch went elsewhere),
+    /// into an empty right pane, or closed when the list is folded away and the right pane shows something else.
+    private func settlePending() {
+        guard let parked = pendingParked else { return }
+        pendingParked = nil
+        let stack = parked.stack
+        if !isDouble || stack.viewIfLoaded?.window == nil {
+            putBack(parked)
+        } else if detailIsEmpty, tabs.selectedViewController === stack {
+            toRightPane(parked)
+            detailChanged()
+        } else if !listFolded {
+            putBack(parked)
+        } else {
+            parked.screens.forEach { ($0 as? ChatViewController)?.movingBetweenPanes = false }
+            AppLog.trace("nav", "tab switch: \(parked.screens.count) held-back screen(s) closed (list folded, right pane taken)")
+        }
+    }
+
+    private func toRightPane(_ parked: ParkedScreens) {
+        AppLog.trace("nav", "tab switch: \(parked.screens.count) screen(s) left over its list go to the right pane")
+        parked.screens.first?.hidesBottomBarWhenPushed = false
+        origin = parked.stack
+        detail.setViewControllers(parked.screens, animated: false)
+        parked.screens.forEach { ($0 as? PaneNavigationFollowing)?.paneNavigationChanged(detail) }
     }
 
     private func takeParked(_ target: UIViewController) -> ParkedScreens? {

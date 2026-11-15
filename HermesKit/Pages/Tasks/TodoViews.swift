@@ -5,10 +5,12 @@
 //
 // The page shows one view at a time, picked in a row of pills: Today, Upcoming, Inbox, each of your lists (the
 // sections of 0.9.36, by a plainer name), and Bots. Tasks are ordered by when, never by what a bot did:
-// - Today: Overdue, Today, then Waiting on You (a bot is stuck on you, on a task dated another day), then what you
-//   finished today.
+// - Today: Overdue, Today, then Waiting on You (a bot is stuck on you, on a task dated another day), then the next
+//   three of each list in your order ([task-lists], owner 2026-11-14: 3 of 13 open tasks had a date, so Today
+//   opened on three rows), then what you finished today.
 // - Upcoming: each coming day.
-// - Inbox: no date and no list yet. A bot's ideas sit under them (the page adds those).
+// - Inbox: every task in no list, dated or not ([task-lists]: it is what is left to file; a dated task in no list
+//   used to show nowhere but its day). A bot's ideas sit under them (the page adds those).
 // - A list: its tasks in your order.
 // - Bots: what each bot does by itself. A bot's own task stays out of your day unless it waits on you.
 // Plain data and rules, tested in Tests/Pages/TodoViewsTests.
@@ -53,6 +55,8 @@ nonisolated enum TodoGroupKind: Hashable, Sendable {
     case waiting
     /// Upcoming: one day ("2026-11-13").
     case day(String)
+    /// [task-lists] Today: the next few open tasks of one list (its id), in your order, with no date made up.
+    case next(String)
     /// Inbox and a list: its open tasks (no heading).
     case open
     /// Inbox: a bot added it and nobody touched it for two weeks.
@@ -65,6 +69,8 @@ nonisolated enum TodoGroupKind: Hashable, Sendable {
 nonisolated struct TodoGroup: Sendable {
     var kind: TodoGroupKind
     var tasks: [TodoTask]
+    /// [task-lists] `.next`: how many more open tasks the list has ("4 more in Work ›").
+    var more = 0
 }
 
 /// The dot on a bot's face: what it is doing on the task.
@@ -124,6 +130,9 @@ nonisolated enum TodoViews {
     /// The Bots pill shows once a bot has a task of its own (open or finished): nobody without one sees it.
     static func showsBots(_ tasks: [TodoTask]) -> Bool { tasks.contains(where: botsOwn) }
 
+    /// [task-lists] How many of a list's open tasks Today shows under the dated ones.
+    static let nextCount = 3
+
     /// The view's groups, top to bottom; empty ones are left out. `sort` orders a list's open tasks ("smart": your
     /// drag order, "due", "added"). `bots`: the roster's order, for the Bots view.
     static func groups(_ tasks: [TodoTask], view: TodoView, sections: [TodoUserSection] = [], bots: [String] = [],
@@ -162,7 +171,20 @@ nonisolated enum TodoViews {
             add(.overdue, byDue(overdue))
             add(.today, byDue(todays))
             // The newest news first.
-            add(.waiting, mine.filter { waitsOnYou($0) && !dated.contains($0.id) }.sorted { (updated($0), $0.id) > (updated($1), $1.id) })
+            let waiting = mine.filter { waitsOnYou($0) && !dated.contains($0.id) }.sorted { (updated($0), $0.id) > (updated($1), $1.id) }
+            add(.waiting, waiting)
+            // [task-lists] What's next in each list, in your order: nothing shown twice, nothing that waits for its
+            // start day or sits under Upcoming, and never a bot's own work.
+            let shown = dated.union(waiting.map(\.id))
+            for section in sections where section.inToday {
+                let rest = TodoSections.ordered(mine.filter { task in
+                    task.section == section.id && !botsOwn(task) && !shown.contains(task.id) && !waits(task)
+                        && (dueDay(task).map { $0 <= today } ?? true)
+                }, sort: "smart", calendar: calendar)
+                guard !rest.isEmpty else { continue }
+                out.append(TodoGroup(kind: .next(section.id), tasks: Array(rest.prefix(nextCount)),
+                                     more: max(0, rest.count - nextCount)))
+            }
             add(.done, newestDone(done.filter { !botsOwn($0) && calendar.isDate(finished($0), inSameDayAs: now) }))
         case .upcoming:
             // Its day: the day it starts while that is still ahead, else the day it's due (one that has started and
@@ -176,7 +198,8 @@ nonisolated enum TodoViews {
             let days = Dictionary(grouping: coming) { dayKey(day($0) ?? today, calendar: calendar) }
             for key in days.keys.sorted() { add(.day(key), byDue(days[key] ?? [])) }
         case .inbox:
-            let loose = open.filter { !botsOwn($0) && $0.due == nil && $0.starts == nil && list($0, known: known) == nil }
+            // [task-lists] Dated or not: Inbox is what hasn't been filed.
+            let loose = open.filter { !botsOwn($0) && list($0, known: known) == nil }
             add(.open, loose.filter { !TodoSections.isStale($0, now: now) }.sorted { (created($0), $0.id) > (created($1), $1.id) })
             add(.stale, loose.filter { TodoSections.isStale($0, now: now) }.sorted { (updated($0), $0.id) < (updated($1), $1.id) })
             add(.done, newestDone(done.filter { !botsOwn($0) && list($0, known: known) == nil }))
@@ -200,12 +223,22 @@ nonisolated enum TodoViews {
         return out
     }
 
-    /// The number on a view's pill: its open tasks.
+    /// The number on a view's pill: its open tasks. Today's counts what is dated or waits on you; the lists' next
+    /// tasks under them are counted on their own pills.
     static func openCount(_ tasks: [TodoTask], view: TodoView, sections: [TodoUserSection] = [], now: Date,
                           calendar: Calendar = .current) -> Int {
         groups(tasks, view: view, sections: sections, now: now, calendar: calendar)
-            .filter { $0.kind != .done }.reduce(0) { $0 + $1.tasks.count }
+            .filter { group in
+                if case .next = group.kind { return false }
+                return group.kind != .done
+            }.reduce(0) { $0 + $1.tasks.count }
     }
+
+    /// [task-lists] Today's Done group folds to one line: "Done today · 4".
+    static func doneLine(_ count: Int) -> String { "Done today · \(count)" }
+
+    /// [task-lists] Under a list's next tasks in Today: "4 more in Work".
+    static func moreLine(_ more: Int, list: String) -> String { "\(more) more in \(list)" }
 
     /// Upcoming with one day picked on its week strip (owner 2026-11-12: "the calendar dates aren't clickable"): that
     /// day's tasks alone. Today's are the ones due today (they aren't "coming up", so the whole view leaves them out).
@@ -312,7 +345,11 @@ nonisolated enum TodoViews {
             else { words.note = note.hasSuffix("?") ? "\(name) asks: \(note)" : "\(name) needs you: \(note)" }
             words.tone = .needsYou
         default:
-            if kind == .stale {
+            if let offer = TodoLists.closeOffer(task), kind != .stale {
+                // [task-lists] A bot thinks it is settled: said in words under the name, with Mark Done on the task.
+                words.note = TodoLists.closeLine(offer, botName: botName)
+                words.tone = .ready
+            } else if kind == .stale {
                 let when = TodoDates.moment(task.createdAt).map { TodoWords.day($0, now: now, calendar: calendar) }
                 words.note = (["Added by \(botName(task.createdBy))"] + [when].compactMap { $0 }).joined(separator: " · ")
             } else if case .bot = kind, task.status == "working", !note.isEmpty {
@@ -323,9 +360,10 @@ nonisolated enum TodoViews {
     }
 
     /// A group's heading; nil for one with none (a list's and Inbox's open tasks).
-    static func heading(_ kind: TodoGroupKind, now: Date, calendar: Calendar = .current, botName: (String?) -> String)
-        -> (title: String, detail: String?)? {
+    static func heading(_ kind: TodoGroupKind, now: Date, calendar: Calendar = .current, sections: [TodoUserSection] = [],
+                        botName: (String?) -> String) -> (title: String, detail: String?)? {
         switch kind {
+        case .next(let id): return ("Next in \(sections.first { $0.id == id }?.name ?? "List")", nil)
         case .overdue: return ("Overdue", nil)
         case .today: return ("Today", nil)
         case .waiting: return ("Waiting on You", nil)
@@ -414,7 +452,7 @@ nonisolated enum TodoViews {
         switch view {
         case .today: return "Nothing due today."
         case .upcoming: return "Nothing coming up. A task with a date shows here."
-        case .inbox: return "Nothing waiting to be sorted. A task with no date and no list lands here."
+        case .inbox: return "Nothing left to file. A task in no list lands here."
         case .list: return "No tasks in \(listName ?? "this list") yet."
         case .bots: return "No bot has a task of its own right now."
         }

@@ -361,7 +361,8 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
     /// [desktoplook2] The row's glyph alone, as a template the cell tints. A symbol filled for its white-on-tile look
     /// takes its outline form when there is one, so every glyph has the sidebar's one weight (UX study #197).
     static func glyph(_ row: MoreRow, configuration: UIImage.SymbolConfiguration? = nil) -> UIImage? {
-        if let image = row.image { return image.withRenderingMode(.alwaysTemplate) }
+        // [more-bots] The Bots tab's drawn head is solid for the system bar and the tile: here its outline, as its own bars draw it.
+        if let image = row.image { return (TabIcons.redrawn(image, pointSize: 15) ?? image).withRenderingMode(.alwaysTemplate) }
         let config = configuration ?? UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)
         return row.symbol.flatMap { symbol in
             if symbol.hasSuffix(".fill"), let outline = UIImage(systemName: String(symbol.dropLast(".fill".count)), withConfiguration: config) {

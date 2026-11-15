@@ -46,6 +46,8 @@ def fresh_state():
     return {'active': False, 'listed': True, 'url': 'https://example.test/sign-in', 'ask': None, 'plugin': 'ready',
             'choice_feature': True, 'dialogs_feature': True, 'frame_fps': 60.0, 'control': 'bot', 'holder': None, 'epoch': 0, 'pointer': (0.5, 0.5),
             'focus': None, 'choices': {'default': own_choice()}, 'blocked': {}, 'take_overs': [], 'dialog': None,
+            'hosted': False, 'hosted_told': 0,   # a hosted Hermes (3.11): no Chrome per bot; the app says so when the gateway is Nous's
+            'cloud_feature': True, 'cloud_all_feature': True, 'cloud_all': False, 'cloud_skip': [], 'cloud_key': None,   # Browser Use Cloud (3.9): the invented key's last four, never a real one
             'inputs': [], 'acks': 0, 'frames_sent': 0, 'hellos': [], 'views': [], 'viewers': 0, 'version': 0}
 
 
@@ -344,9 +346,11 @@ def handler(gateway):
             route = path[len(PLUGIN):]
             if route == '/health':
                 return self.reply(200, {'ok': True, 'schema': 'dispatch-browser.health.v3', 'version': '3.7.0' if STATE['dialogs_feature'] else '3.6.2', 'protocol': 3,
-                                        'installed': True, 'missing': [], 'drift': [],
-                                        'features': {'watch': True, 'control': True, 'ask': True, 'own_chrome': True,
-                                                     'choice': bool(STATE['choice_feature']), 'dialogs': bool(STATE['dialogs_feature'])}})
+                                        'installed': True, 'missing': [], 'drift': [], 'hosted': bool(STATE['hosted']),
+                                        'features': {'watch': True, 'control': True, 'ask': True, 'own_chrome': not STATE['hosted'], 'hosted': True,
+                                                     'choice': bool(STATE['choice_feature']), 'dialogs': bool(STATE['dialogs_feature']),
+                                                     'cloud': bool(STATE['cloud_feature']),
+                                                     'cloud_all': bool(STATE['cloud_feature'] and STATE['cloud_all_feature'])}})
             if route == '/bots':
                 return self.reply(200, {'schema': 'dispatch-browser.bots.v1', 'own_chrome': True,
                                         'bots': [{'profile': 'default', 'status': 'ready', 'port': 9222}]})
@@ -357,16 +361,24 @@ def handler(gateway):
                                         'browser': 'Google Chrome', 'profiles': CHROME_PROFILES, 'last_used': 'Default'})
             if route == '/choice' and STATE['choice_feature']:
                 return self.reply(200, self.choice(query.get('profile', ['default'])[0]))
+            if route == '/cloud' and STATE['cloud_feature']:
+                return self.reply(200, self.cloud())
             return self.reply(404, {'detail': 'Not Found'})
+
+        def cloud(self):
+            key = STATE['cloud_key']
+            return {'schema': 'hermes-hq-browser.cloud.v1', 'provider': 'hq-browser-use', 'key_set': key is not None,
+                    'key_hint': f'…{key[-4:]}' if key else None, 'all': bool(STATE['cloud_all'])}
 
         def choice(self, profile):
             with LOCK:
                 c = STATE['choices'].setdefault(profile, own_choice())
-                blocked = STATE['blocked'].get(profile)
+                blocked = STATE['blocked'].get(profile) or ('cloud' if c['mode'] == 'cloud' else 'hosted' if STATE['hosted'] else None)
             source = next((p for p in CHROME_PROFILES if p['dir'] == c['source']), None) if c['mode'] == 'copy' else None
             return {'schema': 'hermes-hq-browser.choice.v1', 'profile': profile, 'mode': c['mode'], 'source': source,
                     'copied_at': c['copied_at'], 'window': c['window'], 'changeable': blocked is None,
-                    'blocked': blocked, 'can_take_over': blocked in TAKE_OVER, 'status': None if blocked else 'ready'}
+                    'blocked': blocked, 'can_take_over': blocked in TAKE_OVER or blocked == 'cloud', 'hosted': bool(STATE['hosted']),
+                    'status': None if blocked else 'ready'}
 
         def do_GET(self):
             parsed = urlparse(self.path)
@@ -391,6 +403,10 @@ def handler(gateway):
                     view = {k: STATE[k] for k in ('inputs', 'acks', 'frames_sent', 'hellos', 'views', 'control', 'choices',
                                                   'blocked', 'take_overs', 'viewers', 'focus', 'url', 'epoch')}
                     view['choice'] = STATE['choices'].get('default') or own_choice()
+                    view['cloud_key_set'] = STATE['cloud_key'] is not None
+                    view['cloud_all'] = bool(STATE['cloud_all'])
+                    view['hosted'] = bool(STATE['hosted'])
+                    view['hosted_told'] = STATE['hosted_told']
                 return self.reply(200, view)
             return super().do_GET()
 
@@ -415,6 +431,14 @@ def handler(gateway):
                             STATE['blocked'].pop(profile, None)
                             STATE['take_overs'].append(profile)
                     return self.reply(200, self.choice(profile))
+                if body.get('mode') == 'cloud' and STATE['cloud_feature']:
+                    if STATE['cloud_key'] is None:
+                        return self.reply(409, {'detail': 'Add your Browser Use API key first (Settings › Browser Use Cloud).'})
+                    time.sleep(0.4)
+                    with LOCK:
+                        c.update(mode='cloud', source=None, copied_at=None)
+                        STATE['blocked'].pop(profile, None)
+                    return self.reply(200, self.choice(profile))
                 if blocked is not None:
                     return self.reply(409, {'detail': "This bot's browser was set up by hand, so Hermes HQ leaves it alone."})
                 mode, source, window = body.get('mode'), body.get('source'), body.get('window')
@@ -431,10 +455,45 @@ def handler(gateway):
                     if window in ('hidden', 'normal'):
                         c['window'] = window
                 return self.reply(200, self.choice(profile))
+            if path == PLUGIN + '/cloud':
+                if not self.session():
+                    return self.reply(401, {'detail': 'unauthorized'})
+                if STATE['plugin'] == 'missing' or not STATE['cloud_feature']:
+                    return self.reply(404, {'detail': 'Not Found'})
+                sent = self.body()   # read once: a second read waits for bytes that never come
+                if sent.get('hosted') is True:   # the app, connected to a Hermes Cloud address
+                    with LOCK:
+                        STATE['hosted'] = True
+                        STATE['hosted_told'] += 1
+                    return self.reply(200, self.cloud())
+                everyone = sent.get('all')
+                if isinstance(everyone, bool):   # "Use for All Bots" (3.10): every bot but the ones the fixture skips
+                    if not STATE['cloud_all_feature']:
+                        return self.reply(400, {'detail': 'Send the API key.'})
+                    if everyone and STATE['cloud_key'] is None:
+                        return self.reply(409, {'detail': 'Add your Browser Use API key first (Settings › Browser Use Cloud).'})
+                    time.sleep(0.4)
+                    with LOCK:
+                        STATE['cloud_all'] = everyone
+                        skipped = [str(name) for name in STATE['cloud_skip']] if everyone else []
+                        for profile in ['default'] + [name for name in STATE['choices'] if name != 'default']:
+                            c = STATE['choices'].setdefault(profile, own_choice())
+                            if everyone and profile not in skipped:
+                                c.update(mode='cloud', source=None, copied_at=None)
+                            elif not everyone and c['mode'] == 'cloud':
+                                c.update(mode='own', source=None, copied_at=None)
+                    return self.reply(200, {**self.cloud(), 'skipped': skipped})
+                key = str(sent.get('key') or '').strip()
+                time.sleep(0.4)   # the plugin asks Browser Use whether the key works
+                if key.startswith('bad'):
+                    return self.reply(409, {'detail': 'Browser Use didn’t accept the API key. Check it in Hermes HQ › Bot Info › Browser.'})
+                with LOCK:
+                    STATE['cloud_key'] = key or None
+                return self.reply(200, self.cloud())
             if path == '/__fixture/browser':
                 body = self.body()
                 with LOCK:
-                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'plugin', 'frame_fps', 'dialog'):
+                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'cloud_feature', 'cloud_all_feature', 'cloud_skip', 'hosted', 'plugin', 'frame_fps', 'dialog'):
                         if key in body:
                             STATE[key] = body[key]
                     if isinstance(body.get('blocked'), dict):

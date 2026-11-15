@@ -119,6 +119,9 @@ final class PaneNavigationController: UINavigationController {
 
     override func popToRootViewController(animated: Bool) -> [UIViewController]? {
         if let standIn { return standIn.popToRootViewController(animated: animated) }
+        #if targetEnvironment(macCatalyst)
+        (tabBarController as? MainTabController)?.split?.listPoppedToRoot(self)   // what a tab switch held back goes too
+        #endif
         viewControllers.forEach { ($0 as? ChatViewController)?.movingBetweenPanes = false }
         return super.popToRootViewController(animated: animated)
     }

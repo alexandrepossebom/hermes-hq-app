@@ -24,6 +24,7 @@ extension PagesTests {
         try account.control("/__fixture/tasks-mode", ["older_addon": false, "keep_rev": true])
         today.tap()
         inbox.tap()
+        for _ in 0..<6 where !app.buttons["tasks.ideas.turn-on"].firstMatch.exists { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(app.buttons["tasks.ideas.turn-on"].firstMatch.waitForExistence(timeout: 10),
                       "after the update, Inbox offers Ideas")
 

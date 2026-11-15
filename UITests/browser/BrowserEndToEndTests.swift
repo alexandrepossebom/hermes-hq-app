@@ -185,6 +185,163 @@ final class BrowserEndToEndTests: XCTestCase {
 
     // MARK: 3. Bot Info › Browser: a copy of a Chrome profile, the normal window; hidden on an older plugin
 
+    /// Browser Use Cloud (add-on 3.9): the third choice asks for the API key the first time, a key Browser Use refuses
+    /// changes nothing, a good one switches the bot, and Its Own Profile brings its own browser back.
+    @MainActor func test3b_BrowserUseCloud() throws {
+        launch()
+        openBotInfo()
+        let row = app.buttons["bot-info.browser.choice"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Bot Info offers the browser choice")
+        row.tap()
+        let cloud = app.buttons["browser.choice.cloud"]
+        XCTAssertTrue(cloud.waitForExistence(timeout: 10), "Browser Use Cloud is offered")
+        if !cloud.isHittable { app.swipeUp() }
+        attach("cloud-1-offered")
+        cloud.tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no key saved: the key is asked for first")
+        attach("cloud-2-key-asked")
+        field.typeText("bad-key-0000000000000000")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(app.alerts["Couldn’t Change the Browser"].waitForExistence(timeout: 10), "a refused key says so")
+        attach("cloud-3-key-refused")
+        app.alerts.buttons["OK"].tap()
+        XCTAssertEqual(try state()["cloud_key_set"] as? Bool, false)
+        XCTAssertEqual((try state()["choice"] as? [String: Any])?["mode"] as? String, "own", "nothing changed")
+
+        cloud.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("invented-key-00000000WXYZ")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "cloud" },
+                      "a key that works also switches the bot")
+        XCTAssertTrue(app.buttons["browser.cloud.forget"].waitForExistence(timeout: 10), "the saved key can be removed")
+        XCTAssertFalse(app.switches["browser.choice.window"].exists, "no Chrome window to show for a cloud browser")
+        XCTAssertFalse(app.staticTexts["browser.choice.blocked"].exists, "the cloud is a choice, not a problem")
+        attach("cloud-4-chosen")
+
+        app.swipeDown()
+        app.buttons["browser.choice.own"].tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "own" })
+        XCTAssertTrue(app.buttons["browser.choice.profile.Profile 2"].waitForExistence(timeout: 10), "its own browser's choices are back")
+        attach("cloud-5-back-to-own")
+
+        // An older add-on: no cloud section.
+        try account.control("/__fixture/browser", ["cloud_feature": false])
+        app.terminate()
+        launch()
+        openBotInfo()
+        app.buttons["bot-info.browser.choice"].tap()
+        XCTAssertTrue(app.buttons["browser.choice.own"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["browser.choice.cloud"].exists, "3.8 and older: hidden")
+    }
+
+    /// Settings › Browser Use Cloud (add-on 3.10): "Use for All Bots" asks for the key the first time, then puts every
+    /// bot in the cloud; turning it off asks first and gives each its own browser back. An older add-on has no switch.
+    @MainActor func test3c_BrowserUseCloudForAllBots() throws {
+        launch()
+        openCloudSettings(shot: "all-1-settings-row")
+        let all = app.switches["settings.cloud.all"]
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "the page offers Use for All Bots")
+        XCTAssertEqual(all.value as? String, "0")
+        attach("all-2-page")
+        all.switches.firstMatch.tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no key saved: the key is asked for first")
+        field.typeText("invented-key-00000000WXYZ")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == true }, "a key that works also turns it on")
+        XCTAssertEqual((try state()["choice"] as? [String: Any])?["mode"] as? String, "cloud", "the bot browses in the cloud")
+        XCTAssertTrue(waitUntil(timeout: 5) { all.value as? String == "1" })
+        XCTAssertTrue(app.buttons["settings.cloud.forget"].exists, "the saved key can be removed")
+        attach("all-3-on")
+
+        all.switches.firstMatch.tap()
+        let off = app.alerts.buttons["Turn Off"]
+        XCTAssertTrue(off.waitForExistence(timeout: 5), "turning it off asks first")
+        attach("all-4-off-asked")
+        off.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == false })
+        XCTAssertEqual((try state()["choice"] as? [String: Any])?["mode"] as? String, "own", "its own browser is back")
+        XCTAssertTrue(waitUntil(timeout: 5) { all.value as? String == "0" })
+
+        // A bot the computer couldn't change is named.
+        try account.control("/__fixture/browser", ["cloud_skip": ["default"]])
+        all.switches.firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["settings.cloud.skipped"].waitForExistence(timeout: 10), "the bot left as it was is named")
+        attach("all-5-skipped")
+
+        // Add-on 3.9: the key, no switch.
+        try account.control("/__fixture/browser", ["cloud_all_feature": false])
+        app.terminate()   // the app keeps the add-on's answer for five minutes
+        launch()
+        openCloudSettings(shot: nil)
+        XCTAssertTrue(app.buttons["settings.cloud.key"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.switches["settings.cloud.all"].exists, "3.9: no switch")
+        attach("all-6-older-add-on")
+    }
+
+    // MARK: 3d. Hermes Cloud (a gateway Nous hosts): the add-on is set up from Settings, starts no Chrome there, and a
+    //          bot is on Hermes Cloud's browser or Browser Use Cloud
+
+    @MainActor func test3d_BrowserUseCloudOnHermesCloud() throws {
+        // No browser add-on yet (Hermes Cloud's first setup leaves it out): the page offers to set it up.
+        try account.control("/__fixture/browser", ["plugin": "missing"])
+        launch(extra: ["-HQDebugCloudHost", "YES", "-HQDebugPushAnyTopic", "YES", "-HQDebugNoPushOffer", "YES"])   // the test build may install add-ons; no launch offer over the page
+        openCloudSettings(shot: nil)
+        XCTAssertTrue(app.buttons["settings.cloud.setup"].waitForExistence(timeout: 10), "Set Up the Browser Add-on shows")
+        XCTAssertTrue(app.staticTexts["settings.cloud.unavailable"].exists)
+        attach("hosted-1-set-up")
+        app.terminate()
+
+        // The add-on is in: the app tells it the gateway is hosted, and the page speaks of Hermes Cloud's browser.
+        try account.control("/__fixture/browser", ["plugin": "ready"])
+        launch(extra: ["-HQDebugCloudHost", "YES"])
+        openCloudSettings(shot: nil)
+        let all = app.switches["settings.cloud.all"]
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "the page offers Use for All Bots")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["hosted"] as? Bool) == true }, "the add-on was told it is hosted")
+        XCTAssertEqual(try state()["hosted_told"] as? Int, 1, "once")
+        all.switches.firstMatch.tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no key saved: the key is asked for first")
+        field.typeText("invented-key-00000000WXYZ")
+        pressInTypingAlert("Save")
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == true })
+        XCTAssertTrue(waitUntil(timeout: 5) { all.value as? String == "1" })
+        attach("hosted-2-all-on")
+        all.switches.firstMatch.tap()
+        let off = app.alerts.buttons["Turn Off"]
+        XCTAssertTrue(off.waitForExistence(timeout: 5), "turning it off asks first")
+        XCTAssertTrue(app.alerts.staticTexts.allElementsBoundByIndex.contains { $0.label.contains("the browser Hermes Cloud gives it") },
+                      "the question names Hermes Cloud's browser, not a Chrome of its own")
+        attach("hosted-3-off-asked")
+        off.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["cloud_all"] as? Bool) == false })
+        app.terminate()
+
+        // One bot: Hermes Cloud's Browser or Browser Use Cloud, and no Chrome profile or window choices.
+        launch(extra: ["-HQDebugCloudHost", "YES"])
+        openBotInfo()
+        let row = app.buttons["bot-info.browser.choice"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Bot Info offers the browser page")
+        attach("hosted-4-bot-info")
+        row.tap()
+        let hosted = app.buttons["browser.choice.hosted"]
+        XCTAssertTrue(hosted.waitForExistence(timeout: 10), "Hermes Cloud's Browser is the first choice")
+        XCTAssertFalse(app.buttons["browser.choice.own"].exists, "no Chrome of its own there")
+        XCTAssertFalse(app.switches["browser.choice.window"].exists, "and no window to show")
+        XCTAssertFalse(app.descendants(matching: .any)["browser.choice.blocked"].exists, "nothing is wrong, so no notice")
+        attach("hosted-5-browser-page")
+        app.buttons["browser.choice.cloud"].tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "cloud" })
+        attach("hosted-6-in-browser-use-cloud")
+        XCTAssertTrue(waitUntil(timeout: 5) { hosted.isEnabled })
+        hosted.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.state()["choice"] as? [String: Any])?["mode"] as? String == "own" },
+                      "back on Hermes Cloud's browser")
+    }
+
     @MainActor func test3_BotInfoBrowserChoice() throws {
         launch()
         openBotInfo()
@@ -356,12 +513,31 @@ final class BrowserEndToEndTests: XCTestCase {
 
     @MainActor private func launch(extra: [String] = []) {
         let app = XCUIApplication()
-        app.launchArguments = ["-HQDebugResetAccounts", "YES"] + extra
+        // HQN_UI_DESKTOPLOOK=1: the same run with Desktop Look on, for this launch only (nothing is saved).
+        let look = ProcessInfo.processInfo.environment["HQN_UI_DESKTOPLOOK"] == "1" ? ["-hqn.theme.desktopLook", "<true/>"] : []
+        app.launchArguments = ["-HQDebugResetAccounts", "YES"] + look + extra
         app.launchEnvironment = ["HQN_SIGNIN_URL": account.url, "HQN_SIGNIN_USERNAME": account.username,
                                  "HQN_SIGNIN_PASSWORD": account.password]
         app.launch()
         self.app = app
         XCTAssertTrue(app.cells["bot-row-default"].waitForExistence(timeout: 20), "signed in: the Bots list shows")
+    }
+
+    /// More › Settings › Browser Use Cloud.
+    @MainActor private func openCloudSettings(shot: String?) {
+        let more = app.tabButton(id: "tab-more", label: "More")   // Desktop Look draws its own tab bar
+        XCTAssertTrue(more.waitForExistence(timeout: 20), "the More tab shows")
+        let settings = app.cells["more-row-settings"]
+        for _ in 0..<4 {
+            more.tap()
+            if settings.waitForExistence(timeout: 2), settings.isHittable { break }
+        }
+        settings.tap()
+        let row = app.buttons["settings.browser-use-cloud"]
+        for _ in 0..<10 where !(row.exists && row.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(row.exists, "Settings lists Browser Use Cloud")
+        if let shot { attach(shot) }
+        row.tap()
     }
 
     @MainActor private func openChat() {
@@ -425,6 +601,19 @@ final class BrowserEndToEndTests: XCTestCase {
         shot.name = name
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// Presses a button of the typing alert. On the iOS 27 simulator the first tap after typing into an alert's field
+    /// is swallowed (the alert stays up, nothing runs); the next one presses the button. So: tap, and once more if the
+    /// alert is still there.
+    @MainActor private func pressInTypingAlert(_ title: String) {
+        let alert = app.alerts.firstMatch
+        let button = alert.buttons[title]
+        button.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        if alert.textFields.firstMatch.exists, button.exists {
+            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
     }
 
     @MainActor @discardableResult

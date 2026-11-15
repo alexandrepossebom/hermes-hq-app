@@ -62,7 +62,7 @@ extension PagesTests {
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenTask", "Go through the open job applications"])
         XCTAssertTrue(check.waitForExistence(timeout: 20), "your own task opens")
         // [tasks-first] A task of your own is a task: no bot's name, no message box; Assign is on the who row.
-        XCTAssertTrue(who.exists && who.label.contains("Who: Me"), "the who row: \(who.label)")
+        XCTAssertTrue(who.exists && who.label.contains("Who: You"), "the who row: \(who.label)")
         XCTAssertTrue(app.descendants(matching: .any)["task.list"].firstMatch.exists, "the bar says its list")
         XCTAssertFalse(app.buttons["task.message"].exists, "nobody to message")
         XCTAssertFalse(app.textViews["composer.text"].exists, "no chat's message box")
