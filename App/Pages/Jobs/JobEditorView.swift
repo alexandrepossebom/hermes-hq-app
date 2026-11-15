@@ -604,6 +604,9 @@ struct JobEditorView: View {
             .accessibilityLabel("Model")
             .accessibilityValue(model.modelWords)
             .accessibilityAddTraits(.isButton)
+            // With its children ignored, the row's own press never reached the button: VoiceOver (and an
+            // accessibility press on the Mac) did nothing. The default action opens the picker as a click does.
+            .accessibilityAction { pickModel() }
             .accessibilityIdentifier("job.editor.model")
         } footer: { HQSectionFooter {
             // [model-scope] Owner 2026-11-03: a job's model is its own; Default is its bot's.
