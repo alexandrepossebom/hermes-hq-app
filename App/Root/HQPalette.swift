@@ -494,6 +494,9 @@ private struct GroupedPageModifier: ViewModifier {
     @Environment(\.hqGlassSheet) private var glassSheet
     @Environment(\.hqChatLead) private var chatLead
     @Environment(\.colorScheme) private var scheme
+    #if targetEnvironment(macCatalyst)
+    @Environment(\.macFormLeastSide) private var formSide
+    #endif
 
     @ViewBuilder func body(content: Content) -> some View {
         let _ = Theme.touch()
@@ -529,12 +532,22 @@ private struct GroupedPageModifier: ViewModifier {
             // draws above its section.
             // [backdrop] Theme › App Background: the picture behind the page (its layer keeps the grouped colour in a sheet).
             let backdrop = Backdrop.app.shows
+            // [macpass-chat] A form page in a Mac sheet (Settings' model chooser) paints the sheet's page itself: the
+            // system's own background there left white bands across the sheet in light, in the gaps between sections
+            // without a header or footer (around Search Models, under the Model card). Bot Info's pages had none.
+            #if targetEnvironment(macCatalyst)
+            let sheetForm = formSide == MacForm.sheetSide
+            #else
+            let sheetForm = false
+            #endif
             content
-                .scrollContentBackground(system && !backdrop ? .automatic : .hidden)
+                .scrollContentBackground(system && !backdrop && !sheetForm ? .automatic : .hidden)
                 .background {
                     // 2026-11-02 theme audit: the skin's page runs up under the bar too; a `.background { }` view
                     // stops at the safe area, which left iOS's black (or white) strip behind the clock and title.
-                    if backdrop { PageBackdropLayer().ignoresSafeArea() } else if !system { Color.hqGroupedPage.ignoresSafeArea() }
+                    if backdrop { PageBackdropLayer().ignoresSafeArea() }
+                    else if !system { Color.hqGroupedPage.ignoresSafeArea() }
+                    else if sheetForm { Color(uiColor: HQPalette.sheetPage).ignoresSafeArea() }
                 }
                 .hqMacCardCorners()   // [mac-ui-issues] a Mac group box's corners, not iOS's card ends
                 // [backdrop-cards] On Soft Cards a little more room between sections, so each plate keeps its own.
