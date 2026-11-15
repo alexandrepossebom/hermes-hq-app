@@ -69,6 +69,23 @@ nonisolated struct BackgroundProcess: Hashable, Sendable, Identifiable {
         return lines.suffix(2).map { $0.count > 160 ? String($0.prefix(159)) + "…" : $0 }.joined(separator: "\n")
     }
 
+    /// [background] The shelf chip's words: "Background task · 6m" for one (its time while known), "2 background tasks"
+    /// for more. nil with none.
+    static func chipWords(_ running: [BackgroundProcess]) -> String? {
+        switch running.count {
+        case 0: return nil
+        case 1: return running[0].uptimeSeconds.map { "Background task · \(duration($0))" } ?? "Background task"
+        default: return "\(running.count) background tasks"
+        }
+    }
+
+    /// [background] The newest line it printed (for the shelf's row), at most 160 characters; "" when it printed none.
+    var lastLine: String {
+        let lines = tail.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard let last = lines.last else { return "" }
+        return last.count > 160 ? String(last.prefix(159)) + "…" : last
+    }
+
     static func duration(_ seconds: Int) -> String {
         let s = max(0, seconds)
         if s < 60 { return "\(s)s" }

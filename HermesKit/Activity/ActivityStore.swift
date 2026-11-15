@@ -96,6 +96,10 @@ final class ActivityObservation {
     }
     /// How many `agents.list` reads went out (tests and the performance log).
     private(set) var agentsListReads = 0
+    /// [background] `subagent.roster` answered -32601 too: the stale process check stops until the next `gateway.ready`.
+    private var rosterUnsupported = false
+    /// [background] How many `subagent.roster` reads went out (tests).
+    private(set) var rosterReads = 0
 
     init(client: any GatewayClient, frameMode: FrameTicker.Mode = .displayLink) {
         self.client = client
@@ -418,6 +422,7 @@ final class ActivityObservation {
         listUnsupported = false
         controlUnsupported = false
         agentsListUnsupported = false      // [offline]
+        rosterUnsupported = false          // [background]
         for rid in chats.keys { chats[rid]?.listStopped = false; chats[rid]?.listFailures = 0 }
         scheduleStaleCheck(after: staleSettle)
     }
@@ -638,21 +643,24 @@ final class ActivityObservation {
     /// [offline] §6.6: one `agents.list` per profile with a running process claim (`{}` on the default route), 15 s;
     /// a claim that changed while the read was out is left alone; -32601 stops the asking until the next ready.
     private func staleProcessCheck() async {
-        guard !agentsListUnsupported else { return }
         let claimants = processClaimants
         guard !claimants.isEmpty else { return }
+        if agentsListUnsupported {
+            await staleProcessCheckByRoster(claimants)
+            return
+        }
         var answers: [String: Set<String>?] = [:]
         for rid in claimants {
             guard let entry = processes[rid] else { continue }
             let profile = entry.profile
             if answers[profile] == nil {
-                let p: JSONValue = profile.isEmpty || profile == "default" ? .object([:]) : .object(["profile": .string(profile)])
                 agentsListReads += 1
                 do {
-                    answers[profile] = .some(StaleWork.runningProcesses(try await client.call("agents.list", p, timeout: readTimeout)))
+                    answers[profile] = .some(StaleWork.runningProcesses(try await client.call("agents.list", profileParams(profile), timeout: readTimeout)))
                 } catch let error as RPCError where error.code == -32601 {
                     agentsListUnsupported = true
-                    AppLog.note("jobs", "stale process check: gateway lacks agents.list, stopped asking")
+                    AppLog.note("jobs", "stale process check: gateway lacks agents.list, asking subagent.roster")
+                    await staleProcessCheckByRoster(claimants)
                     return
                 } catch {
                     answers[profile] = .some(nil)
@@ -661,6 +669,44 @@ final class ActivityObservation {
             guard case .some(.some(let running)) = answers[profile], let current = processes[rid], current.version == entry.version,
                   let kept = StaleWork.dropProcesses(claims: current.claims, running: running) else { continue }
             AppLog.trace("jobs", "stale process check \(AppLog.tag(rid)): \(current.claims.count) -> \(kept.count) claims")
+            if kept.isEmpty { processes[rid] = nil } else {
+                processes[rid]?.claims = kept
+                processes[rid]?.version += 1
+            }
+            onProcessClaimsChange?(rid)
+        }
+        refreshLiveWork()
+    }
+
+    private func profileParams(_ profile: String) -> JSONValue {
+        profile.isEmpty || profile == "default" ? .object([:]) : .object(["profile": .string(profile)])
+    }
+
+    /// [background] The shared gateway has no `agents.list` (-32601): `subagent.roster` counts each stored chat's
+    /// background processes instead, one read per profile. A chat it no longer counts loses its running claims. The chat
+    /// on screen is skipped: its own `process.list` poll keeps its claims. A chat with no stored id is left alone.
+    private func staleProcessCheckByRoster(_ claimants: [String]) async {
+        guard !rosterUnsupported else { return }
+        var answers: [String: Set<String>?] = [:]
+        for rid in claimants where rid != visibleRid {
+            guard let entry = processes[rid], let stored = entry.storedId, !stored.isEmpty else { continue }
+            let profile = entry.profile
+            if answers[profile] == nil {
+                rosterReads += 1
+                do {
+                    answers[profile] = .some(StaleWork.backgroundSessions(try await client.call("subagent.roster", profileParams(profile), timeout: readTimeout)))
+                } catch let error as RPCError where error.code == -32601 {
+                    rosterUnsupported = true
+                    AppLog.note("jobs", "stale process check: gateway lacks subagent.roster too, stopped asking")
+                    return
+                } catch {
+                    answers[profile] = .some(nil)
+                }
+            }
+            guard case .some(.some(let busy)) = answers[profile], !busy.contains(stored), let current = processes[rid],
+                  current.version == entry.version, rid != visibleRid else { continue }
+            let kept = current.claims.filter { !$0.running }
+            AppLog.trace("jobs", "stale process check \(AppLog.tag(rid)): roster lists no background work, \(current.claims.count) -> \(kept.count) claims")
             if kept.isEmpty { processes[rid] = nil } else {
                 processes[rid]?.claims = kept
                 processes[rid]?.version += 1

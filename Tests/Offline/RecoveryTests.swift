@@ -224,6 +224,18 @@ extension ReconnectShareTests {
         #expect(StaleWork.runningProcesses(["processes": .array(rows)])?.count == 5_000)
     }
 
+    /// [background] `subagent.roster`: the stored chats that still hold background work.
+    @Test func backgroundSessionsFromTheRoster() {
+        let answer: JSONValue = ["sessions": [["session_id": "s1", "subagents": 0, "background": 2],
+                                              ["session_id": "s2", "subagents": 1, "background": 0],
+                                              ["session_id": "", "background": 1], ["background": 1], "junk"]]
+        #expect(StaleWork.backgroundSessions(answer) == ["s1"])
+        #expect(StaleWork.backgroundSessions(["sessions": []]) == [])
+        #expect(StaleWork.backgroundSessions(nil) == nil)
+        #expect(StaleWork.backgroundSessions([:]) == nil)
+        #expect(StaleWork.backgroundSessions(["sessions": "nope"]) == nil)
+    }
+
     @Test func claimsNoLongerRunningAreDropped() {
         let claims = [ProcessClaim(id: "p1", running: true), ProcessClaim(id: "p2", running: true), ProcessClaim(id: "p3", running: false)]
         #expect(StaleWork.dropProcesses(claims: claims, running: ["p1", "p2"]) == nil, "nothing changed")

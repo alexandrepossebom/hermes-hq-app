@@ -29,4 +29,17 @@ nonisolated enum StaleWork {
     }
 
     static func claimsRunning(_ claims: [ProcessClaim]) -> Bool { claims.contains(where: \.running) }
+
+    /// [background] The stored chats `subagent.roster` says still hold a background process (`background` > 0); nil when
+    /// the answer has no `sessions` list (nothing can be said). The shared gateway answers `agents.list` with -32601, so
+    /// this is how a chat left behind learns its command ended.
+    static func backgroundSessions(_ answer: JSONValue?) -> Set<String>? {
+        guard case .array(let rows)? = answer?["sessions"] else { return nil }
+        var out = Set<String>()
+        for row in rows {
+            guard let id = row["session_id"]?.string, !id.isEmpty, case .number(let n)? = row["background"], n > 0 else { continue }
+            out.insert(id)
+        }
+        return out
+    }
 }

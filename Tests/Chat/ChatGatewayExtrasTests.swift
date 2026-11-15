@@ -95,6 +95,24 @@ struct ChatGatewayExtrasTests {
         #expect(BackgroundProcess.list(.null).isEmpty)
     }
 
+    /// [background] The shelf chip's words and a row's newest output line.
+    @Test func backgroundChipWordsAndLastLine() {
+        let one = BackgroundProcess(id: "p1", command: "xcodebuild test", status: "running", uptimeSeconds: 372, exitCode: nil,
+                                    tail: "Test Suite 'All tests' started\n\n  Executed 120 tests\n\n")
+        #expect(BackgroundProcess.chipWords([]) == nil)
+        #expect(BackgroundProcess.chipWords([one]) == "Background task · 6m")
+        var unknown = one
+        unknown.uptimeSeconds = nil
+        #expect(BackgroundProcess.chipWords([unknown]) == "Background task")
+        #expect(BackgroundProcess.chipWords([one, unknown]) == "2 background tasks")
+        #expect(one.lastLine == "Executed 120 tests")
+        unknown.tail = "\n \n"
+        #expect(unknown.lastLine == "")
+        unknown.tail = String(repeating: "x", count: 400)
+        #expect(unknown.lastLine.count == 160)
+        #expect(unknown.lastLine.hasSuffix("…"))
+    }
+
     @Test func runningCommandsListsAndStopsOne() async throws {
         let h = try ChatHarness()
         h.setPage("24", rows: [])

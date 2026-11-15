@@ -46,6 +46,18 @@ import UIKit
     private lazy var tasksBody = TasksBody()
     private lazy var previousBody = TasksBody()
     private lazy var goalBody = GoalBody()
+    /// [background] The chat's running background commands (`process.list`), the Background tasks chip's rows.
+    private(set) var backgroundTasks: [BackgroundProcess] = []
+    /// [background] Commands whose Stop went out (their row says "Stopping…" until the list drops them).
+    private var backgroundStopping: Set<String> = []
+    private var backgroundPoll: Task<Void, Never>?
+    private lazy var backgroundBody: BackgroundTasksBody = {
+        let body = BackgroundTasksBody()
+        body.onStop = { [weak self] id in self?.stopBackground(id) }
+        return body
+    }()
+    /// [background] How often the list is read while a command runs or the bot works (the desktop's own 5 s).
+    static let backgroundPollSeconds: Double = 5
 
     // Steps (Hide fold, Show Steps)
     private var revealedFallback: Set<String> = []
@@ -97,6 +109,7 @@ import UIKit
     isolated deinit {
         if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }
         ActivityClock.shared.unsubscribe(self)
+        backgroundPoll?.cancel()        // [background]
     }
 
     var provider: ChatActivityProviding? { chat.session as? ChatActivityProviding }
@@ -156,6 +169,7 @@ import UIKit
         onAttachedChange?(on)       // [browser]
         reportVisibility(force: true)
         if on { updateShelf(animated: false) }
+        if on { pollBackground() } else { backgroundPoll?.cancel(); backgroundPoll = nil }   // [background]
         #if DEBUG
         if on { motionProbe?.start() } else { motionProbe?.stop() }
         #endif
@@ -187,6 +201,63 @@ import UIKit
         updateStatusTap()
         updateShelf(animated: true)
         refreshStepsSheet()
+        pollBackground()            // [background] a turn that starts may start a command; one that ends may leave one
+    }
+
+    // MARK: Background tasks [background]
+
+    /// Reads the chat's running commands now, then every 5 s while one runs or the bot works; stops when neither (the
+    /// next turn starts it again). Only while the chat shows. An older Hermes without `process.list` never asks again.
+    private func pollBackground() {
+        guard attached, backgroundPoll == nil, let live = chat.session as? LiveChatSession, live.offersRunningCommands else { return }
+        backgroundPoll = Task { [weak self, weak live] in
+            var first = true
+            while !Task.isCancelled {
+                if !first { try? await Task.sleep(for: .seconds(Self.backgroundPollSeconds)) }
+                first = false
+                guard !Task.isCancelled, let live, live.offersRunningCommands else { break }
+                let list = await live.runningCommands()
+                guard !Task.isCancelled, let self else { return }
+                if let list { self.showBackground(list) }
+                guard !self.backgroundTasks.isEmpty || live.isRunning else { break }
+            }
+            self?.backgroundPoll = nil
+        }
+    }
+
+    private func showBackground(_ list: [BackgroundProcess]) {
+        backgroundStopping.formIntersection(list.map(\.id))
+        if let live = chat.session as? LiveChatSession, let store = provider?.activityStore,
+           let rid = provider?.activityRuntimeId ?? live.runtimeSessionId {
+            // The Bots and Sessions rows say Working… while it runs, after the chat closes too (the stale check
+            // drops it once the gateway no longer counts it).
+            store.setProcessClaims(runtimeId: rid, profile: live.profile, storedId: live.storedSessionId,
+                                   list.map { ProcessClaim(id: $0.id, running: true) })
+        }
+        guard list != backgroundTasks else { return }
+        if backgroundTasks.count != list.count, !list.isEmpty || !backgroundTasks.isEmpty {
+            AppLog.trace("jobs", "background tasks on screen: \(backgroundTasks.count) -> \(list.count)")
+        }
+        backgroundTasks = list
+        updateShelf(animated: true)
+    }
+
+    /// Stop Task: `process.kill` for that one command; the turn and the others keep running.
+    private func stopBackground(_ id: String) {
+        guard let live = chat.session as? LiveChatSession else { return }
+        Haptics.play(.selection)
+        backgroundStopping.insert(id)
+        updateShelf(animated: true)
+        Task { [weak self] in
+            do {
+                try await live.stopCommand(id)
+            } catch {
+                self?.backgroundStopping.remove(id)
+                if let self { FailureAlert.present(title: "Couldn’t Stop the Task", reason: MenusError.text(error), from: self.chat) }
+            }
+            if let list = await live.runningCommands() { self?.showBackground(list) }
+            self?.updateShelf(animated: true)
+        }
     }
 
     /// The session's rows changed.
@@ -595,6 +666,7 @@ import UIKit
             case .tasks: body = tasksBody
             case .subagents: body = subagentsBody
             case .previousTasks: body = previousBody
+            case .background: body = backgroundBody     // [background]
             case .browser: body = UIView()          // [browser] a chip only: it opens the viewer
             }
             let piece = ShelfPieceView(kind: kind, body: body)
@@ -683,6 +755,7 @@ import UIKit
         if a.liveTodos != nil { present.insert(.tasks) }
         if !shown.isEmpty { present.insert(.subagents) }
         if previousShown { present.insert(.previousTasks) }
+        if !backgroundTasks.isEmpty { present.insert(.background) }   // [background]
         if browserChip != nil { present.insert(.browser) }      // [browser]
         // The live task list opens by default each time it appears (unless you folded it this turn); the others start
         // folded.
@@ -734,6 +807,11 @@ import UIKit
                                      : selectedSubagent.flatMap { steerFeedback[$0] },
                                  busy: ended != nil || (selectedSubagent.map { steerBusy.contains($0) } ?? false),
                                  wide: wide, width: shelfWidth - 12, now: now)
+        }
+        if !backgroundTasks.isEmpty {                           // [background]
+            let piece = pieceView(.background)
+            piece.header.set(words: BackgroundProcess.chipWords(backgroundTasks) ?? "Background task", spinner: ChatPalette.label2)
+            backgroundBody.update(backgroundTasks, stopping: backgroundStopping)
         }
         if present.contains(.previousTasks) {
             let piece = pieceView(.previousTasks)

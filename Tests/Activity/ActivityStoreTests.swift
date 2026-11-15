@@ -160,6 +160,51 @@ struct ActivityStoreTests {
         #expect(client.calls("delegation.status").first?.params == ["profile": "default"])
     }
 
+    /// [background] The shared gateway answers `agents.list` with -32601: a chat left behind still loses its claim once
+    /// `subagent.roster` no longer counts its background work, and keeps it while it does.
+    @Test func backgroundClaimFallsBackToTheRosterWhenAgentsListIsMissing() async {
+        let busy = Mutex(true)
+        client.onCall { method, _ in
+            switch method {
+            case "agents.list": throw RPCError(code: -32601, message: "unknown method: agents.list", data: nil)
+            case "subagent.roster":
+                return busy.withLock { $0 } ? ["sessions": [["session_id": "s1", "subagents": 0, "background": 1]]] : ["sessions": []]
+            case "delegation.status": return ["active": []]
+            default: return .object([:])
+            }
+        }
+        store.bind(runtimeId: rid, profile: "default", storedId: "s1")
+        store.setProcessClaims(runtimeId: rid, profile: "default", storedId: "s1", [ProcessClaim(id: "proc_1", running: true)])
+        #expect(store.hasLiveWork(profile: "default"))
+        #expect(store.hasLiveWork(storedId: "s1"))
+        await store.staleCheck()
+        #expect(client.calls("agents.list").count == 1)
+        #expect(client.calls("subagent.roster").first?.params == .object([:]), "the default route asks with {}")
+        #expect(store.hasLiveWork(storedId: "s1"), "still counted: kept")
+        busy.withLock { $0 = false }
+        await store.staleCheck()
+        #expect(client.calls("agents.list").count == 1, "-32601 is remembered")
+        #expect(!store.hasLiveWork(profile: "default"), "no longer counted: dropped")
+        #expect(store.processClaims(runtimeId: rid).isEmpty)
+    }
+
+    /// [background] The chat on screen keeps its claims: its own `process.list` poll is the authority there.
+    @Test func backgroundClaimOfTheChatOnScreenIsLeftToItsOwnPoll() async {
+        client.onCall { method, _ in
+            switch method {
+            case "agents.list": throw RPCError(code: -32601, message: "unknown method: agents.list", data: nil)
+            case "subagent.roster": return ["sessions": []]
+            default: return .object([:])
+            }
+        }
+        store.bind(runtimeId: rid, profile: "default", storedId: "s1")
+        store.setVisible(runtimeId: rid, openSubagent: nil)
+        store.setProcessClaims(runtimeId: rid, profile: "default", storedId: "s1", [ProcessClaim(id: "proc_1", running: true)])
+        await store.staleCheck()
+        #expect(store.hasLiveWork(storedId: "s1"))
+        #expect(client.calls("subagent.roster").isEmpty, "nothing to ask for")
+    }
+
     @Test func goalReadAndActions() async throws {
         let snapshot = ControlRulesTests.snapshot(ControlRulesTests.goal)
         client.onCall { method, params in

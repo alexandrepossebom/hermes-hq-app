@@ -7,7 +7,10 @@ import UIKit
 // transcript and the jump button underneath (M:jump-arrow-under-dock.md).
 
 enum ShelfPieceKind: Int, CaseIterable, Hashable {
-    case goal, tasks, subagents, previousTasks
+    case goal, tasks, subagents
+    /// [background] "Background task · 6m" while a command the bot started in the background still runs (BackgroundTasksBody).
+    case background
+    case previousTasks
     /// [browser] "Browsing example.com" while the chat's bot uses its browser: a chip that opens Watch Browser.
     case browser
 }
