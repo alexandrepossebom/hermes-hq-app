@@ -19,6 +19,45 @@
 import SwiftUI
 import UIKit
 
+/// [soft-card-style] Owner 2026-11-15: "settings to change the appearance of the soft cards … pick from similar background
+/// types like we have for the text bubbles." Theme › Backgrounds › App Background › Soft Cards › Style, the same three
+/// as Chat Bubbles › Style. Tinted is the card the switch has always drawn (the picture softened under the theme's page
+/// colour), so turning Soft Cards on still looks as it did; Solid and Glass are new.
+nonisolated enum SoftCardStyle: String, Sendable, Hashable, CaseIterable {
+    /// The skin's own grouped card colour, as a grouped page's rows draw it on a plain page: the picture shows only
+    /// between the cards.
+    case solid
+    /// Liquid Glass carrying the theme's page colour, only as much of it as this picture needs (`SoftCard.density`).
+    case glass
+    /// iOS's plain blur of the picture under the theme's page colour at that density (the first Soft Cards).
+    case tinted
+
+    static let standard = SoftCardStyle.tinted
+
+    /// A stored value: nothing, or one this build doesn't know, is the standard.
+    init(stored: String?) { self = stored.flatMap(SoftCardStyle.init(rawValue:)) ?? .standard }
+
+    var title: String {
+        switch self {
+        case .solid: "Solid"
+        case .glass: "Glass"
+        case .tinted: "Tinted"
+        }
+    }
+
+    /// The line under the picker about the style picked (as Chat Bubbles' `styleLine`).
+    var line: String {
+        switch self {
+        case .solid: "Solid: your theme’s card color, the picture only between the cards."
+        case .glass: "Glass: Liquid Glass in your theme’s colors."
+        case .tinted: "Tinted: the picture softened in your theme’s color, only as strong as it needs."
+        }
+    }
+
+    /// As the cards draw it: Glass is solid under Reduce Transparency, as Glass bubbles are.
+    func shown(reduceTransparency: Bool) -> SoftCardStyle { self == .glass && reduceTransparency ? .solid : self }
+}
+
 @MainActor enum SoftCard {
     /// The corners of every soft card.
     static var radius: CGFloat { HQShape.radius(26, .card) }
@@ -38,6 +77,9 @@ import UIKit
     static func tint(_ traits: UITraitCollection) -> UIColor {
         HQPalette.page.resolvedColor(with: traits).withAlphaComponent(CGFloat(density(traits)))
     }
+
+    /// [soft-card-style] The style the cards draw just now.
+    static var style: SoftCardStyle { Backdrop.app.cardStyle.shown(reduceTransparency: HQAccessibility.reduceTransparency) }
 
     static func density(_ traits: UITraitCollection) -> Double {
         let dark = traits.userInterfaceStyle == .dark
@@ -139,6 +181,10 @@ final class SoftCardSurface: UIView {
     private let blur = UIVisualEffectView(effect: DesktopFrost.blur())
     private let tint = UIView()
     private let rim = UIView()
+    /// [soft-card-style] Glass: made the first time it is picked.
+    private var glass: UIVisualEffectView?
+    /// The glass's tint last painted: a new glass effect is only made when it changes.
+    private var paintedGlassTint: UIColor?
     private var watches: [NSObjectProtocol] = []
 
     override init(frame: CGRect) {
@@ -153,7 +199,7 @@ final class SoftCardSurface: UIView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self, UITraitAccessibilityContrast.self]) { (view: SoftCardSurface, _) in
             view.paint()
         }
-        for name in [Backdrop.didChange, Backdrop.pictureReady, Theme.didChange] {
+        for name in [Backdrop.didChange, Backdrop.pictureReady, Theme.didChange, UIAccessibility.reduceTransparencyStatusDidChangeNotification] {
             watches.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.paint() }
             })
@@ -165,9 +211,37 @@ final class SoftCardSurface: UIView {
 
     isolated deinit { watches.forEach(NotificationCenter.default.removeObserver) }
 
+    /// [soft-card-style] What the surface is made of for each style (Theme › App Background › Soft Cards › Style):
+    /// - Tinted: the blur, the page colour at the picture's density over it, the hairline.
+    /// - Solid: the skin's grouped card colour, whole, and the hairline (a card on a picture of its own tone).
+    /// - Glass: Liquid Glass carrying the page colour at the same density (untinted glass failed 4.5:1 over a busy
+    ///   picture for bubbles); the glass draws its own edge.
     private func paint() {
-        tint.backgroundColor = SoftCard.tint(traitCollection)
+        let style = SoftCard.style
+        blur.isHidden = style != .tinted
+        tint.isHidden = style == .glass
+        rim.isHidden = style == .glass
+        switch style {
+        case .tinted: tint.backgroundColor = SoftCard.tint(traitCollection)
+        case .solid: tint.backgroundColor = HQPalette.card.resolvedColor(with: traitCollection).withAlphaComponent(1)
+        case .glass: break
+        }
         rim.layer.borderColor = SoftCard.edge.resolvedColor(with: traitCollection).cgColor
+        let glassTint = style == .glass ? SoftCard.tint(traitCollection) : nil
+        if style == .glass, glass == nil {
+            let view = UIVisualEffectView(effect: nil)
+            view.isUserInteractionEnabled = false
+            insertSubview(view, at: 0)
+            glass = view
+            setNeedsLayout()
+        }
+        glass?.isHidden = style != .glass
+        if let glass, let glassTint, paintedGlassTint != glassTint || glass.effect == nil {
+            let effect = UIGlassEffect(style: .regular)
+            effect.tintColor = glassTint
+            glass.effect = effect
+        }
+        paintedGlassTint = glassTint
     }
 
     override func didMoveToWindow() {
@@ -193,6 +267,12 @@ final class SoftCardSurface: UIView {
         rim.frame = frame
         rim.layer.cornerRadius = radius
         rim.layer.borderWidth = line
+        // [soft-card-style] The glass rounds itself (its edge light follows its own corners): it too runs off an open
+        // side, so only the card's clipping squares it there.
+        if let glass {
+            glass.frame = frame
+            glass.cornerConfiguration = shape == .capsule && open.isEmpty ? .capsule() : .corners(radius: .fixed(radius))
+        }
     }
 }
 

@@ -125,6 +125,39 @@ import UIKit
         #expect(!app.cards && suite.object(forKey: "hqn.appBackground.cards") == nil, "Reset turns it off")
     }
 
+    /// [soft-card-style] Soft Cards › Style: Tinted (the first cards) until another is picked, stored only when it isn't
+    /// Tinted, kept on the app's background only, gone with Reset; a value this build doesn't know reads as Tinted.
+    @Test func softCardStyleIsTintedUntilPicked() {
+        let (suite, folder) = fresh()
+        let app = Backdrop(place: .app, defaults: suite, folder: folder)
+        #expect(app.cardStyle == .tinted, "everyone who had Soft Cards on keeps the cards they had")
+        app.setCardStyle(.glass)
+        #expect(suite.string(forKey: "hqn.appBackground.cardStyle") == "glass")
+        #expect(Backdrop(place: .app, defaults: suite, folder: folder).cardStyle == .glass)
+        app.setCardStyle(.solid)
+        #expect(Backdrop(place: .app, defaults: suite, folder: folder).cardStyle == .solid)
+        app.setCardStyle(.tinted)
+        #expect(suite.object(forKey: "hqn.appBackground.cardStyle") == nil, "the standard is not stored")
+        let chats = Backdrop(place: .chats, defaults: suite, folder: folder)
+        chats.setCardStyle(.solid)
+        #expect(chats.cardStyle == .tinted && suite.object(forKey: "hqn.chatBackground.cardStyle") == nil, "chats have no Soft Cards")
+        suite.set("velvet", forKey: "hqn.appBackground.cardStyle")
+        #expect(Backdrop(place: .app, defaults: suite, folder: folder).cardStyle == .tinted, "an unknown style is the standard")
+        app.setCardStyle(.glass)
+        app.reset()
+        #expect(app.cardStyle == .tinted && suite.object(forKey: "hqn.appBackground.cardStyle") == nil, "Reset puts Tinted back")
+    }
+
+    /// [soft-card-style] Glass cards are solid under Reduce Transparency, as Glass bubbles are; the others draw as picked.
+    @Test func glassCardsAreSolidUnderReduceTransparency() {
+        #expect(SoftCardStyle.glass.shown(reduceTransparency: true) == .solid)
+        #expect(SoftCardStyle.glass.shown(reduceTransparency: false) == .glass)
+        for style in [SoftCardStyle.solid, .tinted] {
+            #expect(style.shown(reduceTransparency: true) == style && style.shown(reduceTransparency: false) == style)
+        }
+        #expect(SoftCardStyle.allCases.map(\.title) == ["Solid", "Glass", "Tinted"], "in Chat Bubbles' order")
+    }
+
     @Test func dimAndBlurAreStoredOnlyWhenNotStandard() {
         let (suite, folder) = fresh()
         let backdrop = Backdrop(place: .app, defaults: suite, folder: folder)

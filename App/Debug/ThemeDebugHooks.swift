@@ -23,6 +23,7 @@
 // - `-HQDebugChatBackgroundSame YES|NO` Chat Background's Use App Background
 // - `-HQDebugAppBackgroundCards YES|NO` [backdrop-cards] App Background's Soft Cards
 // - `-HQDebugFlipCardsAt <seconds>`  [backdrop-cards] Soft Cards flips that long after launch (live relayout)
+// - `-HQDebugAppBackgroundCardStyle solid|glass|tinted` [soft-card-style] Soft Cards › Style
 // - `-HQDebugChatBackgroundPick <path>` Your Own Photo takes that file instead of opening a system picker (UI tests)
 // - `-HQDebugThemeBackground YES`   with -HQDebugOpenTheme, Backgrounds opens instead ([theme-pages] its own page)
 // - `-HQDebugNoThemeFile YES`       the installer behaves as if the bundled theme file were missing (stress item 11)
@@ -107,6 +108,10 @@ enum ThemeDebugHooks {
             if defaults.object(forKey: "HQDebug\(name)Blur") != nil { defaults.set(defaults.bool(forKey: "HQDebug\(name)Blur"), forKey: keys.blur) }
             // [backdrop-cards] `-HQDebugAppBackgroundCards YES|NO`: Soft Cards.
             if defaults.object(forKey: "HQDebug\(name)Cards") != nil { defaults.set(defaults.bool(forKey: "HQDebug\(name)Cards"), forKey: keys.cards) }
+            // [soft-card-style] `-HQDebugAppBackgroundCardStyle solid|glass|tinted`: Soft Cards › Style.
+            if let style = defaults.string(forKey: "HQDebug\(name)CardStyle").flatMap(SoftCardStyle.init(rawValue:)) {
+                if style == .standard { defaults.removeObject(forKey: keys.cardStyle) } else { defaults.set(style.rawValue, forKey: keys.cardStyle) }
+            }
         }
         if defaults.object(forKey: "HQDebugChatBackgroundSame") != nil {
             defaults.set(defaults.bool(forKey: "HQDebugChatBackgroundSame"), forKey: Backdrop.keys(.chats).sameAsApp)

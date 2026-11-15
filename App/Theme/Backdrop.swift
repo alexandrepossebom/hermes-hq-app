@@ -58,6 +58,8 @@ final class Backdrop {
 
     nonisolated struct Keys: Sendable {
         let photo: String, preset: String, dim: String, blur: String, sameAsApp: String, cards: String
+        /// [soft-card-style] `SoftCardStyle`'s raw value, stored only when it isn't Tinted.
+        let cardStyle: String
         init(_ prefix: String) {
             photo = prefix + ".photo"
             preset = prefix + ".preset"
@@ -65,8 +67,9 @@ final class Backdrop {
             blur = prefix + ".blur"
             sameAsApp = prefix + ".sameAsApp"
             cards = prefix + ".cards"
+            cardStyle = prefix + ".cardStyle"
         }
-        var all: [String] { [photo, preset, dim, blur, sameAsApp, cards] }
+        var all: [String] { [photo, preset, dim, blur, sameAsApp, cards, cardStyle] }
     }
 
     nonisolated static func keys(_ place: Place) -> Keys { Keys(place == .app ? "hqn.appBackground" : "hqn.chatBackground") }
@@ -89,6 +92,8 @@ final class Backdrop {
     /// [backdrop-cards] App only, off until turned on (owner 2026-11-12: "a toggle so people can cut it in only if they
     /// want it"): the lists' sections and the grouped pages' titles and notes stand on soft cards over the picture.
     private(set) var cards: Bool
+    /// [soft-card-style] How the soft cards are filled (App only): Solid, Glass or Tinted, as Chat Bubbles' Style.
+    private(set) var cardStyle: SoftCardStyle
     /// Bumped on every change (the Theme page's previews read it).
     private(set) var revision = 0
 
@@ -111,6 +116,7 @@ final class Backdrop {
         dim = Self.clampedDim(defaults.object(forKey: keys.dim), place: place)
         blur = (defaults.object(forKey: keys.blur) as? NSNumber)?.boolValue ?? false
         cards = place == .app && ((defaults.object(forKey: keys.cards) as? NSNumber)?.boolValue ?? false)
+        cardStyle = place == .app ? SoftCardStyle(stored: defaults.string(forKey: keys.cardStyle)) : .standard
         let stored = (defaults.object(forKey: keys.sameAsApp) as? NSNumber)?.boolValue
         sameAsApp = place == .chats && (stored ?? (source == nil))
     }
@@ -244,6 +250,7 @@ final class Backdrop {
         dim = Self.defaultDim(place)
         blur = false
         cards = false
+        cardStyle = .standard
         sameAsApp = place == .chats
         removeFiles(keeping: nil)
         changed()
@@ -279,6 +286,15 @@ final class Backdrop {
         guard place == .app, on != cards else { return }
         cards = on
         if on { defaults.set(true, forKey: keys.cards) } else { defaults.removeObject(forKey: keys.cards) }
+        changed()
+    }
+
+    /// [soft-card-style] Soft Cards › Style (the app's background only).
+    func setCardStyle(_ style: SoftCardStyle) {
+        guard place == .app, style != cardStyle else { return }
+        cardStyle = style
+        if style == .standard { defaults.removeObject(forKey: keys.cardStyle) } else { defaults.set(style.rawValue, forKey: keys.cardStyle) }
+        AppLog.trace("backdrop", "soft card style: \(style.rawValue)")
         changed()
     }
 

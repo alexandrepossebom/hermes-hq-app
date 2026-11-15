@@ -33,7 +33,7 @@ enum BackdropWords {
     static var appNote: String { "Behind Sessions, Bots, Jobs, More, Settings and the pages they open. Dim covers it with the page color, so the rows on it stay easy to read. \(DeviceWord.onlyHere)" }
     static var chatNote: String { "Behind every chat. Dim covers it with the page color, so the grey lines between messages stay easy to read. \(DeviceWord.onlyHere)" }
     /// [backdrop-cards]
-    static let cardsNote = "Soft Cards lays a soft backing in your theme’s color behind each list, only as strong as this picture needs, so words stay easy to read."
+    static let cardsNote = "Soft Cards lays a backing in your theme’s colors behind each list, so words stay easy to read. With Reduce Transparency on, Glass cards are solid."
     static let sameNote = "Chats show the app’s picture, with their own Dim and Blur."
     /// Added under the preview while the Desktop Look is on, which keeps its plain pages.
     static let desktopNote = "The Desktop Look is on, so it shows once you turn that off."
@@ -215,9 +215,18 @@ struct BackgroundPage: View {
                         }
                         .tint(Color.hqTint)
                         .accessibilityIdentifier("theme.backgroundCards")
+                        // [soft-card-style] Owner 2026-11-15: the cards' fill, from the same three as Chat Bubbles.
+                        if backdrop.cards { cardStylePicker }
                     }
                 } footer: {
-                    if place == .app { HQSectionFooter { Text(BackdropWords.cardsNote) } }
+                    if place == .app { HQSectionFooter {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if backdrop.cards {
+                                Text(backdrop.cardStyle.line).foregroundStyle(Color.hqLabel).accessibilityIdentifier("theme.backgroundCardStyleLine")
+                            }
+                            Text(BackdropWords.cardsNote)
+                        }
+                    } }
                 }
             }
         }.hqMacSettingsRowInsets() }
@@ -234,6 +243,25 @@ struct BackgroundPage: View {
         }
         #endif
         }
+    }
+
+    /// [soft-card-style] Soft Cards › Style: Solid, Glass or Tinted, segments as Chat Bubbles › Style draws them.
+    private var cardStylePicker: some View {
+        let style = backdrop.cardStyle
+        return HStack(spacing: 12) {
+            Text("Style").foregroundStyle(Color.hqLabel).fixedSize()
+            Spacer(minLength: 8)
+            HQSegmentedPicker("Card Style", options: SoftCardStyle.allCases.map { ($0.title, $0) },
+                              selection: Binding(get: { style }, set: { next in
+                                  guard next != style else { return }
+                                  Haptics.play(.selection)
+                                  backdrop.setCardStyle(next)
+                              }), ticks: false, wholeLabels: true)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("theme.backgroundCardStyle")
     }
 
     private var columns: Int {
