@@ -199,10 +199,11 @@ nonisolated enum SessionListPipeline {
         var wholeByProject: [String: Int] = [:]
         var wholeSeen = Set<String>()
         for session in pool {
-            if countsWhole, !session.pinned, prefs.statusFilter.isEmpty || prefs.statusFilter.contains(session.status),
-               wholeSeen.insert(key(session)).inserted {
+            if countsWhole, prefs.statusFilter.isEmpty || prefs.statusFilter.contains(session.status) {
                 let found = SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: input.projectsByProfile)
-                if picked.isEmpty || picked.contains(found) { wholeByProject[found, default: 0] += 1 }
+                // [pinned-in-project] A pinned chat counts in its project (Home's pinned chats are Pinned's alone).
+                if !session.pinned || found != SessionProjects.homeKey, wholeSeen.insert(key(session)).inserted,
+                   picked.isEmpty || picked.contains(found) { wholeByProject[found, default: 0] += 1 }
             }
             if let bot = input.botFilter, session.profile != bot { continue }
             if !prefs.statusFilter.isEmpty, !prefs.statusFilter.contains(session.status) { continue }
@@ -240,8 +241,17 @@ nonisolated enum SessionListPipeline {
         let rest = sorted.filter { !$0.pinned && (keepsNew || !lifted.contains(key($0))) }
         var out = fresh.isEmpty ? [] : [SessionGroup(id: newId, title: newTitle, sessions: fresh)]
         if !pinned.isEmpty { out.append(SessionGroup(id: "pinned", title: "Pinned", sessions: pinned)) }
-        guard !rest.isEmpty else { return out + folders }
-        if isFlat(prefs) { return out + [SessionGroup(id: flatId, title: "", sessions: rest)] + folders }
+        if isFlat(prefs) {
+            return out + (rest.isEmpty ? [] : [SessionGroup(id: flatId, title: "", sessions: rest)]) + folders
+        }
+        // [pinned-in-project] Owner 2026-11-15 ("A"): a pinned chat shows in Pinned and stays inside its project, so
+        // pinning a project's only chat no longer hides the project (and "See All" counts it). Home is no project: its
+        // pinned chats are Pinned's alone.
+        let projectRows = sorted.filter {
+            $0.pinned ? project($0) != SessionProjects.homeKey && (keepsNew || !lifted.contains(key($0)))
+                      : keepsNew || !lifted.contains(key($0))
+        }
+        guard !rest.isEmpty || !projectRows.isEmpty else { return out + folders }
 
         /// One group per project, by its newest chat (Home last), then the user's order, favorites first.
         func projectGroups(_ rows: [SessionSummary]) -> [SessionGroup] {
@@ -275,7 +285,7 @@ nonisolated enum SessionListPipeline {
         case .date:
             // [sessions-fresh] The projects (Home's chats are Recent's alone), their newest few under "Projects" until
             // See All; then every chat newest first.
-            var projects = projectGroups(rest).filter { $0.id != projectPrefix + SessionProjects.homeKey }
+            var projects = projectGroups(projectRows).filter { $0.id != projectPrefix + SessionProjects.homeKey }
             if !projects.isEmpty {
                 // A filter narrowing the list shows every project it finds; See All (and Show Less) only while there are
                 // projects to hide.
@@ -299,7 +309,7 @@ nonisolated enum SessionListPipeline {
             if !working.isEmpty { out.append(SessionGroup(id: "status-working", title: "Working", sessions: working)) }
             if !done.isEmpty { out.append(SessionGroup(id: "status-done", title: "Done", sessions: done)) }
         case .project:
-            out += projectGroups(rest)
+            out += projectGroups(projectRows)
         case .bot:
             // [manual-order] One group per bot, the bot with the newest chat first, then the user's order.
             var groups = bucketed(rest) { session in

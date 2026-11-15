@@ -217,6 +217,41 @@ import Testing
         #expect(all.count == 3 && all[0].projectsAll)
     }
 
+    /// [pinned-in-project] A pinned chat shows in Pinned and stays inside its project, so pinning a project's only
+    /// chat keeps the project (and See All still counts it). Home's pinned chats are Pinned's alone.
+    @Test func aPinnedChatStaysInItsProject() {
+        let three: [String: [SessionProject]] = ["default": ["a", "b", "c"].map {
+            SessionProject(id: $0, label: $0.uppercased(), root: "/p/\($0)", paths: ["/p/\($0)"])
+        }]
+        let entries = SessionProjects.menuEntries(three, order: ["default"])
+        // Project A's only chat is pinned; so is one of Home's.
+        let rows = [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a"), Self.chat("b", ago: 120, cwd: "/p/b"),
+                    Self.chat("c", ago: 180, cwd: "/p/c"), Self.chat("home-pin", ago: 30, pinned: true), Self.chat("home", ago: 300)]
+        func run(_ group: SessionGroupBy? = nil, _ live: [SessionSummary] = rows) -> [SessionGroup] {
+            Self.run(live) {
+                $0.projectsByProfile = three; $0.projects = entries
+                $0.openGroups = Set(entries.map { SessionListPipeline.projectPrefix + $0.key })
+                if let group { $0.prefs.groupBy = group }
+            }
+        }
+        let recent = run()
+        #expect(recent.first?.id == "pinned" && recent.first?.sessions.map(\.id) == ["home-pin", "a"])
+        let cards = recent.filter { SessionListPipeline.isProject($0.id) }
+        #expect(cards.map(\.id) == ["project-/p/a", "project-/p/b"] && cards[0].projectsTotal == 3)   // A is still there
+        #expect(cards[0].sessions.map(\.id) == ["a"])
+        #expect(recent.last?.id == SessionListPipeline.recentId && recent.last?.sessions.map(\.id) == ["b", "c", "home"])
+
+        let byProject = run(.project)
+        #expect(byProject.map(\.title) == ["Pinned", "A", "B", "C", "Home"])
+        #expect(byProject[1].sessions.map(\.id) == ["a"] && byProject.last?.sessions.map(\.id) == ["home"])
+
+        // Every chat pinned: the project is still listed.
+        let onlyPinned = run(nil, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")])
+        #expect(onlyPinned.map(\.id) == ["pinned", "project-/p/a"])
+        // Home's pinned chat alone makes no Home group.
+        #expect(run(.project, [Self.chat("home-pin", pinned: true)]).map(\.id) == ["pinned"])
+    }
+
     /// [sessions-collapse] Group By Recent: Pinned closes (no See All under a closed header), and "Projects" closes
     /// every project to one closed header counting the projects and their unread chats; a filter opens them again.
     @Test func recentPinnedAndProjectsClose() {
