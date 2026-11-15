@@ -119,6 +119,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     private var timeObserver: NSObjectProtocol?
     private var lookObserver: NSObjectProtocol?
     private var styleObserver: NSObjectProtocol?   // [chats-under]
+    private var ringObserver: NSObjectProtocol?    // [working-ring]
     private var muteObserver: UUID?
     /// Settings stream (1x-settings §5): menus, swipes, sections, drag and drop, the + and Settings buttons.
     private(set) var organizer: BotsOrganizer?
@@ -258,6 +259,11 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         styleObserver = NotificationCenter.default.addObserver(forName: BotChatsStyle.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.setNeedsReload(animated: false) }
         }
+        // [working-ring] Working Ring on or off: the hairlines beside a working row are asked again (the ring itself
+        // follows the switch on its own, `WorkingRingGate`).
+        ringObserver = NotificationCenter.default.addObserver(forName: WorkingRing.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setNeedsReload(animated: false) }
+        }
         lookObserver = NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] note in
             let look = note.userInfo?["look"] as? Bool == true
             MainActor.assumeIsolated {
@@ -280,6 +286,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         slowTimer?.invalidate()        // [offline]
         if let timeObserver { NotificationCenter.default.removeObserver(timeObserver) }
         if let lookObserver { NotificationCenter.default.removeObserver(lookObserver) }
+        if let ringObserver { NotificationCenter.default.removeObserver(ringObserver) }
         if let muteObserver { BotMuteCenter.shared.stopObserving(muteObserver) }
     }
 
