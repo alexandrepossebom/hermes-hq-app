@@ -122,12 +122,16 @@ struct GPTLiveWireTests {
         #expect(items.last?["content"]?[0]?["text"]?.string == "turn 39")
         #expect(items.last?["role"]?.string == "assistant")
         #expect(items.last?["content"]?[0]?["type"]?.string == "output_text")
-        // Each turn is cut to 1,200 characters: five of six long ones fit the 6,000 budget, the newest five.
-        let big = (0..<6).map { (assistant: $0 % 2 == 1, text: "\($0)" + String(repeating: "x", count: 5_000)) }
+        // Each turn is cut to 1,500 characters: eight of nine long ones fit the 12,000 budget, the newest eight.
+        let big = (0..<9).map { (assistant: $0 % 2 == 1, text: "\($0)" + String(repeating: "x", count: 5_000)) }
         guard case .array(let few) = LiveVoiceWire.history(big) else { Issue.record("not an array"); return }
-        #expect(few.count == 5)
+        #expect(few.count == 8)
         #expect(few.first?["content"]?[0]?["text"]?.string?.hasPrefix("1") == true)
-        #expect(few.allSatisfy { ($0["content"]?[0]?["text"]?.string?.count ?? 0) == 1_200 })
+        #expect(few.allSatisfy { ($0["content"]?[0]?["text"]?.string?.count ?? 0) == 1_500 })
+        // The desktop's smaller seed, asked for when the wide one is refused: five turns of 1,200.
+        guard case .array(let narrow) = LiveVoiceWire.history(big, budget: LiveVoiceWire.narrowSeed) else { Issue.record("not an array"); return }
+        #expect(narrow.count == 5)
+        #expect(narrow.allSatisfy { ($0["content"]?[0]?["text"]?.string?.count ?? 0) == 1_200 })
     }
 
     @Test func theSessionBodySendsTheOfferAsIsAndReadsTheAnswer() throws {
@@ -214,6 +218,16 @@ struct GPTLiveLoopTests {
         #expect(loop.send(.tick, at: 60).isEmpty)
         #expect(loop.send(.tick, at: 67) == [.think(delegationId: "d1", text: LiveVoiceWire.toolNote("Edit file"))])
         #expect(loop.send(.tick, at: 120).isEmpty)
+    }
+
+    /// A session given some of the chat is told that is only its latest part, and to ask rather than guess.
+    @Test func aSeededSessionIsToldTheChatGoesFurtherBack() {
+        var loop = Loop()
+        loop.live.seeded = true
+        let started = loop.send(.start) + loop.send(.sessionReady)
+        #expect(started == [.instruct(LiveVoiceWire.quietWhileWorking), .instruct(LiveVoiceWire.chatNote)])
+        #expect(LiveVoiceWire.chatNote.count <= LiveVoiceWire.appendCharLimit)
+        #expect(LiveVoiceWire.quietWhileWorking.count <= LiveVoiceWire.appendCharLimit)
     }
 
     @Test func theRequestIsEverythingSaidSinceTheLastOne() {
@@ -455,6 +469,42 @@ struct GPTLiveControllerTests {
         return (talk, box)
     }
 
+    /// An empty chat has nothing to refer back to: no note.
+    @Test func anEmptyChatGetsNoChatNote() async throws {
+        let (talk, box) = make()
+        let chat = FakeTalkChat()
+        talk.setFront(chat, onScreen: true)
+        talk.start(in: chat, name: "Ivy")
+        #expect(await waitUntil { talk.view?.phase == .listening })
+        #expect(box.history == .array([]))
+        #expect(!sent("session.instructions.append").contains { $0["content"]?.string == LiveVoiceWire.chatNote })
+        talk.end()
+        #expect(await waitUntil { !talk.isLive })
+        await talk.resetForTests()
+    }
+
+    /// No limit is published for the seed: a session refused with the wide one is asked for again with the desktop's.
+    @Test func aRefusedWideSeedIsAskedAgainWithTheNarrowOne() async throws {
+        let (talk, box) = make()
+        var seeds: [Int] = []
+        talk.exchangeLive = { _, sdp, history in
+            box.exchanged.append(sdp)
+            seeds.append(history.array?.count ?? 0)
+            if seeds.count == 1 { throw VoiceFailure(reason: "GPT-Live session creation failed (400)", detail: nil) }
+            return "v=0\r\nanswer"
+        }
+        let chat = FakeTalkChat()
+        chat.history = (0..<40).map { (assistant: $0 % 2 == 1, text: "turn \($0)") }
+        talk.setFront(chat, onScreen: true)
+        talk.start(in: chat, name: "Ivy")
+        #expect(await waitUntil { talk.view?.phase == .listening })
+        #expect(talk.debugSnapshot["engine"] as? String == "gpt-live")
+        #expect(seeds == [LiveVoiceWire.wideSeed.messages, LiveVoiceWire.narrowSeed.messages])
+        talk.end()
+        #expect(await waitUntil { !talk.isLive })
+        await talk.resetForTests()
+    }
+
     private func sent(_ type: String) -> [JSONValue] {
         FixtureLiveVoice.sent.compactMap { try? JSONValue.parse(Data($0.utf8)) }.filter { $0["type"]?.string == type }
     }
@@ -469,6 +519,8 @@ struct GPTLiveControllerTests {
         #expect(talk.debugSnapshot["engine"] as? String == "gpt-live")
         #expect(box.exchanged.count == 1)
         if case .array(let seed)? = box.history { #expect(seed.count == 2) } else { Issue.record("no seed") }
+        // Seeded: the voice is told the chat goes further back than what it was given.
+        #expect(sent("session.instructions.append").contains { $0["content"]?.string == LiveVoiceWire.chatNote })
         let transport = try #require(box.transport)
         transport.play(#"{"type":"session.input_transcript.delta","delta":"What's on my calendar?","start_ms":0,"end_ms":900}"#)
         transport.play(#"{"type":"session.delegation.created","delegation":{"id":"del_1"}}"#)

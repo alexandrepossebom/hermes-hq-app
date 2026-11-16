@@ -41,7 +41,12 @@ settings. An older gateway (no route) answers 404 and the standard engine runs.
 - `POST /api/audio/voice-live/session?profile=` with `{sdp, history?}` → `{ok, session:{id}, transport:{type:"webrtc", sdp}}`.
   The offer is sent byte for byte. 400 empty SDP, 503 no key, 502 OpenAI refused; the gateway's `detail` is shown in
   the stopped notice. Timeout 45 s.
-- `history`: the chat's text turns, newest kept, at most 24 messages and 6,000 characters (1,200 per turn).
+- `history`: the chat's text turns, newest kept, at most 40 messages and 12,000 characters (1,500 per turn). The
+  desktop sends 24 / 6,000 / 1,200; that was about five shortened replies of a working chat (owner, 2026-11-16: the
+  voice "doesn't have the full context"). No limit is published, so a session that fails with the wide seed is asked
+  for once more with the desktop's. The start waits for the chat to finish opening (at most 3 s; Talk from a bot's menu
+  used to start on an empty chat), and when the chat goes further back than the page on screen and the seed has room,
+  one read of 120 rows (at most 2 s, beside the microphone and peer setup) fills it (`LiveChatSession.spokenSeed`).
 
 ### 3.2 Data channel `oai-events` (in)
 
@@ -77,7 +82,9 @@ A pure reducer beside `TalkLoop`, sharing `TalkLoopState` so the dock, the pill 
 - The reply is passed on in whole sentences while it streams, the rest when the turn ends. A reply that was already
   there when the delegation went out is never spoken. A turn that ends without words says so (thinking note).
 - On `session.started` the voice is told: no backchannels, at most one short line while Hermes works, no progress
-  narration (owner, build 407: too much filler).
+  narration (owner, build 407: too much filler). A seeded session is also told that what it was given is only the
+  chat's latest part, that the backend has the whole chat and its memory, and to delegate anything earlier instead of
+  asking the person to explain it or guessing (`LiveVoiceWire.chatNote`).
 - Progress notes are rare: the newest tool's title goes to the voice 20 s into a turn at the earliest, then at most every
   45 s, phrased so the voice need not say it.
 - A turn the voice did not ask for (a bot's message, a finished background job, a schedule) is treated as one: its reply

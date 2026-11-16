@@ -119,9 +119,19 @@ nonisolated enum LiveVoiceWire {
     /// How much of the spoken conversation rides a delegation (`voice-live.ts:77-79`).
     static let contextWindowMs = 5 * 60_000
     static let contextMaxFragments = 80
-    /// What a new session is seeded with (`toLiveHistory`).
-    static let historyMaxMessages = 24
-    static let historyMaxChars = 6_000
+    /// What a new session is seeded with (`toLiveHistory`). The desktop's 24 messages and 6,000 characters (`narrowSeed`)
+    /// were about five replies of a working chat, each cut short: the owner, 2026-11-16, "it doesn't have the full
+    /// context for what I've been talking about with that bot". The vendors publish no limit for the seed, so a session
+    /// the wide one is refused for is asked for again with the narrow one.
+    struct SeedBudget: Sendable, Equatable {
+        var messages: Int
+        var chars: Int
+        var perTurn: Int
+    }
+    static let wideSeed = SeedBudget(messages: 40, chars: 12_000, perTurn: 1_500)
+    static let narrowSeed = SeedBudget(messages: 24, chars: 6_000, perTurn: 1_200)
+    static var historyMaxMessages: Int { wideSeed.messages }
+    static var historyMaxChars: Int { wideSeed.chars }
     /// The transcript kept in memory (`voice-live.ts:407-409`).
     static let transcriptKeep = (limit: 2_000, trimTo: 1_500)
     /// `session.close` waits this long for `session.closed` before tearing down (`voice-live.ts:73`).
@@ -195,6 +205,12 @@ nonisolated enum LiveVoiceWire {
     static let statusFromTheBackend = "When the user asks how something is going, what came back, or whether work is "
         + "happening, delegate it: the backend knows and you do not. Never say something is still pending, being "
         + "checked or waiting unless the latest backend update says so. When a result arrives, tell the user what it says."
+    /// Sent with a seeded session. The voice sees only the chat's last few messages and answered from those alone, or
+    /// asked the person to explain what the bot already knew (owner, 2026-11-16). Names no bot (see `toolNote`).
+    static let chatNote = "You are joining a chat that is already under way. The messages you were given are only its "
+        + "latest part, shortened. The backend has the whole chat and everything it remembers about the user. When the "
+        + "user refers to anything from before that you cannot see, do not ask them to explain it and do not guess: "
+        + "delegate the request as they said it."
     static let noSpokenResult = "That request finished without a spoken result."
     static let couldNotReach = "Sorry, that request didn't go through. Please try again."
 
@@ -276,13 +292,13 @@ nonisolated enum LiveVoiceWire {
     }
 
     /// A new session's seed from the chat's text turns, newest kept first within the budget (`toLiveHistory`).
-    static func history(_ turns: [(assistant: Bool, text: String)]) -> JSONValue {
+    static func history(_ turns: [(assistant: Bool, text: String)], budget seed: SeedBudget = wideSeed) -> JSONValue {
         var out: [JSONValue] = []
-        var budget = historyMaxChars
+        var budget = seed.chars
         for turn in turns.reversed() {
-            let text = String(collapse(turn.text).prefix(1_200))
+            let text = String(collapse(turn.text).prefix(seed.perTurn))
             guard !text.isEmpty else { continue }
-            if out.count >= historyMaxMessages || budget - text.count < 0 { break }
+            if out.count >= seed.messages || budget - text.count < 0 { break }
             budget -= text.count
             out.insert(.object([
                 "type": "message",

@@ -116,7 +116,9 @@ extension LiveChatSession: ChatVoiceTurns {
         return nil
     }
 
-    var spokenHistory: [(assistant: Bool, text: String)] {
+    var spokenHistory: [(assistant: Bool, text: String)] { LiveChatSession.spokenTurns(messages) }
+
+    nonisolated static func spokenTurns(_ messages: [ChatMessage]) -> [(assistant: Bool, text: String)] {
         messages.compactMap { message -> (assistant: Bool, text: String)? in
             switch message.role {
             case .user:
@@ -132,6 +134,42 @@ extension LiveChatSession: ChatVoiceTurns {
                 return nil
             }
         }
+    }
+
+    /// How long a conversation's start waits for the chat to finish opening, and for the read further back.
+    static let seedOpenWait: Duration = .seconds(3)
+    static let seedReadWait: Duration = .seconds(2)
+    /// Backend rows the read further back asks for (tool rows count, so this is a few dozen turns).
+    static let seedReadRows = 120
+
+    /// The seed of a live voice session. Two things left the voice knowing next to nothing of the chat (owner,
+    /// 2026-11-16): Talk from a bot's menu started before the chat had loaded (an empty seed), and a loaded chat holds
+    /// one page of 24 backend rows, often three or four turns. So the open is waited for, and when the chat goes
+    /// further back than what is loaded and the seed has room, one read fetches more. The transcript is not touched.
+    func spokenSeed() async -> [(assistant: Bool, text: String)] {
+        let deadline = ContinuousClock.now + Self.seedOpenWait
+        while ContinuousClock.now < deadline, !(openSettled || openFinished), !chatGone {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        let loaded = spokenHistory
+        let budget = LiveVoiceWire.wideSeed
+        let filled = loaded.count >= budget.messages
+            || loaded.reduce(0) { $0 + min($1.text.count, budget.perTurn) } >= budget.chars
+        guard !filled, hasOlder || loaded.isEmpty, let stored = readSessionId else { return loaded }
+        var request = HistoryRequest(storedSessionId: stored, profile: profileParam, limit: Self.seedReadRows)
+        request.inlineImages = false
+        let client = self.client, features = perfFeatures
+        let read = Task { try? await HistoryAPI.fetchAndFold(client: client, request: request, features: features, cut: true) }
+        let limit = Task { try? await Task.sleep(for: Self.seedReadWait); read.cancel() }
+        let page = await read.value
+        limit.cancel()
+        guard let page else {
+            AppLog.note("talk", "voice seed \(logIds): the read further back didn't answer; \(loaded.count) loaded turns used")
+            return loaded
+        }
+        let further = LiveChatSession.spokenTurns(page.1.messages)
+        // A reply still streaming or a message just sent is only in what is loaded.
+        return further.count > loaded.count ? further : loaded
     }
 
     /// `voiceHold` changed (called from its `didSet`): a chat left on screen-less hold lets go once the conversation ends.

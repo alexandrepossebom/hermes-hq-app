@@ -39,7 +39,8 @@ The status is prefetched when a chat opens (only on a device that chose Grok) an
 
 `url` with the subprotocol `xai-client-secret.<client_secret>`. After `session.created` the phone sends `session.update`
 (voice and instructions from the add-on, `server_vad`, PCM 24 kHz in and out, the `ask_agent` tool) and the chat's seed as
-`conversation.item.create` messages (GPT-Live's limits: 24 messages, 6,000 characters).
+`conversation.item.create` messages (GPT-Live's limits: 40 messages, 12,000 characters). A seeded session's instructions
+end with the note that the chat goes further back and `ask_agent` knows it (`GrokLiveWire.chatNote`).
 
 In: `session.updated` (listening), `conversation.item.input_audio_transcription.delta|updated|completed` (the person's
 words; a `completed` adds only what the deltas didn't), `response.output_audio_transcript.delta`, `response.output_audio.delta`

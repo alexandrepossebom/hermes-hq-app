@@ -70,7 +70,7 @@ import Foundation
         let issuedMs = AppLog.ms(since: began)
         try await connect(session)
         let openMs = AppLog.ms(since: began)
-        send(GrokLiveWire.sessionUpdate(voice: session.voice, instructions: session.instructions))
+        send(GrokLiveWire.sessionUpdate(voice: session.voice, instructions: session.instructions, seeded: history.array?.isEmpty == false))
         GrokLiveWire.historyItems(history).forEach { send($0) }
         watchSetup()
 
@@ -484,7 +484,7 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
             throw LiveVoiceError.failed("Your gateway’s Grok Live answer wasn’t understood.")
         }
         Self.sessions.append(session)
-        send(GrokLiveWire.sessionUpdate(voice: session.voice, instructions: session.instructions))
+        send(GrokLiveWire.sessionUpdate(voice: session.voice, instructions: session.instructions, seeded: history.array?.isEmpty == false))
         GrokLiveWire.historyItems(history).forEach { send($0) }
         for step in Self.script {
             Task { @MainActor [weak self] in

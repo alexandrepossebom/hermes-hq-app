@@ -67,6 +67,10 @@ struct GrokLiveWireTests {
         #expect(tool["type"]?.string == "function" && tool["name"]?.string == "ask_agent")
         #expect(tool["parameters"]?["required"]?[0]?.string == "request")
         #expect(json(GrokLiveWire.sessionUpdate(voice: nil, instructions: nil))?["session"]?["voice"] == nil)
+        // A seeded session: the add-on's instructions, then the note that the chat goes further back.
+        let seeded = json(GrokLiveWire.sessionUpdate(voice: nil, instructions: "Be brief.", seeded: true))?["session"]?["instructions"]?.string
+        #expect(seeded == "Be brief.\n\n" + GrokLiveWire.chatNote)
+        #expect(json(GrokLiveWire.sessionUpdate(voice: nil, instructions: nil, seeded: true))?["session"]?["instructions"]?.string == GrokLiveWire.chatNote)
     }
 
     @Test func theSeedIsOneItemPerMessage() throws {
@@ -209,6 +213,7 @@ struct GrokLiveCallsTests {
         #expect(news.last?["type"]?.string == "response.create")
         #expect(calls.speak(delegationId: nil, text: "  ").isEmpty)
         #expect(calls.instruct(LiveVoiceWire.quietWhileWorking).isEmpty)
+        #expect(calls.instruct(LiveVoiceWire.chatNote).isEmpty)
         #expect(calls.instruct(LiveVoiceWire.stopTalking) == [.flushPlayback, .send(GrokLiveWire.responseCancel)])
         #expect(sends(calls.instruct(LiveVoiceWire.respondNow)).first?["response"]?["instructions"]?.string == LiveVoiceWire.respondNow)
     }

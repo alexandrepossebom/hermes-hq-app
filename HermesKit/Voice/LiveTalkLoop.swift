@@ -64,6 +64,8 @@ nonisolated struct LiveTalkState: Sendable, Equatable {
     /// on once its turn is over instead of sentence by sentence.
     var engine: TalkEngine = .gptLive
     var wholeAnswers: Bool { engine == .grokLive }
+    /// The session was given some of the chat (`LiveVoiceWire.history`): the voice is told that is only its latest part.
+    var seeded = false
     var transcript: [LiveTranscriptFragment] = []
     var assistantSpeaking = false
     /// The delegation Hermes is answering; late replies for an older one are not spoken.
@@ -281,6 +283,7 @@ nonisolated enum LiveTalkLoop {
             state.listened = true
             state.silence.reset(now: now)
             effects.append(.instruct(LiveVoiceWire.quietWhileWorking))
+            if live.seeded { effects.append(.instruct(LiveVoiceWire.chatNote)) }
             if state.muted { effects.append(.setMuted(true)) }
             refreshStatus()
 

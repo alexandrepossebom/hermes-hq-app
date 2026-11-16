@@ -1020,14 +1020,33 @@ extension TalkController {
         let transport = engine == .grokLive ? makeGrokTransport() : makeLiveTransport()
         conversation.transport = transport
         wireLive(conversation, transport)
-        let history = LiveVoiceWire.history(chat.spokenHistory)
+        // The chat finishes loading first, and is read further back when little of it is on screen (`spokenSeed`).
+        // GPT-Live needs the seed only with the offer, so the read runs beside the microphone and the peer's setup.
+        let seed = Task { @MainActor in await chat.spokenSeed() }
+        let seeded: @MainActor ([(assistant: Bool, text: String)]) -> (wide: JSONValue, narrow: JSONValue) = { [weak conversation] turns in
+            let wide = LiveVoiceWire.history(turns)
+            conversation?.liveState.seeded = wide.array?.isEmpty == false
+            AppLog.trace("talk", "voice seed \(AppLog.tag(chat.memoScope)): \(wide.array?.count ?? 0) of \(turns.count) turns")
+            return (wide, LiveVoiceWire.history(turns, budget: LiveVoiceWire.narrowSeed))
+        }
         let exchange = exchangeLive, openGrok = openGrokSession
         do {
             if engine == .grokLive {
+                let history = seeded(await seed.value).wide
+                guard live === conversation, conversation.transport === transport else { return }
                 // [grok-live] no offer: the add-on's answer is the session (client secret, socket address, voice).
                 try await transport.start(history: history) { _ in try await openGrok(chat) }
             } else {
-                try await transport.start(history: history) { sdp in try await exchange(chat, sdp, history) }
+                try await transport.start(history: .array([])) { sdp in
+                    let history = seeded(await seed.value)
+                    do {
+                        return try await exchange(chat, sdp, history.wide)
+                    } catch where !(error is CancellationError) && history.narrow != history.wide {
+                        // No limit is published for the seed: a refusal is asked again with the desktop's smaller one.
+                        AppLog.note("talk", "gpt-live session with the wide seed failed; asked again with the narrow one")
+                        return try await exchange(chat, sdp, history.narrow)
+                    }
+                }
             }
         } catch is CancellationError {
             return

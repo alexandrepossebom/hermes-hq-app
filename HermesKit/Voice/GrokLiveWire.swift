@@ -122,7 +122,15 @@ nonisolated enum GrokLiveWire {
 
     // MARK: Sent
 
-    static func sessionUpdate(voice: String?, instructions: String?) -> String {
+    /// `LiveVoiceWire.chatNote` in Grok's words (it has `ask_agent`, not a delegation), added to the add-on's
+    /// instructions when the session is seeded.
+    static let chatNote = "You are joining a chat that is already under way. The messages you were given are only its "
+        + "latest part, shortened. Your agent has the whole chat and everything it remembers about the person. When the "
+        + "person refers to anything from before that you cannot see, do not ask them to explain it and do not guess: "
+        + "call ask_agent with their request as they said it."
+
+    static func sessionUpdate(voice: String?, instructions: String?, seeded: Bool = false) -> String {
+        let instructions = seeded ? [instructions ?? "", chatNote].filter { !$0.isEmpty }.joined(separator: "\n\n") : instructions
         var session: [String: JSONValue] = [
             "turn_detection": ["type": "server_vad"],
             "audio": [
@@ -289,10 +297,10 @@ nonisolated struct GrokLiveCalls: Sendable, Equatable {
     }
 
     /// The loop's `.instruct`: Send Now asks for a response, Interrupt cancels one; the GPT-Live persona note is not sent
-    /// (the add-on's instructions carry it).
+    /// (the add-on's instructions carry it), nor the chat note (`sessionUpdate` adds Grok's own).
     mutating func instruct(_ text: String) -> [GrokAction] {
         switch text {
-        case LiveVoiceWire.quietWhileWorking:
+        case LiveVoiceWire.quietWhileWorking, LiveVoiceWire.chatNote:
             return []
         case LiveVoiceWire.stopTalking:
             return [.flushPlayback, .send(GrokLiveWire.responseCancel)]
