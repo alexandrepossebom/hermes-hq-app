@@ -40,6 +40,8 @@ final class ActivityObservation {
         var profile: String
         var storedId: String?
         var roster = SubagentRoster()
+        var unreadHelperFailures: [String: SubagentProgress] = [:]
+        var readHelperFailures: Set<String> = []
         var todos = TodoState()
         var control = ControlEntry()
         var nativeSubagentEvents = false
@@ -147,8 +149,9 @@ final class ActivityObservation {
 
     func activity(_ runtimeId: String?) -> ChatActivity {
         guard let runtimeId, let chat = chats[runtimeId] else { return ChatActivity() }
-        return ChatActivity(subagents: chat.roster.items, liveTodos: chat.todos.live, retainedTodos: chat.todos.retained,
-                            control: chat.control, nativeSubagentEvents: chat.nativeSubagentEvents, tails: chat.tails)
+        return ChatActivity(runtimeId: runtimeId, subagents: chat.roster.items, liveTodos: chat.todos.live, retainedTodos: chat.todos.retained,
+                            control: chat.control, nativeSubagentEvents: chat.nativeSubagentEvents, tails: chat.tails,
+                            unreadHelperFailures: chat.unreadHelperFailures.values.sorted { $0.id < $1.id })
     }
 
     /// A chat not bound yet on this screen (its resume hasn't answered): what the store kept for it from an earlier
@@ -162,6 +165,15 @@ final class ActivityObservation {
     }
 
     func isBound(_ runtimeId: String) -> Bool { chats[runtimeId] != nil }
+
+    /// Acknowledgment is chat state, not screen state. It never changes the recorded result or claims live work.
+    func acknowledgeHelperFailure(runtimeId: String, subagentId: String) {
+        guard var chat = chats[runtimeId], chat.unreadHelperFailures[subagentId] != nil else { return }
+        chat.readHelperFailures.insert(subagentId)
+        chat.unreadHelperFailures.removeValue(forKey: subagentId)
+        chats[runtimeId] = chat
+        markDirty(runtimeId)
+    }
 
     /// [presence] The bot whose chat is bound as `runtimeId` this run (spec 3x-presence §3.1).
     func owner(ofRuntime runtimeId: String) -> (profile: String, storedId: String?)? {
@@ -221,6 +233,17 @@ final class ActivityObservation {
     }
 
     private func markDirty(_ rid: String) {
+        // Capture events and roster reads even without an open screen. Pruning the live roster is not reading a result.
+        if var chat = chats[rid] {
+            for child in chat.roster.items {
+                if child.status == .failed && !chat.readHelperFailures.contains(child.id) {
+                    chat.unreadHelperFailures[child.id] = child
+                } else {
+                    chat.unreadHelperFailures.removeValue(forKey: child.id)
+                }
+            }
+            chats[rid] = chat
+        }
         dirty.insert(rid)
         ticker.revive()
         ticker.schedule()
@@ -367,6 +390,10 @@ final class ActivityObservation {
             guard !chat.interrupted, case .object(let payload) = p else { break }
             if !chat.nativeSubagentEvents {
                 chat.nativeSubagentEvents = true
+                // Native rows supersede this turn's stand-ins, not unread results saved from earlier turns.
+                for child in chat.roster.items where child.isDelegateStandIn {
+                    chat.unreadHelperFailures.removeValue(forKey: child.id)
+                }
                 _ = chat.roster.pruneDelegateStandIns()
                 changed = true
             }

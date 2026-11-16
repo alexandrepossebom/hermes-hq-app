@@ -23,7 +23,7 @@ final class BrowserEndToEndTests: XCTestCase {
         try account.control("/__fixture/browser", ["active": true])
         launch()
         openChat()
-        let chip = app.buttons["chat.shelf.browser"]
+        let chip = app.activityCategory("browser")
         XCTAssertTrue(chip.waitForExistence(timeout: 15), "the browser card shows while the bot browses")
         XCTAssertTrue(chip.label.contains("Browsing example.test"), "the card says where: \(chip.label)")
         attach("chat-browser-card")
@@ -100,7 +100,7 @@ final class BrowserEndToEndTests: XCTestCase {
         try account.control("/__fixture/browser", ["active": true, "ask": "Sign in to Example with your account"])
         launch()
         openChat()
-        let chip = app.buttons["chat.shelf.browser"]
+        let chip = app.activityCategory("browser")
         XCTAssertTrue(chip.waitForExistence(timeout: 15))
         XCTAssertTrue(waitUntil(timeout: 5) { chip.label.contains("needs you in its browser") }, "the card asks: \(chip.label)")
         attach("chat-browser-card-ask")
@@ -124,7 +124,7 @@ final class BrowserEndToEndTests: XCTestCase {
         try account.control("/__fixture/browser", ["active": true])
         launch()
         openChat()
-        let chip = app.buttons["chat.shelf.browser"]
+        let chip = app.activityCategory("browser")
         XCTAssertTrue(chip.waitForExistence(timeout: 15))
         chip.tap()
         let take = app.buttons["browser.take"]
@@ -467,7 +467,7 @@ final class BrowserEndToEndTests: XCTestCase {
         try account.control("/__fixture/browser", ["active": true, "dialogs_feature": false])
         launch()
         openChat()
-        let chip = app.buttons["chat.shelf.browser"]
+        let chip = app.activityCategory("browser")
         XCTAssertTrue(chip.waitForExistence(timeout: 15))
         chip.tap()
         let take = app.buttons["browser.take"]
@@ -503,9 +503,11 @@ final class BrowserEndToEndTests: XCTestCase {
         let chip = app.buttons["chat.shelf.browser"]
         RunLoop.current.run(until: Date().addingTimeInterval(6))
         attach("chat-other-chat-browsing")
+        XCTAssertFalse(app.buttons["chat.shelf.summary"].exists, "no hidden browser category in another chat")
         XCTAssertFalse(chip.exists, "another chat's browsing is not this chat's news: \(chip.exists ? chip.label : "")")
 
         try account.control("/__fixture/browser", ["driver": ""])
+        app.openActivityOverview()
         XCTAssertTrue(chip.waitForExistence(timeout: 15), "this chat browsing gets its card")
         XCTAssertTrue(chip.label.contains("Browsing example.test"), chip.label)
         attach("chat-this-chat-browsing")
@@ -516,7 +518,7 @@ final class BrowserEndToEndTests: XCTestCase {
         try account.control("/__fixture/browser", ["active": true])
         launch()
         openChat()
-        let chip = app.buttons["chat.shelf.browser"]
+        let chip = app.activityCategory("browser")
         XCTAssertTrue(chip.waitForExistence(timeout: 15))
         chip.tap()
         let take = app.buttons["browser.take"]

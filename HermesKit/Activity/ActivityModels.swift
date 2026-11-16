@@ -168,6 +168,8 @@ nonisolated enum SteerOutcome: Hashable, Sendable {
 
 /// Everything the activity stream knows about one chat (by runtime id), as a value snapshot (§3.2).
 nonisolated struct ChatActivity: Hashable, Sendable {
+    /// The binding behind this snapshot, including a stored-id lookup before a reopened screen resumes.
+    var runtimeId: String? = nil
     /// All rows, terminal ones included, until the next `message.start` prunes them.
     var subagents: [SubagentProgress] = []
     /// nil = no live list (the Tasks chip is absent).
@@ -179,6 +181,8 @@ nonisolated struct ChatActivity: Hashable, Sendable {
     var nativeSubagentEvents = false
     /// `subagent.tail` answers by subagent id (only while a child's detail is open).
     var tails: [String: SubagentTail] = [:]
+    /// Failed results stay available across turns and screens until the person opens and leaves the result.
+    var unreadHelperFailures: [SubagentProgress] = []
 
     var liveSubagents: [SubagentProgress] { subagents.filter(\.isLive) }
     var hasLiveSubagents: Bool { subagents.contains(where: \.isLive) }

@@ -5,8 +5,14 @@ session-control methods (unknown key -> 4000, as tui_gateway/contracts/base.py),
 subagent.list / delegation.status, subagent.tail / steer / interrupt, session.control.read / session.control
 with a goal, todo_state on resume, seeded tool-call history (/__fixture/rows) and /api/config display
 overrides. Loopback only; every value is invented; nothing is forwarded anywhere.
+An event may set waitFor to a unique nonempty key and waitTimeout (seconds, default 30, clamped to
+0.01–45). POST /__fixture/event with type fixture.release and payload {"key": key} releases the active
+profile's gate, even before streaming begins. Timeout stops the turn without a completion event; inspect
+/__fixture/activity gate_errors. Keys are turn-local and must not be reused within a plan.
+POST /__fixture/discard-plans with {"waitFor": key} removes only matching pending plans.
 """
-import importlib.util, json, os, pathlib, threading, time
+import importlib.util, io, json, math, os, pathlib, socket, threading, time
+from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
 REF = pathlib.Path('/Users/me/Projects/hermes-hq-native-ref238/scripts')
@@ -36,6 +42,62 @@ TODO_STATE = {}     # profile -> {"todos", "revision"} (attached to session.resu
 DISPLAY = {}        # profile -> /api/config "display" overrides
 FAIL = {}           # method -> {"code", "message", "times"} (times -1 = always)
 CALLS, VIOLATIONS, STEERS = [], [], []
+GATES = {}          # profile -> (turn's cancellation event, pending key -> release event)
+GATE_ERRORS = {}    # profile -> latest timeout (fixture control metadata only)
+
+
+# Each accepted plan carries the cancellation identity chosen with its user row.
+class AcceptedPlan(dict):
+    cancel: Optional[threading.Event] = None
+
+
+def turn_gates(profile, cancel, plan):
+    """Create all unique turn gates before any event waits; caller holds LOCK."""
+    current = GATES.get(profile)
+    if current and current[0] is cancel:
+        return current[1]
+    events = plan.get('events') if isinstance(plan.get('events'), list) else []
+    gates = {event['waitFor']: threading.Event() for event in events
+             if isinstance(event.get('waitFor'), str) and event['waitFor']}
+    GATES[profile] = (cancel, gates)
+    GATE_ERRORS.pop(profile, None)
+    return gates
+
+
+def clear_gates(profile, cancel):
+    with LOCK:
+        if profile in GATES and GATES[profile][0] is cancel:
+            del GATES[profile]
+
+
+def wait_gate(profile, cancel, gates, event):
+    key = event.get('waitFor')
+    if not key:
+        return not cancel.is_set()
+    try:
+        timeout = float(event.get('waitTimeout', 30))
+        if not math.isfinite(timeout):
+            raise ValueError('non-finite timeout')
+        timeout = min(45, max(.01, timeout))
+    except (TypeError, ValueError):
+        timeout = 30
+    deadline = time.monotonic() + timeout
+    gate = gates[key]
+    while not cancel.is_set():
+        with LOCK:
+            if cancel.is_set():
+                return False
+            if gate.is_set():
+                gates.pop(key, None)
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if base.CANCEL[profile] is cancel and not cancel.is_set():
+                    GATE_ERRORS[profile] = {'error': 'wait timeout', 'key': key}
+                    base.RUNNING[profile] = False
+                return False
+        cancel.wait(min(.025, remaining))
+    return False
 
 
 def err(code, message):
@@ -96,42 +158,110 @@ def persist_tool(profile, payload, start, reasoning):
             tool['display_metadata'] = {'tool_result_metadata': {'inline_diff': payload['inline_diff']}}
 
 
-_perf_stream = base.stream
 def stream(profile, plan):
     events = plan.get('events')
+    cancel = getattr(plan, 'cancel', None) or base.CANCEL[profile]
+    if cancel.is_set():
+        return
     if not isinstance(events, list):
-        return _perf_stream(profile, plan)
-    cancel = base.CANCEL[profile]
+        return stream_performance(profile, plan, cancel)
+    with LOCK:
+        if cancel.is_set() or base.CANCEL[profile] is not cancel:
+            return
+        gates = turn_gates(profile, cancel, plan)
+    try:
+        return stream_events(profile, plan, events, cancel, gates)
+    finally:
+        clear_gates(profile, cancel)
+
+
+def stream_performance(profile, plan, cancel):
+    """Inherited performance stream, with each write committed to its accepted turn."""
     if cancel.wait(float(plan.get('replyDelay', .1))):
         return
-    base.emit(profile, 'message.start')
+    chunks = plan.get('chunks') or [plan.get('replyText', 'Synthetic performance reply.')]
+    if chunks == [None]:
+        return
+    tools = min(100, max(0, int(plan.get('tools', 0))))
+    output_bytes = min(2 * 1024 * 1024, max(0, int(plan.get('toolBytes', 2048))))
+    with LOCK:
+        if cancel.is_set() or base.CANCEL[profile] is not cancel:
+            return
+        base.emit(profile, 'message.start')
+    for index, chunk in enumerate(chunks):
+        if cancel.wait(float(plan.get('chunkDelay', .015))):
+            return
+        call_id = f'performance-tool-{index}'
+        args = {'command': f'printf synthetic-step-{index}', 'timeout': 5}
+        with LOCK:
+            if cancel.is_set() or base.CANCEL[profile] is not cancel:
+                return
+            base.emit(profile, 'message.delta', {'text': chunk})
+            if index < tools:
+                base.emit(profile, 'tool.start', {'name': 'terminal', 'tool_id': call_id, 'args': args})
+        if index < tools:
+            if cancel.wait(.015):
+                return
+            output = ('synthetic output\n' * (output_bytes // 17 + 1))[:output_bytes]
+            result = {'stdout': output, 'stderr': '', 'exit_code': 0}
+            with LOCK:
+                if cancel.is_set() or base.CANCEL[profile] is not cancel:
+                    return
+                base.append(profile, 'assistant', '')
+                base.MESSAGES[profile][-1]['tool_calls'] = [{'id': call_id, 'type': 'function', 'function': {'name': 'terminal', 'arguments': json.dumps(args)}}]
+                base.append(profile, 'tool', json.dumps(result))
+                base.MESSAGES[profile][-1]['tool_call_id'] = call_id
+                base.emit(profile, 'tool.complete', {'name': 'terminal', 'tool_id': call_id, 'args': args, 'result': result})
+    text = ''.join(chunks)
+    with LOCK:
+        if cancel.is_set() or base.CANCEL[profile] is not cancel:
+            return
+        row = base.append(profile, 'assistant', text)
+        base.RUNNING[profile] = False
+        base.emit(profile, 'message.complete', {'text': text, 'row_id': row})
+
+
+def stream_events(profile, plan, events, cancel, gates):
+    if cancel.wait(float(plan.get('replyDelay', .1))):
+        return
+    with LOCK:
+        if cancel.is_set() or base.CANCEL[profile] is not cancel:
+            return
+        base.emit(profile, 'message.start')
     text, reasoning, starts = '', '', {}
     for event in events:
         if cancel.wait(float(event.get('after', .05))):
             return
-        kind, payload = event['type'], dict(event.get('payload') or {})
-        if kind == 'message.delta':
-            text += payload.get('text', '')
-        elif kind == 'reasoning.delta':
-            reasoning += payload.get('text', '')
-        elif kind == 'reasoning.available':
-            reasoning = payload.get('text', '')
-        elif kind == 'tool.start':
-            starts[payload.get('tool_id')] = payload
-        elif kind == 'tool.complete':
-            persist_tool(profile, payload, starts.get(payload.get('tool_id')), reasoning)
-            reasoning = ''
-        note_event(profile, kind, payload)
-        base.emit(profile, kind, payload)
+        if not wait_gate(profile, cancel, gates, event):
+            return
+        with LOCK:
+            if cancel.is_set() or base.CANCEL[profile] is not cancel:
+                return
+            kind, payload = event['type'], dict(event.get('payload') or {})
+            if kind == 'message.delta':
+                text += payload.get('text', '')
+            elif kind == 'reasoning.delta':
+                reasoning += payload.get('text', '')
+            elif kind == 'reasoning.available':
+                reasoning = payload.get('text', '')
+            elif kind == 'tool.start':
+                starts[payload.get('tool_id')] = payload
+            elif kind == 'tool.complete':
+                persist_tool(profile, payload, starts.get(payload.get('tool_id')), reasoning)
+                reasoning = ''
+            note_event(profile, kind, payload)
+            base.emit(profile, kind, payload)
     if cancel.wait(float(plan.get('holdAfter', 0))):
         return
     final = plan.get('replyText', text)
     with LOCK:
+        if cancel.is_set() or base.CANCEL[profile] is not cancel:
+            return
         row = base.append(profile, 'assistant', final)
         if reasoning:
             base.MESSAGES[profile][-1]['reasoning'] = reasoning
-    base.RUNNING[profile] = False
-    base.emit(profile, 'message.complete', {'text': final, 'status': 'complete', 'row_id': row})
+        base.RUNNING[profile] = False
+        base.emit(profile, 'message.complete', {'text': final, 'status': 'complete', 'row_id': row})
 base.stream = stream
 
 
@@ -246,6 +376,12 @@ def rpc(method, params):
         return {'control': CONTROL[profile]}
     if method == 'session.control':
         return control_action(profile, params)
+    if method == 'session.interrupt':
+        with LOCK:
+            cancel = base.CANCEL[profile]
+            answer = _prev_rpc(method, params)
+            clear_gates(profile, cancel)
+            return answer
     answer = _prev_rpc(method, params)
     if method in ('session.resume', 'session.activate') and profile in TODO_STATE and isinstance(answer, dict):
         answer = {**answer, 'todo_state': TODO_STATE[profile]}
@@ -268,11 +404,51 @@ def _append_hidden(profile, role, text):
     return row
 base.append = _append_hidden
 
-_prompt = base.Client.prompt
+# Mirror inherited prompt acceptance as one transaction; its ACK wait must remain outside LOCK.
 def _prompt_hidden(self, frame):
-    _HIDDEN.on = (frame.get('params') or {}).get('display_kind') == 'hidden'
+    params = frame.get('params') or {}
+    profile = base.owner(params)
+    _HIDDEN.on = params.get('display_kind') == 'hidden'
     try:
-        return _prompt(self, frame)
+        with LOCK:
+            plan = AcceptedPlan(base.PLANS.pop(0) if base.PLANS else {})
+            base.voice.state['rpc'].append({'method': 'prompt.submit', 'params': params})
+            base.voice.state['promptAttempts'] += 1
+            entry = {'profile': profile, 'method': 'prompt.submit', 'text': params.get('text', ''),
+                     'accepted': not plan.get('reject') and plan.get('persist', True), 'plan': plan}
+            if entry['accepted']:
+                entry['row_id'] = base.append(profile, 'user', params.get('text', ''))
+                old_cancel = base.CANCEL[profile]
+                old_cancel.set()
+                clear_gates(profile, old_cancel)
+                cancel = threading.Event()
+                base.CANCEL[profile] = cancel
+                plan.cancel = cancel
+                base.RUNNING[profile] = True
+            base.LEDGER.append(entry)
+        if plan.get('disconnect'):
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            return
+        if plan.get('holdAck'):
+            gate = threading.Event()
+            with LOCK:
+                base.ACKS.append(gate)
+            gate.wait(90)
+        else:
+            time.sleep(float(plan.get('ackDelay', 0)))
+        if plan.get('dropAck'):
+            return
+        try:
+            if plan.get('reject'):
+                self.send({'jsonrpc': '2.0', 'id': frame['id'], 'error': {'code': plan.get('code', -32001), 'message': plan['reject']}})
+            else:
+                self.send({'jsonrpc': '2.0', 'id': frame['id'], 'result': {'status': 'streaming', 'user_row_id': entry['row_id']}})
+                threading.Thread(target=base.stream, args=(profile, plan), daemon=True).start()
+        except OSError:
+            pass
     finally:
         _HIDDEN.on = False
 base.Client.prompt = _prompt_hidden
@@ -304,17 +480,58 @@ def handler(gateway):
                 with LOCK:
                     return self.reply(200, {'calls': list(CALLS), 'violations': list(VIOLATIONS), 'steers': list(STEERS),
                                             'subagents': dict(SUBAGENTS), 'control': CONTROL, 'todo_state': TODO_STATE,
-                                            'display': DISPLAY})
+                                            'display': DISPLAY, 'gate_errors': dict(GATE_ERRORS)})
             return super().do_GET()
 
         def do_POST(self):
             path = urlparse(self.path).path
+            if path == '/__fixture/discard-plans':
+                body = self.body()
+                key = body.get('waitFor') if isinstance(body, dict) else None
+                if not isinstance(key, str) or not key.strip():
+                    return self.reply(400, {'detail': 'waitFor must be a nonempty string'})
+                def matches(plan):
+                    events = plan.get('events') if isinstance(plan, dict) else None
+                    return isinstance(events, list) and any(
+                        isinstance(event, dict) and event.get('waitFor') == key for event in events)
+                with LOCK:
+                    before = len(base.PLANS)
+                    base.PLANS[:] = [plan for plan in base.PLANS if not matches(plan)]
+                    removed = before - len(base.PLANS)
+                return self.reply(200, {'removed': removed})
+            if path == '/__fixture/finish':
+                raw = self.rfile.read(int(self.headers.get('Content-Length') or 0))
+                body = json.loads(raw or b'{}')
+                profile = body.get('profile', 'default')
+                with LOCK:
+                    if body.get('onlyRunning') is True and not base.RUNNING[profile]:
+                        return self.reply(200, {'ok': True})
+                    cancel = base.CANCEL[profile]
+                    self.rfile = io.BytesIO(raw)
+                    try:
+                        return super().do_POST()
+                    finally:
+                        clear_gates(profile, cancel)
             if path == '/__fixture/event':
                 body = self.body()
                 profile = body.get('profile', 'default')
                 if profile not in base.MESSAGES or not isinstance(body.get('type'), str):
                     return self.reply(400, {'detail': 'profile and type'})
                 payload = body.get('payload') or {}
+                if body['type'] == 'fixture.release':
+                    key = payload.get('key') if isinstance(payload, dict) else None
+                    with LOCK:
+                        cancel = base.CANCEL[profile]
+                        entry = next((item for item in reversed(base.LEDGER)
+                                      if item['profile'] == profile and item['accepted']), None)
+                        if not base.RUNNING[profile] or cancel.is_set() or not entry or not isinstance(key, str):
+                            return self.reply(409, {'detail': 'No matching active gate'})
+                        gates = turn_gates(profile, cancel, entry['plan'])
+                        gate = gates.get(key)
+                        if gate is None:
+                            return self.reply(409, {'detail': 'No matching active gate'})
+                        gate.set()
+                    return self.reply(200, {'ok': True})
                 note_event(profile, body['type'], payload)
                 base.emit(profile, body['type'], payload)
                 return self.reply(200, {'ok': True})

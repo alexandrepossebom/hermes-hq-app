@@ -131,7 +131,7 @@ final class PresenceStressTests: PresenceUITestCase {
         try account.control("/__fixture/browser", ["active": true])
         launch()
         openChat("default")
-        let chip = app.buttons["chat.shelf.browser"]
+        let chip = app.activityCategory("browser")
         XCTAssertTrue(chip.waitForExistence(timeout: 15))
         chip.tap()
         XCTAssertTrue(stage.waitForExistence(timeout: 10))

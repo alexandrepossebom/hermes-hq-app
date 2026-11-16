@@ -38,6 +38,11 @@ final class ActivityMotionProbe: NSObject {
     private var lastText = ""
     /// `-HQDebugMotionTrace YES`: every row's move printed per frame (for working out a failed check).
     private let trace = UserDefaults.standard.bool(forKey: "HQDebugMotionTrace")
+    // Phase observations are additive; lifetime metrics below remain unchanged.
+    private lazy var phaseAudit = ActivityMotionPhaseAudit(controller: controller) { [weak self] line in
+        self?.note(line)
+    }
+    func auditDidAppear() { phaseAudit.didAppear() }
 
     init(controller: ChatActivityController) {
         self.controller = controller
@@ -53,6 +58,7 @@ final class ActivityMotionProbe: NSObject {
         let view = controller.chat.view!
         if output.superview == nil { view.addSubview(output) }
         reset(mode: "still")
+        phaseAudit.start()
         let link = CADisplayLink(target: self, selector: #selector(tick))
         link.add(to: .main, forMode: .common)
         self.link = link
@@ -122,6 +128,7 @@ final class ActivityMotionProbe: NSObject {
         // A main-thread hitch shows in the trace as a gap between frames.
         if trace, lastTick > 0, now - lastTick > 0.05 { note(String(format: "stall %.0f ms", (now - lastTick) * 1000)) }
         lastTick = now
+        phaseAudit.tick()
         if settled { return }
         if mode == "still" && (table.isTracking || table.isDragging || table.isDecelerating) {
             reset(mode: "still")
@@ -179,9 +186,13 @@ final class ActivityMotionProbe: NSObject {
             + "\"watched\":\(watched.count),\"watchDy\":\(fmt(watched.map(\.maxDy).max() ?? 0)),"
             + "\"watchStep\":\(fmt(watched.map(\.maxStep).max() ?? 0)),\"watchReversals\":\(watched.map(\.reversals).max() ?? 0),"
             + "\"watchMoves\":\(watched.map(\.moves).max() ?? 0)}"
-        guard text != lastText else { return }
-        lastText = text
-        output.accessibilityLabel = text
+        // Add fields, never replace or reset the existing lifetime measurements.
+        let data = try? JSONSerialization.data(withJSONObject: phaseAudit.metrics, options: [.sortedKeys])
+        let audit = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let measured = String(text.dropLast()) + "," + String(audit.dropFirst())
+        guard measured != lastText else { return }
+        lastText = measured
+        output.accessibilityLabel = measured
     }
 }
 

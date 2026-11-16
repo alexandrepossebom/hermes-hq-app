@@ -15,7 +15,7 @@ extension TranscriptEndToEndTests {
             ["id": "update-layout", "content": "Simplify the activity display", "status": "in_progress"],
             ["id": "verify-layout", "content": "Run the native checks", "status": "pending"],
         ]]])
-        let tasks = app.descendants(matching: .any)["chat.shelf.tasks"]
+        let tasks = app.activityCategory("tasks")
         let tasksExist = tasks.waitForExistence(timeout: 5)
         shot("task-snapshot-history")
         XCTAssertTrue(tasksExist, "the actual task list is still available")

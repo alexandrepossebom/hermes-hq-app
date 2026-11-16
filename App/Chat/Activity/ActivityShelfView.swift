@@ -1,190 +1,204 @@
 import UIKit
 
-// The shelf above the composer (docs/spec/1x-activity.md §7): Goal, Tasks, Subagents and Previous tasks as folded chips
-// on native Liquid Glass that float over the transcript, each opening into a glass card in place (the owner rejected a
-// sheet, M:subagent-card-glass.md). All pieces share one `UIGlassContainerEffect` (spacing 4 < the 6 pt gap: they never
-// merge at rest but morph when a chip opens into a card). Only the pieces take touches: everything else reaches the
-// transcript and the jump button underneath (M:jump-arrow-under-dock.md).
-
-enum ShelfPieceKind: Int, CaseIterable, Hashable {
-    case goal, tasks, subagents
-    /// [background] "Background task · 6m" while a command the bot started in the background still runs (BackgroundTasksBody).
-    case background
-    case previousTasks
-    /// [browser] "Browsing example.com" while the chat's bot uses its browser: a chip that opens Watch Browser.
-    case browser
-}
-
-/// The shelf: pieces stacked top → bottom in `ShelfPieceKind` order, 6 pt apart; folded chips hug their words and are
-/// centred, opened cards span the shelf.
+/// One glass surface: a 34 pt pill in a 44 pt touch target, a compact category overview, or one existing detail.
+/// The overview scroller is a sibling of detail cards, never an ancestor of their body scrollers.
 final class ActivityShelfView: UIView {
-    private let container: UIVisualEffectView = {
-        let effect = UIGlassContainerEffect()
-        effect.spacing = 4
+    private let glass: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
         return UIVisualEffectView(effect: effect)
     }()
-    /// UX study #230: with only folded chips that still don't fit (many of them at accessibility sizes, the keyboard up)
-    /// they scroll here, so a strip of transcript stays in sight. Never while a card is open (it has its own scroller).
-    private let scroller: UIScrollView = {
-        let view = UIScrollView()
-        view.contentInsetAdjustmentBehavior = .never
-        view.clipsToBounds = false
-        view.isScrollEnabled = false
-        view.alwaysBounceVertical = false
-        view.accessibilityIdentifier = "chat.shelf.scroll"
-        return view
-    }()
-    /// UX study #230: folded chips keep to one line (their words truncate; VoiceOver reads them whole) when the wrapped
-    /// ones would not fit.
-    private(set) var compactChips = false
+    let summaryHeader = ShelfHeader()
+    private let overview = UIScrollView()
     private(set) var pieces: [ShelfPieceKind: ShelfPieceView] = [:]
-    /// The tallest an opened card may be (set by the chat from its visible height).
+    var onToggle: (() -> Void)?
+    var onMetricsChange: (() -> Void)?
+    var expanded = false
+    var summary = ActivityPill(entries: [])
     var maxCardHeight: CGFloat = 300 { didSet { if maxCardHeight != oldValue { setNeedsLayout() } } }
-    /// The tallest the whole shelf may be: the room between the status line and what it sits on (verify round 2: with
-    /// the keyboard up, a tall draft and a queue card, opened cards pushed the shelf up under the title and the status
-    /// capsule). Opened cards give way first (their bodies scroll); then wrapped chips keep to one line, and folded
-    /// chips alone scroll (UX study #230).
     var maxHeight: CGFloat = .greatestFiniteMagnitude { didSet { if maxHeight != oldValue { setNeedsLayout() } } }
     static let gap: CGFloat = 6
-    /// An opened card never shrinks below its header and this much body.
     static let minCardBody: CGFloat = 60
+    private var themeWatch: NSObjectProtocol?
+    private var styledExpanded: Bool?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        clipsToBounds = false
-        container.clipsToBounds = false
-        container.contentView.clipsToBounds = false
-        scroller.addSubview(container)
-        addSubview(scroller)
+        addSubview(glass)
+        // The header is outside the glass so the invisible 5 pt margins remain tappable.
+        addSubview(summaryHeader)
+        glass.contentView.addSubview(overview)
+        overview.contentInsetAdjustmentBehavior = .never
+        overview.alwaysBounceVertical = false
+        overview.accessibilityIdentifier = "chat.shelf.scroll"
+        summaryHeader.accessibilityIdentifier = "chat.shelf.summary"
+        // A command can be arbitrarily long. The inline header stays bounded; VoiceOver keeps the whole step.
+        summaryHeader.maximumWrappedLines = 2
+        summaryHeader.addTarget(self, action: #selector(toggled), for: .touchUpInside)
         accessibilityIdentifier = "chat.shelf"
+        themeWatch = NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] _ in
+            // ThemeChrome restores/flattens the glass first. Never restyle the window from layout.
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                self?.styledExpanded = nil
+                self?.summaryHeader.updateFonts()
+                self?.pieces.values.forEach { $0.header.updateFonts() }
+                self?.setNeedsLayout()
+                self?.onMetricsChange?()
+            } }
+        }
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: ActivityShelfView, _) in
+            view.summaryHeader.updateFonts()
+            view.pieces.values.forEach { $0.header.updateFonts() }
+            view.onMetricsChange?()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+    isolated deinit { if let themeWatch { NotificationCenter.default.removeObserver(themeWatch) } }
+
+    @objc private func toggled() { Haptics.play(.selection); onToggle?() }
 
     func piece(_ kind: ShelfPieceKind, make: () -> ShelfPieceView) -> ShelfPieceView {
         if let p = pieces[kind] { return p }
         let p = make()
         pieces[kind] = p
-        container.contentView.addSubview(p)
+        overview.addSubview(p)
         return p
     }
 
-    /// The pieces that show, top → bottom.
     var visiblePieces: [ShelfPieceView] {
-        ShelfPieceKind.allCases.compactMap { pieces[$0] }.filter { $0.isPresent }
+        let order = summary.entries.isEmpty ? ShelfPieceKind.allCases : summary.ordered.map(\.kind)
+        return order.compactMap { pieces[$0] }.filter(\.isPresent)
     }
 
-    /// The shelf's height for `width` (0 when nothing shows): its pieces', or with only folded chips at most `maxHeight`
-    /// (never under one chip), the rest scrolling.
+    private var detail: ShelfPieceView? { expanded ? visiblePieces.first(where: \.isOpen) : nil }
+    var hasActivity: Bool { !visiblePieces.isEmpty || summary.parentIsRunning }
+    var hasOpenCard: Bool { expanded }
+    var piecesHeight: CGFloat { bounds.height }
+
+    private func cardWidth(_ width: CGFloat) -> CGFloat {
+        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory { return width }
+        if detail?.kind == .subagents { return width }
+        return min(width, 300)
+    }
+
+    /// Keep the ordinary collapsed pill on one line. Aggregate urgent categories before using ordinary overflow;
+    /// expanded details and accessibility text can wrap. VoiceOver keeps every category and its complete count.
+    private func prepareHeader(width: CGFloat) {
+        let showsStep = expanded && detail == nil && !summary.needsAttention && summary.currentStep != nil
+        summaryHeader.requiresFullText = expanded && (summary.needsAttention || showsStep)
+        let color: UIColor? = summary.isRunning ? ChatPalette.label2 : nil
+        let showsSummary = detail == nil || summary.needsAttention
+        summaryHeader.set(words: showsStep ? summary.currentStep! : showsSummary ? summary.words() : "All activity", spinner: detail == nil ? color : nil)
+        if detail == nil, summaryHeader.fittingWidth > width, !showsStep {
+            summaryHeader.set(words: summary.words(maxSegments: 1), spinner: color)
+        }
+        summaryHeader.setOpen(expanded, animated: false)
+        summaryHeader.accessibilityLabel = showsSummary ? summary.accessibilityLabel : "All activity"
+        if showsStep, !summary.entries.isEmpty { summaryHeader.accessibilityLabel = summary.currentStep! + ", " + summary.accessibilityLabel }
+        summaryHeader.accessibilityValue = detail != nil ? "detail" : expanded ? "expanded" : "collapsed"
+        summaryHeader.accessibilityHint = detail != nil ? "Returns to activity categories" : expanded ? "Collapses activity" : "Shows activity categories"
+    }
+
     func height(for width: CGFloat) -> CGFloat {
-        let content = contentHeight(width: width)
-        guard content > 0, !hasOpenCard else { return content }
-        return min(content, max(maxHeight, 44))
-    }
-
-    /// Every present piece stacked, 6 pt apart.
-    private func contentHeight(width: CGFloat) -> CGFloat {
-        let sizes = pieceSizes(width: width)
-        guard !sizes.isEmpty else { return 0 }
-        return sizes.reduce(0) { $0 + $1.size.height } + CGFloat(sizes.count - 1) * Self.gap
-    }
-
-    /// The present pieces top → bottom with their sizes: each opened card capped at `maxCardHeight`, then the tallest
-    /// cards shortened (never below a header + `minCardBody`) until the shelf fits `maxHeight`.
-    private func pieceSizes(width: CGFloat) -> [(piece: ShelfPieceView, size: CGSize)] {
-        let present = ShelfPieceKind.allCases.compactMap { pieces[$0] }.filter(\.isPresent)
-        var sizes = present.map { p in (piece: p, size: p.size(for: width, maxCard: maxCardHeight)) }
-        guard !sizes.isEmpty else { return sizes }
-        var excess = sizes.reduce(0) { $0 + $1.size.height } + CGFloat(sizes.count - 1) * Self.gap - maxHeight
-        // UX study #230: wrapped chips that take the room keep to one line instead.
-        let compact = excess > 0.5 && present.contains { !$0.isOpen && $0.header.wraps }
-        if compact != compactChips { compactChips = compact; setNeedsLayout() }
-        if compact {
-            sizes = present.map { p in (piece: p, size: p.size(for: width, maxCard: maxCardHeight, compact: true)) }
-            excess = sizes.reduce(0) { $0 + $1.size.height } + CGFloat(sizes.count - 1) * Self.gap - maxHeight
+        guard hasActivity else { return 0 }
+        let w = expanded ? cardWidth(width) : width
+        prepareHeader(width: w)
+        let header = summaryHeader.height(width: w)
+        guard expanded else { return header }
+        if let detail {
+            // Keep a usable body viewport even when the keyboard leaves less room than both headers.
+            let floor = header + detail.header.height(width: w) + Self.minCardBody
+            let cap = max(floor, min(maxCardHeight, maxHeight))
+            return header + detail.size(for: w, maxCard: cap - header).height
         }
-        guard excess > 0.5 else { return sizes }
-        let floors = sizes.map { $0.piece.isOpen ? min($0.size.height, $0.piece.minCardHeight(width: width)) : $0.size.height }
-        // A point at a time from the tallest card that can still give (a few hundred steps at most).
-        while excess > 0 {
-            let shrinkable = sizes.indices.filter { sizes[$0].size.height - floors[$0] > 0.01 }
-            guard let i = shrinkable.max(by: { sizes[$0].size.height < sizes[$1].size.height }) else { break }
-            let step = min(excess, 1, sizes[i].size.height - floors[i])
-            sizes[i].size.height -= step
-            excess -= step
-        }
-        return sizes.map { ($0.piece, CGSize(width: $0.size.width, height: $0.size.height.rounded(.down))) }
+        let cap = max(header + 44, min(maxCardHeight, maxHeight))
+        let rows = visiblePieces.reduce(CGFloat.zero) { $0 + $1.header.height(width: w) }
+        return min(cap, header + rows)
     }
 
-    /// Where each present piece goes at `width`, top → bottom.
+    /// Detail coordinates are in the glass; overview row coordinates are in its scroller.
     func targetFrames(width: CGFloat) -> [ShelfPieceKind: CGRect] {
-        var out: [ShelfPieceKind: CGRect] = [:]
-        var y: CGFloat = 0
-        for (p, size) in pieceSizes(width: width) {
-            let x = p.isOpen ? 0 : ((width - size.width) / 2).rounded()
-            out[p.kind] = CGRect(x: x, y: y, width: size.width, height: size.height)
-            y += size.height + Self.gap
+        guard expanded else { return [:] }
+        let w = cardWidth(width)
+        prepareHeader(width: w)
+        let header = summaryHeader.height(width: w)
+        if let detail {
+            return [detail.kind: CGRect(x: 0, y: header, width: w, height: max(44, height(for: width) - header))]
         }
-        return out
+        var y: CGFloat = 0
+        var frames: [ShelfPieceKind: CGRect] = [:]
+        for p in visiblePieces {
+            let h = p.header.height(width: w)
+            frames[p.kind] = CGRect(x: 0, y: y, width: w, height: h)
+            y += h
+        }
+        return frames
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        for p in pieces.values { p.header.compact = compactChips }
-        // The pieces' own height; past the shelf's (folded chips only) they scroll, clipped to the shelf.
-        let content = max(bounds.height, contentHeight(width: bounds.width))
-        let overflows = content > bounds.height + 0.5
-        scroller.frame = bounds
-        scroller.contentSize = CGSize(width: bounds.width, height: content)
-        scroller.isScrollEnabled = overflows
-        scroller.clipsToBounds = overflows
-        scroller.showsVerticalScrollIndicator = overflows
-        if !overflows, scroller.contentOffset != .zero { scroller.contentOffset = .zero }
-        if scroller.contentOffset.y > content - bounds.height { scroller.contentOffset.y = max(0, content - bounds.height) }
-        container.frame = CGRect(x: 0, y: 0, width: bounds.width, height: content)
-        // Bounds and centre, never `frame`: an arriving piece is scaled while it fades in.
-        let targets = targetFrames(width: bounds.width)
-        for p in pieces.values {
-            if let frame = targets[p.kind] {
-                p.place(frame)
-            } else if !p.isHidden, let fromBottom = p.leavingFromBottom {
-                // A leaving piece fades where it stands on screen: the shelf's bottom is pinned, so the piece keeps its
-                // distance from it while the shelf's top moves. (Its own `frame` can't be read here: Auto Layout sets
-                // the new bounds before the new centre.)
-                var frame = CGRect(origin: .zero, size: p.bounds.size)
-                frame.origin.x = p.center.x - p.bounds.width / 2
-                frame.origin.y = content - fromBottom
-                p.place(frame)
+        let present = hasActivity
+        accessibilityElementsHidden = !present
+        glass.isHidden = !present
+        glass.accessibilityElementsHidden = !present || !expanded
+        summaryHeader.isHidden = !present
+        guard present else { return }
+        let w = expanded ? cardWidth(bounds.width) : bounds.width
+        prepareHeader(width: w)
+        let headerH = summaryHeader.height(width: w)
+        let actualW = expanded ? w : min(w, summaryHeader.fittingWidth)
+        let x = ((bounds.width - actualW) / 2).rounded()
+        let margin: CGFloat = expanded ? 0 : 5
+        glass.frame = CGRect(x: x, y: margin, width: actualW, height: max(0, bounds.height - 2 * margin))
+        summaryHeader.frame = CGRect(x: x, y: 0, width: actualW, height: headerH)
+        if styledExpanded != expanded {
+            styledExpanded = expanded
+            if glass.effect is UIGlassEffect {
+                let effect = UIGlassEffect(style: .regular)
+                effect.isInteractive = !expanded
+                effect.tintColor = expanded ? ShelfPieceView.cardTint : nil
+                glass.effect = effect
             }
+            glass.cornerConfiguration = Theme.isDesktop ? .corners(radius: .fixed(4)) : expanded ? .corners(radius: .fixed(18)) : .capsule()
         }
+        overview.isHidden = !expanded || detail != nil
+        overview.accessibilityElementsHidden = overview.isHidden
+        overview.frame = CGRect(x: 0, y: headerH, width: actualW, height: max(0, bounds.height - headerH))
+        let frames = targetFrames(width: bounds.width)
+        for p in pieces.values {
+            let shown = p.isPresent && expanded && (detail == nil || detail === p)
+            p.isHidden = !shown
+            p.accessibilityElementsHidden = !shown
+            let parent: UIView = detail === p ? glass.contentView : overview
+            if p.superview !== parent { parent.addSubview(p) }
+            if let frame = frames[p.kind] { p.place(frame) }
+        }
+        let contentH = detail == nil ? frames.values.map(\.maxY).max() ?? 0 : 0
+        overview.contentSize = CGSize(width: actualW, height: contentH)
+        overview.isScrollEnabled = contentH > overview.bounds.height
+        overview.contentOffset.y = min(overview.contentOffset.y, max(0, contentH - overview.bounds.height))
     }
 
-    /// Only the pieces take touches (the jump button and the transcript stay reachable beside the chips).
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        if scroller.isScrollEnabled, !bounds.contains(point) { return false }
-        return visiblePieces.contains { frame(of: $0).contains(point) }
+        guard hasActivity else { return false }
+        return expanded ? glass.frame.contains(point) : summaryHeader.frame.contains(point)
     }
 
-    /// A piece's frame in the shelf's coordinates (the chips may be scrolled).
-    private func frame(of piece: ShelfPieceView) -> CGRect {
-        container.contentView.convert(piece.frame, to: self)
-    }
-
-    /// The pieces' stacked height (a leaving piece keeps its distance from its bottom).
-    var piecesHeight: CGFloat { container.bounds.height }
-
-    /// The widest folded chip's trailing edge in `view`'s coordinates (the jump button moves above the shelf when a chip
-    /// comes within 8 pt of it).
     func chipsTrailingEdge(in view: UIView) -> CGFloat {
-        visiblePieces.filter { !$0.isOpen }.map { container.contentView.convert($0.frame, to: view).maxX }.max() ?? 0
+        guard hasActivity else { return 0 }
+        return convert(summaryHeader.frame, to: view).maxX
     }
 
-    var hasOpenCard: Bool { visiblePieces.contains(where: \.isOpen) }
+    func collapsedWidth(for width: CGFloat) -> CGFloat {
+        prepareHeader(width: width)
+        return min(width, summaryHeader.fittingWidth)
+    }
 }
 
-/// One piece: a glass element of the shelf's container holding the chip header (always) and, when open, the card's
-/// body in one scroller (owner: one scroller, never nested ones — M:subagent-card-glass.md).
-final class ShelfPieceView: UIVisualEffectView {
+/// A category row and its existing detail body. The shelf supplies the single glass backing.
+/// Keep this a plain view: an effect view's accessibility traversal can expose its folded children.
+final class ShelfPieceView: UIView {
     let kind: ShelfPieceKind
     let header = ShelfHeader()
     let scroll = UIScrollView()
@@ -197,24 +211,39 @@ final class ShelfPieceView: UIVisualEffectView {
     var leavingFromBottom: CGFloat?
     var onToggle: (() -> Void)?
 
+    override var accessibilityElements: [Any]? {
+        get {
+            guard isPresent, !isHidden, !accessibilityElementsHidden else { return [] }
+            // Explicit containers bypass a child's hidden flag: omit folded bodies and hidden actions entirely.
+            var elements: [Any] = [header]
+            if isOpen {
+                if !header.more.isHidden { elements.append(header.more) }
+                elements.append(scroll)
+            }
+            return elements
+        }
+        set { super.accessibilityElements = newValue }
+    }
+
     init(kind: ShelfPieceKind, body: UIView) {
         self.kind = kind
         self.body = body
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = true
-        super.init(effect: effect)
+        super.init(frame: .zero)
         isHidden = true
+        accessibilityElementsHidden = true
         alpha = 0
         cornerConfiguration = .capsule()
         header.addTarget(self, action: #selector(toggled), for: .touchUpInside)
-        contentView.addSubview(header)
+        addSubview(header)
         // The goal's ⋯ sits over the header's trailing end, a sibling (the header is one accessibility element).
-        contentView.addSubview(header.more)
+        addSubview(header.more)
         scroll.alwaysBounceVertical = false
         scroll.showsVerticalScrollIndicator = true
+        scroll.accessibilityIdentifier = "chat.shelf.detail.\(kind)"
         scroll.isHidden = true
+        scroll.accessibilityElementsHidden = true
         scroll.alpha = 0
-        contentView.addSubview(scroll)
+        addSubview(scroll)
         body.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(body)
         NSLayoutConstraint.activate([
@@ -223,8 +252,7 @@ final class ShelfPieceView: UIVisualEffectView {
             body.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor),
             body.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
         ])
-        accessibilityElements = [header, header.more, scroll]
-        // [desktoplook4] The look flattens the glass (ThemeChrome) and puts it back; the shape follows after it.
+        // The category's corner shape follows the shared backing when the look changes.
         themeWatch = NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.applyCorners() } }
         }
@@ -254,7 +282,7 @@ final class ShelfPieceView: UIVisualEffectView {
 
     /// Chip: the header's own width; card: the shelf's width, the header and as much body as fits.
     func size(for width: CGFloat, maxCard: CGFloat, compact: Bool = false) -> CGSize {
-        let headerH = header.height(width: isOpen ? width : nil, compact: compact && !isOpen)
+        let headerH = header.height(width: width, compact: compact && !isOpen)
         guard isOpen else { return CGSize(width: min(width, header.fittingWidth), height: headerH) }
         let bodyH = bodyHeight(width: width)
         return CGSize(width: width, height: min(maxCard, headerH + bodyH))
@@ -284,7 +312,7 @@ final class ShelfPieceView: UIVisualEffectView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let headerH = header.height(width: isOpen ? bounds.width : nil, compact: header.compact && !isOpen)
+        let headerH = header.height(width: bounds.width, compact: header.compact && !isOpen)
         header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: headerH)
         header.more.frame = CGRect(x: bounds.width - 44, y: (headerH - 44) / 2, width: 44, height: 44)
         scroll.frame = CGRect(x: 0, y: headerH, width: bounds.width, height: max(0, bounds.height - headerH))
@@ -331,16 +359,7 @@ final class ShelfPieceView: UIVisualEffectView {
     func setOpen(_ open: Bool, animated: Bool) {
         guard open != isOpen else { return }
         isOpen = open
-        if effect is UIGlassEffect {
-            // Interactive as a chip; an opened card is not (its rows give their own press highlight).
-            let next = UIGlassEffect(style: .regular)
-            next.isInteractive = !open
-            // Verify round 3: an opened card (rows of words, grey ones among them) is tinted with the page in light, so
-            // a blue bubble under it no longer washes over its text (MEM subagent-card-glass: the owner found grey text
-            // on this glass hard to read). Still the system's glass; dark needed none.
-            next.tintColor = open ? Self.cardTint : nil
-            effect = next
-        }
+        scroll.accessibilityElementsHidden = !open
         applyCorners()
         header.setOpen(open, animated: animated)
         GlyphTicker.shared.setNeedsUpdate()
@@ -371,11 +390,18 @@ final class ShelfHeader: UIControl {
     let leadingIcon = UIImageView()
     let more = UIButton(type: .system)
     private var open = false
+    /// An urgent summary must remain readable even at a narrow ordinary text size.
+    var requiresFullText = false {
+        didSet { label.numberOfLines = wrapsNow ? maximumWrappedLines : 1 }
+    }
+    var maximumWrappedLines = 0 {
+        didSet { label.numberOfLines = wrapsNow ? maximumWrappedLines : 1; setNeedsLayout() }
+    }
     var showsMore = false { didSet { more.isHidden = !(showsMore && open); setNeedsLayout() } }
     var showsLeadingDot = false { didSet { leadingDot.isHidden = !(showsLeadingDot && open); setNeedsLayout() } }
     /// UX study #230: a folded chip keeps to one line even at accessibility sizes (the shelf ran out of room).
     var compact = false {
-        didSet { guard compact != oldValue else { return }; label.numberOfLines = wrapsNow ? 0 : 1; setNeedsLayout() }
+        didSet { guard compact != oldValue else { return }; label.numberOfLines = wrapsNow ? maximumWrappedLines : 1; setNeedsLayout() }
     }
 
     override init(frame: CGRect) {
@@ -418,12 +444,12 @@ final class ShelfHeader: UIControl {
     /// The words may wrap: a folded chip at accessibility sizes.
     var wraps: Bool { isLarge && !open }
     /// They wrap now (an open card's header always may; a chip unless told to keep to one line).
-    private var wrapsNow: Bool { isLarge && !(compact && !open) }
+    private var wrapsNow: Bool { requiresFullText || (isLarge && !(compact && !open)) }
 
-    private func updateFonts() {
+    fileprivate func updateFonts() {
         let size = min(HQFont.preferred(.subheadline, compatibleWith: traitCollection).pointSize, 22)
         label.font = HQFont.face(ofSize: size)
-        label.numberOfLines = wrapsNow ? 0 : 1
+        label.numberOfLines = wrapsNow ? maximumWrappedLines : 1
         let config = UIImage.SymbolConfiguration(pointSize: (size * 0.7).rounded(), weight: .semibold)
         chevron.image = UIImage(systemName: "chevron.right", withConfiguration: config)
         // The ⋯ grows with the words too (it stayed at the system's default size while the chevron followed them).
@@ -454,7 +480,7 @@ final class ShelfHeader: UIControl {
 
     func setOpen(_ open: Bool, animated: Bool) {
         self.open = open
-        label.numberOfLines = wrapsNow ? 0 : 1
+        label.numberOfLines = wrapsNow ? maximumWrappedLines : 1
         more.isHidden = !(showsMore && open)
         leadingDot.isHidden = !(showsLeadingDot && open)
         accessibilityValue = open ? "expanded" : "collapsed"
@@ -465,11 +491,20 @@ final class ShelfHeader: UIControl {
 
     /// 44 pt; at accessibility sizes the words wrap and the header grows.
     func height(width: CGFloat?, compact: Bool = false) -> CGFloat {
-        guard isLarge else { return 44 }
+        guard isLarge || requiresFullText else { return 44 }
         if compact { return max(44, ceil(label.font.lineHeight) + 20) }
-        let w = max(120, (width ?? 340) - 80)
+        let w = availableLabelWidth(in: width ?? 340)
         let text = label.sizeThatFits(CGSize(width: w, height: .greatestFiniteMagnitude)).height
         return max(44, ceil(text) + 20)
+    }
+
+    /// Measurement and placement must reserve the same space for the goal's dot, actions and optional spinner.
+    private func availableLabelWidth(in width: CGFloat) -> CGFloat {
+        let leading: CGFloat = 14 + (leadingDot.isHidden ? 0 : 16) + (leadingIcon.isHidden ? 0 : 28)
+        let trailing: CGFloat = more.isHidden ? 10 : 44
+        let chevW = (chevron.image?.size.width ?? 8) + 4
+        let spinW = spinner.map { $0.intrinsicContentSize.width } ?? 0
+        return max(1, width - leading - trailing - chevW - 2 - (spinW > 0 ? spinW + 4 : 0) - 4)
     }
 
     /// Words + spinner + chevron + paddings.
@@ -493,19 +528,17 @@ final class ShelfHeader: UIControl {
             leadingIcon.frame = CGRect(x: x, y: (h - 22) / 2, width: 22, height: 22)
             x += 22 + 6
         }
-        let trailing: CGFloat = more.isHidden ? 10 : 44
         let chevW = (chevron.image?.size.width ?? 8) + 4
         let spinW = spinner.map { $0.intrinsicContentSize.width } ?? 0
-        let available = bounds.width - x - trailing - chevW - 2 - (spinW > 0 ? spinW + 4 : 0) - 4
-        let wordsW = min(available, ceil(label.intrinsicContentSize.width))
+        let available = availableLabelWidth(in: bounds.width)
+        if let s = spinner {
+            s.frame = CGRect(x: x, y: (h - spinW) / 2, width: spinW, height: spinW)
+            x += spinW + 4
+        }
+        let wordsW = max(1, min(available, ceil(label.intrinsicContentSize.width)))
         let labelH = wrapsNow ? ceil(label.sizeThatFits(CGSize(width: wordsW, height: .greatestFiniteMagnitude)).height) : ceil(label.font.lineHeight)
         label.frame = CGRect(x: x, y: (h - labelH) / 2, width: wordsW, height: labelH)
         x = label.frame.maxX + 4
-        if let s = spinner {
-            let side = s.intrinsicContentSize.width
-            s.frame = CGRect(x: x, y: (h - side) / 2, width: side, height: side)
-            x += side + 4
-        }
         chevron.frame = CGRect(x: x + 2, y: (h - 16) / 2, width: chevW - 4, height: 16)
     }
 

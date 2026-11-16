@@ -1390,6 +1390,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if DEBUG
+        activity.motionProbe?.auditDidAppear()   // Observation-only fresh measurement baseline.
+        #endif
         ChatPerf.mark("chat.viewDidAppear")
         edgeStandIn.handOver()
         // [desktoplook4] Panels that joined the window during the push sat under its dimming wrapper then: flatten

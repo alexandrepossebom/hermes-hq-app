@@ -274,7 +274,7 @@ final class PresenceEndToEndTests: PresenceUITestCase {
 
         // E4: with Ivy's chat on screen there is no notice: the chat's own browser card says it.
         openChat("ivy")
-        XCTAssertTrue(app.buttons["chat.shelf.browser"].waitForExistence(timeout: 10), "E4: the chat's card shows")
+        XCTAssertTrue(app.activityCategory("browser").waitForExistence(timeout: 10), "E4: the chat's card shows")
         let wait = 31 - Date().timeIntervalSince(first)
         if wait > 0 { pause(wait) }                 // past Ivy's 30 s: only the chat on screen can be the reason now
         toolStart("ivy", "browser_navigate")
@@ -432,7 +432,7 @@ final class PresenceEndToEndTests: PresenceUITestCase {
         try account.control("/__fixture/browser", ["active": true])
         launch()
         openChat("default")
-        let chip = app.buttons["chat.shelf.browser"]
+        let chip = app.activityCategory("browser")
         XCTAssertTrue(chip.waitForExistence(timeout: 15), "the chat's browser card shows")
         chip.tap()
         XCTAssertTrue(stage.waitForExistence(timeout: 10), "the viewer opens")

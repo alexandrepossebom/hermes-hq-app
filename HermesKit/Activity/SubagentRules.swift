@@ -286,22 +286,48 @@ nonisolated enum SubagentRules {
         let args = ActivityJSON.object(payload["args"] ?? payload["input"])
         let result = ActivityJSON.object(payload["result"])
         let rawTasks: [JSONValue] = { if case .array(let a)? = args["tasks"] { return a }; return [] }()
-        let tasks: [[String: JSONValue]] = rawTasks.isEmpty ? [args] : rawTasks.map { ActivityJSON.object($0) }
+        let rawResults = (result["results"]?.array ?? []).map { ActivityJSON.object($0) }
+        // Indexed rows may arrive out of order. Only an unindexed row may stand in for its array position.
+        var results: [Int: [String: JSONValue]] = [:]
+        for (position, row) in rawResults.enumerated() {
+            let explicit = ActivityJSON.int(row["task_index"])
+            if row["task_index"] != nil {
+                guard let explicit, explicit >= 0 else { continue }
+            }
+            let index = explicit ?? position
+            if explicit != nil || results[index] == nil { results[index] = row }
+        }
+        let tasks: [[String: JSONValue]] = rawTasks.isEmpty
+            ? (!args.isEmpty || rawResults.isEmpty ? [args] : []) : rawTasks.map { ActivityJSON.object($0) }
+        let indices = Set(tasks.indices).union(results.keys).sorted()
+        let taskCount = (indices.last ?? 0) + 1
         let resultStatus = ActivityJSON.str(result["status"]).lowercased()
         let failed = payload["error"].isTruthy || ["timeout", "error", "failed", "failure"].contains(resultStatus)
-        let status = complete ? (failed ? "failed" : "completed") : "running"
         let toolId = [payload["tool_id"], payload["tool_call_id"], payload["id"]].map(ActivityJSON.str).first { !$0.isEmpty } ?? "delegate_task"
         let progress = [payload["preview"], payload["message"], payload["context"]].map(ActivityJSON.str).first { !$0.isEmpty } ?? ""
         let eventType = complete ? "subagent.complete" : (sourceEventType == "tool.start" ? "subagent.start" : "subagent.progress")
-        let summary = [result["summary"], payload["summary"], payload["message"]].map(ActivityJSON.str).first { !$0.isEmpty } ?? ""
-        return tasks.enumerated().map { index, task in
-            let goal = [task["goal"], args["goal"], payload["context"]].map(ActivityJSON.str).first { !$0.isEmpty } ?? "Delegated task"
+        return indices.map { index in
+            let task = index < tasks.count ? tasks[index] : [:]
+            let row = results[index] ?? [:]
+            let rowStatus = ActivityJSON.str(row["status"]).lowercased()
+            let resolved: SubagentStatus
+            if !complete { resolved = .running }
+            else if failed || row["error"].isTruthy { resolved = .failed }
+            else if rowStatus.isEmpty || rowStatus == "ok" { resolved = .completed }
+            else { resolved = status(.string(rowStatus), terminalEvent: true) }
+            let summary = [row["summary"], result["summary"], payload["summary"], payload["message"]]
+                .map(ActivityJSON.str).first { !$0.isEmpty } ?? ""
+            // Completion need not repeat args. An empty goal lets the roster retain the start event's title.
+            let goal = [task["goal"], row["goal"], args["goal"], payload["context"]]
+                .map(ActivityJSON.str).first { !$0.isEmpty } ?? (complete ? "" : "Delegated task")
             var out: [String: JSONValue] = [
-                "depth": 0, "goal": .string(goal), "status": .string(status),
+                "depth": 0, "goal": .string(goal), "status": .string(resolved.rawValue),
                 "subagent_id": .string("delegate-tool:\(toolId):\(index)"),
-                "task_count": .number(Double(tasks.count)), "task_index": .number(Double(index)),
+                "task_count": .number(Double(taskCount)), "task_index": .number(Double(index)),
             ]
-            if let d = ActivityJSON.num(payload["duration_s"]) { out["duration_seconds"] = .number(d) }
+            if let d = ActivityJSON.num(row["duration_seconds"]) ?? ActivityJSON.num(payload["duration_s"]) {
+                out["duration_seconds"] = .number(d)
+            }
             if !summary.isEmpty { out["summary"] = .string(summary) }
             if eventType == "subagent.progress" { out["text"] = .string(progress.isEmpty ? goal : progress) }
             if eventType == "subagent.start" {
@@ -309,7 +335,7 @@ nonisolated enum SubagentRules {
                 if !progress.isEmpty { out["tool_preview"] = .string(progress) }
             }
             if complete && !summary.isEmpty {
-                out["output_tail"] = [["is_error": .bool(payload["error"].isTruthy), "preview": .string(summary), "tool": "delegate_task"]]
+                out["output_tail"] = [["is_error": .bool(resolved == .failed), "preview": .string(summary), "tool": "delegate_task"]]
             }
             return out
         }

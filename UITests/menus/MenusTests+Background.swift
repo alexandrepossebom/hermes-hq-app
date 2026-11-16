@@ -15,7 +15,12 @@ extension MenusTests {
         openBotChat(app)
 
         // The chip: the command's time, a spinner (VoiceOver: running).
-        let chip = app.descendants(matching: .any)["chat.shelf.background"].firstMatch
+        let summary = app.buttons["chat.shelf.summary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 10))
+        XCTAssertEqual(summary.label, "1 background, running")
+        XCTAssertEqual(summary.value as? String, "collapsed")
+        XCTAssertFalse(app.buttons["composer.stop"].exists, "a background command is not a parent reply")
+        let chip = app.activityCategory("background")
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "the Background task chip shows with no turn running")
         XCTAssertEqual(chip.label, "Background task · 6m, running")
         XCTAssertGreaterThan(calls(account, "process.list").count, 0, "read from process.list")

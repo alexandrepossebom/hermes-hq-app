@@ -31,6 +31,58 @@ final class ActivityEndToEndTests: XCTestCase {
         try account.control("/__fixture/config", ["profile": "default", "display": [String: Any]()])
     }
 
+    /// Remove only the layout test's invented queue row, including a parked row restored from an earlier run.
+    @MainActor func removeSyntheticLayoutQueue(_ app: XCUIApplication) {
+        let queue = element(app, "chat.queue")
+        for _ in 0..<3 {
+            guard queue.exists else { return }
+            XCTAssertEqual(element(app, "queue.words").label, "queued behind", "cleanup only owns the layout fixture's row")
+            app.buttons["queue.more"].firstMatch.tap()
+            let delete = app.buttons["Delete"]
+            XCTAssertTrue(delete.waitForExistence(timeout: 3))
+            delete.tap()
+            if waitUntil(timeout: 3, { !queue.exists }) { return }
+        }
+        XCTAssertFalse(queue.exists, "the synthetic layout queue was removed")
+    }
+
+    /// A failed assertion must leave neither an unconsumed plan, a held turn nor a parked synthetic queue.
+    @MainActor func cleanUpSyntheticTurnsAfterTest(_ account: FixtureAccount, gateKey: String) {
+        addTeardownBlock { @MainActor in
+            let app = XCUIApplication()
+            defer {
+                app.terminate()
+                // Best-effort cancellation also runs if a cleanup assertion throws. Account reset alone does not
+                // erase the outbox; the next bootstrap removes only our known synthetic row if deletion failed.
+                try? account.control("/__fixture/discard-plans", ["waitFor": gateKey])
+                try? account.control("/__fixture/finish", ["profile": "default", "onlyRunning": true])
+                try? self.reset(account)
+                Self.signedInThisRun = false
+            }
+            try account.control("/__fixture/discard-plans", ["waitFor": gateKey])
+            if app.state == .runningForeground { self.removeSyntheticLayoutQueue(app) }
+            let deadline = Date().addingTimeInterval(12)
+            var idleSamples = 0
+            while Date() < deadline {
+                let state = try account.control("/__fixture/state")
+                let running = try XCTUnwrap((state["running"] as? [String: Bool])?["default"])
+                let queued = app.state == .runningForeground && self.element(app, "chat.queue").exists
+                if running {
+                    try account.control("/__fixture/finish", ["profile": "default", "onlyRunning": true])
+                    idleSamples = 0
+                } else if queued {
+                    idleSamples = 0
+                } else {
+                    idleSamples += 1
+                    if idleSamples >= 3 { break }
+                }
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            try self.reset(account)
+            XCTAssertGreaterThanOrEqual(idleSamples, 3, "the synthetic turn and queue drained before fixture reset")
+        }
+    }
+
     func event(_ account: FixtureAccount, _ type: String, _ payload: [String: Any]) throws {
         try account.control("/__fixture/event", ["profile": "default", "type": type, "payload": payload])
     }
@@ -75,6 +127,8 @@ final class ActivityEndToEndTests: XCTestCase {
             first.launch()
             signIn(first, account)
             XCTAssertTrue(first.cells[Self.botRow].waitForExistence(timeout: 20), "signed in to the fixture")
+            openChat(first)
+            removeSyntheticLayoutQueue(first)
             first.terminate()
         }
         Self.signedInThisRun = true
@@ -227,13 +281,39 @@ final class ActivityEndToEndTests: XCTestCase {
 
     // MARK: Verify round 1: the composer row under a tall dock
 
-    /// A message queued while the goal chip, an open Tasks card (4 todos) and a subagent chip fill the shelf, keyboard
-    /// up: ☰, + and the field stay on Stop's row, the queue card keeps its height above it (verify round 1: the jump
-    /// button's limit squashed the composer, its field dropped 30 pt under the keys and the card lost a line).
     /// Verify round 2: a chat whose last turn left a finished task list opens with the folded Previous tasks chip (no
     /// opened Tasks card that folds 4 s later), and a reopen draws its whole shelf — goal, running child, previous tasks —
-    /// from the first frame: the rows never move.
+    /// without a glide on cold push or any transcript movement on warm reopen.
     @MainActor func test31_OpenWithShelfStateNeverSlides() throws {
+        func capturePhase(_ name: String, _ metrics: [String: Any]) throws {
+            let data = try JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
+            let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            attachment.name = "motion-phase-" + name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        func assertOpeningCoverage(_ metrics: [String: Any]) {
+            XCTAssertGreaterThan(number(metrics, "openingFrames"), 0, "opening needs sampled frames: \(metrics)")
+            XCTAssertGreaterThan(number(metrics, "openingBaselineRows"), 0, "opening needs a real baseline: \(metrics)")
+            XCTAssertGreaterThan(number(metrics, "openingMatchedRows"), 0, "opening must resample a baseline row: \(metrics)")
+            XCTAssertEqual(number(metrics, "openingUncoveredFrames"), 0, "opening cannot lose its baseline between samples: \(metrics)")
+            XCTAssertEqual(number(metrics, "openingIncompleteCoverageFrames"), 0, "this fixture keeps every baseline row visible: \(metrics)")
+            XCTAssertEqual(number(metrics, "openingCoveredFrames"), number(metrics, "openingFrames"))
+        }
+        func assertShelfPresentationStable(_ metrics: [String: Any]) {
+            XCTAssertGreaterThan(number(metrics, "openingShelfPresentationSamples"), 0, "sample shelf presentation: \(metrics)")
+            XCTAssertEqual(number(metrics, "openingShelfPresentationMissing"), 0, "shelf/header presentation must be observable: \(metrics)")
+            XCTAssertLessThanOrEqual(number(metrics, "openingShelfGeometryError"), 1, "shelf/header must not animate relative to chat: \(metrics)")
+            XCTAssertLessThanOrEqual(number(metrics, "openingShelfOpacityError"), 0.01, "shelf/header must not fade: \(metrics)")
+            XCTAssertLessThanOrEqual(number(metrics, "openingShelfTransformError"), 0.001, "shelf/header must not transform: \(metrics)")
+        }
+        func assertPostAppearanceStationary(_ metrics: [String: Any]) {
+            XCTAssertLessThanOrEqual(number(metrics, "postAppearanceStill"), 1, "no post-appearance vertical movement: \(metrics)")
+            XCTAssertLessThanOrEqual(number(metrics, "postAppearanceHorizontal"), 1, "no post-appearance horizontal movement: \(metrics)")
+            XCTAssertLessThanOrEqual(number(metrics, "postAppearanceHeight"), 1, "post-appearance row heights stay stable: \(metrics)")
+            XCTAssertLessThanOrEqual(number(metrics, "postAppearanceWidth"), 1, "post-appearance row widths stay stable: \(metrics)")
+            XCTAssertEqual(number(metrics, "postAppearanceIncompleteCoverageFrames"), 0, "every appearance-baseline row stays observed: \(metrics)")
+        }
         let account = try FixtureAccount.load()
         try reset(account)
         try account.control("/__fixture/history", ["profile": "default", "count": 40])
@@ -243,33 +323,106 @@ final class ActivityEndToEndTests: XCTestCase {
         try account.control("/__fixture/subagents", ["delegations": [Any](), "subagents": [[
             "subagent_id": "sa_open", "goal": "Index the docs", "status": "running", "started_at": Date().timeIntervalSince1970 - 30,
             "model": "fixture-model", "depth": 0, "tool_count": 2, "last_tool": "read_file", "accepting_steer": true]]])
-        let app = launch(account, args: ["-HQDebugMotionProbe", "YES"])
+        let app = launch(account, args: ["-HQDebugMotionProbe", "YES", "-HQDebugMotionTrace", "YES"])
         openChat(app)
-        let previous = element(app, "chat.shelf.previousTasks")
+        let previous = element(app, "chat.shelf.summary")
         XCTAssertTrue(previous.waitForExistence(timeout: 5), "Previous tasks shows")
         XCTAssertEqual(previous.value as? String, "collapsed", "folded from the start")
-        XCTAssertFalse(element(app, "chat.shelf.tasks").exists, "no live Tasks card on an idle open")
-        XCTAssertTrue(element(app, "chat.shelf.goal").waitForExistence(timeout: 5))
-        XCTAssertTrue(element(app, "chat.shelf.subagents").waitForExistence(timeout: 8))
+        XCTAssertTrue(waitUntil(timeout: 5) { previous.label.contains("Previous tasks 2/2") })
+        XCTAssertTrue(waitUntil(timeout: 8) { previous.label.contains("Goal active") && previous.label.contains("1 helper") })
+        XCTAssertEqual(previous.frame.height, 44, accuracy: 1)
         let first = motion(app)
+        XCTAssertGreaterThan(number(first, "frames"), 0, "the first-open probe sampled frames")
+        XCTAssertGreaterThan(number(first, "rows"), 0, "the first-open probe sampled transcript rows")
+        try capturePhase("cold", first)
+        // During a cold push a shelf may arrive immediately. Its one discrete relocation must follow
+        // the actual shelf/inset change, rather than glide, reverse, or move independently of the dock.
+        assertOpeningCoverage(first)
+        XCTAssertLessThanOrEqual(number(first, "openingMoves"), 1, "cold shelf relocation is discrete, not a glide: \(first)")
+        XCTAssertLessThanOrEqual(number(first, "openingExcessMotion"), 1, "sub-threshold steps must not add up to a glide: \(first)")
+        XCTAssertEqual(number(first, "openingReversals"), 0, "cold push must not bounce: \(first)")
+        XCTAssertLessThanOrEqual(number(first, "openingHeight"), 1, "opening row heights stay stable: \(first)")
+        XCTAssertLessThanOrEqual(number(first, "openingAnchorError"), 1, "row displacement follows the flipped table's end inset: \(first)")
+        XCTAssertLessThanOrEqual(number(first, "openingInsetShelfError"), 1, "inset change follows actual shelf height plus gap: \(first)")
+        assertShelfPresentationStable(first)
+        XCTAssertGreaterThan(number(first, "postAppearanceBaselineRows"), 0, "appearance needs a real baseline: \(first)")
+        XCTAssertGreaterThan(number(first, "postAppearanceMatchedRows"), 0, "appearance baseline must be resampled: \(first)")
+        XCTAssertGreaterThan(number(first, "postAppearanceCoveredFrames"), 0)
+        XCTAssertEqual(number(first, "postAppearanceUncoveredFrames"), 0, "baseline coverage must hold throughout: \(first)")
+        assertPostAppearanceStationary(first)
         print("[test31] first open motion: \(first)")
         Thread.sleep(forTimeInterval: 5)          // past the old 4 s linger: nothing folds and nothing moves
-        XCTAssertEqual(number(motion(app), "still"), number(first, "still"), accuracy: 1, "nothing moves once the chat settled")
-        // Back and open again: the store's state draws the shelf in the first frame.
+        let afterLinger = motion(app)
+        try capturePhase("after-five-seconds", afterLinger)
+        assertShelfPresentationStable(afterLinger)
+        XCTAssertGreaterThan(number(afterLinger, "postAppearanceFrames"), 0)
+        XCTAssertGreaterThan(number(afterLinger, "postAppearanceRows"), 0)
+        XCTAssertGreaterThan(number(afterLinger, "postAppearanceFrames"), number(first, "postAppearanceFrames"), "fresh sampling continues through the linger")
+        XCTAssertGreaterThan(number(afterLinger, "postAppearanceMatchedRows"), 0)
+        XCTAssertEqual(number(afterLinger, "postAppearanceUncoveredFrames"), 0, "no unobserved baseline gaps through linger: \(afterLinger)")
+        XCTAssertEqual(number(afterLinger, "postAppearanceCoveredFrames"), number(afterLinger, "postAppearanceFrames"))
+        assertPostAppearanceStationary(afterLinger)
+        // Folded categories are deliberately absent from accessibility. Check the actual overview, not that absence.
+        let history = app.activityCategory("previousTasks")
+        XCTAssertTrue(history.label.hasPrefix("Previous tasks 2/2"))
+        XCTAssertTrue(element(app, "chat.shelf.goal").exists)
+        XCTAssertTrue(element(app, "chat.shelf.subagents").exists)
+        XCTAssertFalse(element(app, "chat.shelf.tasks").exists, "the overview has history, not a live Tasks category")
+        history.tap()
+        XCTAssertTrue(labelled(app, containing: "Write the notes, completed").waitForExistence(timeout: 3))
+        app.openActivityOverview()
+        previous.tap()
+        XCTAssertEqual(previous.value as? String, "collapsed")
+        // Back and open again: check the cached shelf on the earliest sampled visible frame.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.cells[Self.botRow].waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 1)
         openChat(app)
-        XCTAssertTrue(element(app, "chat.shelf.subagents").waitForExistence(timeout: 3))
-        Thread.sleep(forTimeInterval: 2.5)
+        XCTAssertTrue(element(app, "chat.shelf.summary").waitForExistence(timeout: 3))
+        XCTAssertEqual(previous.value as? String, "collapsed")
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            previous.label.contains("Previous tasks 2/2") && previous.label.contains("Goal active") && previous.label.contains("1 helper")
+        })
+        XCTAssertEqual(previous.frame.height, 44, accuracy: 1)
+        let warmStart = motion(app)
+        XCTAssertGreaterThan(number(warmStart, "postAppearanceBaselineRows"), 0)
+        XCTAssertGreaterThan(number(warmStart, "postAppearanceMatchedRows"), 0)
+        XCTAssertEqual(number(warmStart, "postAppearanceUncoveredFrames"), 0)
+        Thread.sleep(forTimeInterval: 5)   // Observe the same fresh baseline beyond the old 4 s linger.
         let again = motion(app)
+        try capturePhase("warm-reopen", again)
+        assertOpeningCoverage(again)
+        assertShelfPresentationStable(again)
+        XCTAssertGreaterThan(number(again, "firstVisibleRows"), 0)
+        XCTAssertEqual(again["firstVisibleLifecycle"] as? String, "beforeAppearance", "sample warm entry during the push")
+        XCTAssertEqual(number(again, "firstShelfHeight"), 44, accuracy: 1,
+                       "cached shelf has its full height in the first sampled visible frame")
+        let firstLabel = again["firstShelfLabel"] as? String ?? ""
+        XCTAssertEqual(firstLabel, "1 helper, Goal active · Turn 3/20, Previous tasks 2/2, running",
+                       "complete cached semantic label in the first sampled visible frame")
+        XCTAssertEqual(number(again, "firstSampledShelfWithinChat"), 1, "first sampled shelf is attached, visible and positioned within chat: \(again)")
+        XCTAssertEqual(number(again, "firstSampledHeaderWithinChat"), 1, "first sampled header is attached, visible and positioned within chat: \(again)")
+        XCTAssertEqual(number(again, "firstExpectedViewportShelfVisible"), 1, "shelf visible at first sampled expected viewport entry: \(again)")
+        XCTAssertEqual(number(again, "firstExpectedViewportHeaderVisible"), 1, "header visible at first sampled expected viewport entry: \(again)")
+        XCTAssertGreaterThan(number(again, "postAppearanceFrames"), 0)
+        XCTAssertGreaterThan(number(again, "postAppearanceFrames"), number(warmStart, "postAppearanceFrames"))
+        XCTAssertGreaterThan(number(again, "postAppearanceBaselineRows"), 0)
+        XCTAssertGreaterThan(number(again, "postAppearanceMatchedRows"), 0)
+        XCTAssertEqual(number(again, "postAppearanceUncoveredFrames"), 0)
+        XCTAssertEqual(number(again, "postAppearanceCoveredFrames"), number(again, "postAppearanceFrames"))
+        assertPostAppearanceStationary(again)
+        XCTAssertGreaterThan(number(again, "frames"), 0, "the reopen probe sampled frames")
+        XCTAssertGreaterThan(number(again, "rows"), 0, "the reopen probe sampled transcript rows")
         XCTAssertLessThanOrEqual(number(again, "still"), 1, "a reopen never slides the transcript: \(again)")
         shot("reopen-shelf-steady")
         try reset(account)
     }
 
+    /// With a queue and either activity detail open, both composer rows clear the keyboard and the cards keep room.
     @MainActor func test30_ComposerRowStaysWholeUnderAFullShelfAndQueue() throws {
         let account = try FixtureAccount.load()
+        let holdKey = "composer-geometry-\(UUID().uuidString)"
+        cleanUpSyntheticTurnsAfterTest(account, gateKey: holdKey)
         let goal: [String: Any] = ["title": "Ship 2.4", "status": "active", "turns_used": 3, "max_turns": 20,
             "contract": ["outcome": "Notes published", "verification": "", "constraints": "", "boundaries": "", "stop_when": ""],
             "subgoals": ["Draft notes"], "gates": [] as [Any], "last_verdict": "continue", "last_reason": "Notes drafted"]
@@ -278,8 +431,11 @@ final class ActivityEndToEndTests: XCTestCase {
         try account.control("/__fixture/control", ["profile": "default", "control": ["goal": goal], "emit": false])
         let app = launch(account)
         openChat(app)
-        try account.control("/__fixture/plan", ["plans": [["chunks": Array(repeating: "slow ", count: 160), "chunkDelay": 0.25],
-                                                         ["chunks": ["Queued reply done."]]]])
+        // Stop ends this held turn; do not leave an unused second plan behind when an assertion fails.
+        try account.control("/__fixture/plan", ["plans": [["events": [
+            ["type": "message.delta", "payload": ["text": "Checking the layout. "]],
+            ["waitFor": holdKey, "waitTimeout": 45, "type": "message.delta", "payload": ["text": "Inspection finished."]]
+        ]]]])
         let field = app.textViews["composer.text"]
         send(app, "start a long one", account)
         XCTAssertTrue(app.buttons["composer.stop"].waitForExistence(timeout: 8), "the reply runs")
@@ -288,6 +444,7 @@ final class ActivityEndToEndTests: XCTestCase {
             "model": "fixture-model"]])
         let todos: [[String: Any]] = (1...4).map { ["id": "\($0)", "content": "Task number \($0)", "status": $0 == 1 ? "in_progress" : "pending"] }
         try account.control("/__fixture/event", ["profile": "default", "type": "todo.updated", "payload": ["todos": todos, "revision": 1]])
+        app.activityCategory("tasks").tap()
         XCTAssertTrue(labelled(app, containing: "Task number 1").waitForExistence(timeout: 5), "the Tasks card shows")
         field.tap()
         XCTAssertTrue(waitUntil(timeout: 5) { app.keyboards.count > 0 }, "the keyboard is up")
@@ -299,32 +456,49 @@ final class ActivityEndToEndTests: XCTestCase {
         XCTAssertTrue(queue.waitForExistence(timeout: 5), "the queue card shows")
         Thread.sleep(forTimeInterval: 1)
         shot("composer-under-full-shelf")
-        // [talk] The circle tells accessibility its 44 pt touch box (PrimaryButton.accessibilityFrame); the drawn
-        // 40 pt circle these checks are about is 2 pt inside it on every side.
-        let stop = app.buttons["composer.stop"].frame.insetBy(dx: 2, dy: 2), text = field.frame, commands = element(app, "composer.commands").frame
-        XCTAssertEqual(text.maxY, stop.maxY, accuracy: 2.5, "the field stays on Stop's row (\(text) vs \(stop))")
-        XCTAssertEqual(commands.maxY, stop.maxY, accuracy: 2.5, "☰ stays on Stop's row")
-        XCTAssertGreaterThanOrEqual(text.height, 38, "the field keeps its height")
-        XCTAssertGreaterThanOrEqual(queue.frame.height, 60, "the queue card keeps its two lines")
-        XCTAssertLessThanOrEqual(queue.frame.maxY, stop.minY + 1, "the queue card sits above the row")
-        // Verify round 2: the docked cards share the row's side edges, and the shelf never climbs under the title:
-        // with the subagents card opened too, its cards give way (and scroll) instead.
+        let checkGeometry = { @MainActor () throws -> Void in
+            let state = try account.control("/__fixture/state")
+            XCTAssertEqual((state["running"] as? [String: Bool])?["default"], true, "fixture is still running at each geometry check")
+            let activity = try self.activityLog(account)
+            XCTAssertNil((activity["gate_errors"] as? [String: Any])?["default"], "the geometry gate did not time out")
+            let stop = app.buttons["composer.stop"], commands = self.element(app, "composer.commands")
+            XCTAssertTrue(stop.isHittable)
+            XCTAssertTrue(commands.isHittable)
+            XCTAssertTrue(app.keyboards.firstMatch.exists)
+            let text = field.frame, toolbar = stop.frame, keys = app.keyboards.firstMatch.frame
+            // The iOS composer has two rows. Compare control centers, not a drawn disc with another control's touch box.
+            XCTAssertEqual(commands.frame.midY, toolbar.midY, accuracy: 2.5, "the toolbar controls stay aligned")
+            XCTAssertLessThanOrEqual(text.maxY, min(toolbar.minY, commands.frame.minY) + 2.5, "text stays above the toolbar touch boxes")
+            XCTAssertGreaterThanOrEqual(text.height, 38, "the field keeps its height")
+            XCTAssertLessThanOrEqual(text.maxY, keys.minY + 1, "the field clears the keyboard")
+            XCTAssertLessThanOrEqual(toolbar.maxY, keys.minY + 1, "Stop clears the keyboard")
+            XCTAssertGreaterThanOrEqual(queue.frame.height, 60, "the queue card keeps its two lines")
+            XCTAssertLessThanOrEqual(queue.frame.maxY, text.minY + 1, "the queue stays above the text row")
+            XCTAssertGreaterThanOrEqual(text.minX, queue.frame.minX - 1)
+            XCTAssertLessThanOrEqual(text.maxX, queue.frame.maxX + 1)
+            let header = app.buttons["chat.shelf.summary"].frame
+            XCTAssertEqual(header.midX, queue.frame.midX, accuracy: 1, "activity is centered over the dock")
+            XCTAssertGreaterThanOrEqual(header.minX, queue.frame.minX - 1)
+            XCTAssertLessThanOrEqual(header.maxX, queue.frame.maxX + 1, "the content-width activity card stays inside the dock")
+        }
+        try checkGeometry()
+        // Open Helpers explicitly: a missing category must not silently skip the second layout state.
         let shelf = element(app, "chat.shelf")
-        XCTAssertEqual(queue.frame.minX, commands.minX, accuracy: 1, "the queue card lines up with ☰")
-        XCTAssertEqual(shelf.frame.minX, commands.minX, accuracy: 1, "the shelf lines up with ☰")
-        XCTAssertEqual(shelf.frame.maxX, stop.maxX, accuracy: 1, "the shelf lines up with Stop")
-        let chip = element(app, "chat.shelf.subagents")
-        if chip.exists && chip.isHittable { chip.tap() }
+        let chip = app.activityCategory("subagents")
+        XCTAssertTrue(chip.isHittable)
+        chip.tap()
+        XCTAssertTrue(element(app, "chat.subagents.card").waitForExistence(timeout: 4), "the Helpers detail opens")
+        XCTAssertTrue(labelled(app, containing: "Read the changelog since 2.3").exists, "the running helper is visible")
         Thread.sleep(forTimeInterval: 1)
         shot("full-shelf-subagents-open")
         let bar = app.navigationBars.firstMatch.frame
         XCTAssertGreaterThanOrEqual(shelf.frame.minY, bar.maxY + 18, "the shelf stays under the status line (\(shelf.frame) vs bar \(bar))")
-        XCTAssertEqual(field.frame.maxY, stop.maxY, accuracy: 2.5, "the composer row is still whole")
+        try checkGeometry()
         app.buttons["composer.stop"].tap()
-        // Leave the fixture as the other tests expect it.
-        try account.control("/__fixture/subagents", ["subagents": [Any](), "delegations": [Any]()])
-        try account.control("/__fixture/todo-state", ["profile": "default", "todos": [Any](), "revision": 0])
-        try account.control("/__fixture/control", ["profile": "default", "control": [String: Any](), "emit": false])
+        XCTAssertTrue(waitUntil(timeout: 8) { !app.buttons["composer.stop"].exists }, "Stop ends the running reply")
+        XCTAssertTrue(queue.exists, "Stop parks, rather than sends, the queued successor")
+        XCTAssertTrue(app.buttons["queue.resume"].waitForExistence(timeout: 3), "the parked queue offers Resume")
+        removeSyntheticLayoutQueue(app)
     }
 
     // MARK: (11, 13, 14) Subagent chip, card, tail, Steer and Stop
@@ -338,7 +512,7 @@ final class ActivityEndToEndTests: XCTestCase {
         try event(account, "subagent.start", ["goal": goal, "task_count": 1, "task_index": 0, "subagent_id": "sa_ui1", "status": "running", "model": "fixture-model"])
         try event(account, "subagent.tool", ["goal": goal, "task_count": 1, "task_index": 0, "subagent_id": "sa_ui1", "tool_name": "read_file", "tool_preview": "CHANGELOG.md"])
         try account.control("/__fixture/tail", ["subagent_id": "sa_ui1", "text": "$ git log v2.3..HEAD --oneline\na1b2c3 Export chats\nd4e5f6 Faster sync", "truncated": false])
-        let chip = element(app, "chat.shelf.subagents")
+        let chip = app.activityCategory("subagents")
         XCTAssertTrue(chip.waitForExistence(timeout: 3), "the chip appears")
         XCTAssertTrue(chip.label.hasPrefix("1 helper"), "chip words: \(chip.label)")
         shot("subagents-chip")
@@ -355,6 +529,13 @@ final class ActivityEndToEndTests: XCTestCase {
         shot("subagents-detail")
         field.tap()
         field.typeText("Only open issues")
+        // Returning through the overview and collapsing the pill preserves the selected helper and its draft.
+        app.buttons["chat.shelf.summary"].tap()
+        app.buttons["chat.shelf.summary"].tap()
+        XCTAssertEqual(app.buttons["chat.shelf.summary"].value as? String, "collapsed")
+        app.activityCategory("subagents").tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        XCTAssertEqual(field.value as? String, "Only open issues")
         app.buttons["chat.subagent.steer"].tap()
         let feedback = element(app, "chat.subagent.feedback")
         XCTAssertTrue(waitUntil(timeout: 5) { feedback.exists && feedback.label == "Queued for the next checkpoint" }, "steer queued")
@@ -413,7 +594,7 @@ final class ActivityEndToEndTests: XCTestCase {
         try event(account, "subagent.complete", ["goal": goals[1], "task_count": 3, "task_index": 1, "subagent_id": "sa_m1", "status": "completed",
                                                  "summary": "3 open issues are tagged 2.4: #412 export crash, #418 sync stall, #421 dark mode contrast.", "duration_seconds": 6.4])
         try account.control("/__fixture/tail", ["subagent_id": "sa_m0", "text": (["$ git log v2.3..HEAD --oneline"] + (1...20).map { "a1b2c\($0) Change number \($0)" }).joined(separator: "\n"), "truncated": false])
-        let chip = element(app, "chat.shelf.subagents")
+        let chip = app.activityCategory("subagents")
         XCTAssertTrue(waitUntil(timeout: 5) { chip.exists && chip.label.hasPrefix("2 helpers · 1 done") }, "chip words: \(chip.label)")
         shot("subagents-many-chip")
         chip.tap()
@@ -445,7 +626,7 @@ final class ActivityEndToEndTests: XCTestCase {
         try event(account, "subagent.start", ["goal": goal, "task_count": 1, "task_index": 0, "subagent_id": "sa_kb", "status": "running"])
         try account.control("/__fixture/tail", ["subagent_id": "sa_kb", "text": (1...80).map { "line \($0) of the child's own transcript" }.joined(separator: "\n"),
                                                 "truncated": true])
-        let chip = element(app, "chat.shelf.subagents")
+        let chip = app.activityCategory("subagents")
         XCTAssertTrue(chip.waitForExistence(timeout: 3))
         chip.tap()
         let row = labelled(app, containing: goal)
@@ -480,7 +661,7 @@ final class ActivityEndToEndTests: XCTestCase {
         XCTAssertEqual(try calls(account, "subagent.list").count, idle, "no polls while no child is live")
         let goal = "Index the docs"
         try event(account, "subagent.start", ["goal": goal, "task_count": 1, "task_index": 0, "subagent_id": "sa_poll", "status": "running"])
-        XCTAssertTrue(element(app, "chat.shelf.subagents").waitForExistence(timeout: 3))
+        XCTAssertTrue(app.activityCategory("subagents").waitForExistence(timeout: 3))
         Thread.sleep(forTimeInterval: 20)
         // At once, then 5 s, doubling while nothing changes (0, 5, 15 s): a flat 5 s poll would make 5 or more.
         let polled = try calls(account, "subagent.list").count - idle
@@ -502,19 +683,32 @@ final class ActivityEndToEndTests: XCTestCase {
         openChat(app)
         try event(account, "todo.updated", ["todos": [["id": "1", "content": "Read the changelog", "status": "in_progress"],
                                                       ["id": "2", "content": "Draft the notes", "status": "pending"]], "revision": 1])
-        let chip = element(app, "chat.shelf.tasks")
+        let chip = app.activityCategory("tasks")
         XCTAssertTrue(chip.waitForExistence(timeout: 3))
         XCTAssertTrue(chip.label.hasPrefix("Tasks 0/2"), chip.label)
-        XCTAssertEqual(chip.value as? String, "expanded", "the live list opens by default")
+        XCTAssertEqual(chip.value as? String, "collapsed", "a new plan stays folded in the overview")
+        chip.tap()
+        XCTAssertEqual(chip.value as? String, "expanded")
         XCTAssertTrue(labelled(app, containing: "Draft the notes, pending").exists)
         shot("tasks-card")
+        // Establish live work before the plan finishes. Otherwise returning from its detail can hide a history-only
+        // pill before the asynchronous helper-start event arrives, leaving its new overview correctly collapsed.
+        try event(account, "subagent.start", ["goal": "Check the notes", "task_count": 1, "task_index": 0,
+                                              "subagent_id": "sa_history", "status": "running"])
+        let helper = app.activityCategory("subagents")
+        XCTAssertTrue(helper.waitForExistence(timeout: 4))
+        XCTAssertTrue(helper.label.contains("1 helper"), "the app has observed the independently running helper")
+        app.activityCategory("tasks").tap()
         try event(account, "todo.updated", ["todos": [["id": "1", "content": "Read the changelog", "status": "completed"],
                                                       ["id": "2", "content": "Draft the notes", "status": "completed"]], "revision": 3])
         XCTAssertTrue(waitUntil(timeout: 2) { chip.label.hasPrefix("Tasks 2/2") })
         try event(account, "todo.updated", ["todos": [["id": "1", "content": "Read the changelog", "status": "pending"]], "revision": 2])
         XCTAssertTrue(chip.label.hasPrefix("Tasks 2/2"), "an older revision changes nothing")
+        // Finished plan history stays reachable alongside other live work, not as an idle pinned surface.
+        app.openActivityOverview()
         let previous = element(app, "chat.shelf.previousTasks")
-        XCTAssertTrue(previous.waitForExistence(timeout: 7), "the finished list lingers 4 s, then Previous tasks")
+        XCTAssertTrue(waitUntil(timeout: 8) { previous.exists && previous.label.hasPrefix("Previous tasks 2/2") },
+                      "the finished list lingers 4 s, then appears in the overview as Previous tasks")
         XCTAssertTrue(previous.label.hasPrefix("Previous tasks 2/2"), previous.label)
         XCTAssertEqual(previous.value as? String, "collapsed")
         XCTAssertTrue(waitUntil(timeout: 2) { !chip.isHittable })
@@ -522,6 +716,10 @@ final class ActivityEndToEndTests: XCTestCase {
         previous.tap()
         XCTAssertTrue(labelled(app, containing: "Draft the notes, completed").waitForExistence(timeout: 3))
         shot("previous-tasks-card")
+        try event(account, "subagent.complete", ["goal": "Check the notes", "task_count": 1, "task_index": 0,
+                                                 "subagent_id": "sa_history", "status": "completed"])
+        app.buttons["chat.shelf.summary"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["chat.shelf.summary"].exists })
     }
 
     // MARK: (17) Goal
@@ -532,7 +730,7 @@ final class ActivityEndToEndTests: XCTestCase {
         try account.control("/__fixture/control", ["profile": "default", "control": ["goal": Self.goal], "emit": false])
         let app = launch(account)
         openChat(app)
-        let chip = element(app, "chat.shelf.goal")
+        let chip = app.activityCategory("goal")
         XCTAssertTrue(chip.waitForExistence(timeout: 5), "the goal chip shows (read on open)")
         XCTAssertTrue(chip.label.hasPrefix("Goal active · Turn 3/20"), chip.label)
         shot("goal-chip")
@@ -558,6 +756,7 @@ final class ActivityEndToEndTests: XCTestCase {
         // Add a criterion.
         let add = app.buttons["Add Criterion"].firstMatch
         XCTAssertTrue(add.waitForExistence(timeout: 3))
+        app.revealActivityAction(add, in: "goal")
         add.tap()
         let field = app.textFields["goal.criterion-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 3))
@@ -577,7 +776,9 @@ final class ActivityEndToEndTests: XCTestCase {
         XCTAssertEqual((try calls(account, "session.control").last?["params"] as? [String: Any])?["args"] as? [String: String], ["text": "Publish"])
         XCTAssertTrue(waitUntil(timeout: 3) { self.labelled(app, containing: "Criteria · 3").exists })
         // Remove criterion 2 (confirm).
-        app.buttons.matching(NSPredicate(format: "label == %@", "Remove criterion")).element(boundBy: 1).tap()
+        let remove = app.buttons.matching(NSPredicate(format: "label == %@", "Remove criterion")).element(boundBy: 1)
+        app.revealActivityAction(remove, in: "goal")
+        remove.tap()
         app.alerts.buttons["Remove Criterion 2"].tap()
         XCTAssertTrue(waitUntil(timeout: 5) { (try? self.calls(account, "session.control").last?["params"] as? [String: Any])?["action"] as? String == "subgoal.remove" })
         XCTAssertEqual((try calls(account, "session.control").last?["params"] as? [String: Any])?["args"] as? [String: Int], ["index": 2])
@@ -592,21 +793,34 @@ final class ActivityEndToEndTests: XCTestCase {
 
     @MainActor func test22_DelegationFoldsShowStepsAndDiff() throws {
         let account = try FixtureAccount.load()
+        let holdKey = "delegation-edit-\(UUID().uuidString)"
+        cleanUpSyntheticTurnsAfterTest(account, gateKey: holdKey)
         try reset(account)
-        try account.control("/__fixture/plan", ["plans": [Self.delegationPlan]])
+        var plan = Self.delegationPlan
+        var events = try XCTUnwrap(plan["events"] as? [[String: Any]])
+        let completion = try XCTUnwrap(events.firstIndex { $0["type"] as? String == "subagent.complete" })
+        events[completion]["waitFor"] = holdKey
+        events[completion]["waitTimeout"] = 45
+        plan["events"] = events
+        try account.control("/__fixture/plan", ["plans": [plan]])
         let app = launchAndSend(account, "Write the release notes", args: ["-hq.chat.toolCallsAfterReply", "hide", "-HQDebugMotionProbe", "YES"])
         let card = element(app, "chat.delegate-card")
         XCTAssertTrue(card.waitForExistence(timeout: 6), "the delegate card shows")
-        XCTAssertTrue(element(app, "chat.shelf.subagents").waitForExistence(timeout: 4), "the subagents chip shows")
-        XCTAssertTrue(element(app, "chat.shelf.tasks").waitForExistence(timeout: 5), "the tasks chip shows")
+        XCTAssertTrue(app.activityCategory("subagents").waitForExistence(timeout: 4), "the subagents chip shows")
+        XCTAssertTrue(app.activityCategory("tasks").waitForExistence(timeout: 5), "the tasks chip shows")
         shot("delegation-live")
+        // Category inspection opened the overview. Restore the folded dock before measuring the transcript fold.
+        app.buttons["chat.shelf.summary"].tap()
+        XCTAssertEqual(app.buttons["chat.shelf.summary"].value as? String, "collapsed")
         let edited = app.tables["chat.table"].buttons.matching(NSPredicate(format: "label BEGINSWITH 'Edit'")).firstMatch
         XCTAssertTrue(edited.waitForExistence(timeout: 8), "the file edit shows while the turn runs")
+        XCTAssertTrue(app.buttons["composer.stop"].exists, "the live-edit inspection happened before reply completion")
+        try event(account, "fixture.release", ["key": holdKey])
         XCTAssertTrue(labelled(app, containing: "Done: 14 changes").waitForExistence(timeout: 12), "the reply")
         XCTAssertTrue(waitUntil(timeout: 4) { !edited.exists }, "Hide folds the steps away")
         Thread.sleep(forTimeInterval: 0.8)
         // Every frame of the fold (spec §16 check 22, owner on 188): no row changes height; the reply moves once at most —
-        // with its action row, in the slide — never back and forth, never a jump.
+        // never back and forth, never a jump. The reply's actions now live in its hold menu, not a transcript row.
         let m = motion(app)
         XCTAssertEqual(m["mode"] as? String, "fold", "the fold was sampled: \(m)")
         XCTAssertEqual(number(m, "settled"), 1, "…to the end of its slide: \(m)")
@@ -619,13 +833,14 @@ final class ActivityEndToEndTests: XCTestCase {
             XCTAssertLessThan(number(m, "watchStep"), number(m, "watchDy") - 0.5, "the reply never jumped the whole way at once: \(m)")
             XCTAssertGreaterThanOrEqual(number(m, "watchMoves"), 3, "the reply slid over several frames: \(m)")
         }
-        XCTAssertTrue(element(app, "chat.copy-reply").exists, "the action row came with the fold")
+        XCTAssertFalse(element(app, "chat.copy-reply").exists, "the owner-removed action row stays absent after the fold")
         XCTAssertTrue(card.exists, "the card stays")
         XCTAssertTrue(labelled(app, containing: "Read the changelog, done").exists, "the first child done")
         XCTAssertTrue(labelled(app, containing: "Check open issues, failed").exists, "the second child failed")
         shot("delegation-folded")
         // Show Steps from the reply's menu.
         labelled(app, containing: "Done: 14 changes").press(forDuration: 1.0)
+        XCTAssertTrue(element(app, "message.copy").waitForExistence(timeout: 3), "Copy remains available in the reply's hold menu")
         let show = app.buttons["Show Steps"]
         XCTAssertTrue(show.waitForExistence(timeout: 3), "the reply offers Show Steps")
         show.tap()
@@ -899,7 +1114,7 @@ final class ActivityEndToEndTests: XCTestCase {
         let label = probe.label
         let before = labelled(app, containing: label).frame.minY
         try event(account, "subagent.start", ["goal": "Index the docs", "task_count": 1, "task_index": 0, "subagent_id": "sa_jump", "status": "running"])
-        let chip = element(app, "chat.shelf.subagents")
+        let chip = element(app, "chat.shelf.summary")
         XCTAssertTrue(chip.waitForExistence(timeout: 3))
         Thread.sleep(forTimeInterval: 0.6)
         let held = labelled(app, containing: label)
@@ -934,7 +1149,7 @@ final class ActivityEndToEndTests: XCTestCase {
         XCTAssertTrue(labelled(app, containing: "Synthetic history row 39.").waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 1.5)
         try event(account, "subagent.start", ["goal": "Index the docs", "task_count": 1, "task_index": 0, "subagent_id": "sa_end", "status": "running"])
-        let chip = element(app, "chat.shelf.subagents")
+        let chip = element(app, "chat.shelf.summary")
         XCTAssertTrue(chip.waitForExistence(timeout: 3))
         Thread.sleep(forTimeInterval: 0.8)
         var m = motion(app)
@@ -1238,11 +1453,11 @@ final class ActivityEndToEndTests: XCTestCase {
         openChat(app)
         try event(account, "subagent.start", ["goal": "Read the changelog since 2.3 and list the user-facing changes", "task_count": 1,
                                               "task_index": 0, "subagent_id": "sa_ax", "status": "running"])
-        let chip = element(app, "chat.shelf.subagents")
+        let chip = app.activityCategory("subagents")
         XCTAssertTrue(chip.waitForExistence(timeout: 5))
-        XCTAssertTrue(element(app, "chat.shelf.goal").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.activityCategory("goal").waitForExistence(timeout: 5))
         shot("large-text-shelf")
-        chip.tap()
+        app.activityCategory("subagents").tap()
         Thread.sleep(forTimeInterval: 0.8)
         shot("large-text-subagents-card")
         try event(account, "subagent.complete", ["goal": "x", "task_count": 1, "task_index": 0, "subagent_id": "sa_ax", "status": "completed"])

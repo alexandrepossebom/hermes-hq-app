@@ -81,30 +81,31 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { self.groupTitles(again) == ["Research", "Hermes"] }, "\(groupTitles(again))")
         shot(again, "order-group-by-bot")
 
-        // Sort By Manual (Group By Date): a row's menu moves it inside its group.
+        // Sort By Manual (Group By Recent): a row's menu moves it inside Recent.
+        // [sessions-fresh] Pinned stays first; unread chats remain in Recent, not a New for You section.
         openFilter(again)
         tapFilter(again, "group", "group.date")
         closeFilter(again)
         openFilter(again)
         tapFilter(again, "sort", "sort.manual")
         closeFilter(again)
-        XCTAssertTrue(waitUntil(8) { Array(self.order(again).prefix(4)) == ["s-budget", "s-release", "s-garden", "s-trip"] }, "\(order(again))")
+        XCTAssertTrue(waitUntil(8) { Array(self.order(again).prefix(4)) == ["s-release", "s-garden", "s-trip", "s-budget"] }, "\(order(again))")
         openMenu(again, row(again, "s-trip"), until: "Move Up")
         again.buttons["Move Up"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(6) { Array(self.order(again).prefix(4)) == ["s-budget", "s-release", "s-trip", "s-garden"] }, "\(order(again))")
+        XCTAssertTrue(waitUntil(6) { Array(self.order(again).prefix(4)) == ["s-release", "s-trip", "s-garden", "s-budget"] }, "\(order(again))")
         shot(again, "order-manual-moved")
 
         // A drag puts it back (hold, then drag over the other row).
         dragRow(again, row(again, "s-garden"), onto: row(again, "s-trip"))
-        XCTAssertTrue(waitUntil(6) { Array(self.order(again).prefix(4)) == ["s-budget", "s-release", "s-garden", "s-trip"] }, "dragged: \(order(again))")
+        XCTAssertTrue(waitUntil(6) { Array(self.order(again).prefix(4)) == ["s-release", "s-garden", "s-trip", "s-budget"] }, "dragged: \(order(again))")
 
         // Manual and the order are kept across launches.
         openMenu(again, row(again, "s-garden"), until: "Move Down")
         again.buttons["Move Down"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(6) { Array(self.order(again).prefix(4)) == ["s-budget", "s-release", "s-trip", "s-garden"] }, "\(order(again))")
+        XCTAssertTrue(waitUntil(6) { Array(self.order(again).prefix(4)) == ["s-release", "s-trip", "s-garden", "s-budget"] }, "\(order(again))")
         again.terminate()
         again = launch(keepView: true)
-        XCTAssertTrue(waitUntil(15) { Array(self.order(again).prefix(4)) == ["s-budget", "s-release", "s-trip", "s-garden"] }, "after relaunch: \(order(again))")
+        XCTAssertTrue(waitUntil(15) { Array(self.order(again).prefix(4)) == ["s-release", "s-trip", "s-garden", "s-budget"] }, "after relaunch: \(order(again))")
         openFilter(again)
         XCTAssertTrue(filterWords(again, "sort").contains("Manual"), filterWords(again, "sort"))
         closeFilter(again)
@@ -114,7 +115,7 @@ extension SessionsTests {
         let app = launch(drag: true)
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         dragRow(app, row(app, "s-trip"), onto: row(app, "s-garden"))
-        XCTAssertTrue(waitUntil(6) { Array(self.order(app).prefix(4)) == ["s-budget", "s-release", "s-trip", "s-garden"] }, "dragged: \(order(app))")
+        XCTAssertTrue(waitUntil(6) { Array(self.order(app).prefix(4)) == ["s-release", "s-trip", "s-garden", "s-budget"] }, "dragged: \(order(app))")
         shot(app, "order-dragged")
         openFilter(app)
         XCTAssertTrue(filterWords(app, "sort").contains("Manual"), filterWords(app, "sort"))

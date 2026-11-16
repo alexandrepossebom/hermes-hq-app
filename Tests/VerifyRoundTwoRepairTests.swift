@@ -83,26 +83,27 @@ struct VerifyRoundTwoRepairTests {
         }
     }
 
-    @Test func openedCardsGiveWayWhenTheShelfRunsOutOfRoom() {
+    @Test func oneDetailGivesWayWhenTheShelfRunsOutOfRoom() {
         let shelf = ActivityShelfView(frame: .zero)
         let goal = shelf.piece(.goal) { ShelfPieceView(kind: .goal, body: FixedBody(height: 300)) }
         let tasks = shelf.piece(.tasks) { ShelfPieceView(kind: .tasks, body: FixedBody(height: 160)) }
         let subagents = shelf.piece(.subagents) { ShelfPieceView(kind: .subagents, body: FixedBody(height: 10)) }
         for piece in [goal, tasks, subagents] { piece.setPresent(true, animated: false) }
+        #expect(shelf.height(for: 386) == 44, "all categories share one collapsed pill")
+        shelf.expanded = true
         goal.setOpen(true, animated: false)
-        tasks.setOpen(true, animated: false)
         shelf.maxCardHeight = 280
         let natural = shelf.height(for: 386)
-        #expect(natural == 280 + (44 + 160) + 44 + 2 * ActivityShelfView.gap)
-        shelf.maxHeight = 300
-        #expect(shelf.height(for: 386) <= 300.5, "the shelf fits its room")
+        #expect(natural == 280)
+        shelf.maxHeight = 200
+        #expect(shelf.height(for: 386) <= 200.5, "the detail fits its room")
         let frames = shelf.targetFrames(width: 386)
-        #expect(frames[.subagents]?.height == 44, "a folded chip never shrinks")
-        #expect((frames[.goal]?.height ?? 0) >= 44 + ActivityShelfView.minCardBody - 0.5)
-        #expect((frames[.tasks]?.height ?? 0) >= 44 + ActivityShelfView.minCardBody - 0.5)
+        #expect(frames.count == 1, "only the selected category's detail is on screen")
+        #expect(frames[.goal]?.width == 300, "ordinary details stay compact")
+        #expect(frames[.goal]?.height == 156)
         shelf.maxHeight = 100
-        #expect(shelf.height(for: 386) == 2 * (44 + ActivityShelfView.minCardBody) + 44 + 2 * ActivityShelfView.gap,
-                "no further than a header and a little body each")
+        #expect(shelf.height(for: 386) == 88 + ActivityShelfView.minCardBody,
+                "both headers and a usable body viewport remain reachable even in very little room")
     }
 
     // MARK: Activity: a chat not bound yet shows what an earlier open of it knew

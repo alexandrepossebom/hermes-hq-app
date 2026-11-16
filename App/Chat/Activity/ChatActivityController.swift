@@ -34,9 +34,10 @@ import UIKit
     private var selectedSnapshot: SubagentProgress?
     /// The selected child that ended and was announced (once).
     private var announcedEnd: String?
-    /// You folded the live Tasks card: a new list doesn't open it again until your next turn starts.
-    private var userFoldedTasks = false
-    private var wasRunning = false
+    /// Preview-only providers have no ActivityStore. Real chats keep acknowledgments in their account's store.
+    private var readHelperFailures: Set<String> = []
+    /// The last displayed unread snapshot; the ActivityStore owns its lifetime across turns and screens.
+    private var unreadHelperFailures: [String: SubagentProgress] = [:]
     /// A done goal or a finished Previous tasks list you hid from the shelf (memory only, while the app runs; no
     /// gateway call). Keyed by the bot, the goal's title and start, or the list's items.
     private static var hiddenPieces: Set<String> = []
@@ -130,6 +131,26 @@ import UIKit
         view.insertSubview(shelf, belowSubview: chat.composer)
         let height = shelf.heightAnchor.constraint(equalToConstant: 0)
         shelfHeight = height
+        shelf.onMetricsChange = { [weak self] in self?.updateShelf(animated: false) }
+        shelf.onToggle = { [weak self] in
+            guard let self else { return }
+            // A detail returns to the overview first. Folding never clears helper selection or drafts.
+            if !self.openPieces.isEmpty {
+                self.acknowledgeOpenHelperFailure()
+                self.subagentsBody.endEditing(true)
+                self.openPieces.removeAll()
+            } else {
+                self.shelf.expanded.toggle()
+                if self.shelf.expanded, let urgent = self.shelf.summary.singleAttentionKind {
+                    if urgent == .goal { self.openPieces = [.goal] }
+                    if urgent == .subagents {
+                        self.openPieces = [.subagents]
+                        self.selectedSubagent = self.unreadHelperFailures.values.sorted { $0.id < $1.id }.first?.id
+                    }
+                }
+            }
+            self.updateShelf(animated: true)
+        }
         sideInset = chat.dockSideInset
         shelfSides = [shelf.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: sideInset),
                       view.trailingAnchor.constraint(equalTo: shelf.trailingAnchor, constant: sideInset)]
@@ -165,6 +186,7 @@ import UIKit
     // MARK: Screen lifecycle
 
     func setAttached(_ on: Bool) {
+        if attached && !on { acknowledgeOpenHelperFailure() }
         attached = on
         onAttachedChange?(on)       // [browser]
         reportVisibility(force: true)
@@ -686,9 +708,9 @@ import UIKit
 
     private func toggle(_ kind: ShelfPieceKind) {
         if kind == .browser { onBrowserChip?(); return }    // [browser]
-        if openPieces.contains(kind) { openPieces.remove(kind) } else { openPieces.insert(kind) }
-        if kind == .subagents && !openPieces.contains(.subagents) { selectedSubagent = nil }
-        if kind == .tasks { userFoldedTasks = !openPieces.contains(.tasks) }
+        acknowledgeOpenHelperFailure()
+        subagentsBody.endEditing(true)
+        openPieces = openPieces.contains(kind) ? [] : [kind]
         updateShelf(animated: true)
     }
 
@@ -708,25 +730,34 @@ import UIKit
         updateShelf(animated: true)
     }
 
-    private var presentBefore: Set<ShelfPieceKind> = []
-
     func updateShelf(animated: Bool) {
         guard installed, let p = provider else { return }
         let a = p.activity
         let now = Date().timeIntervalSince1970
         let idle = !chat.session.isRunning
-        // A new turn starts: a fold of the Tasks card from the last one no longer holds.
-        if !idle && !wasRunning { userFoldedTasks = false }
-        wasRunning = !idle
         var goal = a.control.capability == .unsupported ? nil : a.goal
         if let g = goal, g.status == .done, Self.hiddenPieces.contains(hideKey(g)) { goal = nil }
         let live = a.liveSubagents
         // The card lists this turn's helpers, finished ones too (with their results), while any runs; once all are done
         // it stays while you have one open, until you fold it or the next message clears them. A finished child only
         // keeps its Steer row while words you typed to it are still in the field.
-        let turn = a.subagents.filter { $0.isLive || !$0.isDelegateStandIn }
+        if p.activityStore != nil {
+            unreadHelperFailures = Dictionary(uniqueKeysWithValues: a.unreadHelperFailures.map { ($0.id, $0) })
+        } else {
+            for child in a.subagents {
+                if child.status == .failed && !readHelperFailures.contains(child.id) {
+                    unreadHelperFailures[child.id] = child
+                } else {
+                    unreadHelperFailures.removeValue(forKey: child.id)
+                }
+            }
+        }
+        var turn = a.subagents.filter { $0.isLive || !$0.isDelegateStandIn || $0.status == .failed }
+        let rosterIds = Set(turn.map(\.id))
+        turn += unreadHelperFailures.values.filter { !rosterIds.contains($0.id) }.sorted { $0.id < $1.id }
         let keepOpen = openPieces.contains(.subagents) && selectedSubagent.map { id in turn.contains { $0.id == id } } == true
-        var shown = !live.isEmpty || keepOpen ? turn : []
+        let unreadFailures = turn.filter { unreadHelperFailures[$0.id] != nil }
+        var shown = !live.isEmpty || keepOpen ? turn : unreadFailures
         var ended: String?
         if let sel = selectedSubagent {
             if let child = turn.first(where: { $0.id == sel }) {
@@ -757,12 +788,9 @@ import UIKit
         if previousShown { present.insert(.previousTasks) }
         if !backgroundTasks.isEmpty { present.insert(.background) }   // [background]
         if browserChip != nil { present.insert(.browser) }      // [browser]
-        // The live task list opens by default each time it appears (unless you folded it this turn); the others start
-        // folded.
-        if present.contains(.tasks) && !presentBefore.contains(.tasks) && !userFoldedTasks { openPieces.insert(.tasks) }
-        for kind in presentBefore.subtracting(present) where kind != .tasks { openPieces.remove(kind) }
-        if !present.contains(.subagents) { selectedSubagent = nil }
-        presentBefore = present
+        // New categories never open the overview or a detail. Their independent lifetimes are unchanged.
+        openPieces.formIntersection(present)
+        if present.isEmpty && idle { shelf.expanded = false }
 
         if let goal {
             let piece = pieceView(.goal)
@@ -780,7 +808,7 @@ import UIKit
         }
         if let todos = a.liveTodos {
             let piece = pieceView(.tasks)
-            let spinning = todos.contains { $0.status == .inProgress }
+            let spinning = !idle && todos.contains { $0.status == .inProgress }
             piece.header.set(words: TodoRules.chipWords(todos, previous: false), spinner: spinning ? ChatPalette.label2 : nil)
             tasksBody.update(todos, historical: false)
         }
@@ -834,6 +862,56 @@ import UIKit
             piece.header.accessibilityHint = "Opens the bot’s browser"
             piece.header.accessibilityValue = nil
         }
+        shelf.summary = ActivityPill(entries: present.map { kind in
+            let piece = pieceView(kind)
+            var words = piece.header.label.text ?? "Activity"
+            var accessibilityWords = words
+            var running = piece.header.spinner != nil
+            var attention = false
+            var historical = false
+            switch kind {
+            case .background:
+                words = "\(backgroundTasks.count) background"
+                accessibilityWords = words
+            case .subagents:
+                words = live.isEmpty ? "Helpers finished" : "\(live.count) \(live.count == 1 ? "helper" : "helpers")"
+                historical = live.isEmpty
+                if !unreadFailures.isEmpty {
+                    attention = true
+                    words = "\(unreadFailures.count) \(unreadFailures.count == 1 ? "helper" : "helpers") failed"
+                    accessibilityWords = words + ", " + accessibilityWords
+                }
+            case .goal:
+                if let goal {
+                    historical = goal.status == .done
+                    attention = ControlRules.tone(goal) == .blocked || ControlRules.tone(goal) == .waiting
+                    if attention { words = ControlRules.tone(goal) == .blocked ? "Goal blocked" : "Goal waiting" }
+                    if let error = a.control.actionError {
+                        attention = true
+                        words = "Goal needs attention"
+                        accessibilityWords += ", " + error
+                    }
+                    running = !idle && goal.status == .active && !attention
+                }
+            case .browser:
+                attention = browserChip?.asking == true
+                if attention { words = "Browser needs you" }
+                running = !idle && !attention
+            case .tasks:
+                historical = a.liveTodos?.allSatisfy { $0.status == .completed || $0.status == .cancelled } == true
+            case .previousTasks:
+                historical = a.retainedTodos.allSatisfy { $0.status == .completed || $0.status == .cancelled }
+            }
+            return .init(kind: kind, words: words, isRunning: running, needsAttention: attention,
+                         accessibilityWords: accessibilityWords, isHistorical: historical)
+        }, parentIsRunning: p.statusIsWorking,
+            currentStep: idle ? nil : p.providerWait ?? p.liveStep?.statusWords ?? "Working")
+        if !shelf.summary.shouldShow(keepingDetailsOpen: shelf.expanded && !openPieces.isEmpty) {
+            present.removeAll()
+            openPieces.removeAll()
+            shelf.summary.entries.removeAll()
+            shelf.expanded = false
+        }
         // Timers tick while the subagents card is open.
         if openPieces.contains(.subagents) && present.contains(.subagents) {
             ActivityClock.shared.subscribe(self) { [weak self] in
@@ -853,37 +931,21 @@ import UIKit
         let view = chat.view!
         shelf.setNeedsLayout()          // words may have changed (a chip's width)
         let motion = animated && view.window != nil && chat.shelfMayAnimate && !HQMotion.reduced
-        var entering: [ShelfPieceView] = []
         for kind in ShelfPieceKind.allCases {
             guard let piece = shelf.pieces[kind] else { continue }
             let show = present.contains(kind)
             if show {
-                if !piece.isPresent { entering.append(piece) }
-                piece.setOpen(openPieces.contains(kind), animated: motion && piece.isPresent)
-                piece.setPresent(true, animated: motion)
+                piece.setOpen(openPieces.contains(kind), animated: false)
+                piece.setPresent(true, animated: false)
             } else if piece.isPresent {
-                // A leaving piece fades where it stands on screen (it keeps its shape; the shelf moves under it).
-                piece.leavingFromBottom = shelf.piecesHeight - (piece.center.y - piece.bounds.height / 2)
-                piece.setPresent(false, animated: motion)
+                piece.setOpen(false, animated: false)
+                piece.setPresent(false, animated: false)
             }
         }
         shelf.maxCardHeight = maxCardHeight()
         shelf.maxHeight = shelfRoom()
         let width = shelfWidth
         let height = shelf.height(for: width)
-        // An arriving piece starts at its own place in the stack (no growing out of the corner): it rides the shelf's
-        // top up with the rows while it fades and scales in.
-        if !entering.isEmpty {
-            let targets = shelf.targetFrames(width: width)
-            UIView.performWithoutAnimation {
-                for piece in entering {
-                    guard let frame = targets[piece.kind] else { continue }
-                    piece.bounds = CGRect(origin: .zero, size: frame.size)
-                    piece.center = CGPoint(x: frame.midX, y: frame.midY)
-                    piece.layoutIfNeeded()
-                }
-            }
-        }
         let changed = abs((shelfHeight?.constant ?? 0) - height) > 0.25
         #if DEBUG
         if changed { motionProbe?.note("shelf \(shelfHeight?.constant ?? 0) → \(height) present=\(present.map(\.rawValue).sorted())") }
@@ -904,11 +966,9 @@ import UIKit
             animator.startAnimation()
         } else if changed {
             UIView.performWithoutAnimation(apply)
-        } else if motion {
-            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState]) { self.shelf.layoutIfNeeded() }
         } else {
-            shelf.layoutIfNeeded()
+            // Counts and elapsed times do not restart a shelf spring on every poll.
+            UIView.performWithoutAnimation { shelf.layoutIfNeeded() }
         }
     }
 
@@ -962,7 +1022,7 @@ import UIKit
     /// pass, so the card shrinks with the keyboard's own animation instead of ending under the bar and snapping later.
     func layoutChanged() {
         // UX study #230: folded chips follow the room too (they keep to one line, then scroll).
-        guard installed, !inLayoutChange, !shelf.visiblePieces.isEmpty else { return }
+        guard installed, !inLayoutChange, shelf.hasActivity else { return }
         let cap = maxCardHeight(), room = shelfRoom()
         guard abs(cap - shelf.maxCardHeight) > 0.5 || abs(room - shelf.maxHeight) > 0.5 else { return }
         inLayoutChange = true
@@ -1007,14 +1067,15 @@ import UIKit
         let queueShown = !(queueCard?.isHidden ?? true)
         // [Mac UI check 2026-11-13] V8: the Mac's arrow sits over the message box's right end now, as the iPhone's does.
         let jumpLeading = view.bounds.width - (DeviceWord.isMac ? ChatMetrics.composerSideDown : ChatMetrics.jumpTrailing) - jumpWidth
-        let crowded = shelf.chipsTrailingEdge(in: view) > jumpLeading - 8 || estimatedChipsCrowd(jumpLeading: jumpLeading)
+        // Use the new width, not the previous frame (especially when collapsing an expanded overview).
+        let crowded = estimatedChipsCrowd(jumpLeading: jumpLeading)
         let above = shelfHeight > 0 && (shelf.hasOpenCard || queueShown || ShelfText.isLarge || crowded)
         jumpBottom.constant = -ChatMetrics.jumpAboveComposer - (above ? shelfHeight + ActivityShelfView.gap : 0) - jumpLift
     }
 
     /// Before the pieces are laid out: the widest chip's estimated trailing edge.
     private func estimatedChipsCrowd(jumpLeading: CGFloat) -> Bool {
-        let widest = shelf.visiblePieces.filter { !$0.isOpen }.map(\.header.fittingWidth).max() ?? 0
+        let widest = shelf.collapsedWidth(for: shelfWidth)
         return sideInset + (shelfWidth + widest) / 2 > jumpLeading - 8
     }
 
@@ -1107,6 +1168,7 @@ import UIKit
     private func wireSubagents() {
         subagentsBody.onSelect = { [weak self] id in
             guard let self else { return }
+            if id != self.selectedSubagent { self.acknowledgeOpenHelperFailure() }
             self.selectedSubagent = id
             self.updateShelf(animated: true)
             if id != nil { DispatchQueue.main.async { [weak self] in self?.revealSelectedChild() } }
@@ -1120,6 +1182,17 @@ import UIKit
             self.updateShelf(animated: true)
             if self.subagentsBody.isEditingSteer { DispatchQueue.main.async { [weak self] in self?.revealSteerRow() } }
         }
+    }
+
+    private func acknowledgeOpenHelperFailure() {
+        guard openPieces.contains(.subagents), let id = selectedSubagent,
+              unreadHelperFailures[id] != nil else { return }
+        if let p = provider, let store = p.activityStore, let rid = p.activityRuntimeId ?? p.activity.runtimeId {
+            store.acknowledgeHelperFailure(runtimeId: rid, subagentId: id)
+        } else {
+            readHelperFailures.insert(id)
+        }
+        unreadHelperFailures.removeValue(forKey: id)
     }
 
     private func steer(_ id: String, _ text: String) {

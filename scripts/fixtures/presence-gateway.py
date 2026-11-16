@@ -52,7 +52,14 @@ def fresh():
 
 P = fresh()
 META, REVS = {}, {}
-SEED_SIDS = dict(voice.SIDS)
+# This fixture's UI tests name these bots. The imported reference predates that
+# demo roster; do not inherit its profile keys or partially rename only the list.
+SEED_SIDS = {'default': '20260929_120000_aabbcc01', 'ivy': '20260929_120000_aabbcc02'}
+voice.SIDS = dict(SEED_SIDS)
+base.MESSAGES = {p: [{'role': 'assistant', 'content': 'Synthetic presence chat.',
+                     'row_id': 1, 'timestamp': 1790852400}] for p in SEED_SIDS}
+base.RUNNING = {p: False for p in SEED_SIDS}
+base.CANCEL = {p: threading.Event() for p in SEED_SIDS}
 
 
 def display(profile):
