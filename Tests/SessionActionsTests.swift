@@ -163,7 +163,7 @@ import Testing
         return .object(row)
     }
 
-    nonisolated private static func sidebar(_ rows: [JSONValue]) -> Data {
+    nonisolated static func sidebar(_ rows: [JSONValue]) -> Data {
         try! (["recents": ["sessions": .array(rows)], "cron": ["sessions": []], "messaging": ["sessions": []]] as JSONValue).encoded()
     }
 

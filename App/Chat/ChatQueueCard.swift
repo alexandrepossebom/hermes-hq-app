@@ -15,7 +15,7 @@ final class ChatQueueCard: UIView {
     var onStopAndSend: ((String) -> Void)?
     var onDelete: ((String) -> Void)?
     var canSendNow: ((QueuedMessage) -> Bool)?
-    /// Whether Edit is offered for a row (typed words only).
+    /// Whether Edit is offered for a row (its typed words; photos and files beside them stay as they are).
     var canEdit: ((QueuedMessage) -> Bool)?
     private var running = false
     private(set) var items: [QueuedMessage] = []
@@ -337,7 +337,7 @@ final class ChatQueueCard: UIView {
     }
 
     /// The web's menu (spec §15.3), shared by ⋯ and the row's words: Send Now (when offered), Stop and Send (while a
-    /// reply runs), Edit (typed words only; off while another row is being edited), Delete (off while it is going out).
+    /// reply runs), Edit (a row's typed words; off while another row is being edited), Delete (off while it is going out).
     /// While a row is being edited the sends wait for Save or Cancel.
     private func rowMenu(_ item: QueuedMessage, sending: Bool) -> UIMenu {
         var children: [UIMenuElement] = []

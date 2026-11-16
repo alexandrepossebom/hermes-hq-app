@@ -161,6 +161,36 @@ final class ServerRequestCenterTests {
         #expect(prompts.clarify == nil)
     }
 
+    /// A request that was already open when this device attached: a chat's `session.resume` re-delivers it before the
+    /// chat binds its runtime id, so the centre holds it for a runtime it can't name yet. The rows are told once it
+    /// can (a tester, 2026-11-15: "a bot waiting for an action approval sometimes has no attention dot"), again when
+    /// a new chat gets its stored id while it waits, and when the wait ends.
+    @Test func aRequestOpenBeforeItsChatBoundStillReachesTheRows() {
+        var told: [(runtime: String, profile: String, stored: String?, kind: NeedsInput?)] = []
+        center.onNeedsInput = { runtime, profile, stored, kind in told.append((runtime, profile, stored, kind)) }
+        deliver("srq-early", "approval", Self.approval)
+        openRequests(["srq-early"], method: "session.resume")
+        #expect(told.isEmpty, "nobody to tell yet: the runtime has no chat")
+        #expect(prompts.needsInput == .approval)
+
+        center.bound(runtime: session, previous: nil, profile: "herald", profileParam: "herald", storedId: nil)
+        #expect(told.count == 1)
+        #expect(told.last?.runtime == session && told.last?.profile == "herald" && told.last?.stored == nil && told.last?.kind == .approval)
+
+        // The chat's stored id arrives while it waits: told again, so its Sessions row waits too.
+        center.bound(runtime: session, previous: session, profile: "herald", profileParam: "herald", storedId: "20261115_101500_ab12cd")
+        #expect(told.count == 2 && told.last?.stored == "20261115_101500_ab12cd" && told.last?.kind == .approval)
+        // Bound again with nothing new: not told twice.
+        center.bound(runtime: session, previous: session, profile: "herald", profileParam: "herald", storedId: "20261115_101500_ab12cd")
+        #expect(told.count == 2)
+
+        event("request.cancel", ["id": "srq-early", "reason": "answered"])
+        #expect(told.count == 3 && told.last?.kind == nil && told.last?.runtime == session)
+        // A chat that never waited isn't announced.
+        center.bound(runtime: "other-runtime", previous: nil, profile: "ivy", profileParam: "ivy", storedId: "20261115_111500_ef34ab")
+        #expect(told.count == 3)
+    }
+
     @Test func approvalAnswersOnceUnderConcurrentTaps() async throws {
         deliver("srq-a", "approval", Self.approval)
         #expect(prompts.approvals.count == 1)

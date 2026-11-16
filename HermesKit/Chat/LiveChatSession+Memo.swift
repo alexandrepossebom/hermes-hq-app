@@ -76,7 +76,7 @@ extension LiveChatSession: ChatVoiceMemos {
     /// [live words] A memo send's size for the log: its length, its words' (never the words), what's typed beside it.
     /// The send's own text is the bubble's placeholder there (its file path), the same length every time.
     static func memoLogWords(_ context: MemoSendContext) -> String {
-        let words = context.memo.words.map { "words \($0.count) chars from this device" } ?? "no words (the gateway transcribes)"
+        let words = context.memo.words.map { "words \($0.count) chars heard as it recorded" } ?? "no words (the gateway transcribes)"
         return "memo \(Int(context.memo.seconds.rounded()))s, \(words), typed \(context.typed.count) chars"
     }
 

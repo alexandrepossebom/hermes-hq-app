@@ -34,11 +34,16 @@ Filter & Sort, chips, Session Info and the reconnect probe (docs/spec/3x-session
                           {"projectsHold":true} (the same for projects.tree; other calls on the socket go on),
                           {"prompts":"hold"|"reply"|"reject"} (a prompt starts a turn that never ends | is answered |
                           is refused, the default), {"bots":40} (the roster grows to that many bots; 1 leaves Hermes alone),
-                          {"projects":"empty"|"odd"|"null"|"many"|"long"} (projects.tree answers), {"usage":{…}} (every session.usage),
+                          {"projects":"empty"|"odd"|"null"|"many"|"long"|"found"} (projects.tree answers), {"usage":{…}} (every session.usage),
                           {"down":8} (as a stopped gateway for that many seconds: sockets close, every request is
                           cut off unanswered; the test hooks still answer)
                           {"working":["s-trip"]} (the add-on's sessions/working names those chats: a turn another
                           process runs; serve/working answers 503 as outside the serving process)
+                          {"live":{"s-trip":"waiting"}} (session.active_list names those chats with that status,
+                          Hermes's own word on a turn or a request this app isn't attached to)
+  POST /__fixture/read    {"id":"s-trip","unread":false} the person's other device reads the chat (or marks it unread):
+                          the read watermark is stamped as PATCH /api/sessions/{id} {"unread":…} stamps it, and
+                          sessions.changed goes out
   POST /__fixture/drop    closes every WebSocket
   POST /__fixture/burst   {"count":200,"interval":0.02} sessions.changed events
   GET  /__fixture/stats   {"sidebar":{"probe":n,"top":n,"full":n,"deep":n},"burst":n}  (recents_limit 1 / 2-49 / 50 / 300),
@@ -128,14 +133,27 @@ def add_session(sid, profile, title, messages, last_active, source='desktop', cw
         message.setdefault('timestamp', last_active - (len(messages) - index) * 5)
     SESSIONS[sid] = {'id': sid, 'profile': profile, 'title': title, 'messages': messages, 'last_active': last_active,
                      'started_at': last_active - 600, 'source': source, 'cwd': cwd, 'hidden': hidden, 'pinned': pinned,
-                     'archived': archived, 'unread': unread, 'parent': None, **more}
+                     'archived': archived, 'unread': unread, 'last_read_at': 0.0 if unread else None, 'parent': None, **more}
+
+def unread_of(s):
+    """Hermes's rule (hermes_state_sessions.session_unread): the chat's activity is later than its read watermark.
+    `last_read_at`: seconds when some device last read it, 0 = marked unread, None = never read or marked (read)."""
+    mark = s.get('last_read_at')
+    return mark is not None and (s.get('last_active') or s.get('started_at') or 0) > mark
+
+def stamp_read(s, unread):
+    """PATCH {"unread": …} (hermes_state_mutations): unread sets the watermark to 0, read to the gateway's clock."""
+    s['last_read_at'] = 0.0 if unread else now()
+    s['unread'] = unread_of(s)
 
 def session_row(sid):
     s = SESSIONS[sid]
+    s['unread'] = unread_of(s)
     last = next((m for m in reversed(s['messages']) if m['role'] == 'assistant' and isinstance(m.get('content'), str)), None)
     preview = (last['content'] if last else '').split('\n')[0][:140]
     row = {'id': sid, 'title': s['title'], 'preview': s.get('preview', preview), 'profile': s['profile'], 'profile_name': s['profile'],
            'is_default_profile': s['profile'] == 'default', 'hidden': s['hidden'], 'pinned': s['pinned'], 'unread': s['unread'],
+           'last_read_at': s.get('last_read_at'),
            'archived': s['archived'], 'model': s.get('model', 'hermes-4'), 'billing_provider': 'nous', 'source': s['source'],
            'message_count': s.get('message_count', len(s['messages'])), 'started_at': s['started_at'], 'last_active': s['last_active'],
            'ended_at': None, 'is_active': bool(s.get('is_active', False)), 'cwd': s['cwd'], 'parent_session_id': s['parent'],
@@ -474,6 +492,9 @@ def tree(profile):
     if odd == 'many':     # nine more: the New Chat sheet lists five and All Projects
         projects += [{'id': f'p_many_{n.lower()}', 'label': n, 'path': f'{HOME}/many/{n.lower()}', 'repos': []}
                      for n in ['Budget', 'Fitness', 'Garden', 'Kitchen', 'Newsletter', 'Photos', 'Recipes', 'Travel', 'Zebra']]
+    if odd == 'found':    # what Hermes finds by itself: the bot's own working folder (its Bot Chat runs there) and a checkout
+        projects += [{'id': f'{HOME}/bots/{profile}', 'label': profile, 'path': f'{HOME}/bots/{profile}', 'isAuto': True, 'repos': []},
+                     {'id': f'{HOME}/code/checkout', 'label': 'checkout', 'path': f'{HOME}/code/checkout', 'isAuto': True, 'repos': []}]
     if odd == 'long':     # very long names, with and without spaces, among enough projects for All Projects
         names = ['A Quarterly Marketing Strategy and Customer Outreach Plan for the Northwest Region 2027',
                  'acme-platform-monorepo-with-services-and-infrastructure-and-no-spaces-anywhere-in-the-name',
@@ -570,6 +591,10 @@ def rpc(method, params):
         if not sid: raise Fault(4001, 'session not found')
         with lock: return usage_of(sid)
     if method == 'profiles.list': return roster()
+    if method == 'session.active_list':       # [live-status] Hermes's live-session registry: stored id → status
+        with lock: live = dict(MODE.get('live') or {})
+        return {'sessions': [{'id': runtime(sid), 'session_key': sid, 'status': status, 'current': False}
+                             for sid, status in sorted(live.items())]}
     if method == 'profiles.configure': return configure(params)   # [pinned-rows]
     if method == 'session.list':
         rows = [session_row(sid) for sid, s in SESSIONS.items() if s['profile'] == profile and (not params.get('title') or s['title'] == params['title'])]
@@ -818,7 +843,10 @@ def handler(gateway):
                     if method == 'GET' and path.endswith('/mutation-snapshot') and FENCE['on']:
                         return 200, {'session_id': sid, 'exists': True, 'runtime_revision': s.get('revision', 0),
                                      'runtime_generation': 1}
-                    if method == 'GET': return 200, session_row(sid)
+                    if method == 'GET':
+                        row = session_row(sid)
+                        if MODE.get('projects') == 'found' and s['title'] == 'Bot Chat': row['cwd'] = f"{HOME}/bots/{s['profile']}"
+                        return 200, row
                     if method in ('PATCH', 'DELETE') and str(s.get('user_id') or '').startswith('basic:'):
                         # Made with the old password sign-in: Hermes lets only that sign-in change it, and this
                         # fixture's sign-in is another one (hermes_state_mutation_binding.authorize_history).
@@ -837,8 +865,9 @@ def handler(gateway):
                         s['revision'] = s.get('revision', 0) + 1
                         FENCE['accepted'] += 1
                     if method == 'PATCH':
-                        for field in ('pinned', 'archived', 'unread'):
+                        for field in ('pinned', 'archived'):
                             if field in body: s[field] = bool(body[field])
+                        if 'unread' in body: stamp_read(s, bool(body['unread']))
                         if 'title' in body: s['title'] = body['title'] or None
                         answer = {'ok': True}
                         if 'title' in body: answer['title'] = s['title'] or ''
@@ -896,6 +925,14 @@ def handler(gateway):
                 body = self.body_json()
                 with lock: answer = patch_row(body)
                 if body.get('event'): broadcast()
+                return self.reply(200, answer)
+            if path == '/__fixture/read':             # [read-sync] the person's other device
+                body = self.body_json()
+                with lock:
+                    s = SESSIONS.get(body.get('id'))
+                    if s is not None: stamp_read(s, bool(body.get('unread')))
+                    answer = {'ok': s is not None, 'row': session_row(body['id']) if s is not None else None}
+                broadcast()
                 return self.reply(200, answer)
             if path == '/__fixture/emit':
                 body = self.body_json()
@@ -983,6 +1020,8 @@ def patch_row(body):
         for index, message in enumerate(messages):
             message.setdefault('id', index + 1); message.setdefault('timestamp', s['last_active'] - (len(messages) - index) * 5)
         s['messages'] = messages
+    # A test's own "unread" is the seed's flag (marked unread, or never read); "last_read_at" sets the watermark itself.
+    if 'unread' in fields and 'last_read_at' not in fields: fields['last_read_at'] = 0.0 if fields['unread'] else None
     s.update(fields)
     return {'ok': True, 'row': session_row(sid)}
 

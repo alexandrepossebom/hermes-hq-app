@@ -22,12 +22,16 @@ nonisolated enum ControlWords {
 
     /// The gesture hints, both with the one verb, "Drag".
     #if targetEnvironment(macCatalyst)
-    /// [mac] A click is a tap there ("Click to click" said nothing), and a hold is the mouse button held down. A Mac's
-    /// scroll goes to the page (`BrowserStageView.wheeled`); a pinch brings no touches, so it doesn't zoom.
-    static let browserGestures = "Drag anywhere to move the pointer. A click clicks there, and scrolling scrolls the page."
+    /// [mac] The Screen: a click is a tap there ("Click to click" said nothing), and a hold is the mouse button held
+    /// down. A Mac's scroll goes to the page (`BrowserStageView.wheeled`); a pinch brings no touches, so it doesn't zoom.
+    /// The Browser's page takes the mouse as a browser's own page does (2026-11-16): the click and the drag land under
+    /// the cursor.
+    static let browserGestures = "Click, drag and scroll on the page, as in any browser."
     static let screenGestures = "Drag anywhere to move · A click clicks at the cursor · Hold the button then move to drag · Hold it to right-click"
     #else
-    static let browserGestures = "Drag anywhere to move the pointer. Tap to click. Two fingers scroll; pinch to zoom."
+    /// The drag is said too (a tester, 2026-11-16, didn't find it): a still hold, then the finger drags what is under
+    /// the pointer.
+    static let browserGestures = "Drag anywhere to move the pointer. Tap to click. Hold, then drag, to drag something. Two fingers scroll; pinch to zoom."
     /// Audit 09-22: the two-finger scroll and the pinch too, as the Browser's hint says (the web's line left them out).
     static let screenGestures = "Drag anywhere to move · Tap to click at the cursor · Hold then move to drag · Hold to right-click · Two fingers scroll · Pinch to zoom"
     #endif

@@ -5,6 +5,10 @@ import UIKit
 // clicks there, a still hold then a drag presses and drags, two fingers scroll with a fling. Watching, one finger pans a
 // zoomed page, a double tap zooms in or back out, and a single tap says how to take control. Frames arrive decoded; the
 // stage only sets its layer's contents.
+//
+// A mouse or a trackpad's pointer (the Mac; an iPad's) points for itself: the page's pointer is under the cursor, a
+// click clicks there and pressing then moving drags at once (`BrowserOneFinger.Kind.direct`). What a finger and a
+// pointer send is decided in `BrowserOneFinger` (HermesKit), which the tests drive without touches.
 
 @MainActor protocol BrowserStageHost: AnyObject {
     /// This phone holds the browser.
@@ -33,7 +37,8 @@ final class BrowserStageView: UIView {
     private(set) var hasFrame = false
 
     // Gesture state
-    private struct One { var touch: UITouch; var start: CGPoint; var last: CGPoint; var moved = false; var armed = false }
+    private struct One { var touch: UITouch; var start: CGPoint; var last: CGPoint; var press: BrowserOneFinger
+                         var moved: Bool { press.moved } }
     private struct Two { var mid: CGPoint; var distance: CGFloat; var time: TimeInterval; var vx: CGFloat = 0; var vy: CGFloat = 0
                          var mode: Mode = .undecided; var base: M.View
                          enum Mode { case undecided, zoom, scroll } }
@@ -42,7 +47,8 @@ final class BrowserStageView: UIView {
     private var holdTimer: Timer?
     private var tapTimer: Timer?
     private var lastTap: TimeInterval = 0
-    private var pressed = false
+    /// The last thing that pointed was a mouse or a trackpad's pointer: its own cursor shows where, so the drawn one hides.
+    private var pointing = DeviceWord.isMac { didSet { if pointing != oldValue { showCursorIfWanted() } } }
     private var pendingMove = false
     private var scroll = CGVector.zero
     private var link: CADisplayLink?
@@ -80,7 +86,23 @@ final class BrowserStageView: UIView {
         #if targetEnvironment(macCatalyst)
         wheels.forEach(addGestureRecognizer)
         #endif
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
     }
+
+    /// A mouse or a trackpad's pointer moving over the page with no button down: the page's pointer follows it, so the
+    /// page shows what is under the cursor (a menu that opens on hover, a link's underline) and a click lands there.
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        guard recognizer.state == .began || recognizer.state == .changed, one == nil, two == nil else { return }
+        pointing = true
+        guard control, let now = M.clamped(recognizer.location(in: self), in: drawn), now != pointer else { return }
+        pointer = now
+        placeCursor()
+        pendingMove = true
+        schedule()
+    }
+
+    /// A touch from a mouse or a trackpad's pointer (always, on the Mac).
+    private static func points(_ touch: UITouch) -> Bool { DeviceWord.isMac || touch.type == .indirectPointer }
 
     #if targetEnvironment(macCatalyst)
     /// [mac] A trackpad's two-finger scroll or a mouse wheel brings no touches, only these recognizers. They do what two
@@ -131,7 +153,9 @@ final class BrowserStageView: UIView {
     var covered = false { didSet { pageLayer.isHidden = covered } }
 
     /// The pointer drawn (only while this phone holds the browser and a page shows).
-    var showsCursor = false { didSet { cursor.isHidden = !showsCursor || !hasFrame; placeCursor() } }
+    var showsCursor = false { didSet { showCursorIfWanted(); placeCursor() } }
+
+    private func showCursorIfWanted() { cursor.isHidden = !showsCursor || !hasFrame || pointing }
 
     func show(_ image: CGImage, pageSize size: CGSize) {
         let first = !hasFrame
@@ -143,7 +167,7 @@ final class BrowserStageView: UIView {
         } else if first {
             relayout()
         }
-        if first { cursor.isHidden = !showsCursor }
+        if first { showCursorIfWanted() }
     }
 
     func clear() {
@@ -195,8 +219,9 @@ final class BrowserStageView: UIView {
         }
     }
 
+    /// The drawn pointer looks pressed (a little smaller) or not. Only a look: `BrowserOneFinger` knows whether the
+    /// page's button is down.
     private func setPressed(_ on: Bool) {
-        pressed = on
         let to: CGAffineTransform = on ? CGAffineTransform(scaleX: 0.85, y: 0.85) : .identity
         HQMotion.animate(0.12, changes: { self.cursor.transform = to })
     }
@@ -224,10 +249,27 @@ final class BrowserStageView: UIView {
 
     private func stopFling() { fling?.invalidate(); fling = nil }
 
+    /// What `BrowserOneFinger` decided, sent: the pointer's look, the page's button, a click.
+    private func run(_ outs: [BrowserOneFinger.Out]) {
+        for out in outs {
+            switch out {
+            case .look(let on): setPressed(on)
+            case .down: host?.stageSend(.down(x: at.x, y: at.y))
+            case .up: host?.stageSend(.up(x: at.x, y: at.y))
+            case .tap:
+                host?.stageWillTap()
+                host?.stageSend(.tap(x: at.x, y: at.y))
+                flashClick()
+            }
+        }
+    }
+
+    /// The finger is taken away without a click (a second finger, a cancelled touch): a held button is let go.
     private func lift() {
-        guard pressed else { return }
-        setPressed(false)
-        host?.stageSend(.up(x: at.x, y: at.y))
+        guard var held = one else { return }
+        if link != nil, held.press.buttonDown { flush() }   // the pointer's last place first, then the button comes up there
+        run(held.press.cancelled())
+        one = held
     }
 
     private func reset() { holdTimer?.invalidate(); holdTimer = nil; one = nil; two = nil }
@@ -256,14 +298,25 @@ final class BrowserStageView: UIView {
         }
         guard let touch = touches.first else { return }
         let point = touch.location(in: self)
-        one = One(touch: touch, start: point, last: point)
+        let points = Self.points(touch)
+        pointing = points
+        one = One(touch: touch, start: point, last: point, press: BrowserOneFinger(kind: points ? .direct : .trackpad))
         guard control else { return }
+        if points {
+            // The page's pointer goes under the cursor before anything else: a click or a press lands where it is.
+            if let now = M.clamped(point, in: drawn), now != pointer {
+                pointer = now
+                placeCursor()
+                pendingMove = true
+                schedule()
+            }
+            return
+        }
         holdTimer = Timer.scheduledTimer(withTimeInterval: M.holdSeconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, var held = self.one, !held.moved else { return }
-                held.armed = true
+                guard let self, var held = self.one else { return }
+                self.run(held.press.held())
                 self.one = held
-                self.setPressed(true)
             }
         }
     }
@@ -301,13 +354,20 @@ final class BrowserStageView: UIView {
         let dx = now.x - o.last.x, dy = now.y - o.last.y
         o.last = now
         if !o.moved {
-            o.moved = true
             holdTimer?.invalidate()
-            if control && o.armed && !pressed { pressed = true; host?.stageSend(.down(x: at.x, y: at.y)) }
+            let outs = o.press.travelled()
+            if control {
+                if link != nil, outs.contains(.down) { flush() }   // the page's pointer is in place before its button goes down
+                run(outs)
+            }
         }
         one = o
         guard control else { pan(dx, dy); return }       // watching: a finger moves a zoomed view
-        pointer = M.move(pointer, dx: dx, dy: dy, drawn: drawn.drawnSize)
+        if o.press.kind == .direct {
+            pointer = M.clamped(now, in: drawn) ?? pointer
+        } else {
+            pointer = M.move(pointer, dx: dx, dy: dy, drawn: drawn.drawnSize)
+        }
         let follow = M.follow(pointer: pointer, view: drawn, stage: bounds.size)
         if follow.dx != 0 || follow.dy != 0 { pan(follow.dx, follow.dy) }
         placeCursor()
@@ -326,7 +386,7 @@ final class BrowserStageView: UIView {
             if remaining.isEmpty { reset() }
             return
         }
-        guard let o = one, remaining.isEmpty else { return }
+        guard var o = one, remaining.isEmpty else { return }
         holdTimer?.invalidate()
         let tapped = !o.moved
         if !control {
@@ -350,12 +410,7 @@ final class BrowserStageView: UIView {
             return
         }
         if link != nil { flush() }
-        if pressed { lift() }
-        else if tapped {
-            host?.stageWillTap()
-            host?.stageSend(.tap(x: at.x, y: at.y))
-            flashClick()
-        }
+        run(o.press.lifted())
         reset()
     }
 

@@ -1537,8 +1537,8 @@ Note" here is a wording the owner hasn't picked between). A row with nothing at 
 captions are **"Sending…"** (while Send Now steers it), **"Editing"**, and the attachments' words ("2 Photos") beside
 typed words. Tapping a row's words opens the ⋯ menu. ⋯ reads "More, <the row's opening words>" to VoiceOver. Delete
 throws the row away with its photos, files and memo (a memo asks first, "Delete this 0:12 voice memo?", as deleting a
-memo does everywhere else). Edit is offered for typed words only (no photo, file, memo or skill send; those have
-Delete).
+memo does everywhere else). Edit is offered for a row's typed words, also when photos or files go with them (they stay
+as they are, and the caption reads "Editing · 2 Photos"); not for a memo or a skill send (those have Delete).
 
 ### 15.4 Steering
 

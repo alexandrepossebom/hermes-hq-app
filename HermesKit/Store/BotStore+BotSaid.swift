@@ -265,7 +265,9 @@ extension BotStore {
     private func botSaidRead(_ item: (profile: String, session: String, at: Double, mark: String), rows: [JSONValue]?, text: String?,
                              news: BotNews? = nil) {
         let asked = botSaidOut.removeValue(forKey: item.profile)?.asked
-        defer { pumpBotSaid() }
+        // A bot that began waiting for its dot while this read was out is owed one asked after that (`settleUnread`
+        // ignores this one): it goes now, not at the next roster.
+        defer { if !stopped, device.unread.held(item.profile) != nil { refreshBotSaid() } else { pumpBotSaid() } }
         guard !stopped else { return }
         guard let rows else {
             AppLog.trace("bots", "bot said \(item.profile): read failed, the next roster tries again")

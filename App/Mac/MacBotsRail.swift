@@ -314,13 +314,16 @@ final class MacRailHead: UIControl {
         name.text = item.name
         if inRow {
             switch item {
-            case .bot(let bot): status.text = bot.isWorking ? (bot.step.flatMap { $0.isEmpty ? nil : $0 } ?? "Working…") : nil
+            // A bot that waits for you says so, ahead of "Working…": its turn is held on your answer, and the row showed
+            // nothing of it (a tester, 2026-11-15: "a bot waiting for an action approval sometimes has no attention dot").
+            case .bot(let bot):
+                status.text = bot.needsInput?.statusText ?? (bot.isWorking ? (bot.step.flatMap { $0.isEmpty ? nil : $0 } ?? "Working…") : nil)
             case .room(let room): status.text = room.running ? "Working…" : nil
             }
             let working = status.text != nil
             toolTip = working ? status.text : nil   // the whole step, where the line is still too long for the row
             if MacSidebar.tidy {
-                if working { status.text = "Working…" }   // [sidebar-tidy] the step itself is the tooltip above
+                if working, !waits { status.text = "Working…" }   // [sidebar-tidy] the step itself is the tooltip above
                 status.isHidden = !working
             } else if working == status.isHidden {
                 status.isHidden = !working
@@ -370,7 +373,7 @@ final class MacRailHead: UIControl {
             name.font = MacSidebar.font(MacBotsRail.nameSize, weight: unread ? .semibold : isMarked ? MacSidebar.scheme.markedWeight : .regular)
             status.font = MacSidebar.font(MacSidebar.tidy ? MacSidebar.scheme.status : 13)
             // Mac polish #52: the accent word on the open row's accent mark read at about 3:1; there it takes the label's.
-            status.textColor = isMarked ? HQPalette.label : HQPalette.tint
+            status.textColor = isMarked ? HQPalette.label : waits ? HQPalette.orange : HQPalette.tint
             return
         }
         tile.backgroundColor = isMarked ? Self.tileFill : hovered ? Self.hoverFill : .clear
@@ -381,12 +384,19 @@ final class MacRailHead: UIControl {
 
     private static let rowHover = UIColor { traits in UIColor.label.resolvedColor(with: traits).withAlphaComponent(0.05) }
 
-    /// An unread chat's name is bold in the open sidebar, as Slack's and Mail's are.
+    /// An unread chat's name is bold in the open sidebar, as Slack's and Mail's are. A bot's by the list's own rule
+    /// (`BotList.showsUnread`): not while it works, when what moved its chat is the turn's own steps, not a reply.
     private var unread: Bool {
         switch item {
-        case .bot(let bot): bot.unread
+        case .bot(let bot): BotList.showsUnread(bot)
         case .room(let room): room.unread
         }
+    }
+
+    /// The bot waits for the person (an approval, a question): its line says so, in the attention colour.
+    private var waits: Bool {
+        if case .bot(let bot) = item { return bot.needsInput != nil }
+        return false
     }
 }
 
@@ -1027,7 +1037,9 @@ private struct MacSidebarChatContent: View {
                     .foregroundStyle(Color.hqLabel)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if session.isRunning {
+                // A chat that waits for you is in the middle of its turn: the orange dot outranks the spinner, which
+                // hid it every time (a tester, 2026-11-15).
+                if session.isRunning, session.status != .needsInput {
                     ProgressView().controlSize(.mini)
                 } else if session.unread || session.status == .needsInput {
                     // Orange when it waits for an answer, as the Sessions page marks it.

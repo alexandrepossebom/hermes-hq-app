@@ -590,8 +590,9 @@ extension SessionsTests {
         shot(app, "A8-cleared")
     }
 
-    /// A9: Mark All as Read sends one `PATCH {"unread":false}` per server-unread chat (a hidden run included), clears
-    /// the device-only dots, zeroes the tab's badge, and is disabled afterwards.
+    /// A9: Mark All as Read sends one `PATCH {"unread":false}` per server-unread chat (a hidden run included) and
+    /// ([read-sync]) one for the chat only this device called unread, so the person's other device drops that dot too;
+    /// it zeroes the tab's badge, and is disabled afterwards.
     @MainActor func test28_MarkAllAsRead() throws {
         setRow("s-trip", ["unread": true])
         setRow("s-run", ["unread": true])                      // a background run the list hides
@@ -608,11 +609,11 @@ extension SessionsTests {
         openFilter(app)
         XCTAssertTrue(filterItem(app, "readall").isEnabled)
         tapFilter(app, "readall")
-        XCTAssertTrue(waitUntil(8) { self.unreadWrites().count - before == 3 }, "three writes (\(unreadWrites().dropFirst(before)))")
+        XCTAssertTrue(waitUntil(8) { self.unreadWrites().count - before == 4 }, "four writes (\(unreadWrites().dropFirst(before)))")
         Thread.sleep(forTimeInterval: 1.0)
         let sent = unreadWrites().dropFirst(before)
-        XCTAssertEqual(sent.map(\.path).sorted(), ["/api/sessions/s-budget", "/api/sessions/s-run", "/api/sessions/s-trip"],
-                       "one per server-unread chat, none for the device-only one, none twice")
+        XCTAssertEqual(sent.map(\.path).sorted(), ["/api/sessions/s-budget", "/api/sessions/s-recipes", "/api/sessions/s-run", "/api/sessions/s-trip"],
+                       "one per chat either side calls unread, none twice")
         XCTAssertTrue(sent.allSatisfy { !$0.unread })
         for id in ["s-budget", "s-trip", "s-recipes"] {
             XCTAssertTrue(waitUntil(5) { !self.labelOf(self.row(app, id)).contains("Unread") }, "\(id) reads as read (\(labelOf(row(app, id))))")

@@ -60,6 +60,11 @@ class Socket:
         header = bytes([0x81]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack('>H', n))
         self.s.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(body)))
 
+    def send_binary(self, body):
+        mask, n = os.urandom(4), len(body)
+        header = bytes([0x82]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack('>H', n))
+        self.s.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(body)))
+
     def read(self, n):
         data = b''
         while len(data) < n:
@@ -84,7 +89,7 @@ class Socket:
                 elif opcode == 8:
                     out.append(('close', struct.unpack('>H', payload[:2])[0] if len(payload) >= 2 else 1005))
                     break
-                if out and out[-1][0] == 'json' and out[-1][1].get('type') in ('end', 'fallback'): break
+                if out and out[-1][0] == 'json' and out[-1][1].get('type') in ('end', 'fallback', 'final', 'error'): break
         except (ConnectionError, OSError):
             out.append(('eof', None))
         return out
@@ -229,6 +234,49 @@ answers = [call('POST', '/api/audio/transcribe', body) for _ in range(3)]
 check('transcribeFailTimes fails n then recovers', answers[0] == (400, {'detail': 'No speech provider'}) and answers[1][0] == 400 and answers[2][0] == 200, str([a[0] for a in answers]))
 control(transcribeRaw={'status': 200, 'body': '{"ok": false}'})
 check('transcribeRaw', call('POST', '/api/audio/transcribe', body, raw=True) == (200, b'{"ok": false}'))
+
+# transcribe-stream (words from Hermes): the real protocol
+control(reset=True)
+control(wordsScript='one two three four five six', wordsPace=0.25)
+ws = Socket('/api/audio/transcribe-stream?profile=ivy&ticket=abc')
+check('transcribe-stream upgrades', ws.status == 101, str(ws.status))
+ws.send({'sample_rate': 16000})
+for _ in range(10): ws.send_binary(b'\0' * 3200)             # 1 s of 16 kHz mono in 100 ms pieces
+ws.send({'eos': True})
+frames = ws.frames(); ws.close()
+partials = [f[1]['text'] for f in frames if f[0] == 'json' and f[1].get('type') == 'partial']
+check('transcribe-stream partials are the whole text so far', partials == ['one', 'one two', 'one two three', 'one two three four'], str(partials))
+check('transcribe-stream final frame', frames[-1] == ('json', {'type': 'final', 'transcript': 'one two three four five six', 'provider': 'fixture'}), str(frames[-1]))
+entry = ledger()['wordStreams'][-1]
+check('transcribe-stream ledger', entry['profile'] == 'ivy' and entry['sampleRate'] == 16000 and entry['bytes'] == 32000 and entry['eos'] and entry['final'] == 'one two three four five six' and entry['closedBy'] == 'server final', str(entry))
+control(wordsMode='none')
+ws = Socket('/api/audio/transcribe-stream?ticket=abc'); frames = ws.frames(3); ws.close()
+check('wordsMode none errors at once', frames[0] == ('json', {'type': 'error', 'message': 'no live STT for the configured provider'}), str(frames))
+control(wordsMode='drop', wordsDropAfterMs=300)
+ws = Socket('/api/audio/transcribe-stream?ticket=abc'); ws.send({'sample_rate': 16000})
+try:
+    for _ in range(6): ws.send_binary(b'\0' * 3200); time.sleep(0.02)
+except OSError: pass
+frames = ws.frames(3); ws.close()
+check('wordsMode drop aborts mid-stream with no final', frames[-1][0] == 'eof' and not any(f[0] == 'json' and f[1].get('type') == 'final' for f in frames), str(frames))
+check('wordsMode drop ledger', ledger()['wordStreams'][-1]['closedBy'] == 'server abort' and not ledger()['wordStreams'][-1]['eos'], str(ledger()['wordStreams'][-1]))
+control(wordsMode='error')
+ws = Socket('/api/audio/transcribe-stream?ticket=abc'); ws.send({'sample_rate': 16000}); ws.send_binary(b'\0' * 3200); ws.send({'eos': True})
+frames = ws.frames(3); ws.close()
+check('wordsMode error answers an error after eos', frames[-1] == ('json', {'type': 'error', 'message': 'Synthetic live transcription failure'}), str(frames))
+control(wordsMode='ok')
+ws = Socket('/api/audio/transcribe-stream?ticket=abc'); ws.send({'sample_rate': 4000}); frames = ws.frames(3); ws.close()
+check('a rate outside 8000-48000 ends the stream without a final', frames[-1][0] in ('close', 'eof') and ledger()['wordStreams'][-1]['closedBy'] == 'server bad rate', str(frames))
+ws = Socket('/api/audio/transcribe-stream?ticket=abc'); ws.send({'sample_rate': 16000}); ws.send_binary(b'\0' * 3200); ws.close(); time.sleep(0.3)
+check('a disconnect cancels: no final', ledger()['wordStreams'][-1]['closedBy'] == 'client' and ledger()['wordStreams'][-1]['final'] is None, str(ledger()['wordStreams'][-1]))
+control(wordsMode='refuse')
+ws = Socket('/api/audio/transcribe-stream?ticket=abc'); frames = ws.frames(3); ws.close()
+check('wordsMode refuse closes 4401', frames == [('close', 4401)], str(frames))
+status, _ = call('GET', '/api/audio/transcribe-stream')
+check('transcribe-stream without an upgrade is 400', status == 400, str(status))
+config = call('GET', '/api/config')[1]
+check('stt.streaming is off until set', config['stt'].get('streaming') is False, str(config.get('stt')))
+control(reset=True)
 
 # never-called routes
 check('voice-config is 404', call('GET', '/api/audio/voice-config')[0] == 404)

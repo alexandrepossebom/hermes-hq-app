@@ -71,13 +71,22 @@ extension AppModel: ChatMenuHosting {
         }
         guard let actions = chat as? ChatSessionMoreActions, let id = actions.actionsStoredId else { throw MenusError.loading }
         let before = sessionStore?.row(for: id)?.unread
-        sessionStore?.updateRow(id: id, profile: chat.profile, forgetsRead: false) { $0.unread = unread }      // [sessions-m9] §11.2
+        let beforeReadAt = sessionStore?.row(for: id)?.lastReadAt
+        // [read-sync] The row's watermark follows the write, so the list neither writes it again nor takes the
+        // gateway's older one for a read made elsewhere.
+        sessionStore?.updateRow(id: id, profile: chat.profile, forgetsRead: false) {      // [sessions-m9] §11.2
+            $0.unread = unread
+            $0.lastReadAt = unread ? 0 : max($0.recency, $0.lastReadAt ?? 0)
+        }
         do {
             try await actions.setUnread(unread)
         } catch let error as HTTPError where SessionWrite.isMaintenanceRefusal(error) {
             sessionStore?.keepUnreadOnDevice(unread, id: id, profile: chat.profile)   // Hermes before 0.22.3 (SessionWrite)
         } catch {
-            sessionStore?.updateRow(id: id, profile: chat.profile, forgetsRead: false) { $0.unread = before }      // [sessions-m9] §11.2
+            sessionStore?.updateRow(id: id, profile: chat.profile, forgetsRead: false) {      // [sessions-m9] §11.2
+                $0.unread = before
+                $0.lastReadAt = beforeReadAt
+            }
             throw error
         }
     }

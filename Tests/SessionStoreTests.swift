@@ -245,16 +245,17 @@ import Testing
         #expect(store.sessions.first { $0.id == "srv" }?.unread == true)
         #expect(store.unreadCount == 2)
 
-        // Opening a row the server does not call unread: local only, no write.
+        // Opening a row the server does not call unread clears it here, and ([read-sync]) the read is written all the
+        // same: the gateway has no watermark for the chat yet, and the person's other device shows the same dot.
         store.markOpened(store.sessions.first { $0.id == "quiet" }!)
         #expect(store.sessions.first { $0.id == "quiet" }?.unread == false)
-        #expect(client.restCalls.filter { $0.method == "PATCH" }.isEmpty)
+        #expect(await BotsTest.waitUntil { client.restCalls.contains { $0.method == "PATCH" && $0.path == "/api/sessions/quiet" } })
 
         // Opening the server-unread row sends exactly the web's PATCH, optimistically.
         store.markOpened(store.sessions.first { $0.id == "srv" }!)
         #expect(store.sessions.first { $0.id == "srv" }?.unread == false)
-        #expect(await BotsTest.waitUntil { client.restCalls.contains { $0.method == "PATCH" } })
-        let patch = try #require(client.restCalls.first { $0.method == "PATCH" })
+        #expect(await BotsTest.waitUntil { client.restCalls.contains { $0.method == "PATCH" && $0.path == "/api/sessions/srv" } })
+        let patch = try #require(client.restCalls.first { $0.method == "PATCH" && $0.path == "/api/sessions/srv" })
         #expect(patch.path == "/api/sessions/srv")
         #expect(patch.query == [URLQueryItem(name: "profile", value: "inbox")])
         #expect(try JSONValue.parse(patch.body ?? Data()) == ["unread": false, "profile": "inbox"])

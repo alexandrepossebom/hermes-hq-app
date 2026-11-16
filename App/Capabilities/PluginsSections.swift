@@ -382,13 +382,13 @@ final class PluginPageController: UIHostingController<HQScaledRoot<PluginPageVie
         navigationItem.largeTitleDisplayMode = .never
         page.presenter = self
         page.router = router
-        page.pop = { [weak self] in self?.navigationController?.popViewController(animated: true) }
+        page.pop = { [weak self] in self?.hqBackOut() }
         // Leaving with unsaved settings asks first (§9.5).
         navigationItem.backAction = UIAction { [weak self] _ in
             guard let self else { return }
-            guard self.page.canEdit, self.page.dirty else { self.navigationController?.popViewController(animated: true); return }
+            guard self.page.canEdit, self.page.dirty else { self.hqBackOut(); return }
             let alert = UIAlertController(title: "Discard Changes?", message: nil, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { _ in self.navigationController?.popViewController(animated: true) })
+            alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { _ in self.hqBackOut() })
             alert.addAction(UIAlertAction(title: "Keep Editing", style: .cancel))
             self.present(alert, animated: true)
         }

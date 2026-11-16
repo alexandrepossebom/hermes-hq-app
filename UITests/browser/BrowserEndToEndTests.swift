@@ -84,6 +84,36 @@ final class BrowserEndToEndTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["browser.notice"].waitForExistence(timeout: 5), "Copied shows")
         XCTAssertEqual(app.descendants(matching: .any)["browser.notice"].label, "Copied")
 
+        // Hold, then drag (a tester, 2026-11-16: "drag and drop does not work"): the page's button goes down where the
+        // pointer is, the pointer travels with it held, and the button comes up where the finger lifts. No click.
+        let before = inputs().count
+        let from = stage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.9, thenDragTo: from.withOffset(CGVector(dx: 70, dy: 50)), withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertTrue(waitUntil(timeout: 8) { self.inputs().dropFirst(before).contains { $0["type"] as? String == "up" } }, "the drag ends with the button up")
+        let drag = inputs().dropFirst(before).filter { ["down", "up", "move", "tap"].contains($0["type"] as? String ?? "") }
+        let kinds = drag.compactMap { $0["type"] as? String }
+        XCTAssertEqual(kinds.filter { $0 == "down" }.count, 1, "one press: \(kinds)")
+        XCTAssertEqual(kinds.filter { $0 == "up" }.count, 1, "one release: \(kinds)")
+        XCTAssertFalse(kinds.contains("tap"), "a drag is not a click: \(kinds)")
+        if let down = kinds.firstIndex(of: "down"), let up = kinds.firstIndex(of: "up") {
+            XCTAssertLessThan(down, up, "pressed before it is released: \(kinds)")
+            XCTAssertTrue(kinds[down..<up].contains("move"), "the pointer travels while the button is held: \(kinds)")
+            let pressedAt = drag[drag.startIndex + down], releasedAt = drag[drag.startIndex + up]
+            let dx = ((releasedAt["x"] as? Double) ?? 0) - ((pressedAt["x"] as? Double) ?? 0)
+            let dy = ((releasedAt["y"] as? Double) ?? 0) - ((pressedAt["y"] as? Double) ?? 0)
+            XCTAssertGreaterThan(dx, 0.05, "released to the right of where it was pressed")
+            XCTAssertGreaterThan(dy, 0.05, "and below it")
+        }
+        attach("viewer-after-drag")
+
+        // The address: typed while holding the browser, Go sends the page there.
+        let address = app.textFields["browser.address"]
+        address.tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { self.hasFocus(address) }, "the address takes the keyboard")
+        app.typeText("example.org/docs\n")
+        XCTAssertTrue(waitUntil(timeout: 8) { self.inputs().contains { $0["type"] as? String == "go" && $0["url"] as? String == "https://example.org/docs" } },
+                      "the typed address goes to the page: \(self.inputs().filter { $0["type"] as? String == "go" })")
+
         give.tap()
         XCTAssertTrue(take.waitForExistence(timeout: 10), "Give Back hands the browser back")
         XCTAssertTrue(waitUntil(timeout: 5) { (try? self.state()["control"] as? String) == "bot" })

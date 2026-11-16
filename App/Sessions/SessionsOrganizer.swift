@@ -269,8 +269,8 @@ extension AppModel: SessionsServices {}
         }
         if let profile, !(asksProject && NewChatProjectChoice.isOn) { newChat(profile: profile); return }
         store?.loadProjects()
-        let projects = (store?.projectEntries() ?? []).filter { $0.key != SessionProjects.homeKey }
-        presentNewChat(projects: projects, picked: profile)
+        // [own-folder] Saved projects, then the folders Hermes found that are no bot's own working folder.
+        presentNewChat(projects: store?.newChatEntries() ?? [], picked: profile)
     }
 
     /// The New Chat sheet. The sheet itself is dismissed, and the pick delivered once, as `chooseBot` does.
@@ -313,10 +313,11 @@ extension AppModel: SessionsServices {}
             let name = ordered.first { $0.id == bot }?.name ?? "this bot"
             let all = NewChatKeysPage(rootView: AnyView(HQScaledRoot(NewChatAllProjectsView(projects: projects, botName: name,
                                                                                            last: NewChatLast.project(for: bot)) { pick(bot, $0) })))
+            let allTitle = NewChatSheetView.allTitle(projects)
             // [Mac UI check 2026-11-13] C2: Escape here goes back one step to the sheet's first page, not out of the sheet.
             all.onEscape = { [weak all] in all?.navigationController?.popViewController(animated: true) }
             all.view.backgroundColor = HQPalette.sheetPage
-            all.title = "All Projects"
+            all.title = allTitle
             all.navigationItem.largeTitleDisplayMode = .never
             sheet.sheetPresentationController?.animateChanges { sheet.sheetPresentationController?.selectedDetentIdentifier = .large }
             sheet.pushViewController(all, animated: true)
@@ -331,7 +332,8 @@ extension AppModel: SessionsServices {}
         // The sheet is as tall as its rows (New Project…, the last one, is on show without a scroll) up to the full
         // height: the title bar, the pills, Start Chat and the heading, then the projects, All Projects and New Project….
         let listed = NewChatLast.shown(all: projects.map(\.key), recent: [])
-        let rows = CGFloat(listed.keys.count + (listed.more ? 1 : 0) + 1)
+        let folderHeading = projects.contains { $0.isFolder && listed.keys.contains($0.key) } ? 1 : 0   // [own-folder]
+        let rows = CGFloat(listed.keys.count + (listed.more ? 1 : 0) + 1 + folderHeading)
         let fit = UISheetPresentationController.Detent.custom(identifier: .init("new-chat.fit")) { context in
             min(280 + rows * HQFont.scaled(44), context.maximumDetentValue)
         }
@@ -376,6 +378,9 @@ extension AppModel: SessionsServices {}
         let start: (String) -> Void = { [weak self] profile in
             if let held = holders.first(where: { $0.profile == profile }) {
                 self?.newChat(profile: profile, folder: held.project.root)
+            } else if !holders.isEmpty, holders.allSatisfy({ $0.project.isAuto == true }) {
+                // [own-folder] A folder Hermes found, saved by nobody: the chat starts there and no project is made.
+                self?.newChat(profile: profile, folder: key)
             } else {
                 self?.addProjectThenChat(profile: profile, name: label, folder: key)
             }
@@ -886,6 +891,21 @@ struct NewChatSheetView: View {
 
     private var botName: String { bots.first { $0.id == bot }?.name ?? "Hermes" }
 
+    /// [own-folder] The row and the page that hold every entry: named for what they hold.
+    static func allTitle(_ entries: [SessionProjectEntry]) -> String {
+        entries.contains(where: \.isFolder) ? "All Projects and Folders" : "All Projects"
+    }
+
+    private func entryRow(_ key: String, last: String?) -> some View {
+        Group {
+            if let entry = projects.first(where: { $0.key == key }) {
+                NewChatProjectRow(title: entry.label, last: NewChatLast.marks(stored: last, row: key)) { start(bot, key) }
+                    .listRowInsets(Self.rowInsets)
+                    .accessibilityIdentifier("new-chat-\(entry.isFolder ? "folder" : "project")-\(entry.label)")
+            }
+        }
+    }
+
     private var newProjectRow: some View {
         Button { start(bot, Self.newProjectTag) } label: {
             HStack(spacing: 12) {
@@ -916,6 +936,11 @@ struct NewChatSheetView: View {
     var body: some View {
         let listed = NewChatLast.shown(all: projects.map(\.key), recent: recent(bot))
         let last = NewChatLast.project(for: bot)
+        // [own-folder] Saved projects under their heading; folders Hermes found (nobody saved them) under their own.
+        let folderKeys = Set(projects.filter(\.isFolder).map(\.key))
+        let shownProjects = listed.keys.filter { !folderKeys.contains($0) }
+        let shownFolders = listed.keys.filter { folderKeys.contains($0) }
+        let hasProjects = projects.count > folderKeys.count
         List {
             Section {
                 if DeviceWord.isMac {
@@ -940,33 +965,34 @@ struct NewChatSheetView: View {
                     .listRowBackground(Color.clear)
                 }
             } header: { HQSectionLabel { Text("Bot") } }
+            let allRow = Button { showAll(bot) } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "folder").foregroundStyle(Color.hqLabel3).frame(width: HQFont.scaled(24))
+                    Text(Self.allTitle(projects)).foregroundStyle(Color.hqLabel2)
+                    Spacer(minLength: 8)
+                    Text("\(projects.count)").foregroundStyle(Color.hqLabel2)
+                    Image(systemName: "chevron.right").font(Font.hq(.footnote).weight(.semibold)).foregroundStyle(Color.hqLabel3)
+                }
+                .frame(height: HQFont.scaled(44))
+                .contentShape(Rectangle())
+            }
+            .listRowInsets(Self.rowInsets)
+            .accessibilityIdentifier("new-chat-project-all")
             Section {
-                ForEach(listed.keys, id: \.self) { key in
-                    if let entry = projects.first(where: { $0.key == key }) {
-                        NewChatProjectRow(title: entry.label, last: NewChatLast.marks(stored: last, row: key)) { start(bot, key) }
-                            .listRowInsets(Self.rowInsets)
-                            .accessibilityIdentifier("new-chat-project-\(entry.label)")
-                    }
-                }
-                if listed.more {
-                    Button { showAll(bot) } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "folder").foregroundStyle(Color.hqLabel3).frame(width: HQFont.scaled(24))
-                            Text("All Projects").foregroundStyle(Color.hqLabel2)
-                            Spacer(minLength: 8)
-                            Text("\(projects.count)").foregroundStyle(Color.hqLabel2)
-                            Image(systemName: "chevron.right").font(Font.hq(.footnote).weight(.semibold)).foregroundStyle(Color.hqLabel3)
-                        }
-                        .frame(height: HQFont.scaled(44))
-                        .contentShape(Rectangle())
-                    }
-                    .listRowInsets(Self.rowInsets)
-                    .accessibilityIdentifier("new-chat-project-all")
-                }
-                if projects.isEmpty { newProjectRow }
+                ForEach(shownProjects, id: \.self) { entryRow($0, last: last) }
+                if listed.more, shownFolders.isEmpty { allRow }
+                // With no saved project the row that makes one stands in their place.
+                if !hasProjects { newProjectRow }
             } header: { HQSectionLabel { Text("In a project ") + Text("(optional)").fontWeight(.regular) } }
             .hqSheetRows()
-            if !projects.isEmpty {
+            if !shownFolders.isEmpty {
+                Section {
+                    ForEach(shownFolders, id: \.self) { entryRow($0, last: last) }
+                    if listed.more { allRow }
+                } header: { HQSectionLabel { Text("In a folder") } }
+                .hqSheetRows()
+            }
+            if hasProjects {
                 Section { newProjectRow }.hqSheetRows()
             }
         }
@@ -1041,12 +1067,21 @@ struct NewChatAllProjectsView: View {
         return words.isEmpty ? sorted : sorted.filter { $0.label.localizedCaseInsensitiveContains(words) }
     }
 
+    /// [own-folder] The list holds folders Hermes found as well as saved projects.
+    private var mixed: Bool { projects.contains(where: \.isFolder) }
+
+    private func row(_ entry: SessionProjectEntry) -> some View {
+        NewChatProjectRow(title: entry.label, last: NewChatLast.marks(stored: last, row: entry.key), lines: 2) { start(entry.key) }
+            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+            .accessibilityIdentifier("new-chat-all-\(entry.label)")
+    }
+
     var body: some View {
         List {
             Section {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Color.hqLabel2)
-                    TextField("Search projects", text: $query)
+                    TextField(mixed ? "Search projects and folders" : "Search projects", text: $query)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("new-chat-all-search")
@@ -1055,15 +1090,23 @@ struct NewChatAllProjectsView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
             }
             .hqSheetRows()
-            Section {
-                ForEach(rows) { entry in
-                    NewChatProjectRow(title: entry.label, last: NewChatLast.marks(stored: last, row: entry.key), lines: 2) { start(entry.key) }
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .accessibilityIdentifier("new-chat-all-\(entry.label)")
-                }
-                if rows.isEmpty { Text("No projects match.").foregroundStyle(Color.hqLabel2) }
-            } footer: { HQSectionFooter { Text("Starts the chat with \(botName).") } }
-            .hqSheetRows()
+            // [own-folder] Saved projects, then the folders Hermes found, each A to Z under its own heading.
+            let saved = rows.filter { !$0.isFolder }, folders = rows.filter(\.isFolder)
+            if !saved.isEmpty || folders.isEmpty {
+                Section {
+                    ForEach(saved) { row($0) }
+                    if rows.isEmpty { Text(mixed ? "Nothing matches." : "No projects match.").foregroundStyle(Color.hqLabel2) }
+                } header: { if mixed, !saved.isEmpty { HQSectionLabel { Text("Projects") } } }
+                  footer: { if folders.isEmpty { HQSectionFooter { Text("Starts the chat with \(botName).") } } }
+                .hqSheetRows()
+            }
+            if !folders.isEmpty {
+                Section {
+                    ForEach(folders) { row($0) }
+                } header: { HQSectionLabel { Text("Folders") } }
+                  footer: { HQSectionFooter { Text("Starts the chat with \(botName).") } }
+                .hqSheetRows()
+            }
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)

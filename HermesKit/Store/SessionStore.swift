@@ -2,8 +2,14 @@
 // the device cache at once, refreshed on `sessions.changed` through a leading/trailing throttle (10 s on screen,
 // 45 s off screen with a limit-1 probe first), on reconnect (probe, then a short top page merged in with the full
 // read owed until the list is on screen, docs/spec/3x-sessions.md §11.5), and by pull to refresh. Background runs and Bot Chats
-// are hidden; unread follows the web's rules, and the only write is the open-time `unread:false` PATCH (refused while
+// are hidden; unread follows the web's rules, and the only write is the `unread` PATCH (refused while
 // `readOnlyGateway` is on). An older gateway without the batched route gets the three per-slice reads instead.
+//
+// [read-sync] Read state is shared between this person's devices through the gateway's own watermark
+// (`sessions.last_read_at`, which every list row carries beside `unread`): a device that reads a chat writes
+// `unread:false` whenever the watermark doesn't already cover what was seen (`sharesRead`), not only when the gateway
+// already called the chat unread, and a device drops its own dot when a page says the chat was read at or after its
+// newest activity (`SessionUnreadState.absorbGatewayReads`). A read that couldn't be sent is owed (`sendOwedReads`).
 
 import Foundation
 import Observation
@@ -79,13 +85,16 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     var favoriteProjects: [String] = []
     /// [project-pills] Projects the owner archived (keys): out of the project pills and the list until Show › Archived.
     var archivedProjects: [String] = []
+    /// [own-folder] Each bot's own folder (profile → the folder its own chat runs in), as last learned
+    /// (SessionStore+OwnFolder.swift).
+    var botFolders: [String: String] = [:]
 
     init() {}
 
     // Fields added later decode as absent, so an older file keeps its unread state.
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
-        case chatOrder, projectOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects
+        case chatOrder, projectOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
     }
 
     init(from decoder: Decoder) throws {
@@ -105,6 +114,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         favoriteProjects = (try? c.decodeIfPresent([String].self, forKey: .favoriteProjects)) ?? []
         openGroups = (try? c.decodeIfPresent([String: [String]].self, forKey: .openGroups)) ?? [:]
         archivedProjects = (try? c.decodeIfPresent([String].self, forKey: .archivedProjects)) ?? []
+        botFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botFolders)) ?? [:]
     }
 }
 
@@ -262,6 +272,10 @@ final class SessionStore {
     // [/sessions-m9]
 
     @ObservationIgnored var onChange: (() -> Void)?
+    /// [own-folder] The stored id of a bot's own chat (its Bot Chat), from the Bots list: where its own folder is read.
+    @ObservationIgnored var botChatId: ((_ profile: String) -> String?)?
+    /// [own-folder] When each bot's own folder was last asked for, this run.
+    @ObservationIgnored var botFolderAskedAt: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored var modelLabel: (String) -> String = { $0 } {
         didSet { words = [:]; rebuild() }
     }
@@ -313,6 +327,12 @@ final class SessionStore {
     /// [unread-working] The selected chat's lineage (`durableId`), learnt from its listed row. The gateway lists a
     /// chat it compacted under its newest part's id, so the id alone would lose the chat on screen mid-turn.
     @ObservationIgnored private var selectedLineage: String?
+    /// [read-sync] The chat in front of the person now (nil when none is, or it has no stored id yet): it shows no dot
+    /// while the app is in front, and what the gateway calls unread in it is written back as read (`shareOnScreenRead`).
+    @ObservationIgnored private var onScreenSessionId: String?
+    /// [read-sync] Read writes the gateway answered with a refusal, by write key: the activity they were for. The
+    /// chat on screen isn't written again for the same activity (a refusing gateway was asked on every page).
+    @ObservationIgnored private var readRefused: [String: Double] = [:]
     /// Our own `unread` writes not yet answered by a list page read after the gateway acknowledged them.
     @ObservationIgnored private var unreadWrites: [String: UnreadWrite] = [:]
     @ObservationIgnored private var unreadWriteTokens = 0
@@ -365,6 +385,11 @@ final class SessionStore {
         var prior: Bool?
         /// When the gateway acknowledged the write; nil while it is in the air.
         var ackAt: ContinuousClock.Instant?
+        /// [read-sync] The watermark the write leaves, as this device reckons it (0 for unread; the activity read
+        /// through for read): what the row says of `last_read_at` until an honest page brings the gateway's own.
+        var readAt: Double = 0
+        /// The watermark before the write (a failure puts it back).
+        var priorReadAt: Double?
     }
 
     private struct RowWords {
@@ -440,6 +465,7 @@ final class SessionStore {
 
     func appDidBecomeActive() {
         appActive = true
+        if onScreenSessionId != nil { shareOnScreenRead(); rebuild() }       // [read-sync] the chat in front is seen again
         // [reliability] Any read still out began before this return (maybe frozen mid-flight in the grace).
         // [phone-logs] Only a return from the background counts: on a cold launch the first active comes after the
         // launch's own read started, and the connect's refresh cancelled that read every launch (logged as a failed
@@ -452,6 +478,7 @@ final class SessionStore {
 
     func appDidEnterBackground() {
         appActive = false
+        if onScreenSessionId != nil { rebuild() }       // [read-sync] nobody is looking: the gateway's flag counts again
         wentToBackground = true
         backgroundEpoch &+= 1
         pollTask?.cancel()
@@ -494,7 +521,88 @@ final class SessionStore {
     func setRunning(_ ids: Set<String>) {
         guard ids != running else { return }
         running = ids
+        shareOnScreenRead()                 // [read-sync] a turn that ended in front of the person is read
         rebuild()
+    }
+
+    // MARK: - Shared read state [read-sync]
+
+    /// The chat in front of the person (its stored id), or nil when none is. Unlike the selection this doesn't stick.
+    func setSessionOnScreen(_ id: String?) {
+        guard id != onScreenSessionId else { return }
+        onScreenSessionId = id
+        shareOnScreenRead()
+        rebuild()
+    }
+
+    /// The chat on screen, while the app is in front.
+    private var seenSessionId: String? { appActive ? onScreenSessionId : nil }
+
+    /// A read of `row` through `through` (server seconds; the row's own activity when nil) would tell another device
+    /// something: the gateway keeps read state, and its watermark doesn't yet cover that activity.
+    func sharesRead(_ row: SidebarSessionRow, through: Double? = nil) -> Bool {
+        guard !readOnlyGateway, row.sharesReads else { return false }
+        guard let read = row.lastReadAt, read > 0 else { return true }
+        return read < max(row.recency, through ?? 0)
+    }
+
+    /// The person saw this chat through `through` (server seconds: the newest stored message it showed): a turn ended
+    /// in front of them, or they left it. Written to the gateway when its watermark is behind that, once per activity
+    /// (the row then carries the new watermark), so the other device's dot goes. A chat the lists don't hold is left
+    /// alone. A chat left mid-turn is read up to there: what its turn stores afterwards is past the watermark, and
+    /// unread once the turn ends. A chat someone marked unread stays so: only opening it, or Mark as Read, undoes that.
+    func shareRead(id: String, profile: String, through: Double) {
+        guard through.isFinite, through > 0, !stopped, let row = listedRow(id: id, profile: profile), row.profile == profile,
+              !markedUnread(row), sharesRead(row, through: through) else { return }
+        if let refused = readRefused[Self.writeKey(id: row.id, profile: row.profile)], refused >= max(row.recency, through) { return }
+        device.unread.opened(row, clearServerLocally: false)
+        persistState()
+        writeUnread(false, row: row, through: through)
+        rebuild()
+    }
+
+    /// Mark as Unread, here (the marker) or on any device (the watermark at 0).
+    private func markedUnread(_ row: SidebarSessionRow) -> Bool {
+        row.lastReadAt == 0 || device.unread.markers[row.profile]?.contains(row.id) == true
+    }
+
+    /// What the gateway calls unread in the chat in front of the person is read: once a watermark exists every row a
+    /// turn stores sets the flag again, the open chat's too. Not while its turn runs (one write when it ends, not one
+    /// per page), nor for activity a write was already refused for.
+    private func shareOnScreenRead() {
+        guard let id = seenSessionId, !stopped, !running.contains(id),
+              let row = (recents + cron + messaging).first(where: { $0.id == id }), row.unread == true,
+              (row.lastReadAt ?? 0) > 0, !markedUnread(row), sharesRead(row) else { return }
+        let key = Self.writeKey(id: row.id, profile: row.profile)
+        if let refused = readRefused[key], refused >= row.recency { return }
+        if let write = unreadWrites[key], write.ackAt == nil { return }
+        AppLog.trace("sessions", "read sync: the chat on screen \(AppLog.tag(id)) is read")
+        writeUnread(false, row: row)
+    }
+
+    /// Reads (and Mark as Unread) the gateway hasn't taken because it couldn't be reached go again: after a reconnect
+    /// and after every page. A read is only still true while the chat hasn't moved since (`through`, 2 s of slack for
+    /// the gap between a message's time and the chat's activity): newer rows were never seen, and "read now" would
+    /// cover them.
+    private func sendOwedReads() {
+        guard let owed = device.unread.owed, !owed.isEmpty, !readOnlyGateway, !stopped else { return }
+        for (key, through) in owed {
+            if let write = unreadWrites[key], write.ackAt == nil { continue }
+            let parts = key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            let row = parts.count == 2
+                ? (recents + cron + messaging + archivedRows).first { $0.id == parts[1] && $0.profile == parts[0] } : nil
+            // `writeUnread` takes the entry over (and owes it again if it fails again); anything else is dropped: the
+            // chat left the lists, was read elsewhere, lost its mark, or moved on since it was read.
+            if let row, through < 0, device.unread.markers[row.profile]?.contains(row.id) == true {
+                writeUnread(true, row: row)
+            } else if let row, through >= 0, row.recency <= through + 2, sharesRead(row) {
+                writeUnread(false, row: row, through: through)
+            } else {
+                device.unread.owed?[key] = nil
+            }
+        }
+        if device.unread.owed?.isEmpty == true { device.unread.owed = nil }
+        if device.unread.owed != owed { persistState() }
     }
 
     /// [toolnow] The running chats' newest steps by stored id: a row names its step instead of "Working…".
@@ -549,10 +657,12 @@ final class SessionStore {
 
     // MARK: - Opening a row
 
-    /// A user opened a listed row: select it, clear its local unread state, and when the server says it is unread send
-    /// `PATCH /api/sessions/{id} {"unread":false,"profile":p}` (spec 02 §9.3): the row is rewritten optimistically, a
-    /// list page read before the gateway acknowledged the write cannot bring the dot back, and a failure restores the
-    /// last confirmed value if this write still owns the row. Read-only gateway: no write, the dot clears locally.
+    /// A user opened a listed row: select it, clear its local unread state, and send
+    /// `PATCH /api/sessions/{id} {"unread":false,"profile":p}` (spec 02 §9.3) when the server says it is unread, or
+    /// ([read-sync]) when its watermark doesn't yet say the chat was read through its newest activity, so the person's
+    /// other device learns of the read. The row is rewritten optimistically, a list page read before the gateway
+    /// acknowledged the write cannot bring the dot back, and a failure restores the last confirmed value if this write
+    /// still owns the row. Read-only gateway: no write, the dot clears locally.
     func markOpened(_ session: SessionSummary) {
         guard let row = listedRow(id: session.id, profile: session.profile) else { return }
         selectedSessionId = row.id
@@ -560,12 +670,13 @@ final class SessionStore {
         let serverUnread = row.unread == true
         device.unread.opened(row, clearServerLocally: serverUnread && readOnlyGateway)
         persistState()
-        if serverUnread && !readOnlyGateway { writeUnread(false, row: row) }
+        if sharesRead(row) { writeUnread(false, row: row) }
         rebuild()
     }
 
-    func writeUnread(_ unread: Bool, row: SidebarSessionRow) {
-        let ticket = beginUnreadWrite(unread, row: row)
+    /// `through` ([read-sync]): the activity a read covers (server seconds), when it is newer than the row's own.
+    func writeUnread(_ unread: Bool, row: SidebarSessionRow, through: Double? = nil) {
+        let ticket = beginUnreadWrite(unread, row: row, through: through)
         writeCache()
         let client = self.client
         Task { [weak self] in
@@ -585,18 +696,30 @@ final class SessionStore {
         var value: Bool
         /// The last confirmed value before this write: what a failure rolls back to.
         var prior: Bool?
+        /// [read-sync] The activity a read covers (server seconds); 0 for a Mark as Unread.
+        var through: Double = 0
     }
 
     /// The optimistic half: the row shows the value at once and the write owns the row until it is answered.
-    func beginUnreadWrite(_ unread: Bool, row: SidebarSessionRow) -> UnreadWriteTicket {
+    /// [read-sync] The row's watermark follows: 0 for unread, the activity read through for read (the row's own, or
+    /// the caller's `through`), until a page read after the gateway's answer brings the gateway's own stamp.
+    func beginUnreadWrite(_ unread: Bool, row: SidebarSessionRow, through: Double? = nil) -> UnreadWriteTicket {
         let key = Self.writeKey(id: row.id, profile: row.profile)
         unreadWriteTokens &+= 1
         let token = unreadWriteTokens
         // An earlier write still in the air has confirmed nothing: its own prior is the last confirmed value.
+        let earlier = unreadWrites[key].flatMap { $0.ackAt == nil ? $0 : nil }
         let prior = unreadWrites[key].map { $0.ackAt == nil ? $0.prior : $0.value } ?? row.unread
-        unreadWrites[key] = UnreadWrite(token: token, value: unread, prior: prior, ackAt: nil)
-        setServerUnread(unread, id: row.id, profile: row.profile)
-        return UnreadWriteTicket(key: key, token: token, id: row.id, profile: row.profile, value: unread, prior: prior)
+        let readAt = unread ? 0 : max(row.recency, through ?? 0)
+        unreadWrites[key] = UnreadWrite(token: token, value: unread, prior: prior, ackAt: nil, readAt: readAt,
+                                        priorReadAt: earlier != nil ? earlier?.priorReadAt : row.lastReadAt)
+        setServerUnread(unread, readAt: readAt, id: row.id, profile: row.profile)
+        if device.unread.owed?[key] != nil {            // this write stands in for the one owed
+            device.unread.owed?[key] = nil
+            persistState()
+        }
+        return UnreadWriteTicket(key: key, token: token, id: row.id, profile: row.profile, value: unread, prior: prior,
+                                 through: readAt)
     }
 
     /// `PATCH /api/sessions/{id}?profile=p {"unread": v, "profile": p}`; the error when it failed.
@@ -611,18 +734,34 @@ final class SessionStore {
 
     /// The gateway answered. A failure rolls back only while this write still owns the row; otherwise it is "healed
     /// by the next honest refresh".
+    /// [read-sync] A write the gateway never answered (offline, a timeout) is owed, not undone: the dot this device
+    /// cleared stays cleared here (`localReads`, as a read-only gateway's) and the write goes again (`sendOwedReads`).
     func settleUnreadWrite(_ ticket: UnreadWriteTicket, error: (any Error)?) {
-        guard unreadWrites[ticket.key]?.token == ticket.token else { return }
-        guard error != nil else {
+        guard let write = unreadWrites[ticket.key], write.token == ticket.token else { return }
+        guard let error else {
             unreadWrites[ticket.key]?.ackAt = .now
+            readRefused[ticket.key] = nil
             return
         }
         unreadWrites[ticket.key] = nil
         if let error = error as? HTTPError, SessionWrite.isMaintenanceRefusal(error) {
             keepUnreadOnDevice(ticket.value, id: ticket.id, profile: ticket.profile)
         }
+        if error is CancellationError {
+            // Nothing learnt: the row goes back to what the gateway last said.
+        } else if !(error is HTTPError) {
+            AppLog.note("sessions", "read sync: \(ticket.value ? "unread" : "read") of \(AppLog.tag(ticket.id)) not sent, owed")
+            var owed = device.unread.owed ?? [:]
+            if owed.count >= SessionUnreadState.maxOwed, let oldest = owed.keys.sorted().first { owed[oldest] = nil }
+            owed[ticket.key] = ticket.value ? -1 : ticket.through
+            device.unread.owed = owed
+            if !ticket.value { device.unread.localReads[ticket.id] = ticket.through }
+            persistState()
+        } else if !ticket.value {
+            readRefused[ticket.key] = ticket.through
+        }
         if let prior = ticket.prior {
-            setServerUnread(prior, id: ticket.id, profile: ticket.profile)
+            setServerUnread(prior, readAt: write.priorReadAt, id: ticket.id, profile: ticket.profile)
             writeCache()
         }
         rebuild()
@@ -682,6 +821,7 @@ final class SessionStore {
         messaging.removeAll { $0.id == id && $0.profile == profile }
         guard recents.count + cron.count + messaging.count != before else { return }
         if selectedSessionId == id { selectedSessionId = nil; selectedLineage = nil }
+        if onScreenSessionId == id { onScreenSessionId = nil }
         lastFingerprint = nil
         writeCache()
         rebuild()
@@ -689,9 +829,12 @@ final class SessionStore {
 
     /// Rewrite the stored rows' server flag (every list that holds this profile's row, the Archived view's included: an
     /// archived chat's Mark as Read, or opening it, kept its dot until the next archived read).
-    private func setServerUnread(_ unread: Bool, id: String, profile: String) {
+    private func setServerUnread(_ unread: Bool, readAt: Double?, id: String, profile: String) {
         func update(_ rows: inout [SidebarSessionRow]) {
-            for index in rows.indices where rows[index].id == id && rows[index].profile == profile { rows[index].unread = unread }
+            for index in rows.indices where rows[index].id == id && rows[index].profile == profile {
+                rows[index].unread = unread
+                rows[index].lastReadAt = readAt                       // [read-sync]
+            }
         }
         update(&recents); update(&cron); update(&messaging); update(&archivedRows)
     }
@@ -720,7 +863,8 @@ final class SessionStore {
 
     /// [sessions-m9] Either unread source says this listed chat is unread (the row's own rule, §5.6 `anyUnread`).
     func isUnreadNow(_ row: SidebarSessionRow) -> Bool {
-        device.unread.isUnread(row, messaging: false, selected: row.id == selectedSessionId, running: running.contains(row.id))
+        device.unread.isUnread(row, messaging: false, selected: row.id == selectedSessionId, running: running.contains(row.id),
+                               onScreen: row.id == seenSessionId)
     }
 
     // MARK: - Pipeline
@@ -748,6 +892,7 @@ final class SessionStore {
             // does not end in a list or an unchanged probe, the share is given back and the next open reads again.
             reconnectReadOut = true
             refreshAfterReconnect()                   // [sessions-m9] the one probe (§11.2), inside the share
+            sendOwedReads()                           // [read-sync] what couldn't be sent while the link was down
         default:
             break
         }
@@ -991,7 +1136,10 @@ final class SessionStore {
             guard var rows, !unreadWrites.isEmpty || !device.pins.isEmpty else { return rows }
             for index in rows.indices {
                 let key = Self.writeKey(id: rows[index].id, profile: rows[index].profile)
-                if let write = unreadWrites[key] { rows[index].unread = write.value }
+                if let write = unreadWrites[key] {
+                    rows[index].unread = write.value
+                    rows[index].lastReadAt = write.readAt             // [read-sync]
+                }
                 if let pinned = device.pins[key] {
                     // The gateway agrees now (it took a later write, or another client's): the device copy is done.
                     if (rows[index].pinned == true) == pinned { device.pins[key] = nil } else { rows[index].pinned = pinned }
@@ -1022,7 +1170,13 @@ final class SessionStore {
         }
         lastUpdated = Date()
         device.unread.observe(recents + cron)
+        // [read-sync] What another device read (the gateway's watermark covers the chat's newest activity) is read here.
+        let earlier = Dictionary((prior.recents + prior.cron + prior.messaging).map { (Self.writeKey(id: $0.id, profile: $0.profile), $0) },
+                                 uniquingKeysWith: { first, _ in first })
+        device.unread.absorbGatewayReads(recents + cron + messaging, previous: earlier)
         absorbSelected()
+        shareOnScreenRead()
+        sendOwedReads()
         let rowsMoved = recents != prior.recents || cron != prior.cron || messaging != prior.messaging
         // [diagnostics] Added/removed/changed per list, keyed by (id, profile): what the read actually moved.
         func diff(_ old: [SidebarSessionRow], _ new: [SidebarSessionRow]) -> String {
@@ -1062,6 +1216,7 @@ final class SessionStore {
         if let row = rows.first(where: { $0.id == id }) {
             selectedLineage = Self.durableId(row)
         } else if let lineage = selectedLineage, let moved = rows.first(where: { $0.lineageRootId == lineage }) {
+            if onScreenSessionId == id { onScreenSessionId = moved.id }       // [read-sync]
             selectedSessionId = moved.id
         }
         guard let now = selectedSessionId else { return }
@@ -1127,7 +1282,8 @@ final class SessionStore {
                                      lastActive: row.recency > 0 ? Date(timeIntervalSince1970: row.recency) : nil,
                                      source: row.source,
                                      unread: device.unread.isUnread(row, messaging: messaging, selected: selected,
-                                                                    running: running.contains(row.id)),
+                                                                    running: running.contains(row.id),
+                                                                    onScreen: row.id == seenSessionId),
                                      isRunning: running.contains(row.id))
         // [sessions-m9] Sort By, Row Detail, the status and the pending line (docs/spec/3x-sessions.md §3.1, §3.3, §9).
         summary.startedAt = (row.startedAt ?? 0) > 0 ? Date(timeIntervalSince1970: row.startedAt ?? 0) : nil

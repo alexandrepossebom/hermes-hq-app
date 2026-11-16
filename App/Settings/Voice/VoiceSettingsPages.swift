@@ -135,6 +135,10 @@ struct VoiceConversationPage: View {
     @State private var engine = TalkController.chosenEngine
     @State private var liveWords = LiveWords.isOn   // [live words]
     @State private var liveWordsReadiness = LiveWords.readiness
+    @State private var wordsFrom = LiveWords.source   // [words from Hermes]
+    /// This device's words: the language picked ("" is Automatic) and the person's languages to pick from.
+    @State private var wordsLanguage = LiveWords.language ?? ""
+    @State private var wordsLanguages = LiveWordsEngine.choices(preferred: Locale.preferredLanguages, keyboards: LiveWords.keyboardLanguages)
     @State private var betterWords = ParakeetWords.isOn   // [more accurate words]
     @State private var betterWordsReadiness = ParakeetWords.readiness
     @State private var wordFixes = WordFixes.all.count
@@ -144,6 +148,38 @@ struct VoiceConversationPage: View {
         if let engine { return engine }
         guard let config = router.gatewaySettings?.configStore?.config else { return .standard }
         return TalkEngine(mode: ConfigText.text(ConfigPath.get(config, "voice.voice_chat_mode")))
+    }
+
+    /// [words from Hermes] What the gateway's settings say about its live speech to text (nil: not read yet).
+    private var hermesWordsOffered: Bool? {
+        GatewayWordsWire.offered(config: router.gatewaySettings?.configStore?.config)
+    }
+
+    private var wordsFromBinding: Binding<LiveWordsSource> {
+        Binding(get: { wordsFrom }, set: { source in
+            Haptics.play(.selection)
+            wordsFrom = source
+            LiveWordsSource.chosen = source
+            LiveWords.prepare()
+        })
+    }
+
+    private var wordsLanguageBinding: Binding<String> {
+        Binding(get: { wordsLanguage }, set: { tag in
+            Haptics.play(.selection)
+            wordsLanguage = tag
+            LiveWords.setLanguage(tag.isEmpty ? nil : tag)
+        })
+    }
+
+    private func wordsLanguageName(_ tag: String) -> String {
+        tag.isEmpty ? VoiceSettingsCatalog.wordsLanguageAutomatic : wordsLanguages.first { $0.id == tag }?.name ?? tag
+    }
+
+    /// Automatic, the person's languages, and a language picked earlier that is no longer among them.
+    private var wordsLanguageTags: [String] {
+        let tags = [""] + wordsLanguages.map(\.id)
+        return tags.contains(wordsLanguage) ? tags : tags + [wordsLanguage]
     }
 
     var body: some View {
@@ -203,6 +239,40 @@ struct VoiceConversationPage: View {
                     }))
                     .accessibilityIdentifier("voice.settings.live-words")
                 if liveWords {
+                    // [words from Hermes] One row: this device, or Hermes' live speech to text.
+                    if DeviceWord.isMac {
+                        MacFormRow(label: VoiceSettingsCatalog.wordsFromTitle) {
+                            MacPopUp(label: VoiceSettingsCatalog.wordsFromTitle, selection: wordsFromBinding, options: LiveWordsSource.allCases) {
+                                VoiceSettingsCatalog.wordsFromChoice($0)
+                            }
+                        }
+                        .accessibilityIdentifier("voice.settings.words-from")
+                    } else {
+                        Picker(VoiceSettingsCatalog.wordsFromTitle, selection: wordsFromBinding) {
+                            ForEach(LiveWordsSource.allCases, id: \.self) { Text(VoiceSettingsCatalog.wordsFromChoice($0)).tag($0) }
+                        }
+                        .hqMenuPicker()
+                        .accessibilityIdentifier("voice.settings.words-from")
+                    }
+                }
+                // The language and the larger model are this device's: no rows while Hermes writes the words.
+                if liveWords, wordsFrom == .device, wordsLanguages.count > 1 || !wordsLanguage.isEmpty {
+                    if DeviceWord.isMac {
+                        MacFormRow(label: VoiceSettingsCatalog.wordsLanguageTitle) {
+                            MacPopUp(label: VoiceSettingsCatalog.wordsLanguageTitle, selection: wordsLanguageBinding, options: wordsLanguageTags) {
+                                wordsLanguageName($0)
+                            }
+                        }
+                        .accessibilityIdentifier("voice.settings.words-language")
+                    } else {
+                        Picker(VoiceSettingsCatalog.wordsLanguageTitle, selection: wordsLanguageBinding) {
+                            ForEach(wordsLanguageTags, id: \.self) { Text(wordsLanguageName($0)).tag($0) }
+                        }
+                        .hqMenuPicker()
+                        .accessibilityIdentifier("voice.settings.words-language")
+                    }
+                }
+                if liveWords, wordsFrom == .device {
                     SwitchRow(title: VoiceSettingsCatalog.betterWordsTitle, subtitle: VoiceSettingsCatalog.betterWordsHint, isOn: Binding(
                         get: { betterWords },
                         set: { on in
@@ -220,8 +290,9 @@ struct VoiceConversationPage: View {
                 Text("Live Words")
             } } footer: { HQSectionFooter {
                 // With the larger model listening, Apple's engine (and whether it can run here) no longer matters.
-                Text([VoiceSettingsCatalog.liveWordsNote(on: liveWords, readiness: betterWords && betterWordsReadiness == .ready ? .unknown : liveWordsReadiness),
-                      VoiceSettingsCatalog.betterWordsNote(on: liveWords && betterWords, readiness: betterWordsReadiness)]
+                Text(liveWords && wordsFrom == .hermes ? VoiceSettingsCatalog.wordsFromHermesNote(offered: hermesWordsOffered)
+                     : [VoiceSettingsCatalog.liveWordsNote(on: liveWords, readiness: betterWords && betterWordsReadiness == .ready ? .unknown : liveWordsReadiness),
+                        VoiceSettingsCatalog.betterWordsNote(on: liveWords && betterWords, readiness: betterWordsReadiness)]
                     .compactMap { $0 }.joined(separator: " "))
                     .accessibilityIdentifier("voice.settings.live-words-note")
             } }

@@ -67,8 +67,22 @@ nonisolated enum PushPolicy {
             && namedSites(body) && deviceAccess(body) && deviceAccessKinds(body) && liveSteps(body) && liveEnds(body)
             && liveQuick(body) && terminalKnown(body) && tasks(body) && cronMedia(body) && namedTabs(body)
             && ideasRun(body) && draftCardsKnown(body) && pluginUpdatesKnown(body) && taskFields(body)
-            && helperAlerts(body)
+            && helperAlerts(body) && jobReportAsks(body) && updatesCheckedKnown(body)
     }
+    /// [job-report-asks] hermes-hq-push 0.9.57+ shows the approval or the question of a bot that is handling a job's
+    /// report in its Bot Chat as the usual card in the app, and alerts the phone (a tester, 2026-11-14: the approval
+    /// timed out after five minutes unseen and the question came back "destination refused"). The card is bridged from
+    /// each bot's own copy. No flag of its own: the add-on says its version.
+    static func jobReportAsks(_ body: [String: Any]?) -> Bool {
+        (body?["pluginVersion"] as? String).map { versionAtLeast($0, jobReportAsksVersion) } ?? false
+    }
+    static let jobReportAsksVersion = "0.9.57"
+    /// [update-consent] hermes-hq-push 0.9.58+ applies a plugin's update only as the owner saw it: the app sends back
+    /// the packages, the scan's findings and what the update adds, and the add-on answers Hermes's questions only when
+    /// they match (`pluginUpdatesChecked`; a reviewer's finding, 2026-11-15). Only that the add-on says so: Hermes on
+    /// Windows says false, as for `pluginUpdates`, and must not be offered the update forever. The main bot's copy
+    /// serves it.
+    static func updatesCheckedKnown(_ body: [String: Any]?) -> Bool { body?["pluginUpdatesChecked"] is NSNumber }
     /// [helper-alerts] hermes-hq-push 0.9.54+ sends a helper's approval or question alert for the chat that started the
     /// helper, where the card waits (tester 2026-11-14: "notifications about required approval redirect me to some
     /// subsession … an empty session"; Hermes hands the add-on the helper's own working session). The alert goes from
@@ -164,8 +178,10 @@ nonisolated enum PushPolicy {
     /// 0.9.50 the first whose dashboard-tile skill draws a tile from the bot's data with a kit (`tileFit`: a bot reads
     /// the skill from its own copy, so a bot with an older one still writes the page itself; a tester's status boards
     /// came out cut off and crowded, 2026-11-11); 0.9.54 the first whose alert for a helper's approval or question opens
-    /// the chat that started the helper (`helperAlerts`: the alert goes from each bot's own copy).
-    static let everyBotVersion = "0.9.54"
+    /// the chat that started the helper (`helperAlerts`: the alert goes from each bot's own copy); 0.9.57 the first
+    /// whose approval or question, asked while that bot handles a job's report, shows as a card in the app
+    /// (`jobReportAsks`: the card is bridged from each bot's own copy).
+    static let everyBotVersion = "0.9.57"
 
     /// [addon-reminder] The add-on version whose flags `current` checks: raise it with every flag added there. The
     /// launch alert offers an update once per `offerLevel`; after Not Now the app only reminds quietly (AddOnReminder)
@@ -175,8 +191,10 @@ nonisolated enum PushPolicy {
     /// Task ideas run saves its ideas again). 0.9.47: `draftCards` (a bot's draft for review as a card). 0.9.52:
     /// `pluginUpdates` (the main bot's copy serves it, so a plugin update that adds Python packages finishes in the app;
     /// no bot needs its own for that). 0.9.53: `task_fields` (a task's priority, tags, alert, start day and files).
-    /// 0.9.54: `helperAlerts` (a helper's approval alert opens the chat with the card).
-    static let wantedVersion = "0.9.54"
+    /// 0.9.54: `helperAlerts` (a helper's approval alert opens the chat with the card). 0.9.57: a bot handling a job's
+    /// report can ask for approval or an answer in its chat. 0.9.58: `pluginUpdatesChecked` (a plugin's update is
+    /// applied only as you saw it: the packages, the scan's findings and what it adds).
+    static let wantedVersion = "0.9.58"
     static let offerLevel = "\(wantedVersion)/\(everyBotVersion)"
     static let pluginName = "hermes-hq-push"
 

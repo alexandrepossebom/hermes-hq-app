@@ -306,7 +306,9 @@ final class PluginCatalogEntryModel {
                    let host, let navigation = host.navigationController {
                     let page = PluginPageController(model: parent, plugin: plugin, router: router)
                     var stack = navigation.viewControllers
-                    if let index = stack.firstIndex(of: host) { stack[index] = page } else { stack.append(page) }
+                    // The listing alone in the right pane (two panes) stays under the plugin's page, so its Back has
+                    // somewhere to go; over a list it is replaced, as before.
+                    if let index = stack.firstIndex(of: host), index > 0 { stack[index] = page } else { stack.append(page) }
                     navigation.setViewControllers(stack, animated: true)
                 }
             } catch {
@@ -338,9 +340,15 @@ final class PluginCatalogEntryModel {
         return rpc.code == 4019 && rpc.message.contains("identifier")
     }
 
+    /// Open in Plugins: the plugin's page over this listing, on the stack the listing is on. (A tester, 2026-11-16, Mac:
+    /// pushed through the Marketplace's own stack it took the listing's place in the right pane, and its Back, with
+    /// nothing under it, did nothing.)
     func openInstalled(router: SettingsRouter) {
         guard let plugin = installed else { return }
-        router.push(PluginPageController(model: parent, plugin: plugin, router: router))
+        let page = PluginPageController(model: parent, plugin: plugin, router: router)
+        guard let navigation = host?.navigationController else { router.push(page); return }
+        page.navigationItem.largeTitleDisplayMode = .never
+        navigation.pushViewController(page, animated: true)
     }
 
     /// [marketplace] The maintainer's other plugins, most stars first (the website's "More by …").

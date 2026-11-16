@@ -1,7 +1,8 @@
 // The Bots list's data (spec 02 §1–8, 11, 12): the roster from `profiles.list`, painted from the device cache at
 // once, then the slim answer, then the full answer; polled on the phone's cadence; device-local unread dots; and the
 // canonical "Bot Chat" lookup a tap needs. Makes no gateway writes except minting a Bot Chat when the registry and a
-// full roster both confirm a bot has none (§8.2), and never that while `readOnlyGateway` is on (§12.5).
+// full roster both confirm a bot has none (§8.2) and ([read-sync], BotStore+ReadSync.swift) the read watermark of a
+// bot's chat, so a read on one device clears the dot on the other; never either while `readOnlyGateway` is on (§12.5).
 
 import Foundation
 import Observation
@@ -49,6 +50,14 @@ nonisolated struct BotStoreTiming: Sendable {
     var staleOnReturn: Duration = .seconds(30)
     /// [botsaid] Read each Bot Chat's tail for the bot's own newest words (tests that count REST calls turn it off).
     var readsBotSaid = true
+    /// [read-sync] Share reads through the gateway's watermark (BotStore+ReadSync.swift; tests that count calls turn it off).
+    var sharesReads = true
+    /// [read-sync] The least time between two rounds of watermark reads after `sessions.changed`.
+    var readLearnGap: Duration = .seconds(10)
+    /// [read-sync] The least time between two reads of every bot's watermark.
+    var readSweepGap: Duration = .seconds(120)
+    /// [read-sync] How long a learnt watermark is trusted when the person opens a chat or picks Mark as Read.
+    var readFreshFor: Duration = .seconds(120)
     static let standard = BotStoreTiming()
 }
 
@@ -94,6 +103,9 @@ nonisolated struct BotDeviceState: Codable, Sendable, Hashable {
     /// [manualorder] Sort By › Manual: the rows' order, profile names, top row first (`BotRowOrder`); nil is Recent
     /// Activity. Optional so older state files still decode (as Recent Activity).
     var rowOrder: [String]? = nil
+    /// [read-sync] What this device knows of each bot chat's read watermark on the gateway, and the writes it owes, by
+    /// profile (BotStore+ReadSync.swift). Optional so older state files still decode.
+    var readShare: [String: BotReadShare]? = nil
 }
 
 /// The last full roster this device saw for the account (`dispatch.roster.v1`).
@@ -164,6 +176,10 @@ final class BotStore {
     /// Busy chats by profile: the stored id of each chat running a turn or holding live work ("" = not stored yet).
     @ObservationIgnored private var workingChats: [String: Set<String>] = [:]
     @ObservationIgnored private var needsInput: [String: NeedsInput] = [:]   // [questions]
+    // [live-status] The gateway's own word on chats this device isn't attached to (`LiveStatusWatch`): stored ids
+    // running a turn, and stored ids waiting on a person.
+    @ObservationIgnored private var liveWorking: Set<String> = []
+    @ObservationIgnored private var liveWaiting: Set<String> = []
     @ObservationIgnored private var presence: [String: BotPresence] = [:]    // [presence]
     @ObservationIgnored private var steps: [String: [String: String]] = [:]  // [toolnow] profile → stored id → words
     // [botslist] Row status that is display only (BotStore+RowStatus.swift): bots whose open passed the grace, the
@@ -207,6 +223,26 @@ final class BotStore {
     /// [botunread] When each bot began waiting for a read of its chat (`BotUnreadState.pending`): only a read asked
     /// for after that has seen the rows that moved it.
     @ObservationIgnored var unreadHeldAt: [String: ContinuousClock.Instant] = [:]
+    // [read-sync] The read watermark's writes and reads (BotStore+ReadSync.swift).
+    @ObservationIgnored var readWritesOut: Set<String> = []
+    @ObservationIgnored var readLearnQueue: [String] = []
+    @ObservationIgnored var readLearnsOut: Set<String> = []
+    /// When each bot's watermark was last learnt or written by this device.
+    @ObservationIgnored var readFreshAt: [String: ContinuousClock.Instant] = [:]
+    @ObservationIgnored var readLearntAt: ContinuousClock.Instant?
+    @ObservationIgnored var readSweptAt: ContinuousClock.Instant?
+    /// When the gateway last said its chats changed (or the link came back).
+    @ObservationIgnored var readChangedAt: ContinuousClock.Instant?
+    @ObservationIgnored var readLearnTask: Task<Void, Never>?
+    @ObservationIgnored var readSweepTask: Task<Void, Never>?
+    /// Bots whose chat this device had never seen before the last roster (no baseline): they take the gateway's word.
+    @ObservationIgnored var readFirstSight: Set<String> = []
+    /// The gateway refused a watermark write for a reason that holds for every chat: none is sent again this run.
+    @ObservationIgnored var readShareRefused = false
+    /// The gateway's chat rows carry no watermark (a Hermes older than read state): none is read again this run.
+    @ObservationIgnored var readShareAbsent = false
+    /// Each bot's known watermark from before the write in the air (a refusal puts it back).
+    @ObservationIgnored var readPrior: [String: Double?] = [:]
 
     // Lifecycle and cadence.
     @ObservationIgnored private var started = false
@@ -289,8 +325,9 @@ final class BotStore {
         started = false
         lifecycle &+= 1
         fullToken &+= 1
-        for task in [eventsTask, statesTask, loadTask, slimTask, fullTask, pollTask] { task?.cancel() }
+        for task in [eventsTask, statesTask, loadTask, slimTask, fullTask, pollTask, readLearnTask, readSweepTask] { task?.cancel() }
         eventsTask = nil; statesTask = nil; loadTask = nil; slimTask = nil; fullTask = nil; pollTask = nil
+        readLearnTask = nil; readSweepTask = nil; readLearnQueue = []       // [read-sync]
         for task in mintTasks.values { task.cancel() }
         mintTasks = [:]
         for task in wakingTasks.values { task.cancel() }   // [botslist]
@@ -352,6 +389,20 @@ final class BotStore {
         guard isOwnChat(chat) else { return }
         device.unread.left(chat.profile, seenThrough: seenThrough.timeIntervalSince1970)
         persistState()
+        // [read-sync] What was seen is read on the gateway too (unless the person marked the chat unread while in it).
+        if let profile = profile(named: chat.profile), !device.unread.isMarked(profile) {
+            shareRead(profile, through: seenThrough.timeIntervalSince1970)
+        }
+    }
+
+    /// [read-sync] The app is in front.
+    var isAppActive: Bool { appActive }
+
+    /// [read-sync] The bot's own chat is the one in front of the person, with the app in front (`sessionId`: and it is
+    /// this stored id).
+    func isChatInFront(_ profile: RosterProfile, sessionId: String?) -> Bool {
+        guard appActive, let focus, focus.profile == profile.name, isOwnChat(focus) else { return false }
+        return sessionId.map { $0 == focus.sessionId } ?? true
     }
 
     /// Only the bot's own Bot Chat moves its baseline (a side chat of the bot is not its activity owner's chat).
@@ -369,7 +420,10 @@ final class BotStore {
         guard isOwnChat((profile: name, sessionId: sessionId)) else { return }
         let seen = seenThrough.timeIntervalSince1970
         device.unread.left(name, seenThrough: seen)
-        if let profile = profile(named: name) { device.unread.acknowledgeIfSeen(profile, seenThrough: seen) }
+        if let profile = profile(named: name) {
+            device.unread.acknowledgeIfSeen(profile, seenThrough: seen)
+            if !device.unread.isMarked(profile) { shareRead(profile, through: seen) }       // [read-sync]
+        }
         persistState()
         rebuild()
     }
@@ -422,10 +476,40 @@ final class BotStore {
     private func workingProfiles(_ profiles: [RosterProfile]) -> Set<String> {
         var out: Set<String> = []
         for profile in profiles {
-            guard let busy = workingChats[profile.name], !busy.isEmpty else { continue }
-            if !busy.isDisjoint(with: ownChatIds(profile)) { out.insert(profile.name) }
+            if let busy = workingChats[profile.name], !busy.isDisjoint(with: ownChatIds(profile)) {
+                out.insert(profile.name)
+            } else if !liveWorking.isEmpty, !liveWorking.isDisjoint(with: storedChatIds(profile)) {
+                out.insert(profile.name)        // [live-status] a turn this device didn't start or hear
+            }
         }
         return out
+    }
+
+    /// [live-status] The gateway's word on which stored chats run a turn and which wait on a person, whoever started
+    /// them. A bot whose own chat is among them says Working… (so what the turn stores doesn't show as unread before
+    /// it ends), or that it waits for you, though this device never opened that chat. Replaces both sets.
+    func setLiveStatus(working: Set<String>, waiting: Set<String>) {
+        guard working != liveWorking || waiting != liveWaiting else { return }
+        liveWorking = working
+        liveWaiting = waiting
+        rebuild()
+    }
+
+    /// [live-status] Each bot's wait: what this device's own request centre says of its chat, else the gateway's word.
+    private func waitingProfiles(_ profiles: [RosterProfile]) -> [String: NeedsInput] {
+        guard !liveWaiting.isEmpty else { return needsInput }
+        var out = needsInput
+        for profile in profiles where out[profile.name] == nil && !liveWaiting.isDisjoint(with: storedChatIds(profile)) {
+            out[profile.name] = .waiting
+        }
+        return out
+    }
+
+    /// The stored ids of a bot's own Bot Chat (no "" for one not stored yet).
+    private func storedChatIds(_ profile: RosterProfile) -> Set<String> {
+        var own = Set(profile.canonicalIds)
+        if let minted = mintedChats[profile.name] { own.insert(minted) }
+        return own
     }
 
     /// [toolnow] Each bot's running chats' newest steps (profile → stored id, "" for one not stored yet → words,
@@ -554,23 +638,27 @@ final class BotStore {
         rebuild()
     }
 
-    // MARK: - Unread (device-local, §6.7)
+    // MARK: - Unread (this device's judgement, §6.7; shared through the gateway's watermark, [read-sync])
 
     /// The bot's chat was read: call once an open applied fresh history from the gateway (a cached paint is not
     /// enough). Ignored when a newer roster time arrived since `bot` was taken (its newer messages are unseen).
+    /// [read-sync] The gateway's watermark follows, so the person's other device drops its dot.
     func markRead(_ bot: Bot) {
         guard let profile = profile(named: bot.id) else { return }
         if let seen = bot.lastActive?.timeIntervalSince1970, let current = details[bot.id]?.time, current > seen + 0.0005 { return }
         device.unread.acknowledge(profile)
+        unreadHeldAt[profile.name] = nil
         persistState()
+        shareRead(profile, explicit: true)
         rebuild()
     }
 
-    /// Mark as Unread from the row menu (device-local). No-op for a bot with no chat yet.
+    /// Mark as Unread from the row menu. No-op for a bot with no chat yet. [read-sync] The other device shows it too.
     func markUnread(_ bot: Bot) {
         guard let profile = profile(named: bot.id), profile.canonicalSession != nil else { return }
         device.unread.mark(profile)
         persistState()
+        shareUnread(profile)
         rebuild()
     }
 
@@ -725,7 +813,11 @@ final class BotStore {
     }
 
     private func handle(_ event: GatewayEvent) {
+        // [read-sync] A watermark written on another device is one of the changes this names.
+        if event.type == "sessions.changed", !stopped { readsMayHaveChanged() }
         guard event.type == "gateway.ready", !stopped else { return }
+        retryOwedReads()                    // [read-sync] what couldn't be sent while the link was down
+        readsMayHaveChanged(sweep: true)
         noteSocketOpen()
         // A gateway that came back after a failed or never-finished load: read now instead of waiting for the poll.
         if started, appActive, fullTask == nil, loadTask == nil, phase < .full || isFailed { refreshSoon() }
@@ -911,6 +1003,12 @@ final class BotStore {
         // something written to you, not for two bots talking (`settleUnread`, BotStore+BotSaid.swift).
         let reads = !stopped && timing.readsBotSaid
         let waiting = Set(device.unread.pending?.keys.map { $0 } ?? [])
+        // [read-sync] A bot this device has no baseline for is met for the first time: it takes the gateway's word.
+        if timing.sharesReads {
+            for profile in rows where device.unread.baselines[profile.name] == nil && !(profile.canonicalSession?.id.isEmpty ?? true) {
+                readFirstSight.insert(profile.name)
+            }
+        }
         device.unread.reconcile(rows, isVisible: { profile in
             guard active, let focus, focus.profile == profile.name else { return false }
             return profile.canonicalIds.contains(focus.sessionId)
@@ -919,6 +1017,11 @@ final class BotStore {
             return RosterRules.holdsMessages(canonical)
         })
         for name in device.unread.pending?.keys.map({ $0 }) ?? [] where !waiting.contains(name) { unreadHeldAt[name] = .now }
+        // [read-sync] The chat in front of the person is read as it moves: once a turn is over, not at each of its steps.
+        if let focus, active, let profile = rows.first(where: { $0.name == focus.profile && $0.canonicalIds.contains(focus.sessionId) }),
+           workingProfiles([profile]).isEmpty {
+            shareRead(profile)
+        }
     }
 
     private func applyFull(_ snapshot: RosterSnapshot, issuedAt: Date = .distantPast) {
@@ -957,6 +1060,11 @@ final class BotStore {
         photos.rowsArrived(profiles, order: bots.map(\.id), issuedAt: issuedAt)       // [photoheads]
         reconcilePinned()             // [botslist] a desktop pin or unpin gets its agreeing section (parity §3 L147)
         refreshBotSaid()              // [botsaid] the rows' previews: the bots' own newest words
+        // [read-sync] Owed writes go again; the dotted bots' watermarks are read (every bot's where the gateway doesn't
+        // say when its chats change, or the first time).
+        retryOwedReads()
+        let silent = client.latestReady?["change_events"]?.bool != true
+        learnReads(sweeps: readSweptAt == nil || silent, gap: silent ? timing.readSweepGap * 5 : nil)
     }
 
     // MARK: - Cadence
@@ -1016,7 +1124,8 @@ final class BotStore {
     /// [sessions-layout] UI tests: the device's unread marks and baselines from scratch. The fixture restamps every
     /// chat when it resets, so the last test's baselines would mark every bot unread in the next one.
     func resetUnreadForTests() {
-        guard device.unread != BotUnreadState() else { return }
+        guard device.unread != BotUnreadState() || device.readShare != nil else { return }
+        device.readShare = nil
         device.unread = BotUnreadState()
         persistState()
         rebuild()
@@ -1036,7 +1145,7 @@ final class BotStore {
         }
         var input = RosterBuilder.Input(profiles: profiles, meta: meta, sections: sections, pinOrder: device.pinOrder,
                                         unread: device.unread, working: workingProfiles(profiles), mintedChats: mintedChats, previews: previews)
-        input.needsInput = needsInput   // [questions]
+        input.needsInput = waitingProfiles(profiles)   // [questions] [live-status]
         input.presence = presence       // [presence]
         input.steps = ownSteps(profiles, working: input.working)   // [toolnow]
         input.waking = wakingBots       // [botslist]
@@ -1087,7 +1196,7 @@ final class BotStore {
     }
 
     isolated deinit {
-        for task in [eventsTask, statesTask, loadTask, slimTask, fullTask, pollTask] { task?.cancel() }
+        for task in [eventsTask, statesTask, loadTask, slimTask, fullTask, pollTask, readLearnTask, readSweepTask] { task?.cancel() }
         for waiter in readyWaiters.values { waiter.timeout.cancel(); waiter.continuation.resume() }
     }
 }

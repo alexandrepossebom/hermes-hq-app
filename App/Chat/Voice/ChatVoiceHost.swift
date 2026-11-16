@@ -278,7 +278,10 @@ import UIKit
 
     private func target() -> MemoTarget? {
         guard let key = MemoAccountStores.shared.key else { return nil }
-        return MemoTarget(scope: scope, host: self, session: memos, botName: botName.isEmpty ? "Hermes" : botName, accountKey: key)
+        // [words from Hermes] The chat's own gateway and profile hear a memo's words when Words From is Hermes.
+        let chat = screen?.session as? ChatVoiceTurns
+        return MemoTarget(scope: scope, host: self, session: memos, botName: botName.isEmpty ? "Hermes" : botName, accountKey: key,
+                          hermes: { [weak chat] in chat.flatMap { GatewayWordsLink.forTake(client: $0.voiceClient, profile: $0.profile) } })
     }
 
     private func micDown(a11y: Bool) {

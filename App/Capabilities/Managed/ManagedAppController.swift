@@ -278,10 +278,7 @@ final class ManagedAppController: UIHostingController<HQScaledRoot<ManagedAppVie
                            action: "Remove", from: self) { managed.remove(account) }
     }
 
-    private func pop() {
-        guard navigationController?.topViewController === self else { return }
-        navigationController?.popViewController(animated: true)
-    }
+    private func pop() { hqBackOut() }
 
     func leave() {
         guard page.dirty, page.editable, !page.saving else { pop(); return }

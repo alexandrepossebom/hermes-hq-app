@@ -9,7 +9,7 @@ nonisolated enum VoiceSettingsCatalog {
     static let speechToTextKeys = [
         "stt.enabled", "stt.provider", "stt.local.model", "stt.local.language", "stt.openai.model", "stt.groq.model",
         "stt.mistral.model", "stt.elevenlabs.model_id", "stt.elevenlabs.language_code", "stt.elevenlabs.tag_audio_events",
-        "stt.elevenlabs.diarize", "stt.echo_transcripts", "voice.max_recording_seconds",
+        "stt.elevenlabs.diarize", "stt.streaming", "stt.echo_transcripts", "voice.max_recording_seconds",
     ]
 
     static let textToSpeechKeys = [
@@ -93,6 +93,7 @@ nonisolated enum VoiceSettingsCatalog {
         "stt.elevenlabs.language_code": "ElevenLabs Language",
         "stt.elevenlabs.tag_audio_events": "Tag Audio Events",
         "stt.elevenlabs.diarize": "Speaker Diarization",
+        "stt.streaming": "Live Transcription",
         "stt.echo_transcripts": "Echo Transcripts",
         "voice.max_recording_seconds": "Max Dictation Length",
         "voice.auto_tts": "Voice Replies on Messaging Apps",
@@ -126,6 +127,8 @@ nonisolated enum VoiceSettingsCatalog {
 
     static let descriptions: [String: String] = [
         "stt.enabled": "Turns voice messages and dictation into text.",
+        // [words from Hermes] The gateway's own switch for its live speech to text (off unless turned on).
+        "stt.streaming": "Writes your words while you speak, with OpenAI, xAI or ElevenLabs. Words From Hermes needs it.",
         "stt.echo_transcripts": "Post the transcript of each voice message back to the chat.",
         "stt.elevenlabs.language_code": "Optional ISO-639-3 language code. Blank lets ElevenLabs auto-detect.",
         // The local block's last field, so this is its footer: where "Local" runs, said once.
@@ -276,6 +279,25 @@ nonisolated enum VoiceSettingsCatalog {
         }
         return "\(how) \(DeviceWord.onlyHere)"
     }
+    // [words from Hermes] (docs/spec/3x-live-words.md §2.3) Where the words come from: one row under the switch.
+    static let wordsFromTitle = "Words From"
+    static func wordsFromChoice(_ source: LiveWordsSource) -> String {
+        switch source {
+        case .device: "This \(DeviceWord.name)"
+        case .hermes: "Hermes"
+        }
+    }
+    /// Under the rows when Hermes is chosen: what happens now. `offered` is what the gateway's settings say about its
+    /// live speech to text (nil: not read yet).
+    static func wordsFromHermesNote(offered: Bool?) -> String {
+        let how = offered == false
+            ? "Live Transcription is off on Hermes, so this \(DeviceWord.name) writes your words. Turn it on in Speech to Text."
+            : "Hermes writes your words as you record a memo or dictate. If it can’t, or in Talk, your speech is transcribed when you stop."
+        return "\(how) \(DeviceWord.onlyHere)"
+    }
+    /// This device's words: the language it listens for. Automatic is the person's languages, in the phone's order.
+    static let wordsLanguageTitle = "Language"
+    static let wordsLanguageAutomatic = "Automatic"
     // [more accurate words] (docs/spec/3x-live-words.md §2.2)
     static let betterWordsTitle = "More Accurate Words"
     static let betterWordsHint = "A larger speech model on this \(DeviceWord.name) gets more of your words right. English only."

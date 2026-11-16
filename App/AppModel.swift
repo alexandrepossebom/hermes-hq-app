@@ -82,6 +82,10 @@ final class AppModel: AppServices {
     /// [working-ledger] The chats the gateway itself says run a turn (any process, any device), read while the Sessions
     /// list is on screen: they say Working… there too (WorkingLedgerWatch).
     private var workingLedger: WorkingLedgerWatch?
+    /// [live-status] The gateway's own word on which chats work and which wait on a person (chats not open here too).
+    private var liveStatus: LiveStatusWatch?
+    /// [questions] The requests this device holds, by the runtime id they wait in.
+    private var waitingRuntimes: [String: (profile: String, storedId: String?, kind: NeedsInput)] = [:]
     /// [working-ledger] The app is in front (the ledger is read only then).
     private var ledgerAppActive = true
     /// [toolnow] Each heard chat's newest step (LiveSteps): the Bots and Sessions rows name it instead of "Working…".
@@ -270,7 +274,14 @@ final class AppModel: AppServices {
     /// The Sessions rows' Working…: turns this app heard, chats holding a live child (§8.4), and what the gateway says.
     private func pushRunning() {
         sessionStore?.setRunning(runningSessions.union(activityStore?.liveWorkStoredIds ?? [])
-            .union(workingLedger?.storedIds ?? []))
+            .union(workingLedger?.storedIds ?? []).union(liveStatus?.working ?? []))
+    }
+
+    /// [live-status] The gateway's word changed: the Sessions rows and the bots follow.
+    private func liveStatusChanged() {
+        pushRunning()
+        sessionStore?.setNeedsInput(needsInputSessions.union(liveStatus?.waiting ?? []))
+        botStore?.setLiveStatus(working: liveStatus?.working ?? [], waiting: liveStatus?.waiting ?? [])
     }
 
     /// A chat is on show: on a phone the lists are off screen (their reads wait the longer gap); in two panes the
@@ -391,7 +402,9 @@ final class AppModel: AppServices {
         if ServerRequestsSwitch.enabled {
             let center = ServerRequestCenter(client: client)
             let sheets = PromptSheetStore()
-            center.onNeedsInput = { [weak self] profile, storedId, kind in self?.needsInputChanged(profile, storedId, kind) }
+            center.onNeedsInput = { [weak self] runtime, profile, storedId, kind in
+                self?.needsInputChanged(runtime, profile, storedId, kind)
+            }
             center.onRemoved = { [weak sheets] ids in
                 sheets?.drop(ids)
                 NotificationHub.shared.withdrawLocal(requests: ids)   // [notifications] UX study #257
@@ -434,6 +447,8 @@ final class AppModel: AppServices {
         let sessions = SessionStore(client: client, account: account, cacheDirectory: directory, autoStart: false)
         sessions.readOnlyGateway = readOnlyGateway
         sessions.modelLabel = { ModelNames.displayModelName($0) }
+        // [own-folder] A bot's own chat, whose folder New Chat leaves out of its projects.
+        sessions.botChatId = { [weak bots] profile in bots?.profile(named: profile)?.canonicalSession?.openId }
         // [sessions-m9] A row's pending line (3x-sessions §9.4): a send that may never have arrived wins over words
         // waiting in the field. The reconnect probe's counters go to `probe.txt` for the UI tests (§11.2).
         sessions.pendingLine = { [weak attachments] profile, storedId in
@@ -498,6 +513,10 @@ final class AppModel: AppServices {
         ledger.onChange = { [weak self] in self?.pushRunning() }
         workingLedger = ledger
         updateLedgerWanted()
+        let live = LiveStatusWatch(client: client)            // [live-status]
+        live.onChange = { [weak self] in self?.liveStatusChanged() }
+        liveStatus = live
+        live.setWanted(ledgerAppActive)
         let warmer = ChatWarmer(client: client, account: account)
         warmer.isOpen = { [weak self] profile in self?.focusedChat?.profile == profile }
         // [offline] §6.10: the web's order — the chat the next launch reopens first, then bots, then 15 Sessions rows.
@@ -576,6 +595,9 @@ final class AppModel: AppServices {
         activityStore = nil
         workingLedger?.stop()            // [working-ledger]
         workingLedger = nil
+        liveStatus?.stop()               // [live-status]
+        liveStatus = nil
+        waitingRuntimes = [:]
         turnWorking = TurnWorking()
         needsInputSessions = []          // [sessions-m9]
         HistoryFlights.shared.removeAll()
@@ -629,6 +651,7 @@ final class AppModel: AppServices {
             activityStore?.setAppActive(true)        // [activity]
             settingsHub.appActive(true)               // settings stream
             ledgerAppActive = true                    // [working-ledger]
+            liveStatus?.setWanted(true)               // [live-status]
             updateLedgerWanted()
         }
         focusedChat?.promptsCameOnScreen()   // [questions] answered elsewhere while away? (spec 1x §3.5)
@@ -657,6 +680,7 @@ final class AppModel: AppServices {
         activityStore?.setAppActive(false)       // [activity]
         settingsHub.appActive(false)                  // settings stream
         ledgerAppActive = false                       // [working-ledger]
+        liveStatus?.setWanted(false)                  // [live-status]
         updateLedgerWanted()
         groupsHub.appActive(false)                    // [groups] the rooms reach the disk and the mirror
         syncHub.wentBackground()                      // [sync] a change made here reaches the gateway
@@ -768,6 +792,7 @@ final class AppModel: AppServices {
         presence?.handle(event)                       // [presence] screen tools: the row's line and the notice
         BotMoods.shared.handle(event, profile: presenceOwner(ofRuntime: event.sessionId))   // [moods] what its face acts out
         if liveSteps.handle(event, roster: DeliveryRoster.seats) { scheduleStepsPush() }       // [toolnow] the rows' step
+        if event.type == "sessions.changed" { liveStatus?.sessionsChanged() }                   // [live-status]
         // Settings stream (1x-settings §3.7): a reply finished → the completion cue (web: every message.complete).
         if event.type == "message.complete" { CompletionCue.turnEnded(sessionKey: event.sessionId) }
         // [notifications] A turn of a chat this run opened ended: an alert (or the peek) unless it is the one on screen;
@@ -795,7 +820,7 @@ final class AppModel: AppServices {
     private func offScreenTurnEnded(_ runtime: String, _ tracked: (profile: String, storedId: String?), reply: String?) {
         runningChats[runtime] = nil
         if liveSteps.clear(runtime) { scheduleStepsPush() }   // [toolnow]
-        if let id = tracked.storedId { workingLedger?.turnEnded(id) }   // [working-ledger] a read in the air can't bring it back
+        if let id = tracked.storedId { workingLedger?.turnEnded(id); liveStatus?.turnEnded(id) }   // [working-ledger] a read in the air can't bring it back
         setWorking(profile: tracked.profile, storedId: tracked.storedId, false)
         // The reply landed while its chat was off screen: the row says so now (and gets its dot).
         // [botsaid] Only the reply's words are known here, not whether it was written to another bot: the row reads the chat.
@@ -884,17 +909,22 @@ final class AppModel: AppServices {
 
     func presenceSet(_ center: PresenceCenter?) { presence = center }
 
-    /// [questions] A bot's own chat waits for an answer (spec 1x §3.6): its row says so.
-    private func needsInputChanged(_ profile: String, _ storedId: String?, _ kind: NeedsInput?) {
+    /// [questions] A chat waits for an answer, or stopped waiting (spec 1x §3.6): its Sessions row says so, and its bot's
+    /// row when it is the bot's own chat. Kept by runtime id: a bot's wait ends when the chat that asked stops waiting,
+    /// whatever id it went by when it began (a chat that got its stored id while waiting used to leave its bot
+    /// "waiting" for good, or never mark its Sessions row).
+    private func needsInputChanged(_ runtime: String, _ profile: String, _ storedId: String?, _ kind: NeedsInput?) {
+        if let kind { waitingRuntimes[runtime] = (profile, storedId, kind) } else { waitingRuntimes[runtime] = nil }
         // [sessions-m9] Any chat that waits says so on its Sessions row and counts under Status › Needs Input.
-        if let storedId {
-            if kind != nil { needsInputSessions.insert(storedId) } else { needsInputSessions.remove(storedId) }
-            sessionStore?.setNeedsInput(needsInputSessions)
-        }
-        BotMoods.shared.setAsking(profile, kind != nil)   // [moods] its face looks at you and hops
-        guard let botStore, let bot = botStore.bot(named: profile) else { return }
-        guard storedId == nil || bot.canonicalSessionId == nil || bot.canonicalSessionId == storedId else { return }
-        botStore.setNeedsInput(profile, kind)
+        needsInputSessions = Set(waitingRuntimes.values.compactMap(\.storedId))
+        sessionStore?.setNeedsInput(needsInputSessions.union(liveStatus?.waiting ?? []))
+        let mine = waitingRuntimes.values.filter { $0.profile == profile }
+        BotMoods.shared.setAsking(profile, !mine.isEmpty)   // [moods] its face looks at you and hops
+        guard let botStore, botStore.bot(named: profile) != nil else { return }
+        // Its own Bot Chat: one of the ids the roster gives it, one not stored yet, or (a bot with no Bot Chat yet) any.
+        let own = botStore.ownChatIds(profile) ?? [""]
+        let kinds = mine.filter { own.count <= 1 || own.contains($0.storedId ?? "") }.map(\.kind)
+        botStore.setNeedsInput(profile, kinds.contains(.approval) ? .approval : kinds.first)
     }
 
     private func setWorking(profile: String, storedId: String?, _ running: Bool) {
@@ -991,8 +1021,12 @@ final class AppModel: AppServices {
                 }
             }
             // [working-ledger] Its turn ended: the gateway's last word (read before the end) no longer counts.
-            if !running, !chat.externalWorking, let id = chat.storedSessionId { self.workingLedger?.turnEnded(id) }
+            if !running, !chat.externalWorking, let id = chat.storedSessionId {
+                self.workingLedger?.turnEnded(id)
+                self.liveStatus?.turnEnded(id)            // [live-status]
+            }
             self.setWorking(profile: chat.profile, storedId: chat.storedSessionId, running || chat.externalWorking)
+            if !running { self.turnSeenEnding(chat) }       // [read-sync]
         }
         // [external-turn] Another Hermes process's turn in the open chat: its bot and Sessions rows say Working… too.
         chat.onExternalWorkChange = { [weak self, weak chat] working in
@@ -1038,18 +1072,40 @@ final class AppModel: AppServices {
         }
     }
 
+    /// [read-sync] A turn ended in the chat in front of the person, with the app in front: its reply is read, and the
+    /// gateway's read watermark says so, so their other device doesn't show a dot for it. A bot's own chat goes
+    /// through its bot (`BotStore.noteReadOnScreen`), any other through its Sessions row.
+    /// Two seconds after the end, so the reply's own row (stored as the turn closes) is behind the watermark the
+    /// gateway stamps with its clock; a new turn begun meanwhile waits for its own end.
+    private func turnSeenEnding(_ chat: LiveChatSession) {
+        guard ledgerAppActive, focusedChat === chat, chat.observing else { return }
+        Task { [weak self, weak chat] in
+            try? await Task.sleep(for: Self.turnSeenDelay)
+            guard let self, let chat, self.ledgerAppActive, self.focusedChat === chat, chat.observing, !chat.isRunning,
+                  let id = chat.storedSessionId else { return }
+            self.botStore?.noteReadOnScreen(profile: chat.profile, sessionId: id)
+            self.sessionStore?.shareRead(id: id, profile: chat.profile, through: Date().timeIntervalSince1970)
+        }
+    }
+
+    static var turnSeenDelay: Duration = .seconds(2)
+
     private func chatCameOnScreen(_ chat: LiveChatSession) {
         // iPad / Mac: a chat can come on screen before the one it replaces says it left. The bot list stops counting
         // that one as watched now (until this one's open settles and claims it), or a roster read meanwhile quietly
         // acknowledged its new replies.
         if let previous = focusedChat, previous !== chat {
             botStore?.setFocusedChat(profile: nil, sessionId: nil, seenThrough: previous.seenThrough)
+            if let seen = previous.seenThrough, let id = previous.storedSessionId, ledgerAppActive {   // [read-sync]
+                sessionStore?.shareRead(id: id, profile: previous.profile, through: seen.timeIntervalSince1970)
+            }
         }
         focusedChat = chat
         notificationsFocus(runtime: chat.runtimeSessionId, stored: chat.storedSessionId ?? chat.resolvedStoredId)   // [notifications]
         showListsBesideChat()
         updateLedgerWanted()                          // [working-ledger]
         if let id = chat.storedSessionId { sessionStore?.setFocusedSession(id) }
+        sessionStore?.setSessionOnScreen(chat.storedSessionId)   // [read-sync]
     }
 
     /// The open applied fresh history: the chat is focused for the roster (its activity is seen, not unread) and,
@@ -1060,6 +1116,7 @@ final class AppModel: AppServices {
         if chat.menus.isBotChat { botStore?.noteBotOpening(chat.profile, false) }   // [botslist]
         if let runtime = chat.runtimeSessionId { screenSessionOwners[runtime] = chat.profile }   // [screen]
         if focusedChat === chat { notificationsFocus(runtime: chat.runtimeSessionId, stored: chat.storedSessionId ?? chat.resolvedStoredId) }
+        if focusedChat === chat { sessionStore?.setSessionOnScreen(chat.storedSessionId) }   // [read-sync] its id may be new
         guard fresh, focusedChat === chat, let id = chat.storedSessionId else { return }
         sessionStore?.setFocusedSession(id)
         botStore?.setFocusedChat(profile: chat.profile, sessionId: id)
@@ -1078,6 +1135,11 @@ final class AppModel: AppServices {
             botStore?.setFocusedChat(profile: nil, sessionId: nil, seenThrough: seen)
             focusedChat = nil
             sessionStore?.setChatFocused(false)     // [perf]
+            // [read-sync] What the chat showed is read on the gateway too (a bot's own chat: `BotStore.noteLeft` above).
+            sessionStore?.setSessionOnScreen(nil)
+            if let seen, let id = chat.storedSessionId, ledgerAppActive {
+                sessionStore?.shareRead(id: id, profile: chat.profile, through: seen.timeIntervalSince1970)
+            }
             updateLedgerWanted()                    // [working-ledger] back on the list: read now
             notificationsFocus(runtime: nil, stored: nil)   // [notifications]
             // Back on the list: the row shows the exchange just seen (the roster may be up to 30 s old).

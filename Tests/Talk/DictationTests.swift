@@ -546,6 +546,78 @@ struct DictationTests {
         #expect(await fileGone(recorder.file))
     }
 
+    /// [words from Hermes] (spec §2.3) Hermes' partial text shows as the take records, and its final text is what is
+    /// typed into the message box: the recording is not sent to be transcribed again.
+    @Test func hermesLiveWordsAreTypedWithoutASecondTranscription() async {
+        let (dictation, _, seen) = make()
+        dictation.tapsMicrophone = false
+        let socket = ScriptedWordsSocket { frame, socket in
+            if frame == .text(GatewayWordsWire.endFrame) { socket.say(#"{"type":"final","transcript":"Sprawdź logi z deploymentu.","provider":"fixture"}"#) }
+        }
+        var heard: GatewayLiveWords?
+        dictation.makeWords = { onText in
+            let listener = GatewayLiveWords(link: GatewayWordsLink(key: "a|ivy") { socket }, onText: onText)
+            heard = listener
+            return listener
+        }
+        dictation.start(in: FakeTalkChat()) { seen.words.append($0) }
+        #expect(await waitUntil { dictation.phase == .recording })
+        if let heard { feedWords(heard, samples: 3_200) }
+        socket.say(#"{"type":"partial","text":"Sprawdź logi"}"#)
+        #expect(await waitUntil { dictation.words.whole == "Sprawdź logi" })
+        dictation.done()
+        #expect(await waitUntil { !dictation.isActive })
+        #expect(seen.words == ["Sprawdź logi z deploymentu."])
+        #expect(seen.transcribed.isEmpty, "one transcription: the live one")
+        #expect(seen.notices.isEmpty)
+    }
+
+    /// The stream stopped: the recording goes to be transcribed after Stop.
+    @Test func aFailedStreamLeavesTheDictationToBeTranscribedAfterStop() async {
+        let (dictation, _, seen) = make()
+        dictation.tapsMicrophone = false
+        let socket = ScriptedWordsSocket()
+        socket.say(#"{"type":"error","message":"no live STT for the configured provider"}"#)
+        dictation.makeWords = { GatewayLiveWords(link: GatewayWordsLink(key: "a|\(UUID().uuidString)") { socket }, onText: $0) }
+        dictation.start(in: FakeTalkChat()) { seen.words.append($0) }
+        #expect(await waitUntil { dictation.phase == .recording })
+        dictation.done()
+        #expect(await waitUntil { !dictation.isActive })
+        #expect(seen.transcribed.count == 1)
+        #expect(seen.words == ["Buy oat milk"])
+    }
+
+    /// The controller's own wiring (nothing swapped): with Words From set to Hermes it asks the chat's gateway. A
+    /// gateway whose socket can't be opened leaves the recording to be transcribed after Stop, quietly; the words this
+    /// device could have heard are not typed.
+    @Test func wordsFromHermesAsksTheChatsGatewayAndTranscribesAfterStopWhenItCant() async {
+        let defaults = UserDefaults.standard
+        let was = (defaults.object(forKey: LiveWordsSource.settingKey), defaults.object(forKey: LiveWords.settingKey), LiveWords.debugScript)
+        defer {
+            defaults.set(was.0, forKey: LiveWordsSource.settingKey)
+            defaults.set(was.1, forKey: LiveWords.settingKey)
+            LiveWords.debugScript = was.2
+            GatewayWordsMemory.reset()
+        }
+        defaults.set(true, forKey: LiveWords.settingKey)
+        LiveWordsSource.chosen = .hermes
+        LiveWords.debugScript = "Heard on this device instead"
+        GatewayWordsMemory.reset()
+        let (dictation, _, seen) = make()
+        dictation.start(in: FakeTalkChat()) { seen.words.append($0) }
+        #expect(await waitUntil { dictation.phase == .recording })
+        #expect(dictation.hearsWords)
+        try? await Task.sleep(for: .milliseconds(500))
+        #expect(dictation.words.isEmpty, "this device's words don't show in Hermes' place")
+        dictation.done()
+        #expect(await waitUntil { !dictation.isActive })
+        #expect(seen.transcribed.count == 1)
+        #expect(seen.words == ["Buy oat milk"])
+        #expect(seen.notices.isEmpty)
+        #expect(GatewayWordsMemory.last == .afterStop(.didNotOpen))
+        #expect(LiveWords.diagnosticsLine == "from Hermes after Stop, not as you speak: the connection to Hermes didn’t open")
+    }
+
     @Test func nothingHeardHereGoesToTheGateway() async {
         let (dictation, _, seen) = make()
         dictation.tapsMicrophone = false

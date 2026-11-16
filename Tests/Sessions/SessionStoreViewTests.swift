@@ -247,18 +247,39 @@ import Testing
         store.stop()
     }
 
-    @Test func markAllReadClearsDeviceMarksWithoutAWrite() async throws {
+    /// A dot only this device shows (new messages past its own watermark) used to be cleared without a write. The
+    /// person's other device shows the same dot, so ([read-sync]) the read is written; a gateway that keeps no read
+    /// state (its rows don't say `unread`) still gets none.
+    @Test func markAllReadSharesDeviceMarksWhereTheGatewayKeepsReadState() async throws {
         let rows = BotsTestBox([Self.srow("a", count: 2), Self.srow("b", count: 2)])
         let client = BotsFakeGatewayClient()
-        client.onREST { _, _, _, _ in Self.sidebar(rows.value) }
+        client.onREST { method, _, _, _ in method == "PATCH" ? try! (["ok": true] as JSONValue).encoded() : Self.sidebar(rows.value) }
         let store = makeStore(client)
         #expect(await BotsTest.waitUntil { store.loadState == .ready })
         rows.value = [Self.srow("a", count: 5), Self.srow("b", count: 6)]                // new messages past the watermark
         await store.refresh()
         #expect(store.unreadCount == 2)
         #expect(await store.markAllRead().isEmpty)
-        #expect(store.unreadCount == 0 && client.restCalls.allSatisfy { $0.method == "GET" })
+        #expect(store.unreadCount == 0)
+        #expect(Set(client.restCalls.filter { $0.method == "PATCH" }.map(\.path)) == ["/api/sessions/a", "/api/sessions/b"])
         store.stop()
+
+        func bare(_ id: String, count: Int) -> JSONValue {
+            var row = Self.srow(id, count: count).object ?? [:]
+            row["unread"] = nil
+            return .object(row)
+        }
+        let old = BotsTestBox([bare("a", count: 2), bare("b", count: 2)])
+        let oldClient = BotsFakeGatewayClient()
+        oldClient.onREST { _, _, _, _ in Self.sidebar(old.value) }
+        let other = makeStore(oldClient)
+        #expect(await BotsTest.waitUntil { other.loadState == .ready })
+        old.value = [bare("a", count: 5), bare("b", count: 6)]
+        await other.refresh()
+        #expect(other.unreadCount == 2)
+        #expect(await other.markAllRead().isEmpty)
+        #expect(other.unreadCount == 0 && oldClient.restCalls.allSatisfy { $0.method == "GET" })
+        other.stop()
     }
 
     /// [n20-sessions B3] test28's case: a device-only dot (new messages past the watermark) and a server-unread chat.

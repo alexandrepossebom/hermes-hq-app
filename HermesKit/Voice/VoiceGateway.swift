@@ -2,7 +2,8 @@
 // text, text to speech (one clip, and the streamed socket's address and frames), the warm-up leases and the
 // ElevenLabs voice list. Every body lists every key it sends: Hermes rejects unknown parameters.
 //
-// Never called from anywhere (§3.8): the gateway's own voice engine and wake word. `scripts/check-talk-guards.sh`
+// Never called from anywhere (§3.8): the gateway's own voice engine and wake word. The live speech-to-text socket is
+// dialled by `GatewayWords.swift` alone. `scripts/check-talk-guards.sh`
 // and `TalkGuardTests` fail if one of those paths appears in the app's sources.
 
 import Foundation
@@ -208,6 +209,7 @@ nonisolated enum VoiceGateway {
         kept.mutate { $0.removeAll() }
         forgetLiveStatus()   // [gpt-live] a key or the mode may have changed
         forgetGrokStatus()   // [grok-live]
+        GatewayWordsMemory.forgetRefusals()   // [words from Hermes] the provider or Live Transcription may have changed
         // A save may have fixed the computer's voice: the next reply asks it again (§7.7).
         PhoneVoiceFallback.shared.forget()
     }

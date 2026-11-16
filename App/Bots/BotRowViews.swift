@@ -37,6 +37,10 @@ struct BotAvatar: View {
                         .background(Circle().fill(ring ?? Color.hqPage).padding(-2))
                         .offset(x: 2, y: 2)
                         .accessibilityHidden(true)
+                } else if status == .needsInput {
+                    // A face with no line beside it (a pinned tile, the Mac's sidebar) had no cue that its bot waits
+                    // for you: the working dots, or nothing. The orange dot, as a waiting chat's Sessions row wears.
+                    WaitingBadge(height: Self.presenceSize(size) + 2).offset(x: 1, y: 1)
                 } else {
                     // [presence] The display for "Using its computer", the dots for a running turn or browser use.
                     switch BotList.rowBadge(bot) {
@@ -64,6 +68,19 @@ struct PresenceDot: View {
     var body: some View {
         Circle()
             .fill(Color.hqLabel)
+            .frame(width: height, height: height)
+            .background(Circle().fill(ring ?? Color.hqPage).padding(-2))
+            .accessibilityHidden(true)
+    }
+}
+
+/// Waiting for the person (an approval, a question): an orange dot with the other badges' 2 pt page-colour ring.
+struct WaitingBadge: View {
+    var height: CGFloat
+    @Environment(\.hqBadgeRing) private var ring
+    var body: some View {
+        Circle()
+            .fill(Color.hqOrange)
             .frame(width: height, height: height)
             .background(Circle().fill(ring ?? Color.hqPage).padding(-2))
             .accessibilityHidden(true)

@@ -952,6 +952,7 @@ final class LiveChatSession: ChatSessionModel {
             // (docs/spec/1x-attachments.md A14): the screen and every hand-back follow the scope.
             AttachmentCenter.existing(account.id)?.moveDraft(from: draftScopeBefore, to: layoutScope)
             queueScopeResolved()   // verify round 3: the chat's kept queue
+            promptLink?.storedIdResolved(id, profile: profile, profileParam: profileParam)   // [questions] its row waits too
             onStoredIdResolved?(id)
             if let key = cacheKey { cache.setVisible(key) }
             if messages.isEmpty, let entry = cache.loadEntry(account: account.id, profile: profile, storedId: id) {

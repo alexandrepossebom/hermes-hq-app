@@ -16,6 +16,8 @@ struct MemoTarget {
     /// "Ivy", for the words on screen.
     let botName: String
     let accountKey: String
+    /// [words from Hermes] The chat's gateway for the take's live words (nil: this device's words only).
+    var hermes: (@MainActor () -> GatewayWordsLink?)? = nil
 }
 
 /// A notice on the memo card (spec §3.7): stays until closed, acted on, or its chat is left.
@@ -128,7 +130,8 @@ struct MemoNotice: Equatable {
     /// This device is listening to the take (Live Words runs for it): the composer's words row opens at once.
     var hearsWords: Bool { listener != nil }
     /// What hears a take as it’s recorded (tests swap it), and whether the microphone is tapped for it.
-    var makeWords: @MainActor (@escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)? = { LiveWords.listen(onText: $0) }
+    /// nil: `LiveWords.listen`, with the chat's gateway behind it when Words From is Hermes.
+    var makeWords: (@MainActor (@escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)?)?
     var tapsMicrophone = true
 
     /// Send Memo on Release (V12): on unless Settings turned it off.
@@ -483,7 +486,9 @@ struct MemoNotice: Equatable {
         let token = wordsToken
         wordsStartedAt = .now
         firstWordsMs = nil
-        guard let listener = makeWords({ [weak self] text in
+        let hermes = target?.hermes
+        let make = makeWords ?? { LiveWords.listen(hermes: hermes?(), onText: $0) }
+        guard let listener = make({ [weak self] text in
             guard let self, self.wordsToken == token, self.listener != nil else { return }
             if self.firstWordsMs == nil, !text.isEmpty { self.firstWordsMs = AppLog.ms(since: self.wordsStartedAt) }
             self.words = text
@@ -562,7 +567,7 @@ struct MemoNotice: Equatable {
             return
         }
         let count = words.split(whereSeparator: \.isWhitespace).count
-        AppLog.trace("talk", "memo \(tag) words: \(count) from this device in \(Int(file.seconds.rounded()))s, first after \(firstMs.map { "\($0) ms" } ?? "-"), settled in \(settleMs) ms\(settleMs >= Int(LiveWords.settleLimit * 1000) ? " (hit the limit)" : "")")
+        AppLog.trace("talk", "memo \(tag) words: \(count) heard as it recorded (\(LiveWords.diagnosticsLine)) in \(Int(file.seconds.rounded()))s, first after \(firstMs.map { "\($0) ms" } ?? "-"), settled in \(settleMs) ms\(settleMs >= Int(LiveWords.settleLimit * 1000) ? " (hit the limit)" : "")")
     }
 
     /// What `heard` settled on (nil: nothing heard it, or no words; the gateway transcribes the memo then).

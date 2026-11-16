@@ -138,6 +138,49 @@ So an English speaker's words come from Parakeet TDT 0.6B v2, run on Core ML by 
 `HermesKit/Voice/ParakeetWords.swift` holds the switch, the download, `ParakeetLiveWords` (the listener) and
 `ParakeetCut` (where a long take is cut).
 
+### 2.3 Words from Hermes (`GatewayWords.swift`)
+
+A tester asked for it (public issue #44, 2026-11): they speak Polish with English terms mixed in, this device's
+engine hears that badly, and with Words as You Speak off the recording was only transcribed after Stop, so there was
+no live text at all. Hermes has a live speech-to-text socket that uses the chat profile's Speech to Text provider and
+language. It is now a second source of the words, for voice memos and Dictate.
+
+- **One seam.** Every listener comes from `LiveWords.listen(hermes:onText:)`. A memo and a dictation pass the chat's
+  gateway and profile (`GatewayWordsLink.forTake`); Talk passes none. With **Words From** set to Hermes the listener
+  is a `GatewayLiveWords`; it is a `LiveWordsListening` like the others, so the words row, review, the memo's `words`
+  and the upload are untouched.
+- **The wire** (`WS /api/audio/transcribe-stream?profile=`, opened like the speech socket: a fresh single-use ticket,
+  `LiveGatewayClient.voiceSocket`):
+  - app → `{"sample_rate": 16000}`, then binary s16le mono PCM in pieces of about 100 ms, then `{"eos": true}` at
+    Stop. A disconnect cancels (a cancelled take just closes the socket).
+  - Hermes → `{"type":"partial","text"}` (the whole text so far), `{"type":"final","transcript","provider"}`,
+    `{"type":"error","message"}` (also at once when the provider has no live speech to text).
+  - Sound said before the socket opens waits in order and goes up when it does.
+- **Partials.** Each is the whole text so far. The words that stood still since the last one are the settled text, the
+  rest pending (`GatewayWordsWire.text(from:after:)`); the newest word is never settled.
+- **The final text is the take's words.** A memo carries it (`MemoFile.words`), so `MemoUploader` sends it as the
+  transcript and never calls `POST /api/audio/transcribe` for the same sound. A dictation types it. It goes through
+  the tidy pass like this device's words.
+- **Whether Hermes can** is read from `GET /api/config`, which the app already reads: `stt.streaming` on (it is off
+  unless turned on; the Speech to Text page lists it as **Live Transcription**) and a provider that isn't `local`,
+  `local_command` or `none` (`GatewayWordsWire.offered`). The app still never reads `/api/audio/voice-config`: that
+  answer carries provider keys (3x-talk T3).
+- **Fallbacks**, all quiet (no notice; the voice still works), in `GatewayLiveWords` and `LiveWords.listen`. The
+  rule (owner, 2026-11-16): with Hermes chosen and its Live Transcription on, **the final words never come from this
+  device**. The person chose Hermes because it hears them better, so a failed stream must not hand them this device's
+  text. No listener of this device runs behind the stream.
+
+  | What happened | While recording | The take's words |
+  |---|---|---|
+  | Settings say Live Transcription is off, or the provider runs on the computer | nothing is dialled; this device listens (the Settings footer says so, and how to fix it) | this device's |
+  | Hermes answers "no live STT" at once | no live words; remembered 10 min (or until settings are saved) so the next takes don't dial | none: the recording is transcribed by Hermes after Stop |
+  | The socket doesn't open within 5 s, or an error or a drop comes mid-recording | the words row clears; nothing more goes up | none: transcribed after Stop |
+  | After Stop: no final within 5 s, or an error instead of it | — | none: transcribed after Stop |
+  | Hermes' final text is empty | — | none: transcribed after Stop |
+
+- **Talk** with Words From set to Hermes has no live words: each take is transcribed by Hermes when it ends, as with
+  the switch off. (Hermes hears a Talk take whole; streaming it would change the conversation engine.)
+
 ## 3. Where the words go
 
 ### 3.1 Voice memos (`MemoController`)
@@ -277,6 +320,19 @@ With a picture in the tray (or words in the field) the mic is Dictate, which fir
   - The footer says where fixes come from (words fixed in a memo before sending), that bot names, Hermes and Claude
     Code are always spelt right, and that "uh" and "um" are left out. Empty, it says how to fix a word.
   - Kept on this device in `hq.voice.wordFixes`, newest 200.
+- Under the switch, while it is on, **Words From**: "This iPhone" (the default) or "Hermes" (`hq.voice.liveWordsSource`,
+  §2.3). One row with a menu; a pop-up button on the Mac.
+  - This iPhone: **Language** (Automatic, then the person's languages and the keyboards', by name;
+    `hq.voice.liveWordsLanguage`) when there is more than one to pick, and **More Accurate Words**.
+  - Hermes: neither row (both are this device's). The footer reads "Hermes writes your words as you record a memo or
+    dictate. If it can’t, or in Talk, your speech is transcribed when you stop." (three lines on an iPhone; the
+    first wording ran to five) When the gateway's settings say it can't: "Live Transcription is off on
+    Hermes, so this iPhone writes your words. Turn it on in Speech to Text."
+- The language this device listens for (`LiveWordsEngine.wanted`): the one picked, then the first four of the
+  person's languages in the phone's order, the keyboards' languages, and the app's locale last. The app's locale used
+  to come first; it is the app's language with the phone's region, so a tester with English (US) and a second language's
+  keyboards was heard as another region's English. Each language is tried with `SpeechTranscriber`, then with `DictationTranscriber` (it offers
+  more languages), before the next one.
 - Its footer says what happens on this device now, and only that:
   - On and ready: "This iPhone turns your speech into text as you talk, so memos, Dictate and Talk skip the speech to
     text on Hermes."
@@ -295,17 +351,22 @@ With a picture in the tray (or words in the field) the mic is Dictate, which fir
 - Errors are noted in VoiceEvents with domain and code only. Readiness changes go to AppLog. **The words themselves are
   never logged.**
 - Each memo take writes one line about its words (Detailed Logging, category `talk`), never the words:
-  - "memo #tag words: N from this device in Ss, first after N ms, settled in N ms" (and "(hit the limit)" at 1.5 s);
+  - "memo #tag words: N heard as it recorded (<diagnostics line>) in Ss, first after N ms, settled in N ms" (and
+    "(hit the limit)" at 1.5 s);
   - "memo #tag words: none heard in Ss, settled in N ms; the gateway transcribes";
   - "memo #tag words: this device didn't listen (<diagnostics line>); the gateway transcribes".
 - A cancelled take says so: "memo #tag ended (cancel): Ss, nothing kept", or "… before recording started".
 - A memo sent with fixed words: "memo #tag words fixed in review: N word fixes kept".
-- The chat's send line for a memo reads "memo Ss, words N chars from this device | no words (the gateway transcribes),
+- The chat's send line for a memo reads "memo Ss, words N chars heard as it recorded | no words (the gateway transcribes),
   typed N chars". It used to give the send's text length, which for a memo is its placeholder (its file path): 187
   every time, and it read like the transcript's length.
 - Voice Diagnostics gains an eleventh row, **Words as You Speak** (report name "Live words"). It reads "on this device
   (en_US)", "on this device (en_US, dictation model)", "downloading the speech model", "gateway (device not supported)"
-  or "off".
+  or "off". With Words From set to Hermes it says how the last memo or dictation went: "from Hermes (elevenlabs)",
+  "from Hermes after Stop, not as you speak: <why>", or (Live Transcription off there) "on this device, not from
+  Hermes: Live Transcription is off on Hermes; <this device's line>". The whys: "Hermes’ speech to text provider has no
+  live transcription", "the connection to Hermes didn’t open", "the connection to Hermes dropped", "Hermes took too long
+  to settle the words", "Hermes said: …". The same why is a VoiceEvents line ("words from Hermes stopped: …").
 
 ## 7. How it is tested
 

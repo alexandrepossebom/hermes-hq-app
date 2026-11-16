@@ -76,8 +76,30 @@ struct QueueEditTests {
         #expect(h.client.calls("prompt.submit").last?.params["text"] == "second")
     }
 
+    /// A queued photo with words under it: Save changes the words in place and the photo stays with the row.
+    @Test func editingARowWithAPhotoKeepsThePhoto() async throws {
+        let (_, s) = try await busyWithTwoQueued()
+        let photo = DraftAttachment(id: "a", kind: .image, name: "a.png", localFile: "a/a.png", byteSize: 3, pixelWidth: 30, pixelHeight: 40,
+                                    typeIdentifier: "public.png", upload: .uploaded(path: "/up/a.png", folder: "/up"))
+        let old = try #require(s.queuedMessages.last)
+        s.queuedMessages[s.queuedMessages.count - 1] = QueuedMessage(id: old.id, text: old.text, attachments: [photo])
+        #expect(s.canEditQueued(old.id))
+        #expect(s.beginQueuedEdit(old.id) == "third")
+        #expect(s.saveQueuedEdit(old.id, text: "third, corrected"))
+        let saved = try #require(s.queuedMessages.last)
+        #expect(saved.id == old.id && saved.text == "third, corrected" && saved.attachments == [photo])
+        #expect(s.queuedMessages.map(\.text) == ["second", "third, corrected"], "same place in the queue")
+        #expect(s.queueEditingId == nil)
+    }
+
     @Test func onlyTypedWordsCanBeEdited() {
         #expect(LiveChatSession.editable(QueuedMessage(id: "a", text: "words")))
+        // A photo or a file with words under it: the words can be edited, the attachment stays (a tester, 2026-11-14).
+        let photo = DraftAttachment(id: "a", kind: .image, name: "a.png", localFile: "a/a.png", byteSize: 3, pixelWidth: 30, pixelHeight: 40,
+                                    typeIdentifier: "public.png", upload: .uploaded(path: "/up/a.png", folder: "/up"))
+        #expect(LiveChatSession.editable(QueuedMessage(id: "p", text: "look at this", attachments: [photo])))
+        #expect(LiveChatSession.editable(QueuedMessage(id: "q", text: "", attachments: [photo])), "words can be added to a bare photo")
+        #expect(QueueWords.caption(sending: false, editing: true, attached: "Photo") == "Editing · Photo")
         #expect(!LiveChatSession.editable(QueuedMessage(id: "b", text: "goal", hidden: true, display: "/goal resume")))
         #expect(!LiveChatSession.editable(QueuedMessage(id: "c", text: "skill body", display: "/review x")))
         #expect(!LiveChatSession.editable(QueuedMessage(id: "d", text: "", memo: MemoFile(path: "/x.m4a", seconds: 2, peaks: [], mime: "audio/x-m4a"))))

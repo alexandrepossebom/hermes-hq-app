@@ -27,7 +27,8 @@ nonisolated enum QueueWords {
     /// the composer, else what is attached beside its words ("2 Photos"); nil for none.
     static func caption(sending: Bool, editing: Bool, attached: String?) -> String? {
         if sending { return "Sending…" }
-        if editing { return "Editing" }
+        // A row with photos or files keeps them through an edit: the caption goes on saying so.
+        if editing { return attached.map { "Editing · \($0)" } ?? "Editing" }
         return attached
     }
 

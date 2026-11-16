@@ -12,6 +12,8 @@ import Foundation
 nonisolated struct SessionProjectEntry: Hashable, Sendable, Identifiable {
     var key: String
     var label: String
+    /// [own-folder] New Chat: a folder Hermes found by itself, not a saved project (listed under "In a folder").
+    var isFolder = false
     var id: String { key }
 }
 

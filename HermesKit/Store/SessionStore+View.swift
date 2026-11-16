@@ -426,6 +426,8 @@ extension SessionStore {
     /// then `PATCH {"unread": false}` for each chat whose server flag is set, at most four in the air. Returns the
     /// chats whose write failed (they keep their unread mark). `only`: Try Again, for just those chats.
     /// A read-only gateway gets no write: the dots clear on this device.
+    /// [read-sync] A chat only this device called unread is written too (the other device may show the same dot); a
+    /// chat neither calls unread is not, so a long list costs no writes.
     @discardableResult
     func markAllRead(only failed: [SessionWriteFailure]? = nil) async -> [SessionWriteFailure] {
         var targets = listedRows
@@ -435,9 +437,10 @@ extension SessionStore {
         }
         guard !targets.isEmpty else { return [] }
         AppLog.trace("sessions", "mark all read: started, \(targets.count) rows (retry=\(failed != nil))")
+        let shared = targets.filter { ($0.unread == true || failed != nil || isUnreadNow($0)) && sharesRead($0) }
         for row in targets { device.unread.opened(row, clearServerLocally: row.unread == true && readOnlyGateway) }
         persistState()
-        let tickets = readOnlyGateway ? [] : targets.filter { $0.unread == true }.map { beginUnreadWrite(false, row: $0) }
+        let tickets = shared.map { beginUnreadWrite(false, row: $0) }
         if !tickets.isEmpty { writeCache() }
         rebuild(force: true)
         guard !tickets.isEmpty else { return [] }

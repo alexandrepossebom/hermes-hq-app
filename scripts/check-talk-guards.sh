@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Guards of the live-voice stream (docs/spec/3x-talk.md §3.8, §9.2 "Never shown", row L546). Exits non-zero on a hit.
 #   1. The never-called gateway routes and RPC methods appear nowhere in App/ or HermesKit/. GPT-Live's routes are
-#      named only in HermesKit/Voice/LiveVoiceWire.swift (docs/spec/3x-gpt-live.md).
+#      named only in HermesKit/Voice/LiveVoiceWire.swift (docs/spec/3x-gpt-live.md), and the live speech-to-text
+#      socket only in HermesKit/Voice/GatewayWords.swift (docs/spec/3x-live-words.md §2.3).
 #   2. The Voice settings catalog lists no wake-word, stop-word, engine-choice or GPT-Live key.
 #   3. The word "Dispatch" is in no string literal of this stream's files (identifiers such as bundle ids are fine).
 #   4. No screen of this stream says "Live voice", "wake" or "Hey Hermes" (GPT-Live is built since 2026-10-26).
@@ -21,10 +22,12 @@ def swift(*folders):
 NEVER = ['/api/audio/voice-config', '/api/audio/voice-live', '/api/audio/transcribe-stream',
          '"voice.toggle"', '"voice.record"', '"voice.tts"', '"wake.']
 LIVE_WIRE = root / 'HermesKit/Voice/LiveVoiceWire.swift'
+WORDS_WIRE = root / 'HermesKit/Voice/GatewayWords.swift'
 for path in swift('App', 'HermesKit'):
     text = path.read_text(encoding='utf-8')
     for needle in NEVER:
         if needle == '/api/audio/voice-live' and path == LIVE_WIRE: continue
+        if needle == '/api/audio/transcribe-stream' and path == WORDS_WIRE: continue
         if needle in text:
             problems.append(f'{path}: calls or names {needle}')
 

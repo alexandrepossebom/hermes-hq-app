@@ -2,7 +2,8 @@
 // gateway's speech to text and types the words into the composer's field. Nothing is sent to the bot. One dictation
 // app-wide; a conversation starting anywhere, the chat leaving the screen, the app leaving the screen or a phone call
 // cancels it without a card. [live words] With Live Words on, the words show above the row as they are said and are
-// the words typed: the gateway transcribes only when this device heard none (docs/spec/3x-live-words.md §3.3).
+// the words typed: the gateway transcribes only when this device heard none (docs/spec/3x-live-words.md §3.3). With
+// Words From set to Hermes, the words come from the gateway's live speech to text as the take records (§2.3).
 
 import AVFoundation
 import UIKit
@@ -52,7 +53,8 @@ import UIKit
     }
     var holdsLeases = true
     /// [live words] What hears a take as it's recorded, and whether the microphone is tapped for it (as for memos).
-    var makeWords: @MainActor (@escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)? = { LiveWords.listen(onText: $0) }
+    /// nil: `LiveWords.listen`, with the chat's gateway behind it when Words From is Hermes.
+    var makeWords: (@MainActor (@escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)?)?
     var tapsMicrophone = true
     var isOnScreen: @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }
     var now: @MainActor () -> TimeInterval = { CACurrentMediaTime() }
@@ -268,8 +270,9 @@ import UIKit
         if let said {
             // The words on screen are the words typed: no gateway speech to text.
             heardHere += 1
-            VoiceEvents.note("dictation: words from this device")
-            AppLog.trace("talk", "dictation \(AppLog.tag(take.chat.memoScope)): words from this device")
+            // "as it recorded": this device's words, or Hermes' live ones (Voice Diagnostics' Live words row says which).
+            VoiceEvents.note("dictation: words heard as it recorded")
+            AppLog.trace("talk", "dictation \(AppLog.tag(take.chat.memoScope)): words heard as it recorded (\(LiveWords.diagnosticsLine))")
             result = .success(said)
         } else {
             guard let recorded else {
@@ -365,7 +368,9 @@ import UIKit
     /// A listener and its microphone tap for the take that just started recording (nothing when Live Words can't run:
     /// the gateway transcribes it then).
     private func startWords(_ take: Take) {
-        guard let listener = makeWords({ [weak self, weak take] text in
+        let chat = take.chat
+        let make = makeWords ?? { LiveWords.listen(hermes: GatewayWordsLink.forTake(client: chat.voiceClient, profile: chat.profile), onText: $0) }
+        guard let listener = make({ [weak self, weak take] text in
             guard let self, let take, self.take === take, take.listener != nil else { return }
             self.words = text
             NotificationCenter.default.post(name: Self.wordsChanged, object: self)

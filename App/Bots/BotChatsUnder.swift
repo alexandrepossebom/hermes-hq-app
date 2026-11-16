@@ -252,7 +252,8 @@ struct BotChatRowView: View {
                 .foregroundStyle(Color.hqLabel)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if session.isRunning {
+            // A chat that waits for you is in the middle of its turn: the orange dot outranks the spinner.
+            if session.isRunning, session.status != .needsInput {
                 ProgressView().controlSize(.mini).accessibilityHidden(true)
             } else if session.unread || session.status == .needsInput {
                 // Orange when it waits for an answer, as the Sessions page marks it.

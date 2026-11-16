@@ -25,6 +25,9 @@ nonisolated struct SidebarSessionRow: Codable, Sendable, Hashable, Identifiable 
     var pinned: Bool?
     /// Server read watermark (`last_active > last_read_at`; never-touched reads as read).
     var unread: Bool?
+    /// [read-sync] The gateway's read watermark itself (`sessions.last_read_at`, server seconds): when some device last
+    /// read the chat. 0 = marked unread; nil = never read or marked anywhere (or a gateway that doesn't say).
+    var lastReadAt: Double?
     var hidden: Bool?
     var lineageRootId: String?
     var parentSessionId: String?
@@ -69,6 +72,7 @@ nonisolated struct SidebarSessionRow: Codable, Sendable, Hashable, Identifiable 
         archived = o["archived"]?.bool
         pinned = o["pinned"]?.bool
         unread = o["unread"]?.bool
+        lastReadAt = RosterText.number(o["last_read_at"]).flatMap { $0 >= 0 ? $0 : nil }
         hidden = o["hidden"]?.bool
         lineageRootId = RosterText.trimmed(o["_lineage_root_id"])
         parentSessionId = RosterText.trimmed(o["parent_session_id"])
@@ -96,6 +100,17 @@ nonisolated struct SidebarSessionRow: Codable, Sendable, Hashable, Identifiable 
 
     /// The row's recency, seconds (`last_active || started_at`).
     var recency: Double { (lastActive ?? 0) > 0 ? lastActive! : (startedAt ?? 0) }
+
+    /// [read-sync] The gateway's watermark says the chat was read, on some device, at or after its newest activity
+    /// (Hermes's own rule turned round: unread = activity later than `last_read_at`). Never true for "marked unread"
+    /// (0) or "never read anywhere" (nil).
+    var readOnGateway: Bool {
+        guard let read = lastReadAt, read > 0 else { return false }
+        return read >= recency
+    }
+
+    /// [read-sync] The gateway keeps read state at all (its rows say `unread`): a read can be shared through it.
+    var sharesReads: Bool { unread != nil }
 }
 
 /// A decoded sidebar answer. A slice whose scan failed comes back without `sessions` (`{"failed":true,"retry":true}`):
@@ -311,6 +326,10 @@ nonisolated enum SessionRules {
 
 /// Device-local unread state for listed sessions: "seen" watermarks (seeded on first sight so a fresh install shows
 /// nothing), explicit markers, and rows cleared locally without a server write.
+///
+/// [read-sync] The gateway's read watermark is the truth every device shares (a tester, 2026-11-16: reading a chat on
+/// the Mac left its dot on the iPhone). A device that reads a chat writes the watermark (`SessionStore.shareRead`), and
+/// a device whose list says the chat was read at or after its newest activity drops its own dot (`absorbGatewayReads`).
 nonisolated struct SessionUnreadState: Codable, Sendable, Hashable {
     /// Profile → session id → the `message_count` this device has seen.
     var seen: [String: [String: Int]] = [:]
@@ -319,8 +338,13 @@ nonisolated struct SessionUnreadState: Codable, Sendable, Hashable {
     /// Session id → `last_active` when the dot was cleared on this device only (read-only gateway); the server's
     /// `unread` is ignored until the session moves past it.
     var localReads: [String: Double] = [:]
+    /// [read-sync] Writes the gateway hasn't taken because it couldn't be reached, by write key (profile, NUL, id):
+    /// the activity a read covered (server seconds), or -1 for a Mark as Unread. Sent again when the link is back.
+    /// Optional so older state files still decode.
+    var owed: [String: Double]?
 
     static let maxSeenPerProfile = 2000
+    static let maxOwed = 200
 
     init() {}
 
@@ -343,8 +367,12 @@ nonisolated struct SessionUnreadState: Codable, Sendable, Hashable {
     /// a reply to read, so neither the stored count nor the server's flag (both move with every stored row) makes
     /// the chat unread until the turn ends; the count is still past the watermark then, and the dot comes with the
     /// reply. A marker the person set themselves shows either way.
+    /// [read-sync] `onScreen`: the chat in front of the person right now (app in front) has nothing unread, whatever
+    /// the gateway's flag says: once a watermark exists every stored row sets that flag, the open chat's too. Mark as
+    /// Unread (the watermark at 0) still shows, there too.
     func isUnread(_ row: SidebarSessionRow, messaging: Bool = false, serverOverride: Bool? = nil, selected: Bool = false,
-                  running: Bool = false) -> Bool {
+                  running: Bool = false, onScreen: Bool = false) -> Bool {
+        if onScreen, row.lastReadAt != 0, markers[row.profile]?.contains(row.id) != true { return false }
         if !selected, markers[row.profile]?.contains(row.id) == true { return true }
         if messaging || running { return false }
         var server = serverOverride ?? row.unread ?? false
@@ -363,6 +391,27 @@ nonisolated struct SessionUnreadState: Codable, Sendable, Hashable {
             markers[row.profile] = bucket.isEmpty ? nil : bucket
         }
         if clearServerLocally { localReads[row.id] = row.lastActive ?? 0 }
+    }
+
+    /// [read-sync] A list page: every chat the gateway says was read at or after its newest activity is read here too.
+    /// Its stored count is seen; a marker goes when the watermark moved since the last page (`previous`: the rows on
+    /// hand before it, by write key), so a mark this device set on a gateway that refused the write isn't undone by a
+    /// watermark older than the mark. True when anything changed.
+    @discardableResult
+    mutating func absorbGatewayReads(_ rows: [SidebarSessionRow], previous: [String: SidebarSessionRow]) -> Bool {
+        var changed = false
+        for row in rows where row.readOnGateway {
+            if let count = row.messageCount, (seen[row.profile]?[row.id]).map({ $0 < count }) ?? false {
+                seen[row.profile, default: [:]][row.id] = count
+                changed = true
+            }
+            guard var bucket = markers[row.profile], bucket.contains(row.id),
+                  let before = previous[row.profile + "\u{0}" + row.id], before.lastReadAt != row.lastReadAt else { continue }
+            bucket.removeAll { $0 == row.id }
+            markers[row.profile] = bucket.isEmpty ? nil : bucket
+            changed = true
+        }
+        return changed
     }
 }
 

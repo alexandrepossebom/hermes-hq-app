@@ -136,6 +136,7 @@ extension BotStoreTiming {
         t.openWait = .milliseconds(300)
         t.confirmWait = .milliseconds(400)
         t.readsBotSaid = false       // [botsaid] the Bot Chat tail reads have their own tests (BotSaidTests)
+        t.sharesReads = false        // [read-sync] the read watermark's calls have their own tests (ReadSyncTests)
         return t
     }
 }

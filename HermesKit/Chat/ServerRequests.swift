@@ -81,8 +81,9 @@ import Foundation
     /// False under the `HQNNoServerRequests` kill switch (R1): nothing is shown or answered (M1 behaviour).
     let enabled: Bool
 
-    /// A session's needs-input changed (Bots row, spec 1x §3.6): profile, stored id, kind (nil = nothing waits).
-    var onNeedsInput: ((_ profile: String, _ storedId: String?, _ kind: NeedsInput?) -> Void)?
+    /// A session's needs-input changed (Bots row, spec 1x §3.6): its runtime id, profile, stored id, kind (nil =
+    /// nothing waits). Told again for the same runtime when its stored id becomes known while it waits.
+    var onNeedsInput: ((_ runtime: String, _ profile: String, _ storedId: String?, _ kind: NeedsInput?) -> Void)?
     /// Requests that went (answered, withdrawn, pruned, signed out), after the chats heard of it: the account's kept
     /// password sheets drop theirs and clear their text (App, `PromptSheetStore`; Q15, R6).
     var onRemoved: ((Set<String>) -> Void)?
@@ -107,7 +108,12 @@ import Foundation
     private var undelivered: Set<String> = []
     private var liveTurns: Set<String> = []
     private var approvalsRevision: [String: Int] = [:]
-    private var lastNeeds: [String: NeedsInput] = [:]
+    /// What `onNeedsInput` was last told for each runtime id. Only what was told counts: a request re-delivered by a
+    /// chat's `session.resume` reaches the centre before that chat binds its runtime id (`LocalEvent.openRequests`:
+    /// "before its caller resumes"), and noting it as known then meant the rows were never told, so a bot whose
+    /// approval was asked before this device attached had its card in the chat and no cue on its row (a tester,
+    /// 2026-11-15: "a bot waiting for an action approval sometimes has no attention dot").
+    private var toldNeeds: [String: (kind: NeedsInput, storedId: String?)] = [:]
     private var links: [ObjectIdentifier: WeakLink] = [:]
     private var probeTasks: [String: Task<Void, Never>] = [:]
     private var probing: Set<String> = []
@@ -1215,9 +1221,12 @@ import Foundation
     private func changed(_ session: String) {
         for link in links(for: session) { link.promptsChanged() }
         let needs = prompts(for: [session]).needsInput
-        if lastNeeds[session] != needs {
-            lastNeeds[session] = needs
-            if let runtime = runtimes[session] { onNeedsInput?(runtime.profile, runtime.storedId, needs) }
+        if let runtime = runtimes[session] {
+            let told = toldNeeds[session]
+            if told?.kind != needs || (needs != nil && told?.storedId != runtime.storedId) {
+                toldNeeds[session] = needs.map { ($0, runtime.storedId) }
+                onNeedsInput?(session, runtime.profile, runtime.storedId, needs)
+            }
         }
         let ids = Set(entries.lazy.map(\.id))
         guard ids != knownIds else { return }
@@ -1262,6 +1271,13 @@ import Foundation
         guard previous != runtime else { return }
         sessionIds = [runtime]
         center?.bound(runtime: runtime, previous: previous, profile: profile, profileParam: profileParam, storedId: storedId)
+    }
+
+    /// The chat got its stored id after its runtime was bound (a new chat): the centre learns it, so a request that
+    /// waits in it names the chat's Sessions row too.
+    func storedIdResolved(_ storedId: String, profile: String, profileParam: String?) {
+        guard let runtime = sessionIds.first else { return }
+        center?.bound(runtime: runtime, previous: runtime, profile: profile, profileParam: profileParam, storedId: storedId)
     }
 
     var prompts: ChatPrompts { center?.prompts(for: sessionIds) ?? ChatPrompts() }

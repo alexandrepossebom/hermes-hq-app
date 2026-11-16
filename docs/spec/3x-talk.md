@@ -371,9 +371,11 @@ ElevenLabs voice list: `GET /api/audio/elevenlabs/voices` →
 
 ### 3.8 Never called
 
-`GET /api/audio/voice-config`, `WS /api/audio/transcribe-stream`, and the RPC methods `voice.toggle`, `voice.record`,
+`GET /api/audio/voice-config` and the RPC methods `voice.toggle`, `voice.record`,
 `voice.tts`, `wake.*`. `scripts/check-talk-guards.sh` greps the app's sources for these strings and fails if one appears
-(row L546). The GPT-Live routes (`/api/audio/voice-live/*`) were here until 2026-10-26; they are now named only in
+(row L546). `WS /api/audio/transcribe-stream` was here until 2026-11-16; Words from Hermes uses it for memos and Dictate
+(docs/spec/3x-live-words.md §2.3), and it is named only in `HermesKit/Voice/GatewayWords.swift`. Talk's takes still go
+whole to `POST /api/audio/transcribe` (T4). The GPT-Live routes (`/api/audio/voice-live/*`) were here until 2026-10-26; they are now named only in
 `HermesKit/Voice/LiveVoiceWire.swift` (docs/spec/3x-gpt-live.md).
 
 ---
@@ -1605,7 +1607,7 @@ Port guard becomes: allowed without the override are 9726–9728 (memo stream) *
 | `GET /api/config` (exists) | now also returns the voice keys: `stt.provider`, `stt.*`, `tts.provider`, `tts.*`, `voice.max_recording_seconds`, `voice.auto_tts`, `voice.silence_duration`, `voice.barge_in`, `voice.barge_in_threshold_multiplier`, `voice.stop_phrases`, `voice.thinking_sound`, **and** the keys that must stay hidden (`voice.voice_chat_mode`, `voice.client_direct`, `voice.gpt_live.voice`, `voice.wake_word`) so a test can prove they never show. The old `stt` control still decides `stt.enabled` per profile | `voiceConfig: {…}` (deep-merged over the defaults) | `configReads` (exists) |
 | `GET /api/config/schema`, `GET /api/config/defaults` | the voice keys in the shape `scripts/fixtures/settings_config_data.py` uses (the fixture imports that module and adds a `VOICE_SCHEMA`) | — | — |
 | `PUT /api/config` | body must be exactly `{"config": {…}}` (anything else → 400); deep-merged into the stored config | `configPutFail: {status, detail}` | `configPuts: [patch, …]` |
-| never-called routes: `GET /api/audio/voice-config`, `/api/audio/voice-live/*`, `WS /api/audio/transcribe-stream` | answer 404 | — | `forbidden: [path, …]` (tests assert it stays empty) |
+| never-called routes: `GET /api/audio/voice-config`, `/api/audio/voice-live/*` (`WS /api/audio/transcribe-stream` is a real socket since 2026-11-16: 3x-live-words §2.3, ledger `wordStreams`) | answer 404 | — | `forbidden: [path, …]` (tests assert it stays empty) |
 | `prompt.submit` (exists, strict) | unchanged: unknown params → 4000 | — | each prompt gains `interrupted` |
 | socket | `POST /__fixture/voice {"dropSocket": true}` closes every `/api/ws` client once (the app reconnects); `{"refuseSocketFor": seconds}` then refuses new sockets that long | | `socketDrops` |
 

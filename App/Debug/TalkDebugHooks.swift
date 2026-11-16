@@ -25,6 +25,7 @@
 // - `-HQDebugTrayAudio <seconds>`                       a recording of that length lands in the tray of the first chat
 //                                                       that opens (0: a file named .m4a that is not audio)
 // - `-HQDebugSettingsScroll <pt>`                       where the `settings-root` shot scrolls the Settings list to
+//                                                       (and, when given, the `settings-conversation` page)
 // - `-HQDebugTalkShot <state>` (with -HQDebugOpenBot)   shows one state for screenshots (the list is `shots` below),
 //                                                       after `-HQDebugTalkShotDelay <s>` (default 1.2)
 
@@ -260,7 +261,17 @@ enum TalkDebugHooks {
                     list.setContentOffset(CGPoint(x: 0, y: min(wanted, most)), animated: false)
                 }
             case "settings-voice": router.push([section])
-            case "settings-conversation": router.push([section, page("conversation")].compactMap { $0 })
+            case "settings-conversation":
+                let conversation = page("conversation")
+                router.push([section, conversation].compactMap { $0 })
+                // The Live Words section sits below the fold: with -HQDebugSettingsScroll the page is scrolled there.
+                if defaults.object(forKey: "HQDebugSettingsScroll") != nil {
+                    after(1.5) {
+                        guard let view = conversation?.view, let list = firstScroll(in: view) else { return }
+                        let most = max(0, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)
+                        list.setContentOffset(CGPoint(x: 0, y: min(CGFloat(defaults.double(forKey: "HQDebugSettingsScroll")), most)), animated: false)
+                    }
+                }
             case "settings-stt": router.push([section, page("transcription")].compactMap { $0 })
             case "settings-tts": router.push([section, page("speech")].compactMap { $0 })
             case "settings-eleven":

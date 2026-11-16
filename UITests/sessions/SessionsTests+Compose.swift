@@ -92,6 +92,35 @@ extension SessionsTests {
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
     }
 
+    /// A tester, 2026-11-14: New Chat listed each bot's own working folder as a project. Hermes reports every folder
+    /// chats ran in; the bot's own (where its Bot Chat runs) is left out, a checkout nobody saved is listed under
+    /// "In a folder", and a chat started there makes no project.
+    @MainActor func testC3g_ABotsOwnFolderIsNotAProject() throws {
+        fixture("/__fixture/mode", ["projects": "found"])
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        XCTAssertTrue(waitUntil(10) { self.rpc("projects.tree").contains { $0["profile"] as? String == "default" } }, "projects read with the list")
+        Thread.sleep(forTimeInterval: 2.5)   // each bot's own folder is read after its projects
+        app.buttons["sessions.compose"].tap()
+        let checkout = app.buttons["new-chat-folder-checkout"]
+        XCTAssertTrue(checkout.waitForExistence(timeout: 5), "a folder Hermes found, as a folder")
+        XCTAssertTrue(app.buttons["new-chat-project-Website"].exists && app.buttons["new-chat-project-App"].exists, "saved projects stay projects")
+        XCTAssertTrue(app.staticTexts["In a folder"].exists || app.otherElements["In a folder"].exists
+                      || app.descendants(matching: .any).matching(NSPredicate(format: "label ==[c] 'In a folder'")).count > 0, "its own heading")
+        for own in ["default", "research", "deploys"] {
+            XCTAssertFalse(app.buttons["new-chat-folder-\(own)"].exists || app.buttons["new-chat-project-\(own)"].exists,
+                           "\(own)'s own working folder is not offered")
+        }
+        shot(app, "compose-found-folders")
+        app.buttons["new-chat-bot-research"].tap()
+        checkout.tap()
+        XCTAssertTrue(waitUntil(8) {
+            self.rpc("session.create").contains { ($0["cwd"] as? String)?.hasSuffix("/code/checkout") == true && $0["profile"] as? String == "research" }
+        }, "the chat starts in the folder (\(rpc("session.create")))")
+        XCTAssertTrue(rpc("projects.create").isEmpty, "and no project is made of it (\(rpc("projects.create")))")
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+    }
+
     /// Owner 2026-11-11: "Test for very long project titles." A long name (with spaces, without any, accented) keeps
     /// its row one line high and inside the sheet (cut in the middle), leaves room for "Last used", and reads whole to
     /// VoiceOver; All Projects gives it two lines.

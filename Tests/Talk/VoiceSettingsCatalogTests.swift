@@ -10,7 +10,7 @@ struct VoiceSettingsCatalogTests {
     private static let schema: [String: ConfigFieldSchema] = {
         var fields: [String: ConfigFieldSchema] = [:]
         for key in VoiceSettingsCatalog.section.keys { fields[key] = ConfigFieldSchema(kind: .string) }
-        for key in ["stt.enabled", "stt.echo_transcripts", "stt.elevenlabs.diarize", "voice.auto_tts"] { fields[key] = ConfigFieldSchema(kind: .boolean) }
+        for key in ["stt.enabled", "stt.echo_transcripts", "stt.elevenlabs.diarize", "stt.streaming", "voice.auto_tts"] { fields[key] = ConfigFieldSchema(kind: .boolean) }
         fields["voice.max_recording_seconds"] = ConfigFieldSchema(kind: .number)
         // What a gateway may also describe, and a phone never lists.
         for key in ["voice.wake_word", "voice.wake_words", "voice.stop_words", "voice.client_direct", "voice.voice_chat_mode",

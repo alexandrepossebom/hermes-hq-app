@@ -381,7 +381,7 @@ protocol ChatQueueing: AnyObject {
     func discardQueued(_ id: String)
     /// Edit (spec 3x-composer §15.5): the row being edited, which doesn't send until Save or Cancel.
     var queueEditingId: String? { get }
-    /// Whether Edit is offered for the row (typed words only).
+    /// Whether Edit is offered for the row (its typed words; photos and files beside them stay as they are).
     func canEditQueued(_ id: String) -> Bool
     /// Holds the row for an edit and returns its words; nil when it can't be edited.
     func beginQueuedEdit(_ id: String) -> String?

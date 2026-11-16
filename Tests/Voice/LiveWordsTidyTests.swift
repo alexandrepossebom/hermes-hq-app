@@ -109,7 +109,7 @@ import Testing
         var memo = MemoFile(path: "/x/voice-memo.m4a", seconds: 4.4, peaks: [], mime: "audio/x-m4a")
         memo.words = "Remind me to call the dentist"
         let line = LiveChatSession.memoLogWords(MemoSendContext(memo: memo, typed: "and eggs", epoch: 0, accountId: "a"))
-        #expect(line == "memo 4s, words 29 chars from this device, typed 8 chars")
+        #expect(line == "memo 4s, words 29 chars heard as it recorded, typed 8 chars")
         #expect(!line.contains("dentist") && !line.contains("eggs"))
         memo.words = nil
         #expect(LiveChatSession.memoLogWords(MemoSendContext(memo: memo, typed: "", epoch: 0, accountId: "a"))

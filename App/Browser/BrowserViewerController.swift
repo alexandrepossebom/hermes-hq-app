@@ -86,6 +86,11 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     private var hintTimer: Timer?
     private var editingAddress = false
     private var typing = false
+    #if targetEnvironment(macCatalyst)
+    /// [mac] The address was just clicked into: its whole text stays selected through that click (`textFieldDidChangeSelection`).
+    private var addressSelectsAll = false
+    private var addressSelectTimer: Timer?
+    #endif
 
     static func present(scope: BrowserScope, service: BrowserService, from presenter: UIViewController,
                         canAsk: (() throws -> Void)? = nil, askToInstall: ((String) async throws -> Void)? = nil,
@@ -1204,10 +1209,18 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     func stageSend(_ input: BrowserInput) { session?.input(input) }
 
     func stageWillTap() {
+        #if targetEnvironment(macCatalyst)
+        // [mac] The Mac's own keyboard: after a click on the page, what is typed goes to the page, whatever is under
+        // the click (a page takes keys with no field in focus too, and there is no keyboard to raise or hide). The
+        // field's kind, once the page says it, picks the slot (`followFieldFocus`).
+        let wanted = wantedSlot
+        raise(wanted.slot, wanted.keyboard)
+        #else
         // A tap on a text field raises the keyboard that suits it in the same touch (a password field's offers AutoFill).
         guard let under = session?.view?.field?.under else { return }
         let wanted = BrowserKeyboard.slot(for: under)
         raise(wanted.slot, wanted.keyboard)
+        #endif
     }
 
     func stageZoomed() { sendViewSize() }
@@ -1234,10 +1247,38 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         textField.textAlignment = .natural
         textField.text = session?.view?.currentTab?.url ?? ""
         textField.selectAll(nil)
+        #if targetEnvironment(macCatalyst)
+        // [mac] The click that began the edit then puts the caret where it landed, which dropped the selection: what
+        // was typed went into the middle or onto the end of the old address ("example.test/sign-inexample.org") and
+        // the page went nowhere useful. (A tester, 2026-11-16: "cannot type in the address bar after taking control".)
+        // The whole address stays selected through that click, as in Safari; a second click places the caret.
+        addressSelectsAll = true
+        addressSelectTimer?.invalidate()
+        addressSelectTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.addressSelectsAll = false }
+        }
+        #endif
         typingChanged()
     }
 
+    #if targetEnvironment(macCatalyst)
+    func textFieldDidChangeSelection(_ textField: UITextField) {
+        guard addressSelectsAll, textField === address, textField.isFirstResponder,
+              let range = textField.selectedTextRange, let all = textField.textRange(from: textField.beginningOfDocument, to: textField.endOfDocument),
+              !(range.start == all.start && range.end == all.end), textField.text == (session?.view?.currentTab?.url ?? "") else { return }
+        // On the next turn: UIKit is still inside the click that moved the caret.
+        DispatchQueue.main.async { [weak self, weak textField] in
+            guard let self, self.addressSelectsAll, let textField, textField.isFirstResponder else { return }
+            textField.selectAll(nil)
+        }
+    }
+    #endif
+
     func textFieldDidEndEditing(_ textField: UITextField) {
+        #if targetEnvironment(macCatalyst)
+        addressSelectsAll = false
+        addressSelectTimer?.invalidate()
+        #endif
         editingAddress = false
         textField.textAlignment = .center
         typingChanged()

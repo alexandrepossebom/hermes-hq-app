@@ -10,11 +10,15 @@ import Foundation
 /// "Waiting for your reply" (a clarify question). Ranks above "Working…" on the Bots row.
 nonisolated enum NeedsInput: String, Sendable, Hashable {
     case approval, reply
+    /// The gateway says the chat waits on a person, in a chat this device isn't attached to, so what it asks isn't
+    /// known here (`LiveStatusWatch`).
+    case waiting
 
     var statusText: String {
         switch self {
         case .approval: "Waiting for your approval"
         case .reply: "Waiting for your reply"
+        case .waiting: "Waiting for you"
         }
     }
 }

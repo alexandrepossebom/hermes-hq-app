@@ -151,6 +151,21 @@ extension UIViewController {
     }
 }
 
+extension UIViewController {
+    /// Back, for a page whose Back is its own action (it asks before dropping unsaved changes). A page's own
+    /// `backAction` draws Back even on a page with nothing under it: one that stands alone in the right pane (it took
+    /// the place of what was there) gives the pane back instead of popping nothing. (A tester, 2026-11-16: "Back does
+    /// nothing" on a plugin's page opened from its Marketplace listing on the Mac.)
+    func hqBackOut(animated: Bool = true) {
+        guard let navigation = navigationController, navigation.topViewController === self else { return }
+        if navigation.viewControllers.first === self {
+            MainTabController.current?.leave(self, animated: animated)
+        } else {
+            navigation.popViewController(animated: animated)
+        }
+    }
+}
+
 extension ChatViewController {
     /// The size the next chat's first screen is laid out for (the pane it is about to land in); nil: the screen's.
     static var openingSize: CGSize?

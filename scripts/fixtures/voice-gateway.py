@@ -28,6 +28,17 @@ Live voice (docs/spec/3x-talk.md §12; ports 9900-9909):
                                             (ok, fallback, refuse, drop, silent), streamStartDelay, streamPace,
                                             streamDropAfterMs, streamScript, streamRate, streamChannels; the ledger's
                                             `spoken` is the text cleaned as the real gateway cleans it
+  WS     /api/audio/transcribe-stream?profile=   live speech to text (docs/spec/3x-live-words.md §2.3), the real
+                                            protocol: {"sample_rate": N} (8000-48000), binary s16le mono PCM,
+                                            {"eos": true}; out {"type":"partial","text"} (the whole text so far, one
+                                            more word of wordsScript per wordsPace s of sound), then
+                                            {"type":"final","transcript","provider":"fixture"}. Controls wordsMode (ok;
+                                            none: the "no live STT" error at once; drop: the connection aborts after
+                                            wordsDropAfterMs of sound; error: an error after eos; silent: no final;
+                                            refuse: closed 4401), wordsScript, wordsFinal, wordsFinalDelay. Ledger
+                                            `wordStreams`. The app dials it only when stt.streaming is on and the
+                                            provider isn't local (voiceConfig {"stt": {"streaming": true, "provider":
+                                            "elevenlabs"}})
   POST   /api/audio/tts-lease, /stt-lease   warm-up leases (leaseFail)
   GET    /api/audio/elevenlabs/voices       two invented voices (elevenVoices: ok, unavailable, fail)
   GET    /api/config, /api/config/schema, /api/config/defaults;  PUT /api/config {config}
@@ -44,7 +55,7 @@ Live voice (docs/spec/3x-talk.md §12; ports 9900-9909):
   POST   /api/audio/voice-live/session      503 no key (the fixture never makes a WebRTC answer)
   GET    /api/plugins/hermes-hq-push/voice/grok-live/status   Grok Live status (grokAvailable, default false)
   POST   /api/plugins/hermes-hq-push/voice/grok-live/session  503 no_credentials (the fixture never opens xAI)
-  never-called routes (voice-config, transcribe-stream; RPC voice.*, wake.*) answer 404 / -32601 and are
+  never-called routes (voice-config; RPC voice.*, wake.*) answer 404 / -32601 and are
   written to the ledger's `forbidden` list, which tests assert stays empty.
 
   python3 scripts/fixtures/voice-gateway.py --port 9726 --credentials build/fixtures/voice-dev.json \
@@ -92,6 +103,9 @@ DEFAULTS = {'filesStatus': None, 'uploadStatus': None, 'uploadDelay': 0, 'attach
             'speakDelay': 0, 'speakFail': None, 'speakMime': None, 'speakRaw': None,
             'streamMode': 'ok', 'streamStartDelay': 0, 'streamPace': 1, 'streamDropAfterMs': 300, 'streamScript': None,
             'streamRate': 24000, 'streamChannels': 1,
+            # Words from Hermes (3x-live-words §2.3)
+            'wordsMode': 'ok', 'wordsScript': 'Synthetic live transcript of what was said.', 'wordsFinal': None,
+            'wordsPace': 0.25, 'wordsDropAfterMs': 500, 'wordsFinalDelay': 0,
             'leaseFail': False, 'elevenVoices': 'ok', 'voiceConfig': {}, 'schemaVoice': True, 'configPutFail': None,
             # GPT-Live (3x-gpt-live §3.1): status only; a session is refused as the real gateway does with no key
             'liveAvailable': False,
@@ -100,14 +114,14 @@ DEFAULTS = {'filesStatus': None, 'uploadStatus': None, 'uploadDelay': 0, 'attach
 CONTROLS = json.loads(json.dumps(DEFAULTS))
 def empty_ledger():
     return {'filesReads': 0, 'uploads': [], 'attaches': [], 'imageAttaches': [], 'deletes': [], 'configReads': [], 'transcribes': [], 'prompts': [],
-            'speaks': [], 'streams': [], 'leases': {'tts': [], 'stt': []}, 'leaseCalls': [], 'voiceLists': 0,
+            'speaks': [], 'streams': [], 'wordStreams': [], 'leases': {'tts': [], 'stt': []}, 'leaseCalls': [], 'voiceLists': 0,
             'configPuts': [], 'configPutProfiles': [], 'forbidden': [], 'socketDrops': 0, 'liveStatus': 0, 'liveSessions': 0,
             'grokStatus': 0, 'grokSessions': 0}
 LEDGER = empty_ledger()
 STORED = {'config': {}, 'refuseSocketUntil': 0.0}     # what PUT /api/config changed; when new sockets are let in again
 
 VOICE_DEFAULTS = {
-    'stt': {'enabled': True, 'provider': 'local', 'echo_transcripts': False,
+    'stt': {'enabled': True, 'provider': 'local', 'echo_transcripts': False, 'streaming': False,
             'local': {'model': 'base', 'language': ''},
             'openai': {'model': 'whisper-1'}, 'groq': {'model': 'whisper-large-v3-turbo'},
             'mistral': {'model': 'voxtral-mini-latest'},
@@ -138,6 +152,7 @@ VOICE_SCHEMA = {
     'stt.enabled': _field('boolean', 'stt', 'Enable local or provider-backed speech transcription.'),
     'stt.provider': _field('select', 'stt', None, ['local', 'groq', 'openai', 'mistral', 'xai', 'elevenlabs']),
     'stt.echo_transcripts': _field('boolean', 'stt', 'Post the transcript of each voice message back to the chat.'),
+    'stt.streaming': _field('boolean', 'stt'),
     'stt.local.model': _field('select', 'stt', None, ['tiny', 'base', 'small', 'medium', 'large-v3']),
     'stt.local.language': _field('string', 'stt'),
     'stt.openai.model': _field('select', 'stt', None, ['whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'gpt-transcribe']),
@@ -180,7 +195,7 @@ VOICE_SCHEMA = {
     'voice.wake_word.enabled': _field('boolean', 'voice'),
     'voice.wake_word.phrase': _field('string', 'voice'),
 }
-FORBIDDEN_PATHS = ('/api/audio/voice-config', '/api/audio/transcribe-stream')
+FORBIDDEN_PATHS = ('/api/audio/voice-config',)
 FORBIDDEN_RPC = ('voice.toggle', 'voice.record', 'voice.tts')
 
 
@@ -300,6 +315,103 @@ class SpeakSocket:
             if opcode in (0, 1, 2):
                 fragments.extend(payload)
                 if final: return fragments.decode('utf-8', 'replace')
+
+    def receive_frame(self):
+        """The next whole message as ('text', str) or ('binary', bytes), or None once the other side closed."""
+        fragments, kind = bytearray(), None
+        while True:
+            first, second = self.read(2)
+            opcode, n, final = first & 15, second & 127, bool(first & 128)
+            if n == 126: n = struct.unpack('>H', self.read(2))[0]
+            elif n == 127: n = struct.unpack('>Q', self.read(8))[0]
+            mask = self.read(4) if second & 128 else b'\0' * 4
+            body = self.read(n)
+            payload = bytes(a ^ b for a, b in zip(body, (mask * (n // 4 + 1))[:n]))
+            if opcode == 8:
+                self.close()
+                return None
+            if opcode == 9:
+                with self.lock: self.connection.sendall(bytes([0x8A, len(payload)]) + payload)
+                continue
+            if opcode in (0, 1, 2):
+                if opcode: kind = 'text' if opcode == 1 else 'binary'
+                fragments.extend(payload)
+                if final: return (kind, fragments.decode('utf-8', 'replace') if kind == 'text' else bytes(fragments))
+
+
+def transcribe_stream(handler, profile):
+    """One /api/audio/transcribe-stream socket, as Hermes speaks it (hermes_cli/web_routers/audio.py)."""
+    key = handler.headers['Sec-WebSocket-Key']
+    accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+    handler.connection.sendall(('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+                                'Sec-WebSocket-Accept: ' + accept + '\r\n\r\n').encode())
+    handler.close_connection = True
+    ws = SpeakSocket(handler.connection)
+    with LOCK:
+        mode, script, final = CONTROLS['wordsMode'], str(CONTROLS['wordsScript'] or ''), CONTROLS['wordsFinal']
+        pace, drop_after, final_delay = float(CONTROLS['wordsPace'] or 0.25), float(CONTROLS['wordsDropAfterMs'] or 0), float(CONTROLS['wordsFinalDelay'] or 0)
+        entry = {'profile': profile, 'mode': mode, 'sampleRate': None, 'bytes': 0, 'frames': 0, 'eos': False, 'partials': [], 'final': None,
+                 'closedBy': None, 'at': time.time()}
+        LEDGER['wordStreams'].append(entry)
+    if mode == 'refuse':
+        entry['closedBy'] = 'server 4401'
+        return ws.close(4401)
+    if mode == 'none':
+        # No live session for the provider: the error comes at once, before anything is read.
+        ws.send_json({'type': 'error', 'message': 'no live STT for the configured provider'})
+        entry['closedBy'] = 'server error'
+        return ws.close()
+    words, shown = script.split(), 0
+    try:
+        first = ws.receive_frame()
+        if first is None:
+            entry['closedBy'] = 'client'
+            return
+        try: rate = int(json.loads(first[1]).get('sample_rate') or 0) if first[0] == 'text' else 0
+        except (ValueError, AttributeError): rate = 0
+        entry['sampleRate'] = rate
+        if not 8000 <= rate <= 48000:
+            entry['closedBy'] = 'server bad rate'
+            return ws.close()
+        while True:
+            message = ws.receive_frame()
+            if message is None:
+                entry['closedBy'] = 'client'            # a disconnect cancels: no final
+                return
+            kind, body = message
+            if kind == 'binary':
+                entry['bytes'] += len(body); entry['frames'] += 1
+                heard_ms = entry['bytes'] / (2 * rate) * 1000
+                if mode == 'drop' and heard_ms >= drop_after:
+                    entry['closedBy'] = 'server abort'
+                    return ws.abort()
+                due = min(len(words), int(heard_ms / 1000 / pace))
+                if due > shown:
+                    shown = due
+                    text = ' '.join(words[:shown])
+                    entry['partials'].append(text)
+                    ws.send_json({'type': 'partial', 'text': text})
+            else:
+                try: ended = bool(json.loads(body).get('eos'))
+                except (ValueError, AttributeError): ended = False
+                if ended:
+                    entry['eos'] = True
+                    break
+        if mode == 'silent':
+            entry['closedBy'] = 'client'
+            while ws.receive_frame() is not None: pass
+            return
+        if final_delay: time.sleep(final_delay)
+        if mode == 'error':
+            ws.send_json({'type': 'error', 'message': 'Synthetic live transcription failure'})
+            entry['closedBy'] = 'server error'
+        else:
+            entry['final'] = script if final is None else str(final)
+            ws.send_json({'type': 'final', 'transcript': entry['final'], 'provider': 'fixture'})
+            entry['closedBy'] = 'server final'
+        ws.close()
+    except (ConnectionError, OSError):
+        if entry['closedBy'] is None: entry['closedBy'] = 'client'
 
 
 def speak_stream(handler, profile):
@@ -652,6 +764,10 @@ def handler(gateway):
                 if (self.headers.get('Upgrade') or '').lower() != 'websocket': return self.reply(400, {'detail': 'WebSocket required'})
                 if not self.session() and 'ticket=' not in self.path: return self.reply(401, {'detail': 'Unauthorized'})
                 return speak_stream(self, self.query().get('profile') or 'default')
+            if path == '/api/audio/transcribe-stream':
+                if (self.headers.get('Upgrade') or '').lower() != 'websocket': return self.reply(400, {'detail': 'WebSocket required'})
+                if not self.session() and 'ticket=' not in self.path: return self.reply(401, {'detail': 'Unauthorized'})
+                return transcribe_stream(self, self.query().get('profile') or 'default')
             if path == '/api/audio/elevenlabs/voices':
                 if not self.gated(): return
                 with LOCK:

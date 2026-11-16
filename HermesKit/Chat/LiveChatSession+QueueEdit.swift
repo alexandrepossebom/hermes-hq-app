@@ -1,8 +1,9 @@
 // [composer] A queued row's Delete and Edit (docs/spec/3x-composer.md §15.3, §15.5). Delete throws the row away: its
 // photos and files leave the phone (and the gateway's staging), a memo's recording is deleted, and nothing comes back
-// to the field, the tray or the draft chip. Edit holds a text-only row where it is while its words are changed in the
-// composer: the queue doesn't send it (nor the rows behind it) until Save puts the new words in place, same id, same
-// position, or Cancel leaves it as it was. The chat screen ends an edit when it leaves.
+// to the field, the tray or the draft chip. Edit holds a row where it is while its words are changed in the composer:
+// the queue doesn't send it (nor the rows behind it) until Save puts the new words in place, same id, same position,
+// or Cancel leaves it as it was. A row's photos and files stay with it as they are: only its words change (a tester,
+// 2026-11-14, found no Edit on a queued photo with words under it). The chat screen ends an edit when it leaves.
 
 import Foundation
 
@@ -27,15 +28,16 @@ extension LiveChatSession {
         if wasHeld, !turn.busy { drainQueueHead() }
     }
 
-    /// Whether Edit is offered for this row: typed words only (no photo, file or memo), not a goal continuation, not
-    /// a skill send (its words on the wire are the skill's body), not going out now.
+    /// Whether Edit is offered for this row: its typed words, with or without photos and files beside them (those
+    /// stay as they are). Not a voice memo, not a goal continuation, not a skill send (its words on the wire are the
+    /// skill's body), not going out now.
     func canEditQueued(_ id: String) -> Bool {
         guard let item = queuedMessages.first(where: { $0.id == id }) else { return false }
         return Self.editable(item) && !steeringIds.contains(id)
     }
 
     nonisolated static func editable(_ item: QueuedMessage) -> Bool {
-        !item.hidden && item.memo == nil && item.attachments.isEmpty && item.display == nil
+        !item.hidden && item.memo == nil && item.display == nil
     }
 
     func beginQueuedEdit(_ id: String) -> String? {

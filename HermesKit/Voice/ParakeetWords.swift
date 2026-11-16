@@ -43,10 +43,17 @@ nonisolated protocol ParakeetHearing: Sendable {
     private(set) static var readiness: Readiness = .unknown
     private static var hearing: (any ParakeetHearing)?
 
-    /// The model is English only: the person's first language decides.
+    /// The model is English only: the language chosen for this device's words decides, else the person's first.
     static var speaksEnglish: Bool {
-        let first = Locale.preferredLanguages.first.map(Locale.init(identifier:)) ?? Locale.current
+        let first = (LiveWords.language ?? Locale.preferredLanguages.first).map(Locale.init(identifier:)) ?? Locale.current
         return first.language.languageCode?.identifier == "en"
+    }
+
+    /// The language for this device's words changed: the model is let go and asked again (it may now be the wrong one,
+    /// or the right one). Its download stays.
+    static func languageChanged() {
+        hearing = nil
+        set(.unknown)
     }
 
     /// Loads the model, downloading it first when it isn't here (on Wi-Fi only). Cheap once checked.

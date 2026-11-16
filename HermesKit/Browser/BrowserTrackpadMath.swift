@@ -63,6 +63,14 @@ nonisolated enum BrowserTrackpadMath {
         return CGVector(dx: -dx * sx, dy: -dy * sy)
     }
 
+    /// A stage point as fractions of the drawn page, kept on the page (a click in the margin beside it lands on its
+    /// nearest edge); nil before the page has a size.
+    static func clamped(_ point: CGPoint, in view: View) -> CGPoint? {
+        let size = view.drawnSize
+        guard size.width > 0, size.height > 0 else { return nil }
+        return CGPoint(x: min(1, max(0, (point.x - view.x) / size.width)), y: min(1, max(0, (point.y - view.y) / size.height)))
+    }
+
     /// A stage point as fractions of the drawn page, or nil outside it.
     static func fraction(_ point: CGPoint, in view: View) -> CGPoint? {
         let size = view.drawnSize
@@ -79,5 +87,81 @@ nonisolated enum BrowserTrackpadMath {
         let dx = px < edge ? edge - px : px > stage.width - edge ? stage.width - edge - px : 0
         let dy = py < edge ? edge - py : py > stage.height - edge ? stage.height - edge - py : 0
         return CGVector(dx: dx, dy: dy)
+    }
+}
+
+/// One finger, or the mouse's button, on the page while this device holds the browser: what goes to the page as it
+/// lands, waits, travels and lifts. Pure, so the two ways of pointing are tested without touches.
+///
+/// - `trackpad` (a finger on glass): the finger moves the drawn pointer from where it is. A tap clicks there. A still
+///   hold arms a press (the pointer shrinks); the first travel after it presses the page's button, the finger drags,
+///   and lifting lets go. A hold lifted without travelling is a click.
+/// - `direct` (a mouse or trackpad pointer: the Mac, an iPad's): the pointer is where the cursor is. A click clicks
+///   there; pressing and moving drags at once, with no hold to wait for.
+///
+/// A tester (2026-11-16): "Drag and drop does not work in Watch Browser on Mac or iPhone." The hold marked the press
+/// as already made (one flag was both "looks pressed" and "button is down"), so the press was never sent and a drag
+/// only moved the pointer; the lift then released a button the page never saw go down.
+nonisolated struct BrowserOneFinger: Sendable, Equatable {
+    nonisolated enum Kind: Sendable { case trackpad, direct }
+    nonisolated enum Out: Sendable, Equatable {
+        /// The pointer draws pressed (a little smaller) or not.
+        case look(Bool)
+        /// The page's left button goes down where the pointer is.
+        case down
+        /// The page's left button comes up where the pointer is.
+        case up
+        /// A click where the pointer is.
+        case tap
+    }
+
+    let kind: Kind
+    /// A press is owed to the first travel (`direct`: from the start; `trackpad`: once the hold has run).
+    private(set) var armed: Bool
+    /// The finger has travelled past the tap's slop.
+    private(set) var moved = false
+    /// The page's button is down: a `down` went out and its `up` has not.
+    private(set) var buttonDown = false
+
+    init(kind: Kind) {
+        self.kind = kind
+        armed = kind == .direct
+    }
+
+    /// The still hold ran out (`trackpad`; nothing for a finger that has already travelled, or a `direct` press).
+    mutating func held() -> [Out] {
+        guard kind == .trackpad, !moved, !armed else { return [] }
+        armed = true
+        return [.look(true)]
+    }
+
+    /// The first travel past the slop: the press, when one is owed. Later travel only moves the pointer.
+    mutating func travelled() -> [Out] {
+        guard !moved else { return [] }
+        moved = true
+        guard armed else { return [] }
+        buttonDown = true
+        return kind == .direct ? [.look(true), .down] : [.down]
+    }
+
+    /// The finger lifted: a drag lets go; a finger that never travelled clicks (after a hold too).
+    mutating func lifted() -> [Out] {
+        defer { armed = false }
+        if buttonDown {
+            buttonDown = false
+            return [.up, .look(false)]
+        }
+        guard !moved else { return [] }
+        return armed && kind == .trackpad ? [.look(false), .tap] : [.tap]
+    }
+
+    /// The touch was taken away (a second finger, a call, control lost): a held button is let go, nothing clicks.
+    mutating func cancelled() -> [Out] {
+        defer { armed = false }
+        if buttonDown {
+            buttonDown = false
+            return [.up, .look(false)]
+        }
+        return armed && kind == .trackpad ? [.look(false)] : []
     }
 }

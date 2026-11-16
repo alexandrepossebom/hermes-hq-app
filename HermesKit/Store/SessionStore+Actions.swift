@@ -230,6 +230,7 @@ extension SessionStore {
 
     /// Mark as Read / Mark as Unread from the row (`toggleRead`): unread sets the device marker and the server flag
     /// (`PATCH {"unread":true}`); read clears both, as opening the chat would, without selecting it.
+    /// [read-sync] Read is written whenever the gateway's watermark doesn't yet cover the chat (`sharesRead`).
     func setUnread(_ session: SessionSummary, _ unread: Bool) {
         guard let row = listedRow(id: session.id, profile: session.profile) else { return }
         if unread {
@@ -241,7 +242,7 @@ extension SessionStore {
         } else {
             device.unread.opened(row, clearServerLocally: row.unread == true && readOnlyGateway)
             persistState()
-            if row.unread == true && !readOnlyGateway { writeUnread(false, row: row) }
+            if sharesRead(row) { writeUnread(false, row: row) }
         }
         rebuild()
     }
@@ -394,6 +395,7 @@ extension SessionStore {
             let answer = try await client.call("projects.tree", ["preview_limit": 3, "profile": .string(profile)], timeout: .seconds(20))
             let projects = SessionProject.decodeTree(answer)
             projectsByProfile[profile] = projects
+            if projects.contains(where: { $0.isAuto == true }) { await learnBotFolder(profile) }   // [own-folder]
             return projects
         } catch let error as RPCError where error.code == -32601 {
             projectsByProfile[profile] = []

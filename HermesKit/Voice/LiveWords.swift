@@ -11,6 +11,7 @@ import AVFAudio
 import Foundation
 import Speech
 import Synchronization
+import UIKit
 
 /// What has been heard so far: the words the engine settled on, then the ones it may still change.
 nonisolated struct LiveWordsText: Equatable, Sendable {
@@ -89,38 +90,96 @@ nonisolated protocol LiveWordsListening: AnyObject, Sendable {
         ParakeetWords.prepare()   // [more accurate words] the larger model, when it is wanted and can be had
         guard readiness == .unknown else { return }
         set(.checking)
+        let wanted = LiveWordsEngine.wanted(chosen: language, preferred: Locale.preferredLanguages, keyboards: keyboardLanguages, current: .current)
         Task {
-            let found = await LiveWordsEngine.find()
+            let found = await LiveWordsEngine.find(wanted)
             set(found)
             if found == .downloading {
-                let installed = await LiveWordsEngine.download()
+                let installed = await LiveWordsEngine.download(wanted)
                 set(installed)
             }
         }
     }
 
+    /// Settings › Voice › Language (this device's words): a language tag, or nil for Automatic.
+    static let languageKey = "hq.voice.liveWordsLanguage"
+    static var language: String? {
+        UserDefaults.standard.string(forKey: languageKey).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The choice changed: the engine is found again for it (and the larger model, which hears English only).
+    static func setLanguage(_ tag: String?) {
+        UserDefaults.standard.set(tag ?? "", forKey: languageKey)
+        readiness = .unknown
+        ParakeetWords.languageChanged()
+        prepare()
+        NotificationCenter.default.post(name: readinessChanged, object: nil)
+    }
+
+    /// The keyboards' languages, as iOS lists them ("en-US", "pl-PL"): what the keyboard's Dictation hears.
+    static var keyboardLanguages: [String] {
+        UITextInputMode.activeInputModes.compactMap(\.primaryLanguage)
+    }
+
     /// A new listening, or nil when Live Words is off or can't run here (the gateway's speech to text is used then).
     /// `onText` gets the words each time they change, on the main actor.
     /// The words, shown and settled, are tidied: no "uh" or "um", the person's fixes and names written (`LiveWordsTidy`).
-    static func listen(onText: @escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)? {
+    ///
+    /// This is the one place the words as you speak come from. `hermes` is the chat's gateway for a memo or a
+    /// dictation: with Words From set to Hermes its live speech to text hears the take (`GatewayLiveWords`). A Talk
+    /// take passes none: Hermes transcribes it when it ends, as with the switch off.
+    static func listen(hermes: GatewayWordsLink? = nil, onText: @escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)? {
         guard isOn else { return nil }
         let tidy = LiveWordsVocabulary.tidy()
         let shown: @MainActor (LiveWordsText) -> Void = { onText(tidy.apply($0)) }
+        guard source == .hermes else { return here(shown).map { TidiedLiveWords($0, tidy: tidy) } }
+        guard let hermes else { return nil }
+        // Live Transcription is off on Hermes: this device writes the words, as Settings says there.
+        if hermes.offered == false {
+            let listener = here(shown)
+            GatewayWordsMemory.note(listener == nil ? .afterStop(.notOffered) : .device(.notOffered))
+            return listener.map { TidiedLiveWords($0, tidy: tidy) }
+        }
+        // It said a moment ago that its provider has no live transcription: not dialled again for a while.
+        if GatewayWordsMemory.refused(hermes.key) {
+            GatewayWordsMemory.note(.afterStop(.noLiveProvider))
+            return nil
+        }
+        // No listener of this device stands behind it: the person chose Hermes because it hears them better, so a
+        // take Hermes can't write live is transcribed by Hermes after Stop, never settled on this device's words.
+        return TidiedLiveWords(GatewayLiveWords(link: hermes, onText: shown), tidy: tidy)
+    }
+
+    /// This device's own listener (the script in a debug run, the larger model, Apple's engine), not yet tidied.
+    private static func here(_ shown: @escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)? {
         #if DEBUG
-        if let debugScript { return TidiedLiveWords(ScriptedLiveWords(script: debugScript, onText: shown), tidy: tidy) }
+        if let debugScript { return ScriptedLiveWords(script: debugScript, onText: shown) }
         #endif
         // [more accurate words] The larger model first; Apple's engine while it downloads or where it can't run.
-        if let better = ParakeetWords.listen(onText: shown) { return TidiedLiveWords(better, tidy: tidy) }
+        if let better = ParakeetWords.listen(onText: shown) { return better }
         guard case .ready(let engine) = readiness else {
             prepare()
             return nil
         }
-        return TidiedLiveWords(SpeechLiveWords(engine: engine, onText: shown), tidy: tidy)
+        return SpeechLiveWords(engine: engine, onText: shown)
     }
 
-    /// One fact for Voice Diagnostics.
+    /// Settings › Voice › Words From: this device, or Hermes' live speech to text (`GatewayWords.swift`).
+    static var source: LiveWordsSource { LiveWordsSource.chosen }
+
+    /// One fact for Voice Diagnostics: who turns speech into words, and why when it isn't who was chosen.
     static var diagnosticsLine: String {
         guard isOn else { return "off" }
+        guard source == .hermes else { return deviceLine }
+        switch GatewayWordsMemory.last {
+        case nil: return "from Hermes (no memo or dictation yet)"
+        case .hermes(let provider): return "from Hermes\(provider.isEmpty ? "" : " (\(provider))")"
+        case .device(let why): return "on this device, not from Hermes: \(why.words); \(deviceLine)"
+        case .afterStop(let why): return "from Hermes after Stop, not as you speak: \(why.words)"
+        }
+    }
+
+    private static var deviceLine: String {
         let better = ParakeetWords.diagnosticsLine
         if ParakeetWords.readiness == .ready, let better { return "on this device, \(better)" }
         return [appleLine, better].compactMap { $0 }.joined(separator: "; ")
@@ -171,22 +230,48 @@ nonisolated struct LiveWordsEngine: Equatable, @unchecked Sendable {
             : SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults, .fastResults], attributeOptions: [])
     }
 
-    /// The first of the person's languages (the app's own, then the phone's list) the device can hear.
-    private static func pick() async -> (locale: Locale, dictation: Bool)? {
-        let dictation = !SpeechTranscriber.isAvailable
-        var wanted = [Locale.current]
-        for id in Locale.preferredLanguages.prefix(4) { wanted.append(Locale(identifier: id)) }
+    /// The languages to try, best first: the one chosen in Settings, the person's languages as the phone lists them, the
+    /// keyboards' languages (what Dictation on the keyboard hears), and last the app's own locale. The app's locale used
+    /// to come first: it is the app's language with the phone's region, so English (US) in another region asked for that
+    /// region's English (a tester, 2026-11: another region's English with English (US) and a second language's keyboards).
+    static func wanted(chosen: String?, preferred: [String], keyboards: [String], current: Locale) -> [Locale] {
+        var ids: [String] = []
+        if let chosen, !chosen.isEmpty { ids.append(chosen) }
+        ids += preferred.prefix(4)
+        ids += keyboards
+        ids.append(current.identifier)
+        var seen = Set<String>()
+        return ids.compactMap { id in
+            let locale = Locale(identifier: id)
+            // "dictation", "emoji" and the like are input modes, not languages.
+            guard let language = locale.language.languageCode?.identifier, language.count <= 3, id.lowercased() != "dictation", id.lowercased() != "emoji",
+                  seen.insert(locale.identifier(.bcp47).lowercased()).inserted else { return nil }
+            return locale
+        }
+    }
+
+    /// The languages a person can pick for this device's words: theirs and the keyboards', each once, by name.
+    static func choices(preferred: [String], keyboards: [String]) -> [(id: String, name: String)] {
+        wanted(chosen: nil, preferred: preferred, keyboards: keyboards, current: Locale(identifier: "")).compactMap { locale in
+            let id = locale.identifier(.bcp47)
+            guard !id.isEmpty, let name = Locale.current.localizedString(forIdentifier: locale.identifier) else { return nil }
+            return (id, name)
+        }
+    }
+
+    /// The first wanted language the device can hear: Apple's newer model where it offers the language, else the
+    /// dictation model (it hears more languages).
+    private static func pick(_ wanted: [Locale]) async -> (locale: Locale, dictation: Bool)? {
         for wish in wanted {
-            let found = dictation ? await DictationTranscriber.supportedLocale(equivalentTo: wish)
-                : await SpeechTranscriber.supportedLocale(equivalentTo: wish)
-            if let found { return (found, dictation) }
+            if SpeechTranscriber.isAvailable, let found = await SpeechTranscriber.supportedLocale(equivalentTo: wish) { return (found, false) }
+            if let found = await DictationTranscriber.supportedLocale(equivalentTo: wish) { return (found, true) }
         }
         return nil
     }
 
     /// The language to hear, and whether its model is installed.
-    static func find() async -> LiveWords.Readiness {
-        guard let (locale, dictation) = await pick() else { return .unavailable("language not offered") }
+    static func find(_ wanted: [Locale]) async -> LiveWords.Readiness {
+        guard let (locale, dictation) = await pick(wanted) else { return .unavailable("language not offered") }
         let module = module(locale: locale, dictation: dictation)
         switch await AssetInventory.status(forModules: [module]) {
         case .unsupported: return .unavailable("device not supported")
@@ -201,8 +286,8 @@ nonisolated struct LiveWordsEngine: Equatable, @unchecked Sendable {
     }
 
     /// Installs the model `find` said was missing, then checks again.
-    static func download() async -> LiveWords.Readiness {
-        guard let (locale, dictation) = await pick() else { return .unavailable("language not offered") }
+    static func download(_ wanted: [Locale]) async -> LiveWords.Readiness {
+        guard let (locale, dictation) = await pick(wanted) else { return .unavailable("language not offered") }
         do {
             // The app asks for the language first: the system installs models only for languages an app reserved.
             _ = try? await AssetInventory.reserve(locale: locale)
@@ -212,7 +297,7 @@ nonisolated struct LiveWordsEngine: Equatable, @unchecked Sendable {
         } catch {
             return .unavailable("model download failed (\((error as NSError).domain) \((error as NSError).code))")
         }
-        return await find()
+        return await find(wanted)
     }
 }
 

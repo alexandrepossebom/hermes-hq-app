@@ -392,10 +392,7 @@ final class ConnectorPageController: UIHostingController<HQScaledRoot<ConnectorP
         page.lockChanged = { [weak self] in self?.updateLock() }
     }
 
-    private func pop() {
-        guard navigationController?.topViewController === self else { return }
-        navigationController?.popViewController(animated: true)
-    }
+    private func pop() { hqBackOut() }
 
     /// Back: the question when there are unsaved changes (the words the plugin page uses), else straight back.
     func leave() {

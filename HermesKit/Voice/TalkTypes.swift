@@ -69,6 +69,9 @@ nonisolated struct TalkConfig: Equatable, Sendable {
     var autoTTS: Bool?
     /// [gpt-live] `voice.voice_chat_mode`: which engine a conversation uses unless this device chose.
     var chatMode: TalkEngine = .standard
+    /// [words from Hermes] Whether the settings say live speech to text can run (`GatewayWordsWire.offered`); nil when
+    /// they were not read.
+    var liveWordsOffered: Bool?
 
     static let silenceDefaultMs = 1_250
     static let backendSilenceSeconds = 3.0
@@ -88,6 +91,7 @@ nonisolated struct TalkConfig: Equatable, Sendable {
         if case .bool(false)? = voice?["barge_in"] { bargeIn = false }
         if case .bool(let on)? = voice?["auto_tts"] { autoTTS = on }
         chatMode = TalkEngine(mode: voice?["voice_chat_mode"]?.string)   // [gpt-live]
+        liveWordsOffered = GatewayWordsWire.offered(config: config)
         bargeMultiplier = TalkConfig.positive(voice?["barge_in_threshold_multiplier"])
         stopPhrases = TalkStopWord.config(from: voice?["stop_phrases"], defaults: defaults?["voice"]?["stop_phrases"])
         if case .number(let limit)? = voice?["max_recording_seconds"], limit.isFinite {

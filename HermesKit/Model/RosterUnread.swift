@@ -1,6 +1,7 @@
 // Bot unread dots (spec 02 §6.6–6.7): device-local activity baselines and unread markers, persisted per gateway
 // account. Ported from `S/bot-unread-activity.ts` (createBotActivityTracker) and the marker half of
-// `S/bot-unread-runtime.ts`. No gateway writes. Pure value type; the store persists it.
+// `S/bot-unread-runtime.ts`. Pure value type; the store persists it, and ([read-sync], BotStore+ReadSync.swift) shares
+// reads between devices through the gateway's read watermark.
 
 import Foundation
 
@@ -83,6 +84,13 @@ nonisolated struct BotUnreadState: Codable, Sendable, Hashable {
         guard pending?[profile.name] != nil else { return }
         pending?[profile.name] = nil
         if forYou { mark(profile) }
+    }
+
+    /// [read-sync] The chat was read on another device through `since` and moved after that: whatever dot it has is
+    /// judged again from there (`settle`), and one it doesn't have yet waits for the same answer.
+    mutating func rejudge(_ profile: RosterProfile, since: Double) {
+        acknowledgeMarkers(profile)
+        pending = (pending ?? [:]).merging([profile.name: since]) { max($0, $1) }
     }
 
     /// The user left the bot's chat having seen it through `seenThrough` (server seconds): later rosters do not mark the
