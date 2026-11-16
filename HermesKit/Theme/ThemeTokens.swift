@@ -317,7 +317,7 @@ nonisolated enum ThemeResolver {
     /// A skin's own iOS look (`SkinOwnLook`) over what the general rule made: its surfaces, its greys, its code card.
     private static func paint(_ t: inout ThemeTokens, _ own: SkinOwnLook, ink: RGBA) {
         t.groupedCard = own.card; t.lifted = own.card; t.editor = own.card; t.elevated = own.card
-        t.botBubble = own.card
+        t.botBubble = own.reply ?? own.card
         t.cellPressed = own.pressed
         t.codeFill = own.codeFill; t.codeFillOnBubble = own.codeFill
         t.codeText = ink

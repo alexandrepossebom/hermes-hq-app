@@ -11,8 +11,8 @@ import argparse, os, re, sys
 KEYS = ["background", "foreground", "card", "muted", "mutedForeground", "popover", "primary", "secondary", "accent",
         "border", "input", "ring", "midground", "composerRing", "destructive", "sidebarBackground", "sidebarBorder",
         "userBubble", "userBubbleBorder"]
-ORDER = ["nous", "github", "catppuccin", "everforest", "solarized", "rose-pine", "nous-alt", "midnight", "ember", "mono",
-         "slate", "cyberpunk", "ios"]
+ORDER = ["nous", "paper", "github", "catppuccin", "everforest", "solarized", "rose-pine", "nous-alt", "midnight", "ember",
+         "mono", "slate", "cyberpunk", "ios"]
 CONSTS = {"NOUS_ALT_BLUE": "#0053FD", "NOUS_ALT_NAVY": "#1540B1", "NOUS_ALT_CREAM": "#FFE6CB"}
 
 # Skins the desktop doesn't ship, in its slots. Rosé Pine (owner 2026-11-01): Dawn light, Main dark, from
@@ -32,6 +32,23 @@ APP_ONLY = {
          "accent": "#26233a", "border": "#524f67", "input": "#1f1d2e", "ring": "#c4a7e7", "midground": "#c4a7e7",
          "composerRing": "#c4a7e7", "destructive": "#eb6f92", "sidebarBackground": "#191724",
          "sidebarBorder": "#524f67", "userBubble": "#4d3357", "userBubbleBorder": "#524f67"},
+    ),
+    # Paper (owner 2026-11-16, "Claude Code uses a very light background color"): Claude's warm ivory page (#F8F9F3,
+    # sampled from the owner's screenshots, drawer #F2F3EE, selected row #E4E5DD); in dark, black with warm greys (owner's pick over Claude's #262624).
+    # No colour anywhere (owner 2026-11-16, "you can really improve that"): Claude's near-black #222 pill is the accent
+    # (its ivory in dark), its warm near-black text (#0A0B06 measured) and warm grey #494947 secondary words. The iOS
+    # look's paint is HermesKit/Theme/SkinOwnLooks.swift.
+    "paper": (
+        {"background": "#f8f9f3", "foreground": "#141410", "card": "#fdfdfa", "muted": "#f2f3ee",
+         "mutedForeground": "#4a4a47", "popover": "#fdfdfa", "primary": "#22221f", "secondary": "#e4e5dd",
+         "accent": "#ecede6", "border": "#dcddd3", "input": "#fdfdfa", "ring": "#22221f", "midground": "#22221f",
+         "composerRing": "#22221f", "destructive": "#cf222e", "sidebarBackground": "#f2f3ee",
+         "sidebarBorder": "#dcddd3", "userBubble": "#e9eae2", "userBubbleBorder": "#dcddd3"},
+        {"background": "#000000", "foreground": "#f5f4ee", "card": "#161615", "muted": "#121211",
+         "mutedForeground": "#b7b5ac", "popover": "#161615", "primary": "#edece6", "secondary": "#1e1e1c",
+         "accent": "#1a1a19", "border": "#2e2e2b", "input": "#0e0e0d", "ring": "#edece6", "midground": "#edece6",
+         "composerRing": "#edece6", "destructive": "#f85149", "sidebarBackground": "#0e0e0d",
+         "sidebarBorder": "#2e2e2b", "userBubble": "#242422", "userBubbleBorder": "#33332f"},
     ),
 }
 

@@ -68,10 +68,11 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
 }
 
 @Suite struct SkinCatalogTests {
-    @Test func thirteenSkinsInTheDesktopOrderWithTheWebWording() {
-        // Rosé Pine (owner 2026-11-01) is the app's own, beside the desktop's other two-palette community themes.
-        #expect(SkinCatalog.all.map(\.id) == ["nous", "github", "catppuccin", "everforest", "solarized", "rose-pine", "nous-alt",
-                                               "midnight", "ember", "mono", "slate", "cyberpunk", "ios"])
+    @Test func fourteenSkinsInTheDesktopOrderWithTheWebWording() {
+        // Rosé Pine (owner 2026-11-01) is the app's own, beside the desktop's other two-palette community themes; Paper
+        // (owner 2026-11-16) is the app's own too, beside Nous whose blue it keeps.
+        #expect(SkinCatalog.all.map(\.id) == ["nous", "paper", "github", "catppuccin", "everforest", "solarized", "rose-pine",
+                                               "nous-alt", "midnight", "ember", "mono", "slate", "cyberpunk", "ios"])
         #expect(SkinCatalog.skin("midnight")?.description == "Deep blue-violet with cool accents")
         #expect(SkinCatalog.skin("ios")?.label == "iOS System")
         #expect(SkinCatalog.skin("ios")?.description == "iOS colors, true black in dark, system blue")
@@ -107,13 +108,32 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(!dawn.rendersDark && main.rendersDark)
     }
 
+    /// Paper (owner 2026-11-16): Claude's ivory page exactly in the iOS look (not pulled toward the desktop's grey), its
+    /// black in dark (owner's pick over Claude's charcoal), no colour (Claude's near-black pill the accent, its ivory in dark), replies on the page
+    /// with no bubble and your message a soft paper box in the theme's own text.
+    @Test func paperIsClaudesIvoryAndInk() throws {
+        let skin = try #require(SkinCatalog.skin("paper"))
+        #expect(skin.label == "Paper" && skin.onlyModeTag == nil && skin.ownLook != nil)
+        let set = ThemeResolver.resolve(ThemeState(skinID: "paper"))
+        #expect(set.light.page == RGBA(hex: 0xF8F9F3) && set.dark.page == RGBA(hex: 0x000000), "black in dark, the owner's pick")
+        #expect(set.light.tint == RGBA(hex: 0x22221F) && set.light.onTint == .white, "Claude's near-black pill")
+        #expect(set.dark.tint == RGBA(hex: 0xEDECE6) && set.dark.onTint == .black, "its ivory in dark")
+        #expect(set.light.meBubble == RGBA(hex: 0xE9EAE2) && set.light.meText == set.light.label)
+        for tokens in [set.light, set.dark] {
+            #expect(tokens.botBubble == tokens.page && tokens.replyEdge.a == 0, "replies on the page")
+        }
+        #expect(set.light.groupedCard == RGBA(hex: 0xFDFDFA))
+        let dark = try #require(skin.dark)
+        #expect(!skin.light.rendersDark && dark.rendersDark)
+    }
+
     /// Every seed against the web app's own table, when the read-only reference is on this Mac.
     @Test func generatedSeedsEqualTheWebTable() throws {
         let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("HermesKit/Theme/SkinSeeds.generated.swift")
         let text = try String(contentsOf: script, encoding: .utf8)
         #expect(text.contains("\"cyberpunk\": ("))
-        #expect(text.components(separatedBy: "SkinSeeds(").count - 1 == 21, "8 skins with two palettes, 5 with one")
+        #expect(text.components(separatedBy: "SkinSeeds(").count - 1 == 23, "9 skins with two palettes, 5 with one")
     }
 }
 
@@ -291,6 +311,8 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         for skin in SkinCatalog.all where skin.id != "rose-pine" {
             let other = ThemeResolver.resolve(ThemeState(skinID: skin.id))
             #expect(other.light.syntax == nil && other.dark.syntax == nil, "\(skin.id)")
+            // Paper (owner 2026-11-16) has an own look too, with GitHub's code colours: `paperIsClaudesIvoryAndInk`.
+            guard skin.ownLook == nil else { continue }
             for tokens in [other.light, other.dark] {
                 #expect(tokens.replyEdge.a == 0 && tokens.tableBody == tokens.fill4 && tokens.tableHead == tokens.fill4, "\(skin.id)")
             }

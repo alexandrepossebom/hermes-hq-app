@@ -1502,7 +1502,7 @@ final class PrimaryButton: UIControl {
         super.layoutSubviews()
         CATransaction.begin(); CATransaction.setDisableActions(true)
         disc.frame = drawn
-        disc.isHidden = ComposerView.oneBox
+        disc.isHidden = ComposerView.oneBox || paperSolidTalk
         circle.frame = bounds
         circle.path = UIBezierPath(ovalIn: drawn).cgPath
         glyph.frame = bounds
@@ -1549,9 +1549,23 @@ final class PrimaryButton: UIControl {
         applyColors()
     }
 
+    /// Paper's Talk circle is opaque rather than the iOS glass tint; other states and skins keep their own treatment.
+    private var paperSolidTalk: Bool {
+        ThemeTable.current.state.skinID == "paper" && !Theme.boxComposer && kind == .talk
+    }
+
     private func applyColors() {
         let t = traitCollection
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        disc.isHidden = ComposerView.oneBox || paperSolidTalk
+        if paperSolidTalk && !ComposerView.oneBox {
+            circle.fillColor = ChatPalette.tint.resolvedColor(with: t).cgColor
+            glyph.fillColor = ChatPalette.onTint.resolvedColor(with: t).cgColor
+            glyph.strokeColor = nil
+            symbol.backgroundColor = ChatPalette.onTint.resolvedColor(with: t).cgColor
+            CATransaction.commit()
+            return
+        }
         if ComposerView.oneBox && !Theme.isDesktop {
             // [mac] The iOS look's box: the accent circle with a white glyph, as Messages on the Mac (no glass disc).
             let tint = ChatPalette.tint.resolvedColor(with: t), white = ChatPalette.onTint.resolvedColor(with: t).cgColor

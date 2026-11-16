@@ -1,8 +1,10 @@
 // A skin's own paint for the iOS look and its own code colours, where the general rule (the desktop's chrome mix for
 // the page, cards a step of ink, iOS's greys, your message the solid accent, GitHub's code colours) doesn't draw the
-// theme as the theme draws itself. Rosé Pine only: the owner's mockup of 2026-11-02 (the page its base, replies on its
+// theme as the theme draws itself. Rosé Pine: the owner's mockup of 2026-11-02 (the page its base, replies on its
 // surface inside a faint line, your message a soft iris box with the theme's own text, tables with only their header
-// row shaded, Rosé Pine code colours).
+// row shaded, Rosé Pine code colours). Paper (owner 2026-11-16): Claude's ivory page exactly, not pulled toward grey,
+// warm greys in place of iOS's cool ones, replies on the page with no bubble and your message a soft paper box, as
+// Claude draws them.
 
 import Foundation
 
@@ -34,6 +36,8 @@ nonisolated struct SkinOwnLook: Sendable, Hashable {
     /// Secondary and tertiary words.
     var subtle: RGBA
     var muted: RGBA
+    /// A reply's bubble, where it isn't `card`: Paper's replies lie on the page itself, as Claude's do.
+    var reply: RGBA? = nil
 
     nonisolated struct Pair: Sendable, Hashable {
         var light: SkinOwnLook
@@ -80,7 +84,44 @@ nonisolated extension SkinCatalog {
         static let foam = RGBA(hex: 0x9CCFD8), iris = RGBA(hex: 0xC4A7E7)
     }
 
+    /// Paper's palettes: Claude's ivory (sampled from the owner's screenshots), and black with warm greys in dark.
+    private enum Ivory {
+        static let page = RGBA(hex: 0xF8F9F3), card = RGBA(hex: 0xFDFDFA), drawer = RGBA(hex: 0xF2F3EE)
+        static let selected = RGBA(hex: 0xE4E5DD), box = RGBA(hex: 0xE9EAE2)
+        static let grey = RGBA(hex: 0x86857B), subtle = RGBA(hex: 0x4A4A47), muted = RGBA(hex: 0x8A897F)
+    }
+    private enum Charcoal {
+        /// (page, card, code, pressed row, your message's box) by darkness. Black (owner 2026-11-16, picked from these four
+        /// after the charcoal: "I don't like the dark mode background"). DEBUG builds draw another with
+        /// `-HQDebugPaperDark charcoal|deep|night|black`, to compare.
+        private static let steps: [String: [UInt32]] = [
+            "charcoal": [0x262624, 0x30302D, 0x1F1E1D, 0x3A3A37, 0x3D3C38],
+            "deep": [0x1C1B19, 0x262523, 0x151413, 0x302F2C, 0x33322F],
+            "night": [0x121211, 0x1C1C1A, 0x0B0B0A, 0x262624, 0x2A2A27],
+            "black": [0x000000, 0x161615, 0x0E0E0D, 0x1E1E1C, 0x242422],
+        ]
+        private static let chosen: [UInt32] = {
+            #if DEBUG
+            if let pick = UserDefaults.standard.string(forKey: "HQDebugPaperDark"), let step = steps[pick] { return step }
+            #endif
+            return steps["black"]!
+        }()
+        static let page = RGBA(hex: chosen[0]), card = RGBA(hex: chosen[1]), deep = RGBA(hex: chosen[2])
+        static let selected = RGBA(hex: chosen[3]), box = RGBA(hex: chosen[4])
+        static let grey = RGBA(hex: 0x8E8D84), subtle = RGBA(hex: 0xB7B5AC), muted = RGBA(hex: 0x8A8980)
+    }
+
     static let ownLooks: [String: SkinOwnLook.Pair] = [
+        "paper": SkinOwnLook.Pair(
+            light: SkinOwnLook(page: Ivory.page, card: Ivory.card, pressed: Ivory.selected, meBubble: Ivory.box,
+                               codeFill: Ivory.drawer, grey: Ivory.grey, fillAlphas: [0.2, 0.16, 0.12, 0.08],
+                               separator: Ivory.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0), tableHead: Ivory.drawer,
+                               replyGlassTint: 0.85, subtle: Ivory.subtle, muted: Ivory.muted, reply: Ivory.page),
+            dark: SkinOwnLook(page: Charcoal.page, card: Charcoal.card, pressed: Charcoal.selected, meBubble: Charcoal.box,
+                              codeFill: Charcoal.deep, grey: Charcoal.grey, fillAlphas: [0.36, 0.32, 0.24, 0.12],
+                              separator: Charcoal.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0),
+                              tableHead: Charcoal.grey.alpha(0.2), replyGlassTint: 0.85, subtle: Charcoal.subtle,
+                              muted: Charcoal.muted, reply: Charcoal.page)),
         "rose-pine": SkinOwnLook.Pair(
             // Your box: the mockup's lavender, iris leaning to love.
             light: SkinOwnLook(page: Dawn.base, card: Dawn.surface, pressed: Dawn.overlay, meBubble: RGBA(hex: 0xEADCEF),

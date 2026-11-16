@@ -61,6 +61,8 @@ nonisolated enum SkinCatalog {
 
     private static let meta: [(String, String, String, String?)] = [
         ("nous", "Nous", "Neutral greys with Nous blue", nil),   // UX study #70: was "GitHub chrome, Nous blue accent"
+        // Not a desktop skin (owner 2026-11-16): Claude's warm ivory page; its palettes are desktop-tokens.py's APP_ONLY.
+        ("paper", "Paper", "Warm ivory and ink, easy on the eyes", nil),
         ("github", "GitHub", "GitHub Light Default and Dark Default", nil),
         ("catppuccin", "Catppuccin", "Soothing pastels — Latte and Mocha", nil),
         ("everforest", "Everforest", "Warm, low-contrast forest greens", nil),

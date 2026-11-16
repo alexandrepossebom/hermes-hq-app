@@ -259,6 +259,7 @@ exists (skips otherwise) and compares every seed, so a typo cannot ship.
 | `catppuccin` | Catppuccin | Soothing pastels — Latte and Mocha | system | `:183-239` |
 | `everforest` | Everforest | Warm, low-contrast forest greens | system | `:241-297` |
 | `solarized` | Solarized | Fixed-contrast light and dark | system | `:299-355` |
+| `paper` | Paper | Warm ivory and ink, easy on the eyes | system | the app's own (2026-11-16): `scripts/fixtures/desktop-tokens.py` `APP_ONLY`; Claude's ivory `#F8F9F3` (sampled from the owner's screenshots) and black `#000000` in dark (owner's pick over Claude's charcoal), Claude's near-black pill as the accent (ivory in dark), and in the iOS look its own warm surfaces, replies on the page and a soft paper box for your message (`HermesKit/Theme/SkinOwnLooks.swift`) |
 | `rose-pine` | Rosé Pine | Muted pine, rosé and iris — Dawn and Main | system | the app's own (2026-11-01): `scripts/fixtures/desktop-tokens.py` `APP_ONLY`, from rosepinetheme.com/en/palette; iris accent, and in the iOS look its own surfaces, soft iris box for your message and Rosé Pine code colours (`HermesKit/Theme/SkinOwnLooks.swift`, owner's mockup 2026-11-02) |
 | `nous-alt` | Nous Alt | Glass neutrals, cream on mission-blue | system | `:357-411` |
 | `midnight` | Midnight | Deep blue-violet with cool accents | system | `:413-439` |

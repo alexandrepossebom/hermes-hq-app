@@ -72,7 +72,7 @@ struct ThemeSettingsView: View {
     /// [mac] The Mac has no text size setting for this app, so UI Scale is its text size, in both looks.
     static let macScaleNote = "Makes text, faces and rows larger or smaller, in both looks. View › Make Text Bigger (⌘+) and Make Text Smaller (⌘−) change it too. Set on this Mac only."
     // UX study #70: plain words for "Desktop palettes only. The selected mode is applied on top."
-    static let gridNote = "The same themes as the Hermes desktop app. Light or Dark (set in Appearance) applies on top."
+    static let gridNote = "Themes include the Hermes desktop app's themes and app-only options. Light or Dark (set in Appearance) applies on top."
 
     var body: some View {
         let state = theme.state
