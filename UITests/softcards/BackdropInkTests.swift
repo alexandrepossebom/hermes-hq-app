@@ -130,11 +130,16 @@ final class BackdropInkTests: XCTestCase {
         return (max(ink, ground) + 0.05) / (min(ink, ground) + 0.05)
     }
 
-    @MainActor private func expectReadable(_ element: XCUIElement, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
+    /// Large text (a tab's title, bold and 17 pt or more) needs 3:1 (WCAG): what a title is held to over a list's soft
+    /// edge, where the cards and the picture between them are blurred into one middle tone.
+    private static let largeText = 3.0
+
+    @MainActor private func expectReadable(_ element: XCUIElement, _ what: String, atLeast: Double = BackdropInkTests.contrast,
+                                           file: StaticString = #filePath, line: UInt = #line) {
         guard element.waitForExistence(timeout: 6) else { return XCTFail("\(what): not on screen", file: file, line: line) }
         let measured = contrast(of: element)
         NSLog("[backdrop-ink] %@: %.2f:1", what, measured)
-        XCTAssertGreaterThanOrEqual(measured, Self.contrast, "\(what) measures \(String(format: "%.2f", measured)):1 on the picture", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(measured, atLeast, "\(what) measures \(String(format: "%.2f", measured)):1 on the picture", file: file, line: line)
     }
 
     /// The tabs' titles, the line under Bots' title, and a pushed page's title.
@@ -218,6 +223,66 @@ final class BackdropInkTests: XCTestCase {
         tab("More").tap()
         Thread.sleep(forTimeInterval: 1.0)
         shot("midnight-pale-more")
+    }
+
+    /// Owner 2026-11-15 (build 1021, App Background's own page scrolled): "You missed some. Check out the text up top."
+    /// On Soft Cards the cards are the page's colour, and once they scroll under the bar the title stands on them, not
+    /// on the picture: white words chosen for the night sky sat on pale cards. Each page is scrolled and its title read.
+    @MainActor func testInk8_ScrolledUnderTheBar() throws {
+        try launch(mode: "light", picture: try nightSky(), dim: 0, cards: true)
+        for title in ["Bots", "Sessions"] {
+            tab(title).tap()
+            Thread.sleep(forTimeInterval: 1.0)
+            // A little (the cards under the bar's foot, the picture still behind the title), then well under.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).press(forDuration: 0.3, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.58)), withVelocity: .slow, thenHoldForDuration: 0.3)
+            Thread.sleep(forTimeInterval: 1.0)
+            shot("scrolled-\(title.lowercased())-a-little")
+            expectReadable(app.navigationBars.staticTexts[title].firstMatch, "scrolled a little: the \(title) title", atLeast: Self.largeText)
+            app.swipeUp()
+            Thread.sleep(forTimeInterval: 1.2)
+            shot("scrolled-\(title.lowercased())")
+            expectReadable(app.navigationBars.staticTexts[title].firstMatch, "scrolled: the \(title) title", atLeast: Self.largeText)
+            app.swipeDown(); app.swipeDown()
+            Thread.sleep(forTimeInterval: 1.2)
+            expectReadable(app.navigationBars.staticTexts[title].firstMatch, "back at rest: the \(title) title")
+        }
+        tab("More").tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        app.swipeUp()
+        Thread.sleep(forTimeInterval: 1.2)
+        shot("scrolled-more")
+        expectReadable(app.navigationBars.staticTexts["More"].firstMatch, "scrolled: the More title", atLeast: Self.largeText)
+        app.swipeDown(); app.swipeDown()
+        Thread.sleep(forTimeInterval: 1.0)
+        let settings = app.cells["more-row-settings"]
+        guard settings.waitForExistence(timeout: 6) else { return XCTFail("no Settings row") }
+        settings.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        let bar = app.navigationBars["Settings"].staticTexts["Settings"].firstMatch
+        // Part of the way, then well under: the title must read at both.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        Thread.sleep(forTimeInterval: 1.2)
+        shot("scrolled-settings-a-little")
+        expectReadable(bar, "scrolled a little: the Settings title")
+        app.swipeUp()
+        Thread.sleep(forTimeInterval: 1.2)
+        shot("scrolled-settings")
+        expectReadable(bar, "scrolled: the Settings title")
+        app.swipeDown(); app.swipeDown()
+        Thread.sleep(forTimeInterval: 1.2)
+        expectReadable(bar, "back at rest: the Settings title")
+        // The owner's page: Settings › Appearance › Backgrounds › App Background.
+        for label in ["Appearance", "Backgrounds", "App Background"] {
+            let row = app.cells.containing(.staticText, identifier: label).firstMatch
+            for _ in 0..<4 where !(row.exists && row.isHittable) { app.swipeUp(); Thread.sleep(forTimeInterval: 0.5) }
+            guard row.exists, row.isHittable else { shot("no-\(label)"); return XCTFail("no \(label) row") }
+            row.tap()
+            Thread.sleep(forTimeInterval: 1.5)
+        }
+        app.swipeUp()
+        Thread.sleep(forTimeInterval: 1.2)
+        shot("scrolled-app-background")
+        expectReadable(app.navigationBars.staticTexts["App Background"].firstMatch, "scrolled: the App Background title")
     }
 
     /// For looking at: a chat on the same picture (chats use the app's background until they have their own), its Dim

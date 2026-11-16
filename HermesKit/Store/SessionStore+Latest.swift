@@ -33,7 +33,6 @@ nonisolated enum SessionLatestRules {
             guard let role = row["role"]?.string, role == "user" || role == "assistant" else { continue }
             // The words the chat shows: a compaction carrier's `content` is Hermes's whole summary.
             var raw = words(row["display_content"]?.string != nil ? row["display_content"] : row["content"])
-            if role == "user", TimelineNotes.isTaskSnapshot(raw) { continue }
             // [restated] Your request restated after a compaction repeats one already in the chat.
             if role == "user", let restated = TimelineNotes.restatedRequest(raw) { raw = restated.before }
             if role == "user", raw.contains("(Task id "), let asked = TodoWords.askShown(raw) { raw = asked }   // [tasks]
@@ -54,9 +53,7 @@ nonisolated enum SessionLatestRules {
 extension SessionStore {
     /// The newest message to show for `row`, else nil (the gateway's preview stands).
     func latestText(_ row: SidebarSessionRow) -> String? {
-        guard let text = device.latest[Self.writeKey(id: row.id, profile: row.profile)]?.text,
-              !TimelineNotes.isTaskSnapshot(text) else { return nil }
-        return text
+        device.latest[Self.writeKey(id: row.id, profile: row.profile)]?.text
     }
 
     /// Read the newest message of each shown chat whose activity moved since it was last read.
@@ -73,9 +70,7 @@ extension SessionStore {
         var queued = 0
         for row in Array(rows) + Array(archived) {
             let key = Self.writeKey(id: row.id, profile: row.profile)
-            let cached = device.latest[key]
-            let current = cached?.at == row.recency && !TimelineNotes.isTaskSnapshot(cached?.text ?? "")
-            if current || latestReads.contains(key) || latestQueue.contains(where: { $0.id == row.id && $0.profile == row.profile }) { continue }
+            if device.latest[key]?.at == row.recency || latestReads.contains(key) || latestQueue.contains(where: { $0.id == row.id && $0.profile == row.profile }) { continue }
             latestQueue.append(row)
             queued += 1
         }

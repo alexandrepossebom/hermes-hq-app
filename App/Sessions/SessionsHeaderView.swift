@@ -156,7 +156,7 @@ struct SessionsHeaderView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: DesktopPillBand.color))   // [desktop-hard-edge] the hard band shows through on the iPhone
+        .background(Theme.isDesktop ? Color.hqPage : Color.clear)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.strip)
     }
 

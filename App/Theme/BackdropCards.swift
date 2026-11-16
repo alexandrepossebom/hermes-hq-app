@@ -445,7 +445,7 @@ class BackdropCardView: UICollectionReusableView {
             list.observe(\.contentSize, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.schedule() } },
             // Never measured in the middle of the list's own work (a table asked for its rows while its page was still
             // loading dequeued cells it had not registered yet): each change is drawn on the next turn of the run loop.
-            list.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.restEdge(); self?.schedule() } },
+            list.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.restEdge(); self?.coverBar(); self?.schedule() } },
             list.observe(\.bounds, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.schedule() } },
         ]
         // SwiftUI shows a list's edge again on each of its updates: an edge held for rest stays held.
@@ -541,6 +541,7 @@ class BackdropCardView: UICollectionReusableView {
             if let grid = list as? UICollectionView { grid.visibleCells.forEach { $0.setNeedsUpdateConfiguration() } }
         }
         inkList(list, style: on || !shows() || Theme.isDesktop ? .unspecified : ink())
+        coverBar()
         let boxes = on ? sections(of: list, near: list.bounds.insetBy(dx: 0, dy: -600)) : []
         while plates.count < boxes.count {
             let plate = SoftCardSurface()
@@ -577,6 +578,22 @@ class BackdropCardView: UICollectionReusableView {
                 if let picture { list.insertSubview(plate, aboveSubview: picture) } else { list.insertSubview(plate, at: 0) }
             }
         }
+    }
+
+    /// The page this list is on (found once).
+    private weak var page: UIViewController?
+
+    /// [backdrop-ink] The cards are under the bar, or not (`BackdropBarInk.setCovered`): while they are, the bar's
+    /// words stand on them and keep the mode's own ink.
+    private func coverBar() {
+        guard let list, list.window != nil else { return }
+        if page == nil { page = sequence(first: list as UIResponder, next: \.next).first { $0 is UIViewController } as? UIViewController }
+        guard let page else { return }
+        guard active else { return BackdropBarInk.setCovered(false, on: page) }
+        // Where the first card rests: under the list's top inset, in the list's own (scrolling) coordinates.
+        let rest = list.bounds.minY + list.adjustedContentInset.top + BackdropCards.gap
+        let past = list.contentOffset.y + list.adjustedContentInset.top
+        BackdropBarInk.setCovered(past > BackdropBarInk.coveredPast(rest: rest, in: list, page: page), on: page)
     }
 
     /// [backdrop-ink] With Soft Cards off, a grouped page has words straight on the picture all over it: section titles

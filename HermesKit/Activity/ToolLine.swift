@@ -33,7 +33,6 @@ nonisolated enum ToolLines {
         "skill_view": "📚", "skills_list": "📚", "skill_manage": "📝", "delegate_task": "🔀", "cronjob_manage": "⏰",
         "clarify": "❓", "memory": "🧠", "todo_list": "📋", "todo": "📋", "react_to_message": "💛",
         "message_agent": "💬",
-        "tool_describe": "📖", "hermes_tool_search": "🔎",
     ]
     static let verb: [String: String] = [
         "web_search": "Searching the web", "web_extract": "Reading", "browser_navigate": "Browsing", "browser_click": "Clicking",
@@ -43,7 +42,6 @@ nonisolated enum ToolLines {
         "skill_view": "Reading skill", "skills_list": "Listing skills", "skill_manage": "Updating skill", "delegate_task": "Delegating",
         "cronjob_manage": "Scheduling", "clarify": "Asking", "memory": "Updating memory", "todo_list": "Updating tasks",
         "message_agent": "Messaging",
-        "tool_describe": "Checking tool instructions", "hermes_tool_search": "Finding the right tool",
     ]
     /// Each verb above as done, for a step that has finished ("Read big.txt", not "Reading big.txt", in the Steps
     /// sheet and the Mac inspector, as the chat's own step card words it in the past).
@@ -55,7 +53,6 @@ nonisolated enum ToolLines {
         "Searching past sessions": "Searched past sessions", "Reading skill": "Read skill", "Listing skills": "Listed skills",
         "Updating skill": "Updated skill", "Delegating": "Delegated", "Scheduling": "Scheduled", "Asking": "Asked",
         "Updating memory": "Updated memory", "Updating tasks": "Updated tasks", "Messaging": "Messaged",
-        "Checking tool instructions": "Checked tool instructions", "Finding the right tool": "Found the right tool",
     ]
 
     /// `text` with its leading verb put in the past; text that starts with no known verb comes back as it is.
@@ -69,7 +66,7 @@ nonisolated enum ToolLines {
         return text
     }
 
-    static let noPreview: Set<String> = ["skills_list", "session_search", "memory", "todo_list", "tool_describe", "hermes_tool_search"]
+    static let noPreview: Set<String> = ["skills_list", "session_search", "memory", "todo_list"]
     static let forConnector: Set<String> = ["web_search", "search_files"]
     static let primary: [String: String] = [
         "terminal": "command", "web_search": "query", "web_extract": "urls", "read_file": "path", "write_file": "path", "patch": "path",

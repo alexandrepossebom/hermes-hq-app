@@ -57,7 +57,7 @@ private struct TaskViewsBand: View {
             if !model.pills.isEmpty { rail }
         }
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: DesktopPillBand.color))   // [desktop-hard-edge] the hard band shows through on the iPhone
+        .background(Theme.isDesktop ? Color.hqPage : Color.clear)
     }
 
     private var lists: [String] {
@@ -200,7 +200,7 @@ final class TaskViewsHeader {
         self.controller = controller
         let host = UIHostingController(rootView: TaskViewsBand(model: model, onPick: { [weak self] in self?.pick($0) }, actions: actions))
         host.safeAreaRegions = []                // it sits above the safe area it makes room in
-        host.view.backgroundColor = DesktopPillBand.color
+        host.view.backgroundColor = Theme.isDesktop ? HQPalette.page : .clear
         backdrop?.clear(host.view)               // [backdrop] the picture's band is behind it then
         host.view.translatesAutoresizingMaskIntoConstraints = false
         controller.addChild(host)
@@ -256,7 +256,7 @@ final class TaskViewsHeader {
         // To the pixel, not the point: a band a fraction taller than its content left a line of the list above it.
         let scale = max(view.window?.screen.scale ?? controller.traitCollection.displayScale, 1)
         let target = fitted.isFinite ? max(0, (fitted * scale).rounded(.up) / scale) : 0
-        let band = DesktopPillBand.color
+        let band = Theme.isDesktop ? HQPalette.page : UIColor.clear
         if host.view.backgroundColor != band { host.view.backgroundColor = band }
         guard abs(controller.additionalSafeAreaInsets.top - target) > 0.5 else { return }
         let animated = view.window != nil && !HQMotion.reduced && laidOut

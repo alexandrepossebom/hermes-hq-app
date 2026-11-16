@@ -195,6 +195,7 @@ struct BackdropInk: Equatable {
 
 nonisolated(unsafe) private var barInkKey: UInt8 = 0
 nonisolated(unsafe) private var barPaintedKey: UInt8 = 0
+nonisolated(unsafe) private var barCoveredKey: UInt8 = 0
 
 @MainActor enum BackdropBarInk {
     /// Posted on main when an item's ink changed (`object`: the navigation item). A title's own views that draw in the
@@ -207,14 +208,45 @@ nonisolated(unsafe) private var barPaintedKey: UInt8 = 0
     }
 
     /// The ink of `item`'s title and the line under it just now; nil where the mode's own reads (or no picture shows).
-    static func ink(of item: UINavigationItem) -> BackdropInk? { (objc_getAssociatedObject(item, &barInkKey) as? Box)?.ink }
+    /// While the page's cards are under the bar (`setCovered`) that is the mode's own too.
+    static func ink(of item: UINavigationItem) -> BackdropInk? {
+        guard objc_getAssociatedObject(item, &barCoveredKey) == nil else { return nil }
+        return (objc_getAssociatedObject(item, &barInkKey) as? Box)?.ink
+    }
 
     /// A page's picture says what its bar's words take (`ink` nil: no picture, or the mode's own reads).
     static func set(_ ink: BackdropInk?, on controller: UIViewController) {
         let item = navigationItem(of: controller)
         let ink = ink.flatMap { $0.isOwn ? nil : $0 }
-        guard Self.ink(of: item) != ink else { return }
+        guard (objc_getAssociatedObject(item, &barInkKey) as? Box)?.ink != ink else { return }
+        let before = Self.ink(of: item)
         objc_setAssociatedObject(item, &barInkKey, ink.map(Box.init), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if Self.ink(of: item) != before { redraw(item, controller) }
+    }
+
+    /// Owner 2026-11-15 (build 1021, App Background's page scrolled): "You missed some. Check out the text up top."
+    /// The ink is read off the picture, which is what is behind the bar while the page rests. On Soft Cards the cards
+    /// are the page's own colour, and once they scroll under the bar the words stand on them: white words picked for
+    /// a night sky sat on pale cards. While a page's cards are under its bar (`covered`), its bar keeps the mode's
+    /// own ink, which is what reads on a card. (With Soft Cards off what scrolls under is drawn in the picture's
+    /// ink already: nothing covers the bar then.)
+    static func setCovered(_ covered: Bool, on controller: UIViewController) {
+        let item = navigationItem(of: controller)
+        guard (objc_getAssociatedObject(item, &barCoveredKey) != nil) != covered else { return }
+        let before = ink(of: item)
+        objc_setAssociatedObject(item, &barCoveredKey, covered ? true : nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if ink(of: item) != before { redraw(item, controller) }
+    }
+
+    /// How far a list must be past its resting place before its cards are behind the bar's title: from where its
+    /// content rests (`rest`, a height in `view`) up to the middle of the bar, where the title is. A list that has
+    /// only moved a little has its cards under the bar's foot, not yet behind the words.
+    static func coveredPast(rest: CGFloat, in view: UIView, page: UIViewController) -> CGFloat {
+        guard let bar = page.navigationController?.navigationBar, bar.window != nil else { return 32 }
+        return max(8, rest - bar.convert(bar.bounds, to: view).midY)
+    }
+
+    private static func redraw(_ item: UINavigationItem, _ controller: UIViewController) {
         if ListBarAppearance.owns(item) {
             ListBarAppearance.apply(to: item)   // a tab's bar: its own appearances, with the ink
         } else {

@@ -33,17 +33,3 @@ enum TopEdgeStyle {
         }
     }
 }
-
-/// [desktop-hard-edge] The strip of pills under a tab's bar (Sessions' chips, Tasks' views). Owner 2026-11-15 on 1023:
-/// "You missed the background to the pills at the top": in the Desktop Look the strip was the page colour, an opaque
-/// block over the hard frosted band that already reaches under it. On the iPhone it is clear in both looks, so the band
-/// shows through; the Mac draws no edge, so there the look keeps the page colour.
-enum DesktopPillBand {
-    static var color: UIColor {
-        #if targetEnvironment(macCatalyst)
-        Theme.isDesktop ? HQPalette.page : .clear
-        #else
-        .clear
-        #endif
-    }
-}
