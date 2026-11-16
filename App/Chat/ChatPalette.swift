@@ -115,6 +115,9 @@ nonisolated enum ChatMetrics {
     static let userMaxFraction: CGFloat = 0.8
     static let runGap: CGFloat = 2
     static let turnGap: CGFloat = 6
+    /// [chat-refine] Between your bubble and the bot's (either order): 10, so a change of speaker reads as one beside
+    /// the 2 pt inside a run (at 6 the two gaps were hard to tell apart). The Mac keeps its 6 (not looked at there).
+    static let speakerGap: CGFloat = DeviceWord.isMac ? 6 : 10
     static let runSeconds: TimeInterval = 300
     static let dayGapSeconds: TimeInterval = 1800
     /// Time inside a bubble: 10 pt from the trailing edge, 5 pt from the bottom.
@@ -192,7 +195,7 @@ nonisolated enum ChatMetrics {
         return ThemeTable.current.state.boxComposer ? 51 : 54
     }
     // [desktoplook] UX study #200: keyboard down, the Desktop Look's box (drawn 4 pt outside the row) meets the
-    // message column's 16 pt gutter; the standard look keeps 26.
+    // message column's 16 pt gutter; the standard look keeps 26 (owner 2026-11-16 tried 16 and kept 26).
     // [mac] Stress test 2026-10-28 #53: in the iOS look on the Mac the composer (and the Talk card and docked cards on
     // its edges) starts at the bubbles' 16 pt, so the three line up; the Desktop Look's box already does (20 − 4).
     @MainActor static var composerSideDown: CGFloat { Theme.boxComposer ? 20 : DeviceWord.isMac ? sideInset : 26 }

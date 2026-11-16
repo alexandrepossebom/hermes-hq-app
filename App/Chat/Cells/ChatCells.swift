@@ -1581,7 +1581,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         metaLabel.frame = CGRect(x: metaX, y: 0, width: metaW, height: h)
         titleLabel.frame = CGRect(x: titleX, y: 0, width: max(0, (t.meta == nil ? chevron.frame.minX - 8 : metaX - 8) - titleX), height: h)
         spinner.frame = glyph.frame.insetBy(dx: -2, dy: -2)
-        rowButton.accessibilityLabel = t.title + (t.meta.map { ", " + $0 } ?? "")
+        rowButton.accessibilityLabel = (t.spokenTitle ?? t.title) + (t.meta.map { ", " + $0 } ?? "")
         // A run of one opens its step sheet; longer runs open in place.
         rowButton.accessibilityValue = t.single ? nil : (t.expanded ? "Expanded" : "Collapsed")
         rowButton.accessibilityHint = t.single ? "Shows the step’s details" : nil
@@ -1735,7 +1735,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         rowButton.isEnabled = group.opens
         rowButton.accessibilityTraits = group.opens ? .button : .staticText
         // "4 updates: From Hermes, Delegated 1 task, To Hermes, To Hermes", or a single line's own words.
-        rowButton.accessibilityLabel = group.count > 1 ? "\(group.count) updates: " + group.titles.joined(separator: ", ") : t.title
+        rowButton.accessibilityLabel = group.count > 1 ? "\(group.count) updates: " + group.titles.joined(separator: ", ") : (t.spokenTitle ?? t.title)
         rowButton.accessibilityValue = group.opens && !t.single ? (t.groupOpen ? "Expanded" : "Collapsed") : nil
         rowButton.accessibilityHint = !group.opens ? nil : t.single ? "Shows the step’s details"
             : group.count > 1 ? "Shows them" : "Shows the message"
