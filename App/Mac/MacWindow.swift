@@ -44,7 +44,7 @@ nonisolated(unsafe) private var pageBarKey: UInt8 = 0
     /// the window's or the app's size category says (measured 2026-10-25 with `-HQDebugMacShots`, a trait override
     /// and a swapped `preferredContentSizeCategory` alike). What does move the whole layout is UI Scale (text, faces,
     /// rows and icons), which applies in both looks (`ThemeState.scale`) and starts at 100 %,
-    /// 13 pt body text and 15 pt chat (`ThemeState.macBase`, `ThemeState.chatText`). The View menu steps through its presets, the same ones Settings › Theme
+    /// 15 pt body text (`ThemeState.macBase`). The View menu steps through its presets, the same ones Settings › Theme
     /// offers; Actual Size is 100 %.
     static func stepScale(_ current: Int, by: Int) -> Int? {
         let presets = ThemeState.scalePresets

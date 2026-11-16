@@ -469,6 +469,7 @@ final class AppModel: AppServices {
         }
         if DebugHooks.outsideChats { sessions.showOutsideChats = true }
         if let group = DebugHooks.sessionsGroupBy { sessions.setView { $0.groupBy = group } }
+        if let project = DebugHooks.sessionsProject { sessions.setView { $0.projectFilter = [project] } }
         if let on = DebugHooks.sessionsPreview { sessions.setView { $0.recentPreview = on } }
         for key in DebugHooks.sessionsOpen { sessions.setGroupCollapsed(SessionListPipeline.projectPrefix + key, false) }
         for id in DebugHooks.sessionsFold { sessions.setGroupCollapsed(id, true) }

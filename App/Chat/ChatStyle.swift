@@ -11,7 +11,7 @@ nonisolated struct ChatStyle: @unchecked Sendable {
     let bold: Bool
 
     /// The message text: your and the bot's bubbles and the Markdown inside replies, and the message box's words.
-    /// [type-body] × `ThemeState.chatText`, so it stays 15 pt on the Mac's screen while the app around it is 13.
+    /// [type-body] × `ThemeState.chatText` (1 now: the app around it is 15 pt too).
     let body: UIFont
     /// [type-body] The app's own body size around the chat (13 pt on the Mac's screen, the same as `body` on the
     /// iPhone and iPad), for cards and controls in the transcript that are sized from the body but aren't message

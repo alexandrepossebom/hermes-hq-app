@@ -75,6 +75,8 @@ enum DebugHooks {
     static var outsideChats: Bool { defaults.bool(forKey: "HQDebugOutsideChats") }
     /// `-HQDebugSessionsGroupBy project`: Sessions grouped this way at launch (date, project, bot, status).
     static var sessionsGroupBy: SessionGroupBy? { defaults.string(forKey: "HQDebugSessionsGroupBy").flatMap(SessionGroupBy.init(rawValue:)) }
+    /// `-HQDebugSessionsProject /home/hermes/site`: that project alone at launch (with Group By Project, its page).
+    static var sessionsProject: String? { defaults.string(forKey: "HQDebugSessionsProject").flatMap { $0.isEmpty ? nil : $0 } }
     /// `-HQDebugSessionsPreview YES|NO`: Group By Recent's Row Detail › Preview at launch (pictures).
     static var sessionsPreview: Bool? { defaults.object(forKey: "HQDebugSessionsPreview").map { _ in defaults.bool(forKey: "HQDebugSessionsPreview") } }
     /// [project-cards] `-HQDebugSessionsOpen /home/hermes/site,/home/hermes/app`: these projects open at launch (pictures).
