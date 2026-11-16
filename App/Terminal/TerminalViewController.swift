@@ -814,7 +814,7 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
         if DesktopTabBar.wanted == nil {
             if hide, host.isTabBarHidden { return }   // already away (a page under this one asked for that): not ours to bring back
             host.setTabBarHidden(hide, animated: true)
-        } else if DesktopTabBar.wanted == .desktop {
+        } else if DesktopTabBar.wanted == .desktop || DesktopTabBar.paperPhone {   // [paper-solid] Paper's own phone bar too
             host.desktopTabBar.isHidden = hide
         } else {
             return

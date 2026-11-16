@@ -1397,7 +1397,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         edgeStandIn.handOver()
         // [desktoplook4] Panels that joined the window during the push sat under its dimming wrapper then: flatten
         // whatever is still glass now that it's done.
-        if Theme.isDesktop { ThemeChrome.restyleGlass(in: view) }
+        if Theme.isDesktop || Theme.solidChrome { ThemeChrome.restyleGlass(in: view) }   // [paper-solid]
         if movingBetweenPanes { movingBetweenPanes = false; attach(); reclaimTitle() }   // [m9/ipad] landed in the other pane
         #if targetEnvironment(macCatalyst)
         tipHeader()   // [Mac UI check 2026-11-13] V24: the bar's buttons exist now

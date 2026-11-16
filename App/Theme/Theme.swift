@@ -26,6 +26,7 @@ final class Theme {
         state = loaded
         generation = ThemeTable.install(ThemeResolver.resolve(loaded))
         if loaded.desktopLook { ThemeChrome.prepareSolidChrome() }
+        if Self.solidChrome { ThemeChrome.preparePanelHook() }   // [paper-solid]
         textSizeWatch = NotificationCenter.default.addObserver(forName: UIContentSizeCategory.didChangeNotification, object: nil,
                                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -79,7 +80,13 @@ final class Theme {
         #if DEBUG
         if let pick = UserDefaults.standard.string(forKey: "HQDebugPaperPills").flatMap(PaperPills.init(rawValue:)) { return pick }
         #endif
-        return .outlined
+        return .soft   // owner 2026-11-16: option 4, Claude's soft grey pill
+    }
+    /// [paper-solid] Paper on the iPhone and iPad draws no Liquid Glass of its own (owner 2026-11-16, "Okay" to solid
+    /// Paper chrome): plain bar glyphs and Back, solid sheets, a solid tab bar and text box. Never in the Desktop Look
+    /// (which has its own) or on the Mac (its own plain items already).
+    static var solidChrome: Bool {
+        !isDesktop && !DeviceWord.isMac && ThemeTable.current.light.ownLook?.flatPills == true
     }
     /// The pills are drawn flat, not on glass.
     static var flatPills: Bool { paperPills.map { $0 != .glass } ?? false }
@@ -204,16 +211,19 @@ final class Theme {
         guard next != state else { return }
         let layoutChanged = next.layoutSignature != state.layoutSignature
         let lookChanged = next.desktopLook != state.desktopLook
+        let solidBefore = Self.solidChrome   // [paper-solid] Paper's solid chrome came or went: restyle as a look change
         let apply = { [self] in
             state = next
             generation = ThemeTable.install(ThemeResolver.resolve(next))
             if next.desktopLook { ThemeChrome.prepareSolidChrome() }
+            let solidChanged = Self.solidChrome != solidBefore
+            if Self.solidChrome { ThemeChrome.preparePanelHook() }
             UIView.performWithoutAnimation {
                 for window in windows {
                     adopt(window)
                     window.updateTraitsIfNeeded()
                     // [mac] A UI Scale step in the iOS look (the Mac's text size) re-lays the screens too.
-                    if lookChanged || next.desktopLook || layoutChanged { ThemeChrome.restyle(window, layoutChanged: layoutChanged) }
+                    if lookChanged || next.desktopLook || layoutChanged || solidChanged { ThemeChrome.restyle(window, layoutChanged: layoutChanged) }
                 }
                 NotificationCenter.default.post(name: Theme.didChange, object: self,
                                                 userInfo: ["layout": layoutChanged, "look": lookChanged])

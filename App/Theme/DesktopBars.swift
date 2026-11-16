@@ -60,7 +60,7 @@ enum DesktopBars {
         DesktopSegments.setAppearance(desktop)
         visit(root, desktop: desktop)
         DesktopEdges.apply(in: root, desktop: desktop)     // [desktop-glass-sweep] no scroll edge blur
-        if !desktop, !DeviceWord.isMac, let window = root as? UIWindow { DesktopBack.releaseSwipes(in: window.rootViewController) }   // [desktoplook3] ([mac] #104: the Mac's Back stands in in both looks)
+        if !desktop, !DeviceWord.isMac, !Theme.solidChrome, let window = root as? UIWindow { DesktopBack.releaseSwipes(in: window.rootViewController) }   // [desktoplook3] ([mac] #104: the Mac's Back stands in in both looks)
     }
 
     private static func visit(_ view: UIView, desktop: Bool) {
@@ -96,7 +96,7 @@ enum DesktopBars {
     static func flattenBackground(of button: UIBarButtonItem, desktop: Bool) {
         let ours = (objc_getAssociatedObject(button, flatKey) as? Bool) ?? false
         let prominent = button.style == .prominent
-        let flat = (desktop || macPlain) && !prominent
+        let flat = (desktop || plainItems) && !prominent
         if flat, !button.hidesSharedBackground {
             button.hidesSharedBackground = true
             objc_setAssociatedObject(button, flatKey, true, .OBJC_ASSOCIATION_RETAIN)
@@ -120,7 +120,7 @@ enum DesktopBars {
     /// hooks), not only when the bar next lays out: after Read Replies Aloud the chat's ⋯ and Inspector sat in a white
     /// glass pill until something laid the bar out again.
     static func flattenPlain(of item: UINavigationItem) {
-        guard macPlain else { return }
+        guard plainItems else { return }
         for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
             flattenBackground(of: button, desktop: false)
         }
@@ -130,7 +130,7 @@ enum DesktopBars {
     /// both looks; a prominent one (Save, Copy as Text) keeps its capsule. Flattened just after, the Task Page's Reload
     /// and Share kept a shared grey pill in the Desktop Look.
     static func prepare(_ items: [UIBarButtonItem]?) {
-        guard macPlain else { return }
+        guard plainItems else { return }
         for button in items ?? [] { flattenBackground(of: button, desktop: Theme.isDesktop) }
     }
 
@@ -138,6 +138,8 @@ enum DesktopBars {
     /// capsules and circles grouped differently on every tab (Bots one 3-button capsule, Jobs a pill and a capsule,
     /// More a circle). A prominent item (Save, Create) keeps its tinted capsule, as in the Desktop Look.
     static var macPlain: Bool { DeviceWord.isMac }
+    /// [paper-solid] Bar items drawn plain in the iOS look: the Mac's, and Paper's (`Theme.solidChrome`).
+    static var plainItems: Bool { macPlain || Theme.solidChrome }
 
     /// [mac] Stress test 2026-10-28 #66: the magnifier moved from tab to tab (x 599 on Bots, Sessions and Jobs, 655 on
     /// Artifacts and More) because each page put its own items outside it. On the Mac a page's magnifier
@@ -350,7 +352,7 @@ extension UINavigationBar {
             DesktopBack.note(self)                          // [desktoplook3]
             ThemeChrome.adoptLook(self)                     // [desktop-frost] never a bare bar
             DesktopBars.apply(self, desktop: true)
-        } else if DesktopBars.macPlain {
+        } else if DesktopBars.plainItems {               // [paper-solid] Paper's too
             DesktopBack.note(self)                          // [mac] Stress test 2026-10-28 #104: the named plain Back
             DesktopBack.applyBacks(self)
             // [mac] Stress test 2026-10-28 #50: the iOS look's items without their glass, as they come and go.

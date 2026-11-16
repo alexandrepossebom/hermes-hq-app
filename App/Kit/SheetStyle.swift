@@ -590,7 +590,7 @@ extension UISheetPresentationController {
         SheetGlass.install()
         objc_setAssociatedObject(self, SheetGlass.key, true, .OBJC_ASSOCIATION_RETAIN)
         if everyHeight { objc_setAssociatedObject(self, SheetGlass.everyHeightKey, true, .OBJC_ASSOCIATION_RETAIN) }
-        SheetGlass.apply(self, desktop: Theme.isDesktop)
+        SheetGlass.apply(self, desktop: Theme.isDesktop || Theme.solidChrome)   // [paper-solid]
     }
 }
 
@@ -703,7 +703,7 @@ struct ChatLeadEnvironmentKey: EnvironmentKey {
     static func layout(_ sheet: UISheetPresentationController) {
         guard tracksGlass(sheet) else { return }
         let page = sheet.presentedViewController
-        var glass = !Theme.isDesktop && !DeviceWord.isMac && page.traitCollection.horizontalSizeClass == .compact
+        var glass = !Theme.isDesktop && !Theme.solidChrome && !DeviceWord.isMac && page.traitCollection.horizontalSizeClass == .compact   // [paper-solid]
         if glass, !isGlassEveryHeight(sheet), let frame = sheet.presentedView?.frame, let container = sheet.containerView,
            container.bounds.height > 0 {
             // Below full height. [glass-design] Measured from the status bar, not as a fifth of the screen: How Voice

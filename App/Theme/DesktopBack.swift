@@ -42,7 +42,7 @@ import UIKit
     /// the system's was a 23 pt glass circle with no name; in the Desktop Look the stand-in was a bare chevron, because
     /// a bar item given both an image and a title draws only the image, so the title `refresh` set never showed. On the
     /// Mac the stand-in is a plain button with the chevron and the parent page's name (`macBackButton`).
-    static var standsIn: Bool { Theme.isDesktop || DeviceWord.isMac }
+    static var standsIn: Bool { Theme.isDesktop || DeviceWord.isMac || Theme.solidChrome }   // [paper-solid]
 
     /// Back with a count (2026-10-30, owner: "too much padding inside it"). iOS 26 sets a Back title in a box at least
     /// 31 pt wide and centres a short one in it, so "‹ 2" was an 82 pt capsule (15 pt between the chevron and the "2",
@@ -103,7 +103,7 @@ import UIKit
         let intent = intendedHidesBackButton(item)
         let others = (item.leftBarButtonItems ?? []).filter { !isStandIn($0) }
         // The system shows Back when the page does not hide it and its own leading items (if any) supplement it.
-        let look = desktop || DeviceWord.isMac   // [mac] #104: both looks on the Mac
+        let look = desktop || DeviceWord.isMac || Theme.solidChrome   // [mac] #104: both looks on the Mac; [paper-solid] Paper
         let counted = counts(previous)           // 2026-10-30: a count's Back is fitted in both looks
         let wanted = (look || counted) && previous != nil && !intent && (others.isEmpty || item.leftItemsSupplementBackButton)
         if wanted {
@@ -117,7 +117,7 @@ import UIKit
                 record(intent, on: item)
                 objc_setAssociatedObject(item, standInKey, back, .OBJC_ASSOCIATION_RETAIN)
             }
-            back.hidesSharedBackground = !(counted && !desktop)   // the count's Back keeps the iOS look's glass
+            back.hidesSharedBackground = !(counted && !desktop && !Theme.solidChrome)   // the count's Back keeps the iOS look's glass (not Paper's)
             // A page's own `backAction` shows the system Back whatever `hidesBackButton` says (Mac, iOS 26): it moves to
             // the stand-in while the stand-in is up.
             if let own = item.backAction {

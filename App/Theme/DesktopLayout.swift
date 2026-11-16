@@ -189,7 +189,9 @@ struct DesktopProminentButtonStyle: ButtonStyle {
 extension View {
     /// `.buttonStyle(.glass)` with the look off; the desktop's outlined button with it on.
     @ViewBuilder func hqGlassButtonStyle() -> some View {
-        if Theme.isDesktop { self.buttonStyle(DesktopOutlinedButtonStyle()) } else { self.buttonStyle(.glass) }
+        if Theme.isDesktop { self.buttonStyle(DesktopOutlinedButtonStyle()) }
+        else if Theme.solidChrome { self.buttonStyle(.bordered).tint(Color.hqLabel) }   // [paper-solid] a soft grey pill
+        else { self.buttonStyle(.glass) }
     }
 
     /// `.buttonStyle(.bordered)` with the look off; the desktop's outlined button with it on.
@@ -230,7 +232,9 @@ extension View {
     @ViewBuilder func hqGlassProminentButtonStyle() -> some View {
         // [mac] Stress test 2026-10-28 #55 (round 6): the Mac's default push button (accent, rounded) in both looks.
         if DeviceWord.isMac { self.buttonStyle(MacPushButtonStyle(kind: .prominent)) }
-        else if Theme.isDesktop { self.buttonStyle(DesktopProminentButtonStyle()) } else { self.buttonStyle(.glassProminent).hqInkLabel() }
+        else if Theme.isDesktop { self.buttonStyle(DesktopProminentButtonStyle()) }
+        else if Theme.solidChrome { self.buttonStyle(.borderedProminent).hqInkLabel() }   // [paper-solid]
+        else { self.buttonStyle(.glassProminent).hqInkLabel() }
     }
 
     /// [paper-ink] A prominent button's words in an ink skin (Paper): the accent's own ink, since iOS writes them white
@@ -325,6 +329,13 @@ struct HQSectionLabel<Content: View>: View {
 extension UIButton.Configuration {
     /// `.glass()` with the look off; the desktop's outlined button with it on (made when the button is).
     @MainActor static func hqGlass() -> UIButton.Configuration {
+        if Theme.solidChrome {
+            // [paper-solid] Paper: a soft grey capsule in the theme's ink, not glass.
+            var config = UIButton.Configuration.gray()
+            config.baseForegroundColor = HQPalette.label
+            config.cornerStyle = .capsule
+            return config
+        }
         guard Theme.isDesktop else { return .glass() }
         var config = UIButton.Configuration.plain()
         config.baseForegroundColor = HQPalette.label
@@ -356,6 +367,12 @@ extension UIButton.Configuration {
 
     /// [paper-ink] iOS's filled button, its words in the accent's own ink in an ink skin (Paper: ivory in dark, where
     /// iOS's white vanished, 2026-11-16 audit: Tiles' New Tile). Elsewhere exactly `.filled()`.
+    @MainActor static func hqBorderedProminent() -> UIButton.Configuration {
+        var config = UIButton.Configuration.borderedProminent()
+        if Theme.inkIcons != nil { config.baseForegroundColor = HQPalette.onTint }   // [paper-ink] as `hqFilled`
+        return config
+    }
+
     @MainActor static func hqFilled() -> UIButton.Configuration {
         var config = UIButton.Configuration.filled()
         if Theme.inkIcons != nil { config.baseForegroundColor = HQPalette.onTint }
@@ -364,6 +381,14 @@ extension UIButton.Configuration {
 
     /// `.prominentGlass()` with the look off; the desktop's accent button with it on.
     @MainActor static func hqProminentGlass() -> UIButton.Configuration {
+        if Theme.solidChrome {
+            // [paper-solid] Paper: the solid accent capsule, its words in the accent's own ink.
+            var config = UIButton.Configuration.filled()
+            config.baseBackgroundColor = HQPalette.tint
+            config.baseForegroundColor = HQPalette.onTint
+            config.cornerStyle = .capsule
+            return config
+        }
         guard Theme.isDesktop else {
             var glass = UIButton.Configuration.prominentGlass()
             if Theme.inkIcons != nil { glass.baseForegroundColor = HQPalette.onTint }   // [paper-ink]
@@ -378,6 +403,14 @@ extension UIButton.Configuration {
     }
 }
 
+extension View {
+    /// [paper-solid] Paper's stand-in for a glass panel: its raised card inside a hairline, in the panel's own shape.
+    func hqPaperPanel<S: Shape>(in shape: S) -> some View {
+        self.background(Color(uiColor: ChatPalette.promptCard), in: shape)
+            .overlay(shape.stroke(Color.hqStroke, lineWidth: 0.5))
+    }
+}
+
 // MARK: - [desktoplook3] No glass anywhere in the look (owner: "the Liquid Glass on the desktop look throws off the look
 // a lot"). Each helper is the iOS 26 glass call with the look off, and a flat, solid, outlined desktop piece with it on.
 
@@ -387,6 +420,8 @@ extension View {
         if Theme.isDesktop {
             self.background(Color(uiColor: ChatPalette.editor), in: RoundedRectangle(cornerRadius: DesktopRows.radius))
                 .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: 1))
+        } else if Theme.solidChrome {
+            self.hqPaperPanel(in: shape)   // [paper-solid]
         } else {
             self.glassEffect(.regular, in: shape)
         }
@@ -399,6 +434,8 @@ extension View {
     @ViewBuilder func hqComposerGlass<S: Shape>(tint: Color? = nil, in shape: S) -> some View {
         if Theme.boxComposer {
             self.background(Color(uiColor: ChatPalette.editor), in: shape)
+        } else if Theme.solidChrome {
+            self.hqPaperPanel(in: shape)   // [paper-solid]
         } else if let tint {
             self.glassEffect(.regular.tint(tint), in: shape)
         } else {
@@ -411,7 +448,7 @@ extension View {
     /// [glass-bubbles] A chat bubble on the Theme page: Liquid Glass tinted `glass` (`GlassBubbles`), or filled `solid`
     /// when that is nil (the switch off, Reduce Transparency, the Desktop Look).
     @ViewBuilder func hqChatBubble<S: Shape>(_ glass: Color?, solid: Color, in shape: S) -> some View {
-        if let glass, !Theme.isDesktop {
+        if let glass, !Theme.isDesktop, !Theme.solidChrome {
             self.glassEffect(.regular.tint(glass), in: shape)
         } else {
             self.background(shape.fill(solid))

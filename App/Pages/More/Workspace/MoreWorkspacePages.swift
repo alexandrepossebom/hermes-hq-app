@@ -800,13 +800,13 @@ final class MoreWorkspaceController: UITableViewController {
             config.text = words.title
             config.secondaryText = words.body
             if retry {
-                var button = UIButton.Configuration.hqMacPush(or: .borderedProminent(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
+                var button = UIButton.Configuration.hqMacPush(or: .hqBorderedProminent(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
                 button.title = "Try Again"
                 config.button = button
                 config.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.reload() }
             }
             if choose && !isChooser {
-                var button = UIButton.Configuration.hqMacPush(or: retry ? .plain() : .borderedProminent(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
+                var button = UIButton.Configuration.hqMacPush(or: retry ? .plain() : .hqBorderedProminent(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
                 button.title = "Choose Folder…"
                 let action = UIAction { [weak self] _ in self?.chooseFolder() }
                 if retry { config.secondaryButton = button; config.secondaryButtonProperties.primaryAction = action }

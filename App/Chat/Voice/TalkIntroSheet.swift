@@ -134,6 +134,7 @@ final class TalkIntroSheet: UIViewController {
         if form == .intro {
             var start = UIButton.Configuration.borderedProminent()
             start.title = "Start Talking"
+            if Theme.inkIcons != nil { start.baseForegroundColor = HQPalette.onTint }   // [paper-ink] ivory accent in dark
             start.cornerStyle = .capsule
             start.buttonSize = .large
             start.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
@@ -155,6 +156,7 @@ final class TalkIntroSheet: UIViewController {
         } else {
             var done = UIButton.Configuration.borderedProminent()
             done.title = "Done"
+            if Theme.inkIcons != nil { done.baseForegroundColor = HQPalette.onTint }   // [paper-ink] ivory accent in dark
             done.cornerStyle = .capsule
             done.buttonSize = .large
             let doneButton = UIButton(configuration: done, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })

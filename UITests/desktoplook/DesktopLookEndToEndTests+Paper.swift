@@ -35,7 +35,9 @@ extension DesktopLookEndToEndTests {
     @MainActor func testL20_PaperBesideNous() throws {
         let dark = ProcessInfo.processInfo.environment["HQN_SHOTS_DARK"] == "1"
         let app = launchSignedIn()
-        for skin in ["nous", "paper"] {
+        // [paper-solid] Nous, Paper, then Nous again: Paper's solid chrome comes and goes live, both ways.
+        for (round, skin) in ["nous", "paper", "nous"].enumerated() {
+            let tag = round == 2 ? "\(skin)-again" : skin
             openSettings(app)
             let row = app.buttons["settings.theme-row"]
             for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
@@ -46,20 +48,27 @@ extension DesktopLookEndToEndTests {
             picked.tap()
             XCTAssertTrue(waitUntil(timeout: 5) { self.card(app, skin).isSelected }, "\(skin) is selected")
             app.swipeDown(); app.swipeDown()
-            shot(app, "paper-\(skin)-theme")
+            shot(app, "paper-\(tag)-theme")
             app.navigationBars.buttons.firstMatch.tap()      // Back to Settings
             Thread.sleep(forTimeInterval: 0.8)
-            shot(app, "paper-\(skin)-settings")
+            shot(app, "paper-\(tag)-settings")
 
-            let bots = app.tabBars.buttons["Bots"]
+            // [paper-solid] Paper's own solid bar on the iPhone, the system's for every other theme; Bots is on either.
+            let paperBar = app.otherElements["paper-tab-bar"]
+            if skin == "paper" {
+                XCTAssertTrue(paperBar.waitForExistence(timeout: 5), "Paper's solid tab bar is up")
+            } else {
+                XCTAssertTrue(waitUntil(timeout: 5) { !paperBar.exists }, "the system tab bar is back")
+            }
+            let bots = app.tabButton(id: "tab-bots", label: "Bots")
             XCTAssertTrue(bots.waitForExistence(timeout: 5))
             bots.tap()
             XCTAssertTrue(app.cells["bot-row-ivy"].waitForExistence(timeout: 10), "the Bots list shows")
-            shot(app, "paper-\(skin)-bots")
+            shot(app, "paper-\(tag)-bots")
             app.cells["bot-row-ivy"].tap()
             XCTAssertTrue(app.textViews["composer.text"].waitForExistence(timeout: 8), "the chat opens")
             Thread.sleep(forTimeInterval: 1.5)
-            shot(app, "paper-\(skin)-chat")
+            shot(app, "paper-\(tag)-chat")
             if skin == "paper" {
                 // The chat's page is Paper's own ivory (light) or black (dark), not pulled toward grey.
                 XCTAssertEqual(gutter(app), dark ? "000000" : "F8F9F3", "Paper's page")

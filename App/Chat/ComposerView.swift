@@ -824,7 +824,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// iPhone's Desktop Look too, unless Theme › Text Box › Desktop is picked.
     private var barMode: Bool { !Self.oneBox }
     /// [desktop-composer] The Desktop Look leaves the bar's glass alone (`ThemeChrome.solidify`).
-    var holdsOwnGlass: Bool { barMode }
+    var holdsOwnGlass: Bool { barMode && !Theme.solidChrome }   // [paper-solid] Paper's bar is solid too
 
     /// The one bordered box (the Desktop Look's), not the glass bar: the Desktop Look with Text Box › Desktop
     /// (`Theme.boxComposer`), and [mac] the Mac in either look. Owner 2026-11-08: "The text input section in the chats

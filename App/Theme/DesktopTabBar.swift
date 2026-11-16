@@ -26,7 +26,7 @@ final class DesktopTabBar: UIView {
         var height: CGFloat {
             switch self {
             case .desktop: DesktopTabBar.barHeight
-            case .glass: Glass.barHeight
+            case .glass: DesktopTabBar.paperPhone ? Glass.phoneBarHeight : Glass.barHeight
             case .sidebar: 0
             }
         }
@@ -35,8 +35,16 @@ final class DesktopTabBar: UIView {
     /// [mac] The glass capsule's measures (the system bar on macOS 27, in the iPad points the Mac draws at 77 %).
     enum Glass {
         static let capsuleHeight: CGFloat = 62
-        static let margin: CGFloat = 10            // from the column's sides and bottom
-        static let barHeight: CGFloat = capsuleHeight + margin
+        /// From the column's sides and bottom. [paper-solid] On the iPhone the system bar's own: 21 pt in from the
+        /// sides, 21 pt over the screen's foot (8 on a phone with a Home button, no inset under the bar).
+        static var margin: CGFloat { DesktopTabBar.paperPhone ? 21 : 10 }
+        static let barHeight: CGFloat = capsuleHeight + 10
+        /// [paper-solid] The bar's height over the window's bottom inset on the iPhone (the capsule starts where the
+        /// system's did: 83 pt from the foot with a 34 pt inset, as the system bar).
+        static var phoneBarHeight: CGFloat {
+            let inset = DesktopTabBar.lastInset
+            return capsuleHeight + (inset > 0 ? 21 : 8) - inset
+        }
         static let inset: CGFloat = 4              // buttons inside the capsule
         static let buttonHeight: CGFloat = 54
         static let maxButtonWidth: CGFloat = 96
@@ -70,7 +78,14 @@ final class DesktopTabBar: UIView {
 
     /// The docked bar the app's current look asks for (nil: the system bar). On the iPhone and iPad this is the
     /// Desktop Look exactly.
-    static var wanted: Style? { style(desktopLook: Theme.isDesktop, mac: onMac) }
+    static var wanted: Style? { style(desktopLook: Theme.isDesktop, mac: onMac) ?? (paperPhone ? .glass : nil) }
+
+    /// [paper-solid] Paper on the iPhone: this bar's floating capsule (the Mac's, at the iPhone's measures) drawn
+    /// solid, standing in for the system's. iOS 26 draws its floating bar's glass on its platter's own layer and keeps
+    /// it whatever the bar's appearance says, so the system bar cannot be made solid. The iPad keeps the system bar.
+    static var paperPhone: Bool { !onMac && UIDevice.current.userInterfaceIdiom == .phone && Theme.solidChrome }
+    /// The window's bottom inset the bar last measured (`Glass.phoneBarHeight`).
+    fileprivate(set) static var lastInset: CGFloat = 0
 
     private weak var host: UITabBarController?
     private let stack = UIStackView()
@@ -165,6 +180,10 @@ final class DesktopTabBar: UIView {
 
     private func updateHeight() {
         let inset = host?.view.window?.safeAreaInsets.bottom ?? superview?.safeAreaInsets.bottom ?? 0
+        if Self.lastInset != inset {
+            Self.lastInset = inset
+            if Self.paperPhone { applyInsets() }   // [paper-solid] the phone bar's height over the inset changed
+        }
         heightConstraint?.constant = style.height + inset
     }
 
@@ -183,9 +202,8 @@ final class DesktopTabBar: UIView {
         case .glass:
             stack.isHidden = true
             backgroundColor = .clear
-            accessibilityIdentifier = "mac-tab-bar"
-            let effect = UIGlassEffect(style: .regular)
-            let glass = UIVisualEffectView(effect: effect)
+            accessibilityIdentifier = Self.paperPhone ? "paper-tab-bar" : "mac-tab-bar"   // [paper-solid]
+            let glass = UIVisualEffectView(effect: Self.paperPhone ? nil : UIGlassEffect(style: .regular))   // [paper-solid]
             glass.cornerConfiguration = .capsule()
             for pill in [hoverPill, selectionPill] {
                 pill.isUserInteractionEnabled = false
@@ -214,6 +232,10 @@ final class DesktopTabBar: UIView {
     /// near-black in dark).
     static let selectionFill = UIColor { traits in
         traits.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.5) : UIColor(white: 0, alpha: 0.075)
+    }
+    /// [paper-solid] The selected tab on Paper's solid capsule: its soft grey (as its picked pill), lighter in dark.
+    static let paperSelection = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.1) : UIColor(white: 0, alpha: 0.06)
     }
     /// [mac] The pointer over a tab (MacHover's button fill).
     static let hoverFill = UIColor { traits in
@@ -351,6 +373,16 @@ final class DesktopTabBar: UIView {
         guard let host else { return }
         if style == .glass {
             backgroundColor = .clear
+            if let platter {
+                // [paper-solid] Paper's phone bar: its raised card inside a hairline, no glass.
+                let solid = Self.paperPhone
+                if solid, platter.effect != nil { platter.effect = nil }
+                if !solid, platter.effect == nil { platter.effect = UIGlassEffect(style: .regular) }
+                platter.backgroundColor = solid ? ChatPalette.promptCard : nil
+                platter.layer.borderWidth = solid ? HQShape.hairline : 0
+                platter.layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: traitCollection).cgColor
+                selectionPill.backgroundColor = solid ? Self.paperSelection : Self.selectionFill
+            }
             setNeedsLayout()
         } else {
             let dark = traitCollection.userInterfaceStyle == .dark
@@ -483,12 +515,16 @@ private final class TabButton: UIControl {
         if style == .glass {
             // The system bar on macOS 27: the symbol's middle 20 pt below the button's top, the 16 pt label line 31 pt
             // below it, a 20 pt badge 14 pt right of the tab's centre and 2 pt below the top.
+            // [paper-solid] Paper's phone bar: the iPhone system bar's (the symbol's middle 20 pt down, a 12 pt label
+            // line 35 pt down).
+            let phone = DesktopTabBar.paperPhone
             let centre = icon.centerXAnchor.constraint(equalTo: centerXAnchor)
             centreX = centre
             NSLayoutConstraint.activate([
                 centre, icon.centerYAnchor.constraint(equalTo: topAnchor, constant: 20),
                 label.centerXAnchor.constraint(equalTo: icon.centerXAnchor),
-                label.topAnchor.constraint(equalTo: topAnchor, constant: 31), label.heightAnchor.constraint(equalToConstant: 16),
+                label.topAnchor.constraint(equalTo: topAnchor, constant: phone ? 35 : 31),
+                label.heightAnchor.constraint(equalToConstant: phone ? 12 : 16),
                 label.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -4),
                 badgeLabel.leadingAnchor.constraint(equalTo: icon.centerXAnchor, constant: 14),
                 badgeLabel.topAnchor.constraint(equalTo: topAnchor, constant: 2),
@@ -496,7 +532,7 @@ private final class TabButton: UIControl {
             ])
             badgeLabel.layer.cornerRadius = 10
             if let image = item.image, image.isSymbolImage {
-                icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium, scale: .large)
+                icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: phone ? 19 : 18, weight: .medium, scale: .large)
             }
             label.text = item.title
         } else {
@@ -548,7 +584,9 @@ private final class TabButton: UIControl {
             // The system's colours: the accent for the selected tab, the label colour for the rest.
             let colour: UIColor = selected ? (tintColor ?? .tintColor) : .label
             icon.tintColor = colour
-            label.font = HQFont.macTabLabel
+            label.font = DesktopTabBar.paperPhone
+                ? UIFont.systemFont(ofSize: 10, weight: .medium)   // a11y-font-ok: the iPhone system tab bar's label (Paper's stand-in)
+                : HQFont.macTabLabel
             label.textColor = colour
             accessibilityTraits = selected ? [.button, .selected] : .button
             return

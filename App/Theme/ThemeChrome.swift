@@ -200,7 +200,7 @@ enum ThemeChrome {
 
     private static let sheetRadiusKey = malloc(1)!
     static func styleSheet(_ sheet: UISheetPresentationController, of controller: UIViewController, desktop: Bool) {
-        SheetGlass.apply(sheet, desktop: desktop)   // [glass] no sheet glass in the look; back to glass after
+        SheetGlass.apply(sheet, desktop: desktop || Theme.solidChrome)   // [glass] no sheet glass in the look (or Paper); back to glass after
         if desktop {
             if objc_getAssociatedObject(sheet, sheetRadiusKey) == nil {
                 objc_setAssociatedObject(sheet, sheetRadiusKey, NSNumber(value: Double(sheet.preferredCornerRadius ?? -1)), .OBJC_ASSOCIATION_RETAIN)
@@ -271,6 +271,11 @@ enum ThemeChrome {
     /// off, and it only touches `UIVisualEffectView`'s public `didMoveToWindow`.
     static func prepareSolidChrome() {
         DesktopBars.install()                              // [desktoplook2]
+        preparePanelHook()
+    }
+
+    /// [paper-solid] The panel hook alone, for Paper's solid chrome in the iOS look (none of the Desktop Look's bars).
+    static func preparePanelHook() {
         guard !hookInstalled else { return }
         hookInstalled = true
         let type: AnyClass = UIVisualEffectView.self
@@ -342,7 +347,8 @@ enum ThemeChrome {
     }
 
     static func solidify(_ view: UIVisualEffectView) {
-        let desktop = Theme.isDesktop && !insideOwnGlass(view)
+        let paper = Theme.solidChrome                      // [paper-solid]
+        let desktop = (Theme.isDesktop || paper) && !insideOwnGlass(view)
         let stash = objc_getAssociatedObject(view, stashKey) as? Stash
         if desktop {
             if view.effect is UIGlassEffect || view.effect is UIGlassContainerEffect, isOurs(view) {
@@ -365,6 +371,13 @@ enum ThemeChrome {
             // chat's empty bar until a keystroke laid the bar out.
             guard let saved = objc_getAssociatedObject(view, stashKey) as? Stash, saved.isPanel,
                   !DesktopLayout.keepsOwnLook(view) else { return }
+            if paper {
+                // [paper-solid] Paper's raised card inside a hairline, in the panel's own shape (its capsule or corners).
+                view.backgroundColor = ChatPalette.promptCard
+                view.layer.borderWidth = HQShape.hairline
+                view.layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: view.traitCollection).cgColor
+                return
+            }
             view.backgroundColor = ChatPalette.editor
             view.layer.borderWidth = HQShape.hairline
             view.layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: view.traitCollection).cgColor
@@ -391,13 +404,13 @@ enum ThemeChrome {
 extension UIVisualEffectView {
     @objc dynamic func hqThemeSetEffect(_ effect: UIVisualEffect?) {
         hqThemeSetEffect(effect)          // the original (the implementations were exchanged)
-        guard effect is UIGlassEffect || effect is UIGlassContainerEffect, window != nil, Theme.isDesktop else { return }
+        guard effect is UIGlassEffect || effect is UIGlassContainerEffect, window != nil, Theme.isDesktop || Theme.solidChrome else { return }
         ThemeChrome.solidify(self)
     }
 
     @objc dynamic func hqThemeDidMoveToWindow() {
         hqThemeDidMoveToWindow()          // the original (the implementations were exchanged)
-        guard window != nil, Theme.isDesktop else { return }
+        guard window != nil, Theme.isDesktop || Theme.solidChrome else { return }
         // After the caller finished setting the panel up (its effect, its corners).
         DispatchQueue.main.async { [weak self] in
             guard let self, self.window != nil else { return }

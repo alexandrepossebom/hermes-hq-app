@@ -643,7 +643,7 @@ final class DesktopLookEndToEndTests: XCTestCase {
     /// More › Settings. A second tap on More pops a page left open.
     @MainActor func openSettings(_ app: XCUIApplication) {
         declineSavePassword(app)
-        let more = app.tabBars.buttons["More"]
+        let more = app.tabButton(id: "tab-more", label: "More")   // [paper-solid] any bar: the system's, the look's, Paper's
         XCTAssertTrue(more.waitForExistence(timeout: 20))
         let row = app.cells["more-row-settings"]
         for _ in 0..<4 {
