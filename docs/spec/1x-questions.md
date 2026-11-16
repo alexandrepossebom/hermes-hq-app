@@ -591,6 +591,20 @@ gates `W:build/phone-question-dock-gates.ts`, normalisation `V:desktop/src/store
 - **Max height:** the chat's height above the keyboard, minus the top bar and status line, minus 30 pt
   (`phone-question-dock.css:4-5`). Beyond that a page's choice list scrolls inside the dock.
 
+**Minimize to read the conversation:**
+- A `chevron.down` button in the head, before Skip, minimizes the question without answering or skipping it. Its touch
+  target is at least 44 × 44 pt, with VoiceOver label "Minimize question" and a hint that answers are kept.
+- The keyboard dismisses and the large card gives way to a compact "Answer question" (or "Answer questions") bar in
+  the composer's row. The conversation remains scrollable, and "Waiting for your reply" stays visible.
+- Reopening keeps the same page, choices and typed answer, without forcing the keyboard up. Minimize also cancels a
+  queued pick-one page advance, so the page does not change while hidden.
+- Minimized state lives with the request's in-memory draft (Q15): reconnect and leaving/reopening the chat preserve
+  it. It does not extend the request's timeout. Cancel, an answer elsewhere or sign-out removes it; a new request
+  starts expanded. Send/Skip in flight disables Minimize.
+- The bar uses native glass in the iOS look and a solid elevated fill in Desktop Look, respects larger text and the
+  existing dock swap's Reduce Motion behavior. The answer-later dock can minimize too; its Answer Now action reopens
+  it rather than replacing its draft.
+
 **Card:**
 - iOS look (Q12, 2026-10-30): a native Liquid Glass panel; inside it the step line, Skip and the page sit on a solid
   `secondarySystemGroupedBackground` card inset 8 pt (radius 18), and the foot (Back as a solid capsule, Next/Send)

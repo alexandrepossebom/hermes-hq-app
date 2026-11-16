@@ -123,7 +123,7 @@ nonisolated enum ClarifyStaging {
         }
         for (qid, stage) in saved?.stages ?? [:] { stages[qid] = stage }
         let page = min(max(0, saved?.page ?? 0), max(0, prompt.questions.count - 1))
-        return ClarifyDraft(page: page, stages: stages)
+        return ClarifyDraft(page: page, stages: stages, minimized: saved?.minimized ?? false)
     }
 
     /// `JSON.stringify` of a string array (no spaces, `/` unescaped).

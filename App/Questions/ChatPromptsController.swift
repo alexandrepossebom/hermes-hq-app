@@ -18,6 +18,7 @@ import UIKit
 
     // The dock.
     private var dock: QuestionDockView?
+    private let resumeDock = QuestionResumeView()
     /// [questions] The settled card whose unanswered questions the dock is answering now (a live question takes the
     /// dock back from it).
     private var late: SettledClarifyCard?
@@ -292,11 +293,39 @@ import UIKit
             view.delegate = self
             prompting.saveClarifyDraft(clarify.id, draft)
             dock = view
-            chat.setDock(view, for: .question, animated: animated)      // [talk] the dock slot has two owners now
+            showQuestionDock(view, animated: animated)
         } else if dock != nil {
             dock = nil
             chat.setDock(nil, for: .question, animated: true)
         }
+    }
+
+    /// Swap only the presentation. Keep the same dock (fields, scroll and picks) and save its minimized state by
+    /// request id, so a reconnect or leaving and reopening this chat does not cover the transcript again.
+    private func showQuestionDock(_ dock: QuestionDockView, animated: Bool) {
+        if dock.draft.minimized {
+            resumeDock.show(dock)
+            resumeDock.onTap = { [weak self, weak dock] in
+                guard let self, let dock, self.dock === dock, dock.draft.minimized else { return }
+                dock.setMinimized(false)
+                Haptics.play(.selection)
+                self.showQuestionDock(dock, animated: true)
+                UIAccessibility.post(notification: .layoutChanged, argument: dock)
+            }
+        }
+        chat?.setDock(dock.draft.minimized ? resumeDock : dock, for: .question, animated: animated)
+        #if targetEnvironment(macCatalyst)
+        // A rapid reopen can reinsert the same view before it leaves the window; didMoveToWindow need not run.
+        if !dock.draft.minimized { dock.takeKeys() }
+        #endif
+    }
+
+    func dockMinimize(_ dock: QuestionDockView) {
+        guard self.dock === dock, dock.sending == .none, !dock.draft.minimized else { return }
+        dock.setMinimized(true)
+        Haptics.play(.selection)
+        showQuestionDock(dock, animated: true)
+        resumeDock.announce()
     }
 
     func dockSend(_ dock: QuestionDockView) {
@@ -361,7 +390,14 @@ import UIKit
     /// The bot's clarify call is long over, so Send puts the answers in the chat as a message of yours naming the card
     /// (`ClarifyLate.message`); the card then shows them. A live question owns the dock and wins.
     func answerLater(_ card: SettledClarifyCard) {
-        guard let chat, prompts.clarify == nil, dock?.later != true || late?.key != card.key else { return }
+        guard let chat, prompts.clarify == nil else { return }
+        if let dock, dock.later, late?.key == card.key {
+            if dock.draft.minimized {
+                dock.setMinimized(false)
+                showQuestionDock(dock, animated: true)
+            }
+            return
+        }
         let open = card.rows.filter { $0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !open.isEmpty else { return }
         let questions = open.enumerated().map { i, row in

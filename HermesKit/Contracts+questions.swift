@@ -104,6 +104,8 @@ nonisolated struct ClarifyStage: Equatable, Sendable, Hashable {
 nonisolated struct ClarifyDraft: Equatable, Sendable {
     var page = 0
     var stages: [String: ClarifyStage] = [:]
+    /// Presentation only: the request still waits while the transcript is being read.
+    var minimized = false
 }
 
 /// One row of the sent-answers note: the question and the answer ("" = Skipped, nil = No answer).

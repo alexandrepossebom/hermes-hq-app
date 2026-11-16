@@ -367,7 +367,7 @@ extension MoreViewController: KeySearchable {}
     /// no answer of its own is on its way. An approval card is not one.
     static func questionCard(_ root: MainTabController) -> QuestionDockView? {
         guard presented(root) == nil, let dock = root.chatOnShow?.promptsUI?.dockView, dock.window != nil,
-              dock.sending == .none else { return nil }
+              dock.sending == .none, !dock.draft.minimized else { return nil }
         return dock
     }
     #endif

@@ -22,6 +22,7 @@ import UIKit
 @MainActor protocol QuestionDockDelegate: AnyObject {
     func dockSend(_ dock: QuestionDockView)
     func dockSkip(_ dock: QuestionDockView)
+    func dockMinimize(_ dock: QuestionDockView)
     /// Page or picks changed (saved to the centre by request id).
     func dockDraftChanged(_ dock: QuestionDockView)
 }
@@ -46,6 +47,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     private var bareBottom: NSLayoutConstraint!
     private var autoAdvance: DispatchWorkItem?
     private let skipButton = UIButton(type: .system)
+    private let minimizeButton = UIButton(type: .system)
     private let pagesScroll = PagesScrollView()
     private let pagesHost = UIView()
     private var pages: [QuestionPageView] = []
@@ -99,6 +101,18 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         prompt.questions.map { ($0.qid, ClarifyStaging.stagedAnswer($0, draft.stages[$0.qid] ?? ClarifyStage())) }
     }
 
+    /// Keep the draft and page, but stop a queued pick-one advance and release the keyboard while reading.
+    func setMinimized(_ minimized: Bool) {
+        draft.minimized = minimized
+        if minimized {
+            autoAdvance?.cancel()
+            autoAdvance = nil
+            endEditing(true)
+            resignFirstResponder()
+        }
+        delegate?.dockDraftChanged(self)
+    }
+
     // MARK: Build
 
     private func build() {
@@ -145,16 +159,27 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         skipButton.setContentHuggingPriority(.required, for: .horizontal)
         skipButton.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.dockSkip($0) } }, for: .primaryActionTriggered)
 
+        var minimize = UIButton.Configuration.plain()
+        minimize.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(textStyle: .body, scale: .medium))
+        minimize.baseForegroundColor = ChatPalette.tintText
+        minimizeButton.configuration = minimize
+        minimizeButton.accessibilityIdentifier = "question.minimize"
+        minimizeButton.accessibilityLabel = "Minimize question"
+        minimizeButton.accessibilityHint = "Keeps your answers so you can read the conversation."
+        minimizeButton.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.dockMinimize($0) } }, for: .primaryActionTriggered)
+
         let head = UIView()
         head.translatesAutoresizingMaskIntoConstraints = false
         stepLabel.translatesAutoresizingMaskIntoConstraints = false
         skipButton.translatesAutoresizingMaskIntoConstraints = false
+        minimizeButton.translatesAutoresizingMaskIntoConstraints = false
         stepBars.translatesAutoresizingMaskIntoConstraints = false
         stepBars.count = prompt.questions.count
         stepBars.isHidden = !stepBars.shows
         head.addSubview(stepBars)
         head.addSubview(stepLabel)
         head.addSubview(skipButton)
+        head.addSubview(minimizeButton)
         card.contentView.addSubview(head)
 
         pagesScroll.translatesAutoresizingMaskIntoConstraints = false
@@ -218,7 +243,12 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
             stepLabel.leadingAnchor.constraint(equalTo: stepBars.shows ? stepBars.trailingAnchor : head.leadingAnchor,
                                                constant: stepBars.shows ? 8 : 0),
             stepLabel.centerYAnchor.constraint(equalTo: head.centerYAnchor),
-            stepLabel.trailingAnchor.constraint(lessThanOrEqualTo: skipButton.leadingAnchor, constant: -8),
+            stepLabel.trailingAnchor.constraint(lessThanOrEqualTo: minimizeButton.leadingAnchor, constant: -8),
+            stepLabel.topAnchor.constraint(greaterThanOrEqualTo: head.topAnchor, constant: 6),
+            minimizeButton.trailingAnchor.constraint(equalTo: skipButton.leadingAnchor, constant: -4),
+            minimizeButton.topAnchor.constraint(equalTo: head.topAnchor),
+            minimizeButton.bottomAnchor.constraint(equalTo: head.bottomAnchor),
+            minimizeButton.widthAnchor.constraint(equalToConstant: 44),
             skipButton.trailingAnchor.constraint(equalTo: head.trailingAnchor),
             skipButton.topAnchor.constraint(equalTo: head.topAnchor),
             skipButton.bottomAnchor.constraint(equalTo: head.bottomAnchor),
@@ -375,7 +405,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     override var canBecomeFirstResponder: Bool { true }
 
     override var keyCommands: [UIKeyCommand]? {
-        guard sending == .none, pages.indices.contains(draft.page), !pages[draft.page].isEditing else { return [] }
+        guard sending == .none, !draft.minimized, pages.indices.contains(draft.page), !pages[draft.page].isEditing else { return [] }
         let page = pages[draft.page]
         var commands = (0..<page.numberedChoices).map { i -> UIKeyCommand in
             let command = UIKeyCommand(input: "\(i + 1)", modifierFlags: [], action: #selector(numberKey(_:)))
@@ -399,14 +429,14 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
 
     /// The card takes the keyboard when nothing in it is being typed in (a pick, a page turn, its arrival).
     func takeKeys() {
-        guard window != nil, !isFirstResponder, !isTyping else { return }
+        guard window != nil, !draft.minimized, !isFirstResponder, !isTyping else { return }
         becomeFirstResponder()
     }
 
     /// Escape: out of "Something else…" first (the words stay), else Skip, as its button does (asking first when
     /// answers would be lost).
     func escapePressed() {
-        guard sending == .none else { return }
+        guard sending == .none, !draft.minimized else { return }
         if isTyping {
             endEditing(true)
             takeKeys()
@@ -474,6 +504,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         backButton.isHidden = draft.page == 0
         backButton.isEnabled = sending == .none
         skipButton.isEnabled = sending == .none
+        minimizeButton.isEnabled = sending == .none
         pages.forEach { $0.isLocked = sending != .none }
         var c = UIButton.Configuration.filled()
         c.baseBackgroundColor = ChatPalette.tint
@@ -552,7 +583,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         autoAdvance?.cancel()
         guard advancesOnPick(index), index == draft.page, sending == .none else { return }
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.draft.page == index, self.sending == .none, self.window != nil else { return }
+            guard let self, self.draft.page == index, !self.draft.minimized, self.sending == .none, self.window != nil else { return }
             self.go(by: 1)
         }
         autoAdvance = work

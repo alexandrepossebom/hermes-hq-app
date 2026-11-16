@@ -187,6 +187,95 @@ final class QuestionsEndToEndTests: XCTestCase {
         attach("dock-skipped")
     }
 
+    // The owner needs to read the preceding reply before answering. Minimize is not Skip: the gateway keeps
+    // waiting, the keyboard goes away, and reopening keeps the same page, picks and typed answer.
+    @MainActor func test17b_MinimizeToReadThenResumeAndSend() throws {
+        launch(["-HQDebugDesktopLook", "NO"])
+        openChat()
+        send("ask me")
+        let dock = app.otherElements["question.dock"]
+        XCTAssertTrue(dock.waitForExistence(timeout: 15))
+        attach("minimize-expanded")
+        let minimize = app.buttons["question.minimize"]
+        XCTAssertTrue(minimize.waitForExistence(timeout: 3), "a question needs a non-destructive way out of the way")
+        app.buttons["question.choice.0"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Question 2 of 3"].waitForExistence(timeout: 5))
+        app.buttons["question.choice.1"].firstMatch.tap()
+        app.buttons["question.other"].firstMatch.tap()
+        let other = app.textViews["question.otherField"]
+        XCTAssertTrue(other.waitForExistence(timeout: 5))
+        other.typeText("changelog")
+        let expanded = settledFrame(dock)
+        tapWhenSettled(minimize)
+        let resume = app.buttons["question.resume"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 5) { !dock.exists && self.app.keyboards.count == 0 })
+        XCTAssertLessThan(settledFrame(resume).height, 100, "only a compact answer bar remains")
+        XCTAssertGreaterThan(resume.frame.minY, expanded.minY + 100, "the transcript gains reading room")
+        XCTAssertTrue(status("Waiting for your reply").exists)
+        let pending = try XCTUnwrap(try ledger("clarify").last)
+        XCTAssertTrue((pending["answers"] as? [Any] ?? []).isEmpty, "minimize sends no answer or skip")
+        XCTAssertTrue((try account.control("/__fixture/requests")["open"] as? [String] ?? []).contains(pending["id"] as? String ?? ""))
+        // The transcript remains scrollable, and a reconnect must not reopen the question over it.
+        app.tables["chat.table"].swipeDown()
+        attach("minimize-reading")
+        try account.control("/__fixture/kick", [:])
+        XCTAssertTrue(status("Waiting for your reply").waitForExistence(timeout: 15))
+        XCTAssertTrue(resume.isHittable)
+        XCTAssertFalse(dock.exists)
+        tapWhenSettled(resume)
+        XCTAssertTrue(app.staticTexts["Question 2 of 3"].waitForExistence(timeout: 5))
+        XCTAssertEqual(other.value as? String, "changelog")
+        XCTAssertTrue(app.buttons["question.choice.1"].firstMatch.isSelected)
+        XCTAssertEqual(app.keyboards.count, 0, "reopening never forces the keyboard over the context")
+        attach("minimize-restored")
+        tapWhenSettled(app.buttons["question.primary"])
+        let field = app.textViews["question.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("v2.4")
+        tapWhenSettled(app.buttons["question.primary"])
+        XCTAssertTrue(waitUntil(timeout: 10) { !dock.exists && !resume.exists })
+        XCTAssertTrue(waitUntil(timeout: 15) { self.noteCard().label.contains("Lint, changelog") })
+        XCTAssertEqual(try ledger("clarify").last?["outcome"] as? String, "submitted")
+    }
+
+    @MainActor func test17c_MinimizeLongQuestionDesktopAndCancelWhileHidden() throws {
+        launch(["-HQDebugDesktopLook", "YES", "-HQDebugSkin", "midnight"])
+        openChat()
+        send("long")
+        let dock = app.otherElements["question.dock"]
+        XCTAssertTrue(dock.waitForExistence(timeout: 15))
+        let minimize = app.buttons["question.minimize"]
+        XCTAssertTrue(minimize.isHittable, "minimize stays reachable above the scrolling choices")
+        attach("minimize-desktop-expanded")
+        tapWhenSettled(minimize)
+        let resume = app.buttons["question.resume"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 5) { !dock.exists })
+        XCTAssertEqual(resume.label, "Answer questions")
+        app.tables["chat.table"].swipeDown()
+        attach("minimize-desktop-reading")
+        tapWhenSettled(resume)
+        XCTAssertTrue(dock.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Question 1 of 5"].exists)
+        tapWhenSettled(minimize)
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        let pending = try XCTUnwrap(try ledger("clarify").last)
+        try account.control("/__fixture/cancel", ["id": pending["id"] as! String, "reason": "timeout"])
+        XCTAssertTrue(waitUntil(timeout: 10) { !resume.exists && !dock.exists })
+        XCTAssertTrue((try ledger("clarify").last?["answers"] as? [Any] ?? []).isEmpty)
+        send("one")
+        XCTAssertTrue(dock.waitForExistence(timeout: 15), "a new question starts expanded")
+        XCTAssertFalse(resume.exists)
+        tapWhenSettled(minimize)
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        XCTAssertEqual(resume.label, "Answer question")
+        tapWhenSettled(resume)
+        tapWhenSettled(app.buttons["question.skip"])
+        XCTAssertTrue(waitUntil(timeout: 10) { !dock.exists })
+    }
+
     // MARK: 18. Sudo: tuck into the chip, keep the text, Don't Send, Send
 
     @MainActor func test18_SudoSheetTucksIntoTheChipAndKeepsText() throws {
@@ -398,18 +487,26 @@ final class QuestionsEndToEndTests: XCTestCase {
     @MainActor private func send(_ text: String) {
         let field = app.textViews["composer.text"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitUntil(timeout: 10) { field.isHittable })
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            // A fresh simulator can show the app's notification lead-in after the previous reply. It is not part
+            // of the question flow; dismiss it without requesting the system permission before typing again.
+            let notice = self.app.alerts["Know When a Bot Replies?"]
+            if notice.exists { notice.buttons["Not Now"].tap() }
+            return field.isHittable
+        })
         field.tap()
         field.typeText(text)
         let button = app.buttons["composer.send"]
+        // A fast question can replace the composer between a separate exists/value query. Match the value in
+        // the same snapshot, so a disappearing composer is success, not an XCTest missing-element failure.
+        let stillComposing = app.textViews.matching(identifier: "composer.text")
+            .matching(NSPredicate(format: "value == %@", text)).firstMatch
         // The keyboard is still rising: tap Send once it rests, again if the words are still in the field.
         for _ in 0..<3 {
             XCTAssertTrue(waitUntil(timeout: 5) { button.exists && button.isEnabled && button.isHittable })
             RunLoop.current.run(until: Date().addingTimeInterval(0.4))
             button.tap()
-            if waitUntil(timeout: 3, {
-                !field.exists || ((field.value as? String) ?? "").isEmpty || (field.value as? String) == "Message Hermes"
-            }) { return }
+            if waitUntil(timeout: 3, { !stillComposing.exists }) { return }
         }
         XCTFail("the message didn't send")
     }
