@@ -19,6 +19,11 @@
 //   have a heavy blur of something so that they adapt to the background. Yours are not doing that."): 0.6 of its light
 //   and shade where 0.15 was (a Light reply's lightness moved 0.016 from the top of a night photo to the bottom, a Dark
 //   one's 0.020: now 0.06 and 0.11), and half the blur, so a horizon or a hill stays a soft shape.
+// - Never more colourful than the picture where it stands (owner 2026-11-15, a Dark Nous chat over a dusk photo: "very
+//   messed up in dark mode"). The copy is saturated 1.7 times and replies take 1.3 times that: a light bubble has no
+//   room for it and stays pastel, but a dark one took all of it, about twice the picture's colour, a loud blue-violet
+//   slab on every two-look skin. A dark bubble's colour now stops at the picture's own as the page shows it (the
+//   copy's colour before the 1.7), or the bubble's own where that is more. Light bubbles are as they were.
 // - The tail stays: a mask takes any outline (glass takes rounded corners only).
 // - On the Mac too: these are plain layers, which Catalyst draws as the iPhone does (it drew glass without its tint).
 
@@ -40,6 +45,8 @@ import UIKit
     /// The blur, in parts of the long side: a sixteenth leaves a sky, a horizon and a hill as soft shapes that drift
     /// through a bubble as it scrolls (an eighth left one smooth wash).
     nonisolated static let blurPart = 16.0
+    /// How much the copy's colour is raised (Telegram's 1.7): a wash this soft would be grey without it.
+    nonisolated static let saturation = 1.7
 
     /// Picked, the look is the iOS one, Reduce Transparency is off, and chats show a background.
     static var applies: Bool {
@@ -51,6 +58,9 @@ import UIKit
         let image: CGImage
         /// Every pixel, row by row from the top.
         let pixels: [RGBA]
+        /// [tinted-dark] The same pixels before the copy's colour is raised: the picture's own colour, as the page
+        /// shows it, which a bubble never goes past.
+        let plain: [RGBA]
         let width: Int, height: Int
         /// The picture's own shape: the chat fills itself with it from its centre (`BackdropView`).
         let aspect: CGSize
@@ -74,7 +84,8 @@ import UIKit
         return soft
     }
 
-    /// Shrunk to `longSide`, blurred by `blurPart` of it and saturated 1.7 times (Telegram's 64 px, blurred twice, 1.7).
+    /// Shrunk to `longSide`, blurred by `blurPart` of it and saturated `saturation` times (Telegram's 64 px, blurred
+    /// twice, 1.7).
     nonisolated static func makeSoft(_ image: CGImage, blurPart: Double = blurPart) -> Soft? {
         let width = image.width, height = image.height
         guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
@@ -89,23 +100,27 @@ import UIKit
         small.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         guard let shrunk = small.makeImage() else { return nil }
         let input = CIImage(cgImage: shrunk)
-        let soft = input.clampedToExtent()
-            .applyingGaussianBlur(sigma: Double(longSide) / blurPart)
-            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.7])
-            .cropped(to: input.extent)
+        let blurred = input.clampedToExtent().applyingGaussianBlur(sigma: Double(longSide) / blurPart)
+        let soft = blurred.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: saturation]).cropped(to: input.extent)
         let ci = CIContext(options: [.cacheIntermediates: false, .outputColorSpace: space])
-        guard let made = ci.createCGImage(soft, from: input.extent), let read = context() else { return nil }
-        read.draw(made, in: CGRect(x: 0, y: 0, width: w, height: h))
-        guard let data = read.data else { return nil }
-        let bytes = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
-        var pixels: [RGBA] = []
-        pixels.reserveCapacity(w * h)
-        for i in 0..<(w * h) {
-            let a = max(Double(bytes[i * 4 + 3]) / 255, 1.0 / 255)
-            pixels.append(RGBA(unit: min(1, Double(bytes[i * 4]) / 255 / a), min(1, Double(bytes[i * 4 + 1]) / 255 / a),
-                               min(1, Double(bytes[i * 4 + 2]) / 255 / a)))
+        func read(_ made: CGImage) -> [RGBA]? {
+            guard let read = context() else { return nil }
+            read.draw(made, in: CGRect(x: 0, y: 0, width: w, height: h))
+            guard let data = read.data else { return nil }
+            let bytes = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+            var pixels: [RGBA] = []
+            pixels.reserveCapacity(w * h)
+            for i in 0..<(w * h) {
+                let a = max(Double(bytes[i * 4 + 3]) / 255, 1.0 / 255)
+                pixels.append(RGBA(unit: min(1, Double(bytes[i * 4]) / 255 / a), min(1, Double(bytes[i * 4 + 1]) / 255 / a),
+                                   min(1, Double(bytes[i * 4 + 2]) / 255 / a)))
+            }
+            return pixels
         }
-        return Soft(image: made, pixels: pixels, width: w, height: h, aspect: CGSize(width: width, height: height))
+        guard let made = ci.createCGImage(soft, from: input.extent), let pixels = read(made),
+              let unraised = ci.createCGImage(blurred.cropped(to: input.extent), from: input.extent), let plain = read(unraised)
+        else { return nil }
+        return Soft(image: made, pixels: pixels, plain: plain, width: w, height: h, aspect: CGSize(width: width, height: height))
     }
 
     // MARK: The bubble's own copy
@@ -138,7 +153,7 @@ import UIKit
                            time: rgba(mine ? ChatPalette.meTime : ChatPalette.label2), dim: Backdrop.chats.dim,
                            colour: colour, shade: shade, target: increaseContrast ? 7 : 4.5)
         if let hit = painted[key] { return hit }
-        let colours = paint(pixels: soft.pixels, bubble: key.bubble, page: key.page, dim: Double(key.dim) / 100, text: key.text,
+        let colours = paint(pixels: soft.pixels, plain: soft.plain, bubble: key.bubble, page: key.page, dim: Double(key.dim) / 100, text: key.text,
                             time: key.time, colour: key.colour, shade: key.shade, target: key.target)
         guard let made = makeImage(colours, width: soft.width, height: soft.height) else { return nil }
         if painted.count > 16 { painted.removeAll() }
@@ -153,9 +168,11 @@ import UIKit
     /// lightness give or take `shade` of its own (half on the lighter side of a light bubble), with `colour` of its
     /// OKLab colour added to the bubble's. Where that would leave `text` under `target` or `time` under 3:1 (or under the
     /// solid bubble's own, where less, or under `keep` of it), less of the picture is taken there, down to the solid
-    /// bubble itself.
-    nonisolated static func paint(pixels: [RGBA], bubble: RGBA, page: RGBA, dim: Double, text: RGBA, time: RGBA,
-                                  colour: Double, shade: Double, target: Double) -> [RGBA] {
+    /// bubble itself. [tinted-dark] A dark bubble's colour stops at `plain`'s there (the picture before the copy's
+    /// colour was raised, under the same veil), or the bubble's own where that is more; with no `plain`, at the copy's
+    /// own colour over `saturation`.
+    nonisolated static func paint(pixels: [RGBA], plain: [RGBA]? = nil, bubble: RGBA, page: RGBA, dim: Double, text: RGBA,
+                                  time: RGBA, colour: Double, shade: Double, target: Double) -> [RGBA] {
         let solid = bubble.over(page.over(.white))
         func want(_ ink: RGBA, _ goal: Double) -> Double {
             let own = ink.over(solid).contrast(with: solid)
@@ -167,13 +184,19 @@ import UIKit
         }
         let veil = page.alpha(dim * page.a)
         let seen = pixels.map { veil.over($0).oklab }
+        let limits: [Double] = plain.flatMap { $0.count == pixels.count ? $0 : nil }
+            .map { $0.map { let (_, a, b) = veil.over($0).oklab; return hypot(a, b) } }
+            ?? seen.map { hypot($0.1, $0.2) / saturation }
         let middle = seen.isEmpty ? 0 : seen.reduce(0) { $0 + $1.0 } / Double(seen.count)
         let (lightness, a0, b0) = solid.oklab
         let lighter = lightness > 0.6 ? shade / 2 : shade
-        return seen.map { lab in
+        // [tinted-dark] Only a dark bubble has the room to go past the picture; a light one stays as it was tuned.
+        let capped = lightness <= 0.6
+        return zip(seen, limits).map { lab, limit in
             let step = (lab.0 - middle) * (lab.0 > middle ? lighter : shade)
+            let strength = capped ? colour * richest(a0, b0, lab.1 * colour, lab.2 * colour, limit: limit) : colour
             func shown(_ part: Double) -> RGBA {
-                inGamut(lightness + part * step, a0, b0, colour * part * lab.1, colour * part * lab.2)
+                inGamut(lightness + part * step, a0, b0, strength * part * lab.1, strength * part * lab.2)
             }
             let all = shown(1)
             if reads(all) { return all }
@@ -186,6 +209,18 @@ import UIKit
             }
             return low > 0 ? shown(low) : solid
         }
+    }
+
+    /// [tinted-dark] The most of `da`, `db` (0…1 of it) the bubble's colour (`a0`, `b0`) can take and stay no more
+    /// colourful than `limit` (OKLab chroma), or its own colour where that is more: the theme's colour still leads.
+    nonisolated static func richest(_ a0: Double, _ b0: Double, _ da: Double, _ db: Double, limit: Double) -> Double {
+        let added = da * da + db * db
+        guard added > 0 else { return 1 }
+        let own = a0 * a0 + b0 * b0, ceiling = max(limit * limit, own)
+        // |own + t·added| = ceiling, the larger t (own is inside the ceiling, so it is ≥ 0).
+        let toward = a0 * da + b0 * db
+        let t = (-toward + (toward * toward - added * (own - ceiling)).squareRoot()) / added
+        return min(max(t, 0), 1)
     }
 
     /// `l` with the bubble's colour (`a0`, `b0`) and as much of `da`, `db` on top as sRGB can show.

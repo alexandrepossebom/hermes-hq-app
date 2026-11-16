@@ -1197,7 +1197,8 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
                         let bubble = mine ? tokens.meBubble : tokens.botBubble
                         let text = mine ? tokens.meText : tokens.label, time = mine ? tokens.meTime : tokens.label2
                         let goal = contrast ? 7.0 : 4.5
-                        let colours = TintedBubbles.paint(pixels: soft.pixels, bubble: bubble, page: tokens.page, dim: 0.3, text: text,
+                        let colours = TintedBubbles.paint(pixels: soft.pixels, plain: soft.plain, bubble: bubble, page: tokens.page,
+                                                          dim: 0.3, text: text,
                                                           time: time,
                                                           colour: contrast ? TintedBubbles.contrastColour
                                                               : mine ? TintedBubbles.ownColour : TintedBubbles.replyColour,
@@ -1220,6 +1221,53 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         }
         #expect(failures.isEmpty, "\(failures.prefix(20).joined(separator: "\n"))")
         print("[tinted-bubbles] weakest words on a tinted bubble: \(String(format: "%.2f", weakest)):1")
+    }
+
+    /// [tinted-dark] Owner 2026-11-15, a Dark Nous chat over a dusk photo: "very messed up in dark mode". A Dark reply
+    /// took about twice the picture's colour (the copy's 1.7 times 1.3); a Light one has no room for it and stays as it
+    /// was tuned. Every app picture, Light and Dark, every skin: a dark bubble (a one-look skin's in Light too) is no
+    /// more colourful than the picture as the page shows it (its copy before the 1.7, under the same Dim), or its own
+    /// colour where that is more.
+    @Test func aBubbleIsNoMoreColourfulThanThePicture() {
+        var failures: [String] = []
+        var worst = 0.0, checked = 0
+        let noAccent = BackdropPreset.Ink(r: 0.4, g: 0.5, b: 0.9)
+        func chroma(_ c: RGBA) -> Double { let (_, a, b) = c.oklab; return hypot(a, b) }
+        for preset in BackdropPreset.allCases {
+            for dark in [false, true] {
+                guard let picture = preset.render(width: 96, height: 208, dark: dark, accent: noAccent),
+                      let soft = TintedBubbles.makeSoft(picture) else {
+                    failures.append("\(preset) dark=\(dark): no soft copy")
+                    continue
+                }
+                for skin in SkinCatalog.all {
+                    let tokens = ThemeResolver.resolve(ThemeState(skinID: skin.id)).tokens(dark: dark)
+                    let veil = tokens.page.alpha(0.3 * tokens.page.a)
+                    #expect(soft.plain.count == soft.pixels.count)
+                    let page = soft.plain.map { chroma(veil.over($0)) }
+                    for mine in [false, true] {
+                        let bubble = mine ? tokens.meBubble : tokens.botBubble
+                        guard bubble.over(tokens.page.over(.white)).oklab.0 <= 0.6 else { continue }
+                        checked += 1
+                        let colours = TintedBubbles.paint(pixels: soft.pixels, plain: soft.plain, bubble: bubble, page: tokens.page,
+                                                          dim: 0.3, text: mine ? tokens.meText : tokens.label, time: mine ? tokens.meTime : tokens.label2,
+                                                          colour: mine ? TintedBubbles.ownColour : TintedBubbles.replyColour,
+                                                          shade: TintedBubbles.shade, target: 4.5)
+                        let shown = colours.map(chroma).reduce(0, +) / Double(colours.count)
+                        // Where it stands: the picture's colour there, or the bubble's own where that is more.
+                        let own = chroma(bubble.over(tokens.page.over(.white)))
+                        let ceiling = page.map { max($0, own) }.reduce(0, +) / Double(page.count)
+                        worst = max(worst, shown / max(ceiling, 0.001))
+                        if shown > ceiling * 1.1 + 0.005 {
+                            failures.append("\(preset) dark=\(dark) \(skin.id) mine=\(mine): \(String(format: "%.3f", shown)) over \(String(format: "%.3f", ceiling))")
+                        }
+                    }
+                }
+            }
+        }
+        #expect(checked > 500, "dark bubbles checked: \(checked)")
+        #expect(failures.isEmpty, "\(failures.count) too colourful:\n\(failures.prefix(20).joined(separator: "\n"))")
+        print("[tinted-dark] \(checked) dark bubbles; most colourful against its picture: \(String(format: "%.2f", worst))x")
     }
 
     /// A picture whose colour would break the words takes less of it, down to the solid bubble: a Light reply over
