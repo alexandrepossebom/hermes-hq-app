@@ -379,6 +379,13 @@ private final class EdgeHostScrollView: UIScrollView {
     private let fade = CAGradientLayer()
     /// How far below the bar the backing fades out, and how far the list scrolls before the backing is fully in.
     private static let fadeHeight: CGFloat = 16, rampDistance: CGFloat = 10
+    #else
+    /// [desktop-hard-edge] Owner 2026-11-15 on 1023: "You missed the background to the pills at the top." In the Desktop
+    /// Look the system's hard edge ended at the bar's foot whatever its reach said, leaving Sessions' chips and Tasks'
+    /// pills over sharp rows. In the look the band is ours, as the Mac chat's `barBlur`: a frost from the top down the
+    /// whole header (the bar and the strip under it), cut off straight with a hairline, once rows are under it.
+    private let desktopBand = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    private let desktopLine = UIView()
     #endif
 
     func watch(_ list: UIScrollView, page: UIColor) {
@@ -403,6 +410,14 @@ private final class EdgeHostScrollView: UIScrollView {
         backingPicture.frame = backing.bounds
         backing.addSubview(backingPicture)
         addSubview(backing)
+        #else
+        desktopBand.isUserInteractionEnabled = false
+        desktopBand.alpha = 0
+        desktopBand.accessibilityIdentifier = "list.desktopBand"
+        desktopLine.isUserInteractionEnabled = false
+        desktopBand.contentView.addSubview(desktopLine)
+        superview?.insertSubview(desktopBand, aboveSubview: self)   // over the rows, under the strip and the bar
+        registerForTraitChanges([ThemeGenerationTrait.self]) { (host: EdgeHostScrollView, _) in host.setNeedsLayout() }
         #endif
         offsetWatch = list.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.updateEdge() }
@@ -440,7 +455,23 @@ private final class EdgeHostScrollView: UIScrollView {
         // Owner 2026-11-03: at rest the system's edge still fades out a band past the header, and it blurred Artifacts'
         // All / Images / Files / Links picker, the list's first row, right under the title. The host never scrolls, so
         // the system can't tell that nothing is under the bar yet: the edge shows once rows are, as a chat's does.
+        #if targetEnvironment(macCatalyst)
         let hidden = scrolledUnder <= 0
+        #else
+        let desktop = Theme.isDesktop
+        let hidden = scrolledUnder <= 0 || desktop   // [desktop-hard-edge] the look's band is `desktopBand`
+        let bandFrame = CGRect(x: frame.minX, y: frame.minY, width: bounds.width, height: headerBottom)
+        if desktopBand.frame != bandFrame {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            desktopBand.frame = bandFrame
+            let line = 1 / max(traitCollection.displayScale, 1)
+            desktopLine.frame = CGRect(x: 0, y: bandFrame.height - line, width: bandFrame.width, height: line)
+            CATransaction.commit()
+        }
+        desktopLine.backgroundColor = HQPalette.separator
+        let bandAlpha: CGFloat = desktop ? min(max(scrolledUnder / 10, 0), 1) : 0
+        if desktopBand.alpha != bandAlpha { desktopBand.alpha = bandAlpha }
+        #endif
         if topEdgeEffect.isHidden != hidden { topEdgeEffect.isHidden = hidden }
         #if targetEnvironment(macCatalyst)
         guard backing.superview != nil else { return }

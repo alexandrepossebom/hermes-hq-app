@@ -2274,8 +2274,8 @@ extension SessionsViewController {
         }
         let host = UIHostingController(rootView: SessionsHeaderView(model: headerModel))
         host.safeAreaRegions = []                // it sits above the safe area it makes room in
-        // Clear over the soft edge in the iOS look; the Desktop Look's band is opaque edge to edge (`layoutHeader`).
-        host.view.backgroundColor = Theme.isDesktop ? HQPalette.page : .clear
+        // Clear over the top edge (`DesktopPillBand`: the Mac's Desktop Look keeps the page colour).
+        host.view.backgroundColor = DesktopPillBand.color
         pageBackdrop?.clear(host.view)                   // [backdrop] the picture's band is behind it then
         host.view.translatesAutoresizingMaskIntoConstraints = false
         addChild(host)
@@ -2311,8 +2311,8 @@ extension SessionsViewController {
         let scale = max(view.window?.screen.scale ?? traitCollection.displayScale, 1)
         let height = fitted.isFinite ? max(0, (fitted * scale).rounded(.up) / scale) : 0
         // Owner 2026-11-01: in the iOS look the chips sit over the list's soft edge as the title does (the edge reaches
-        // under them); the Desktop Look keeps the band opaque under its bar.
-        let band = Theme.isDesktop ? HQPalette.page : UIColor.clear
+        // under them), and in the Desktop Look the hard band does (owner 2026-11-15; the Mac keeps the page colour).
+        let band = DesktopPillBand.color
         if headerHost.view.backgroundColor != band { headerHost.view.backgroundColor = band }
         guard abs(additionalSafeAreaInsets.top - height) > 0.5 else { return }
         let animated = view.window != nil && !HQMotion.reduced && headerLaidOut
