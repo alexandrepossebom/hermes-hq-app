@@ -467,6 +467,13 @@ final class MoreLinksFooter: UICollectionReusableView {
     private let stack = UIStackView()
     private let websiteButton = UIButton(type: .system)
     private let githubButton = UIButton(type: .system)
+    /// [backdrop-ink] Owner 2026-11-15 (More on a night sky, Soft Cards): "Look at … link pills at bottom." The two
+    /// buttons stand on the page itself, not on a card: iOS's grey capsule with label 2 on it was dark on the dark
+    /// picture. While the page's picture shows with Soft Cards on, each stands on a soft capsule of the cards' own
+    /// material instead (as a loose line does, `hqPictureBacking`). With Soft Cards off the list is drawn in the mode
+    /// that reads on the picture, and iOS's grey capsule follows it.
+    private let websiteCard = SoftCardSurface(), githubCard = SoftCardSurface()
+    private var watches: [NSObjectProtocol] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -492,6 +499,28 @@ final class MoreLinksFooter: UICollectionReusableView {
             }, for: .primaryActionTriggered)
             stack.addArrangedSubview(button)
         }
+        for (card, button) in [(websiteCard, websiteButton), (githubCard, githubButton)] {
+            card.shape = .capsule
+            card.isHidden = true
+            card.translatesAutoresizingMaskIntoConstraints = false
+            insertSubview(card, belowSubview: stack)
+            NSLayoutConstraint.activate([
+                card.topAnchor.constraint(equalTo: button.topAnchor), card.bottomAnchor.constraint(equalTo: button.bottomAnchor),
+                card.leadingAnchor.constraint(equalTo: button.leadingAnchor), card.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+            ])
+        }
+        for name in [Backdrop.didChange, Backdrop.pictureReady, Theme.didChange] {
+            watches.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.update() }
+            })
+        }
+        update()
+    }
+
+    isolated deinit { watches.forEach(NotificationCenter.default.removeObserver) }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
         update()
     }
 
@@ -499,9 +528,13 @@ final class MoreLinksFooter: UICollectionReusableView {
 
     /// Styled for the look on show (re-run when the list reloads after a theme change).
     func update() {
+        // On soft cards just now (asked of the list: its picture shows and Soft Cards is on).
+        let soft = (superview as? UIScrollView).map(BackdropPlates.wanted(for:)) ?? false
+        websiteCard.isHidden = !soft
+        githubCard.isHidden = !soft
         for button in [websiteButton, githubButton] {
             let title = button === websiteButton ? "Website" : "GitHub"
-            var config = UIButton.Configuration.gray()
+            var config = soft ? UIButton.Configuration.plain() : UIButton.Configuration.gray()
             config.cornerStyle = .capsule
             config.imagePadding = 6
             config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)

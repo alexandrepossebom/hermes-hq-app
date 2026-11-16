@@ -47,9 +47,7 @@ import UIKit
 
     /// A tile held over the Dashboard's page names: one tick each time a new name lights, none as it goes dark.
     @Test func pageNamesTickAsATileCrossesThem() {
-        // [tiles-chips-same] The names are the band under the bar now (`DashboardPagesHeader`), as Tasks' views.
-        let bar = DashboardPagesHeader(actions: DashboardPageActions(select: { _ in }, add: {}, rename: { _ in },
-                                                                     move: { _, _ in }, delete: { _ in }))
+        let bar = DashboardPagesBar(frame: .zero)
         let cues = heard {
             bar.highlight("home")
             bar.highlight("home")   // the finger moved within the same name

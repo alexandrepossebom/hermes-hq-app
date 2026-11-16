@@ -754,6 +754,16 @@ final class SettingsEndToEndTests: XCTestCase {
         let beta = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Beta Ivy'")).firstMatch
         XCTAssertTrue(beta.waitForExistence(timeout: 10), "the Beta gateway's bots")
         shot(app, "bots-switcher-title")
+        // On an app background (HQN_UI_EXTRA_ARGS): the title and the gateway's line with rows scrolled under the bar.
+        if ProcessInfo.processInfo.environment["HQN_UI_EXTRA_ARGS"] != nil {
+            app.tabBars.buttons["More"].tap()
+            for _ in 0..<3 where !app.cells["more-row-settings"].exists { app.navigationBars.buttons.element(boundBy: 0).tap(); Thread.sleep(forTimeInterval: 0.8) }
+            app.swipeUp()
+            Thread.sleep(forTimeInterval: 1.2)
+            shot(app, "more-switcher-scrolled")
+            app.swipeDown(); app.swipeDown()
+            app.tabBars.buttons["Bots"].tap()
+        }
 
         // S25: news on the gateway not in use shows as a dot and "1 New".
         try a.control("/__settings/bump", ["profile": "ivy"])

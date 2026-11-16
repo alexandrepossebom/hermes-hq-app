@@ -167,7 +167,7 @@ private struct TaskViewsBand: View {
 }
 
 /// An empty view that says when its tint is dimmed (a sheet over the page) and when it isn't again.
-final class TintDimProbe: UIView {
+private final class TintDimProbe: UIView {
     var changed: ((Bool) -> Void)?
     override func tintColorDidChange() {
         super.tintColorDidChange()

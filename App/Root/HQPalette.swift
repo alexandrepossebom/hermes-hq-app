@@ -388,6 +388,14 @@ private final class EdgeHostScrollView: UIScrollView {
     /// whole header (the bar and the strip under it), cut off straight with a hairline, once rows are under it.
     private let desktopBand = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let desktopLine = UIView()
+    /// [backdrop-ink] Owner 2026-11-15 (More scrolled on a night sky, Soft Cards): "I'm not happy with this… Look at top
+    /// bar text color." Under the bar the soft edge blurs the pale cards and the dark picture between them into one
+    /// middle grey, on which neither ink reads (the title 4.1:1, the gateway's line grey on grey). While the cards are
+    /// under the bar it gets the cards' own tint (the page colour, as dense as this picture needs for label 2 at 4.5:1:
+    /// `SoftCard.tint`), fading out under the header, so the bar's words stand on what the cards' words stand on.
+    private let cardBand = UIView()
+    private let cardFade = CAGradientLayer()
+    private static let cardFadeHeight: CGFloat = 18
     #endif
 
     func watch(_ list: UIScrollView, page: UIColor) {
@@ -419,6 +427,12 @@ private final class EdgeHostScrollView: UIScrollView {
         desktopLine.isUserInteractionEnabled = false
         desktopBand.contentView.addSubview(desktopLine)
         superview?.insertSubview(desktopBand, aboveSubview: self)   // over the rows, under the strip and the bar
+        cardBand.isUserInteractionEnabled = false
+        cardBand.alpha = 0
+        cardBand.accessibilityIdentifier = "list.cardBand"
+        cardFade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+        cardBand.layer.mask = cardFade
+        superview?.insertSubview(cardBand, aboveSubview: self)
         registerForTraitChanges([ThemeGenerationTrait.self]) { (host: EdgeHostScrollView, _) in host.setNeedsLayout() }
         #endif
         offsetWatch = list.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
@@ -478,10 +492,31 @@ private final class EdgeHostScrollView: UIScrollView {
         // [backdrop-ink] On Soft Cards the rows under the bar are on cards of the page's colour: the bar's words keep
         // the mode's own ink while they are there (`BackdropBarInk.setCovered`).
         if page == nil { page = sequence(first: self as UIResponder, next: \.next).first { $0 is UIViewController } as? UIViewController }
+        var covered = false
         if let page {
             let reach = BackdropBarInk.coveredPast(rest: headerBottom + BackdropCards.gap, in: self, page: page)
-            BackdropBarInk.setCovered(scrolledUnder > reach && BackdropCards.on(page), on: page)
+            covered = scrolledUnder > reach && BackdropCards.on(page)
+            BackdropBarInk.setCovered(covered, on: page)
         }
+        #if !targetEnvironment(macCatalyst)
+        let cardFrame = CGRect(x: frame.minX, y: frame.minY, width: bounds.width, height: headerBottom + Self.cardFadeHeight)
+        if cardBand.frame != cardFrame {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            cardBand.frame = cardFrame
+            cardFade.frame = cardBand.bounds
+            cardFade.locations = [0, NSNumber(value: Double(headerBottom / max(cardFrame.height, 1))), 1]
+            CATransaction.commit()
+        }
+        if covered { cardBand.backgroundColor = SoftCard.tint(traitCollection) }
+        let cardAlpha: CGFloat = covered ? 1 : 0
+        if cardBand.alpha != cardAlpha {
+            if window != nil, !HQMotion.reduced {
+                UIView.animate(withDuration: 0.15, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { self.cardBand.alpha = cardAlpha }   // motion-ok: a fade, nothing moves
+            } else {
+                cardBand.alpha = cardAlpha
+            }
+        }
+        #endif
         #if targetEnvironment(macCatalyst)
         guard backing.superview != nil else { return }
         let height = headerBottom + Self.fadeHeight
