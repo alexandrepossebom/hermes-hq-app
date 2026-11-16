@@ -25,8 +25,8 @@
 //   then the bubble had the picture's colour and lightness and no shape at all (owner, beside Sessions on Soft Cards:
 //   "Shouldn't it be more like this? At least in dark mode"). Now a dark bubble is Soft Cards' card: the theme's page
 //   colour for a reply (your own bubble's colour for yours) with `cardShow` of the picture, soft and as the page
-//   shows it, coming through, and Soft Cards' hairline round it. Darker than the picture, calm, and the picture
-//   still passes as the chat scrolls. Light bubbles are as they were.
+//   shows it, coming through, and Soft Cards' hairline round it. Darker than the picture, calm, one colour from
+//   reply to reply, and a trace of the picture still passes as the chat scrolls. Light bubbles are as they were.
 // - The tail stays: a mask takes any outline (glass takes rounded corners only).
 // - On the Mac too: these are plain layers, which Catalyst draws as the iPhone does (it drew glass without its tint).
 
@@ -50,9 +50,11 @@ import UIKit
     nonisolated static let blurPart = 16.0
     /// How much the copy's colour is raised (Telegram's 1.7): a wash this soft would be grey without it.
     nonisolated static let saturation = 1.7
-    /// [tinted-dark] How much of the picture comes through a dark bubble's card (Soft Cards' cards on a night photo
-    /// are about this dense), and under Increase Contrast.
-    nonisolated static let cardShow = 0.24
+    /// [tinted-dark] How much of the picture comes through a dark bubble's card, and under Increase Contrast. 0.24 in
+    /// build 1033: over a photo with a bright band, the reply standing on the band went dusty mauve beside a navy one
+    /// (owner: "Are you happy with this? … I need design help"; he picked this calmer card from three drawn for him).
+    /// At 0.14 replies keep one colour down the screen and a trace of the picture still passes as the chat scrolls.
+    nonisolated static let cardShow = 0.14
     nonisolated static let contrastCardShow = 0.1
     /// [tinted-dark] A bubble this dark or darker (OKLab lightness of its solid colour) is drawn as a card.
     nonisolated static let darkBelow = 0.6
