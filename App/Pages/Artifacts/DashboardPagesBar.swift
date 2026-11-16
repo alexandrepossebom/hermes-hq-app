@@ -1,186 +1,337 @@
+// [dashboard] The Dashboard's pages as a row of names under its header (owner 2026-11-03: "pages within the dashboards
+// page"): tap one to show it, hold one to Rename, Move or Delete it, ＋ for a new page. It scrolls sideways when the
+// names outgrow the width. [header-menus] A ⋯ after the ＋ opens the shown page's hold menu (owner 2026-11-03, menu review
+// "Actions you can only reach by long-press").
+//
+// [tiles-chips-same] Owner 2026-11-15: "The chips on the top of the Tile page aren't set up the same way the chips are on
+// other pages." The names were UIKit buttons in the tile list's first cell: they scrolled away with the tiles, sat 20 pt
+// in (the rails sit 16), right under the bar (the rails keep `DesktopRows.underBar`), and had no edge fade or 44 pt
+// touch. They are now Tasks' band (`TaskViewsHeader`): a fixed row under the bar that the list starts beneath, drawn
+// with the same `SessionPill`s in the same scrolling rail (a wrapping row on the Mac), ＋ drawn as Tasks' New List.
+
+import SwiftUI
 import UIKit
 
-/// [dashboard] The Dashboard's pages as a row of names under its header (owner 2026-11-03: "pages within the dashboards
-/// page"): tap one to show it, hold one to Rename, Move or Delete it, ＋ for a new page. It scrolls sideways when the
-/// names outgrow the width. [header-menus] A ⋯ after the ＋ opens the shown page's hold menu (owner 2026-11-03, menu review
-/// "Actions you can only reach by long-press").
-@MainActor
-final class DashboardPagesBar: UIView {
-    var onSelect: ((String) -> Void)?
-    var onAdd: (() -> Void)?
-    var menuFor: ((DashboardPage) -> UIMenu?)?
-
-    private let scroll = UIScrollView()
-    private let stack = UIStackView()
-    private var chips: [String: UIButton] = [:]
+@MainActor @Observable
+final class DashboardPagesModel {
+    /// Empty: no row (one page, the Artifacts shelf, or a search).
+    var pages: [DashboardPage] = []
+    var current: String = DashboardPage.mainId
+    /// How many tiles each page holds (for VoiceOver).
+    var counts: [String: Int] = [:]
     /// The page whose name a held tile is over (nil: none).
-    private var highlighted: String?
-    /// [tiles-glass-pills] The pills in one glass container, as `hqPickGlassRow`: glass can't sample glass, so without
-    /// it the ＋ lensed the shown page's tint into a smear along its edge. Spacing 0: the pills never melt together.
-    private let glassRow: UIVisualEffectView = {
-        let container = UIGlassContainerEffect()
-        container.spacing = 0
-        return UIVisualEffectView(effect: container)
-    }()
+    var highlighted: String?
+    /// [Mac UI check 2026-11-13] A sheet is up over the page (UIKit has dimmed its tint), as Tasks'.
+    var dimmed = false
+    /// Each name's frame in the band, for a tile dropped on it.
+    @ObservationIgnored var frames: [String: CGRect] = [:]
+}
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        scroll.showsHorizontalScrollIndicator = false
-        scroll.alwaysBounceHorizontal = true
-        scroll.clipsToBounds = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .horizontal
-        stack.spacing = 8
-        stack.alignment = .center
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
-        glassRow.translatesAutoresizingMaskIntoConstraints = false
-        scroll.addSubview(glassRow)
-        glassRow.contentView.addSubview(stack)
+/// What the names offer (the page's hold menu and the ⋯).
+struct DashboardPageActions {
+    var select: (String) -> Void
+    var add: () -> Void
+    var rename: (DashboardPage) -> Void
+    var move: (DashboardPage, Int) -> Void
+    var delete: (DashboardPage) -> Void
+}
+
+struct DashboardPagesBand: View {
+    var model: DashboardPagesModel
+    var actions: DashboardPageActions
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let space = "dashboard.pages.band"
+
+    var body: some View {
+        Group {
+            if !model.pages.isEmpty { rail }
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(uiColor: DesktopPillBand.color))   // as Tasks' band
+        .coordinateSpace(.named(Self.space))
+    }
+
+    private static func identifier(_ page: DashboardPage) -> String {
+        "dashboard.page.\(page.id == DashboardPage.mainId ? "main" : page.name)"
+    }
+
+    @ViewBuilder private var pills: some View {
+        ForEach(model.pages) { page in
+            let picked = model.current == page.id
+            // Under a sheet the picked pill's tinted glass greys: drawn plain with a ring then, as Tasks' pills.
+            let quiet = picked && model.dimmed && !Theme.isDesktop
+            let count = model.counts[page.id] ?? 0
+            SessionPill(caption: page.name, name: page.name, picked: picked && !quiet,
+                        identifier: Self.identifier(page)) {
+                actions.select(page.id)
+            } face: {
+                EmptyView()
+            }
+            .overlay {
+                if quiet {
+                    Capsule().strokeBorder(Color.hqLabel2, lineWidth: 1.5)
+                        .frame(height: SessionPill<EmptyView>.height)
+                        .allowsHitTesting(false)
+                }
+            }
+            .accessibilityAddTraits(quiet ? .isSelected : [])
+            .accessibilityValue(count == 1 ? "1 tile" : "\(count) tiles")
+            // A held tile over the name lifts it.
+            .scaleEffect(model.highlighted == page.id ? 1.12 : 1)
+            .animation(HQMotion.reduced ? nil : .easeOut(duration: 0.15), value: model.highlighted)
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.space)) }) { model.frames[page.id] = $0 }
+            .contextMenu { menu(for: page) }
+            .id(page.id)
+        }
+        // ＋, as Tasks' New List.
+        SessionPill(caption: "", name: "New Page", picked: false, identifier: "dashboard.page.add", hasFace: true, lead: 10) {
+            actions.add()
+        } face: {
+            Self.mark("plus")
+        }
+        // [header-menus] The shown page's hold menu, a tap away: drawn as the ＋, titled with the page's name.
+        if let page = model.pages.first(where: { $0.id == model.current }) {
+            Menu {
+                Section(page.name) { menu(for: page) }
+            } label: {
+                MorePill()
+            }
+            .menuIndicator(.hidden)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            // The 44 pt touch outside the Menu: inside its label, the glass grew to the whole touch frame (a ⋯ 10 pt
+            // taller than the ＋ beside it).
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Actions for \(page.name)")
+            .accessibilityIdentifier("dashboard.page.menu")
+        }
+    }
+
+    /// ＋'s and ⋯'s mark, in the secondary label colour (Tasks' New List).
+    static func mark(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(Font.hq(Theme.isDesktop ? .caption : .footnote).weight(.semibold))
+            .foregroundStyle(Color.hqLabel2)
+            .padding(.trailing, -8)
+    }
+
+    /// Rename, Move Left/Right, Delete (Main can be renamed, not moved or deleted).
+    @ViewBuilder private func menu(for page: DashboardPage) -> some View {
+        Button { actions.rename(page) } label: { Label("Rename…", systemImage: "pencil") }
+            .accessibilityIdentifier("dashboard.page.rename")
+        if page.id != DashboardPage.mainId, let index = model.pages.firstIndex(of: page) {
+            if index > 1 || index < model.pages.count - 1 {
+                Section {
+                    if index > 1 {
+                        Button { actions.move(page, -1) } label: { Label("Move Left", systemImage: "arrow.left") }
+                    }
+                    if index < model.pages.count - 1 {
+                        Button { actions.move(page, 1) } label: { Label("Move Right", systemImage: "arrow.right") }
+                    }
+                }
+            }
+            Section {
+                Button(role: .destructive) { actions.delete(page) } label: { Label("Delete Page", systemImage: "trash") }
+                    .accessibilityIdentifier("dashboard.page.delete")
+            }
+        }
+    }
+
+    @ViewBuilder private var rail: some View {
+        if DeviceWord.isMac {
+            // As Tasks' views on the Mac: every name in sight, wrapping to a second line in a narrow pane.
+            PagesFlowLayout(spacing: 8, lineSpacing: 0) { pills }
+                .padding(.horizontal, Theme.isDesktop ? DesktopRows.gutter : 16)
+                .padding(.top, DesktopRows.underBar)
+                .padding(.bottom, Theme.isDesktop ? 2 : 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hqPickGlassRow()
+                .hqFlatPicks()
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Pages")
+                .accessibilityIdentifier("dashboard.pages")
+        } else {
+            scrollingRail
+        }
+    }
+
+    private var scrollingRail: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) { pills }
+                    .padding(.horizontal, Theme.isDesktop ? DesktopRows.gutter : 16)
+                    .padding(.top, DesktopRows.underBar)
+                    .padding(.bottom, Theme.isDesktop ? 2 : 4)
+                    .hqPickGlassRow()
+            }
+            .scrollIndicators(.hidden)
+            .hqScrollEdgeFade(width: 20)
+            // Only as far as it takes to show the picked name whole (no anchor), as Tasks' rail.
+            .onAppear { proxy.scrollTo(model.current) }
+            .onChange(of: model.current) { _, current in
+                if reduceMotion {
+                    proxy.scrollTo(current)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(current) }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pages")
+        .accessibilityIdentifier("dashboard.pages")
+    }
+}
+
+/// The ⋯ as a pill drawn as the ＋ (`SessionPill` with a mark and no caption) for a `Menu`'s label.
+private struct MorePill: View {
+    var body: some View {
+        let height = SessionPill<EmptyView>.height
+        HStack(spacing: 6) {
+            DashboardPagesBand.mark("ellipsis")
+            Text("").font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 12)
+        .padding(.vertical, 4)
+        .frame(minHeight: height)
+        .background {
+            if Theme.isDesktop {
+                RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3)
+            }
+        }
+        .hqPickGlass(false, in: Capsule(), prominent: true)
+    }
+}
+
+/// The names as the page's fixed band under its bar, as Tasks' views (`TaskViewsHeader`): the list starts under it.
+@MainActor
+final class DashboardPagesHeader: NSObject, UIDropInteractionDelegate {
+    let model = DashboardPagesModel()
+    private let actions: DashboardPageActions
+    private weak var controller: UIViewController?
+    private var host: UIHostingController<DashboardPagesBand>?
+    private var height: NSLayoutConstraint?
+    private var laidOut = false
+    /// [dashboard] A tile held over a name goes onto that page: whether the drag is a tile, and the drop.
+    var acceptsDrop: (UIDropSession) -> Bool = { _ in false }
+    var onDrop: (UIDropSession, String) -> Void = { _, _ in }
+
+    var shows: Bool { !model.pages.isEmpty }
+
+    init(actions: DashboardPageActions) {
+        self.actions = actions
+    }
+
+    /// Under the bar of `controller`; `list` is the page's list (in its soft-edge host when it has one).
+    func install(in controller: UIViewController, list: UIScrollView, backdrop: PageBackdrop?) {
+        guard host == nil else { return }
+        self.controller = controller
+        let host = UIHostingController(rootView: DashboardPagesBand(model: model, actions: actions))
+        host.safeAreaRegions = []                // it sits above the safe area it makes room in
+        host.view.backgroundColor = DesktopPillBand.color
+        backdrop?.clear(host.view)               // [backdrop] the picture's band is behind it then
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        controller.addChild(host)
+        controller.view.addSubview(host.view)
+        // [top-edge] The names are part of the top edge, as Sessions' and Tasks' pills: the hard band reaches under them.
+        if let edgeHost = list.superview as? UIScrollView {
+            let edge = UIScrollEdgeElementContainerInteraction()
+            edge.scrollView = edgeHost
+            edge.edge = .top
+            host.view.addInteraction(edge)
+        }
+        host.view.addInteraction(UIDropInteraction(delegate: self))
+        let height = host.view.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glassRow.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-            glassRow.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            glassRow.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-            glassRow.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-            glassRow.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-            stack.topAnchor.constraint(equalTo: glassRow.contentView.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: glassRow.contentView.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: glassRow.contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: glassRow.contentView.trailingAnchor),
+            host.view.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            host.view.bottomAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.topAnchor),
+            height,
         ])
-        accessibilityIdentifier = "dashboard.pages"
+        host.didMove(toParent: controller)
+        host.view.clipsToBounds = true
+        let probe = TintDimProbe()
+        probe.isUserInteractionEnabled = false
+        probe.changed = { [weak self] dimmed in
+            guard let self, self.model.dimmed != dimmed else { return }
+            self.model.dimmed = dimmed
+        }
+        controller.view.addSubview(probe)
+        self.host = host
+        self.height = height
     }
 
-    @MainActor required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    /// The names, the shown one filled, and how many tiles each holds (for VoiceOver).
-    func show(_ pages: [DashboardPage], current: String, counts: [String: Int]) {
-        // Drawn afresh each time (a few buttons): the theme's colours and fonts come along.
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        chips = [:]
-        for page in pages {
-            let chip = makeChip(page, selected: page.id == current, count: counts[page.id] ?? 0)
-            chips[page.id] = chip
-            stack.addArrangedSubview(chip)
-        }
-        stack.addArrangedSubview(makeAdd())
-        if let page = pages.first(where: { $0.id == current }), let menu = menuFor?(page) {
-            stack.addArrangedSubview(makeMore(page, menu: menu))   // [header-menus]
-        }
-        layoutIfNeeded()
-        if let shown = chips[current] { scroll.scrollRectToVisible(shown.frame.insetBy(dx: -24, dy: 0), animated: false) }
-    }
-
-    /// The page whose name is under `point` (a tile dragged onto it in Edit Tiles).
-    func pageId(at point: CGPoint, in view: UIView) -> String? {
-        chips.first { _, chip in chip.convert(chip.bounds.insetBy(dx: -4, dy: -8), to: view).contains(point) }?.key
+    /// The names and the shown one (none: no row); the band is measured again only when what it draws changed.
+    func update(pages: [DashboardPage], current: String, counts: [String: Int]) {
+        guard host != nil else { return }
+        var changed = false
+        if model.pages != pages { model.pages = pages; changed = true }
+        if model.current != current { model.current = current; changed = true }
+        if model.counts != counts { model.counts = counts }
+        if pages.isEmpty { model.frames = [:] }
+        if changed { controller?.view.setNeedsLayout() }
     }
 
     /// The name a dragged tile is over, lit up (nil: none).
     func highlight(_ id: String?) {
+        guard id != model.highlighted else { return }
         // A tick as a page's name lights under a held tile (once per name, not per move of the finger).
-        if id != highlighted, id != nil { Haptics.play(.selection) }
-        highlighted = id
-        for (key, chip) in chips {
-            let on = key == id
-            HQMotion.animate(0.15) { chip.transform = on ? CGAffineTransform(scaleX: 1.12, y: 1.12) : .identity }
+        if id != nil { Haptics.play(.selection) }
+        model.highlighted = id
+    }
+
+    /// The page (not the shown one) whose name is under the drop.
+    private func page(under session: UIDropSession) -> String? {
+        guard let view = host?.view, shows else { return nil }
+        let point = session.location(in: view)
+        return model.frames.first { id, frame in id != model.current && frame.insetBy(dx: -4, dy: -8).contains(point) }?.key
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+        shows && acceptsDrop(session)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+        let id = page(under: session)
+        highlight(id)
+        return UIDropProposal(operation: id == nil ? .forbidden : .move)
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) { highlight(nil) }
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) { highlight(nil) }
+
+    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+        let id = page(under: session)
+        highlight(nil)
+        if let id { onDrop(session, id) }
+    }
+
+    /// From the page's `viewDidLayoutSubviews`: the band's height, and the list's room under it.
+    func layout() {
+        guard let host, let height, let controller, controller.view.bounds.width > 0 else { return }
+        let view = controller.view!
+        let fitted = model.pages.isEmpty ? 0 : host.sizeThatFits(in: CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude)).height
+        // To the pixel, not the point: a band a fraction taller than its content left a line of the list above it.
+        let scale = max(view.window?.screen.scale ?? controller.traitCollection.displayScale, 1)
+        let target = fitted.isFinite ? max(0, (fitted * scale).rounded(.up) / scale) : 0
+        let band = DesktopPillBand.color
+        if host.view.backgroundColor != band { host.view.backgroundColor = band }
+        guard abs(controller.additionalSafeAreaInsets.top - target) > 0.5 else { return }
+        let animated = view.window != nil && !HQMotion.reduced && laidOut
+        laidOut = true
+        let change = {
+            height.constant = target
+            controller.additionalSafeAreaInsets.top = target
         }
-    }
-
-    // [tiles-glass-pills] Owner 2026-11-10: the page names didn't match the pills on Sessions and Tasks ("not liquid
-    // glass, just a completely different design"). They are now drawn as `SessionPill` is: in the iOS look a 34 pt
-    // Liquid Glass capsule, the shown page the tint's prominent glass with its words in the tint's ink; in the Desktop
-    // Look a 28 pt flat piece with the look's square corners, the tint or the grey fill. Words medium either way.
-
-    /// The pill's height, as `SessionPill`'s (UI Scale, not Compact).
-    private static var pillHeight: CGFloat { Theme.isDesktop ? HQFont.scaled(28) : HQFont.scaled(34) }
-
-    /// In the dark the glass lifts the tint, and white words on the shown page read 3.3:1; a third darker, 7.5:1 (as
-    /// `hqPickGlass(prominent:)`).
-    private static let prominentInk = UIColor { traits in
-        let tint = HQPalette.tint.resolvedColor(with: traits)
-        guard traits.userInterfaceStyle == .dark else { return tint }
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        tint.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return UIColor(red: r * 0.7, green: g * 0.7, blue: b * 0.7, alpha: a)
-    }
-
-    /// One pill's look: glass (or the tint's prominent glass when `picked`) with the look off, the desktop's flat piece on.
-    private static func pillConfiguration(picked: Bool) -> UIButton.Configuration {
-        var config: UIButton.Configuration
-        if Theme.isDesktop {
-            config = .filled()
-            config.cornerStyle = .fixed
-            config.background.cornerRadius = DesktopRows.radius
-            config.baseBackgroundColor = picked ? HQPalette.tint : HQPalette.fill3
+        if animated {
+            UIView.animate(withDuration: 0.2) {   // motion-ok: `animated` above is false under Reduce Motion
+                change()
+                view.layoutIfNeeded()
+            }
         } else {
-            config = picked ? .hqProminentGlass() : .hqGlass()
-            config.cornerStyle = .capsule
-            if picked { config.baseBackgroundColor = prominentInk }
+            change()
         }
-        config.baseForegroundColor = picked ? HQPalette.onTint : HQPalette.label
-        return config
-    }
-
-    private static func sized(_ button: UIButton, square: Bool) -> UIButton {
-        let height = pillHeight
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: height).isActive = true
-        if square { button.widthAnchor.constraint(greaterThanOrEqualToConstant: height).isActive = true }
-        return button
-    }
-
-    private func makeChip(_ page: DashboardPage, selected: Bool, count: Int) -> UIButton {
-        var config = Self.pillConfiguration(picked: selected)
-        let base = HQFont.preferred(Theme.isDesktop ? .footnote : .subheadline)
-        let font = UIFont(descriptor: base.fontDescriptor.addingAttributes([
-            .traits: [UIFontDescriptor.TraitKey.weight: UIFont.Weight.medium],
-        ]), size: 0)
-        config.attributedTitle = AttributedString(page.name, attributes: AttributeContainer([.font: font]))
-        config.titleLineBreakMode = .byTruncatingTail
-        // Large text grows the pill, never touching its edge.
-        config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14)
-        let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.onSelect?(page.id) })
-        if !Theme.isDesktop { button.tintColor = Self.prominentInk }
-        button.menu = menuFor?(page)
-        button.showsMenuAsPrimaryAction = false
-        button.accessibilityIdentifier = "dashboard.page.\(page.id == DashboardPage.mainId ? "main" : page.name)"
-        button.accessibilityLabel = page.name
-        button.accessibilityValue = count == 1 ? "1 tile" : "\(count) tiles"
-        if selected { button.accessibilityTraits.insert(.selected) }
-        return Self.sized(button, square: false)
-    }
-
-    /// ＋ and ⋯: round pills of the same glass, their marks in the secondary label colour.
-    private static func symbolConfiguration(_ symbol: String) -> UIButton.Configuration {
-        var config = pillConfiguration(picked: false)
-        config.image = UIImage(systemName: symbol)
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-            textStyle: Theme.isDesktop ? .footnote : .subheadline, scale: .small)
-        config.baseForegroundColor = HQPalette.label2
-        config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
-        return config
-    }
-
-    private func makeAdd() -> UIButton {
-        let button = UIButton(configuration: Self.symbolConfiguration("plus"),
-                              primaryAction: UIAction { [weak self] _ in self?.onAdd?() })
-        button.accessibilityIdentifier = "dashboard.page.add"
-        button.accessibilityLabel = "New Page"
-        return Self.sized(button, square: true)
-    }
-
-    /// [header-menus] The shown page's hold menu, a tap away: drawn as the ＋, titled with the page's name (away from the
-    /// name, the menu says which page it acts on; Main's hold menu has no title of its own).
-    private func makeMore(_ page: DashboardPage, menu: UIMenu) -> UIButton {
-        let button = UIButton(configuration: Self.symbolConfiguration("ellipsis"))
-        button.menu = UIMenu(title: page.name, children: menu.children)
-        button.showsMenuAsPrimaryAction = true
-        button.accessibilityIdentifier = "dashboard.page.menu"
-        button.accessibilityLabel = "Actions for \(page.name)"
-        return Self.sized(button, square: true)
     }
 }

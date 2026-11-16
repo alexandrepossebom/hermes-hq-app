@@ -953,11 +953,22 @@ final class PagesTests: XCTestCase {
         let name = app.textFields["dashboard.page.name"]
         XCTAssertTrue(name.waitForExistence(timeout: 3))
         name.typeText("Finance")
-        app.alerts.buttons["Add"].tap()
+        addPage()
         XCTAssertTrue(app.buttons["dashboard.page.Finance"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["dashboard.page.main"].exists, "Main leads the page names")
         XCTAssertTrue(app.staticTexts["This Page Is Empty"].waitForExistence(timeout: 3), "the new page is shown, empty")
         shot("pins-pages-new")
+
+        // [tiles-chips-same] Owner 2026-11-15: the names are set up as the pills on Sessions and Tasks: a fixed band
+        // under the bar (not the list's first row), the rails' 16 pt side room, and their 44 pt touch.
+        let mainPill = app.buttons["dashboard.page.main"].firstMatch
+        let pills = app.descendants(matching: .any)["dashboard.pages"].firstMatch
+        XCTAssertTrue(pills.exists, "the names are one rail, as Tasks' views")
+        XCTAssertFalse(page.cells.containing(.button, identifier: "dashboard.page.main").firstMatch.exists,
+                       "the names are not a row of the tile list")
+        XCTAssertEqual(mainPill.frame.minX, 16, accuracy: 1, "the rails' side room: \(mainPill.frame)")
+        XCTAssertEqual(mainPill.frame.height, 44, accuracy: 1, "a pill's 44 pt touch: \(mainPill.frame)")
+        XCTAssertLessThanOrEqual(mainPill.frame.maxY, page.cells.firstMatch.frame.minY + 1, "the tiles start under the names")
 
         // Swipe back to Main: the three tiles.
         page.swipeRight()
@@ -977,7 +988,7 @@ final class PagesTests: XCTestCase {
 
         // Deleting Finance sends its tile back to Main.
         app.buttons["dashboard.page.Finance"].firstMatch.press(forDuration: 1)
-        app.buttons["dashboard.page.delete"].firstMatch.tap()
+        app.buttons["Delete Page"].firstMatch.tap()
         app.alerts.buttons["Delete Page"].tap()
         XCTAssertTrue(waitUntil(3) { !self.app.buttons["dashboard.page.Finance"].exists })
         XCTAssertFalse(app.buttons["dashboard.page.main"].exists, "back to one page: the names go")
@@ -1004,7 +1015,7 @@ final class PagesTests: XCTestCase {
         let name = app.textFields["dashboard.page.name"]
         XCTAssertTrue(name.waitForExistence(timeout: 3))
         name.typeText("Finance")
-        app.alerts.buttons["Add"].tap()
+        addPage()
         XCTAssertTrue(app.buttons["dashboard.page.Finance"].waitForExistence(timeout: 3))
         let more = app.buttons["dashboard.page.menu"]
         XCTAssertTrue(more.waitForExistence(timeout: 3), "the ⋯ after the page names")
@@ -1012,14 +1023,39 @@ final class PagesTests: XCTestCase {
         // Drawn as the ＋ (the bar's own size), just after it.
         let add = app.buttons["dashboard.page.add"]
         XCTAssertEqual(more.frame.height, add.frame.height, accuracy: 1, "as tall as the ＋")
+        // [tiles-chips-same] The drawn pill, not just the touch: the ⋯'s glass stood 10 pt taller than the ＋'s.
+        let shotImage = XCUIScreen.main.screenshot().image
+        /// The drawn height of the pill in `frame`: from the first to the last row off the page's white, down a column
+        /// just inside its left edge (clear of the ＋ and ⋯ marks).
+        func drawnHeight(_ frame: CGRect) -> Int {
+            guard let cg = shotImage.cgImage else { return 0 }
+            let w = cg.width, h = cg.height
+            var px = [UInt8](repeating: 0, count: w * h * 4)
+            guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            let scale = CGFloat(w) / shotImage.size.width
+            let x = Int((frame.minX + 6) * scale)
+            var first: Int?, last = 0
+            for y in Int((frame.minY - 6) * scale)..<Int((frame.maxY + 6) * scale) {
+                let o = (y * w + x) * 4
+                if Int(px[o]) + Int(px[o + 1]) + Int(px[o + 2]) < 3 * 246 { first = first ?? y; last = y }
+            }
+            return first.map { last - $0 } ?? 0
+        }
+        let drawnMore = drawnHeight(more.frame), drawnAdd = drawnHeight(add.frame)
+        XCTAssertGreaterThan(drawnAdd, 0)
+        XCTAssertEqual(Double(drawnMore), Double(drawnAdd), accuracy: 6, "the ⋯ drawn as tall as the ＋: \(drawnMore) vs \(drawnAdd) px")
         XCTAssertGreaterThanOrEqual(more.frame.minX, add.frame.maxX, "after the ＋")
         XCTAssertTrue(more.isHittable)
         Thread.sleep(forTimeInterval: 1)
         shot("pins-pages-menu-button")
         more.tap()
-        let rename = app.buttons["dashboard.page.rename"].firstMatch
+        // The menus are SwiftUI's, whose items carry no identifier: found by their words.
+        let rename = app.buttons["Rename…"].firstMatch
         XCTAssertTrue(rename.waitForExistence(timeout: 3), "Rename, as the hold menu")
-        XCTAssertTrue(app.buttons["dashboard.page.delete"].firstMatch.exists, "and Delete Page")
+        XCTAssertTrue(app.buttons["Delete Page"].firstMatch.exists, "and Delete Page")
         shot("pins-pages-menu-open")
         rename.tap()
         let field = app.textFields["dashboard.page.name"]
@@ -1036,10 +1072,52 @@ final class PagesTests: XCTestCase {
         XCTAssertTrue(waitUntil(3) { more.label == "Actions for Main" }, more.label)
         more.tap()
         XCTAssertTrue(rename.waitForExistence(timeout: 3), "Main's Rename")
-        XCTAssertFalse(app.buttons["dashboard.page.delete"].firstMatch.exists, "Main can't be deleted")
+        XCTAssertFalse(app.buttons["Delete Page"].firstMatch.exists, "Main can't be deleted")
         shot("pins-pages-menu-main")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap()   // the menu goes with a tap off it
         XCTAssertTrue(waitUntil(3) { !rename.exists }, "the menu closes")
+    }
+
+    /// [tiles-chips-same] The names moved from the tile list into the band under the bar: a tile held and dragged onto
+    /// another page's name still goes onto that page.
+    @MainActor func testArt13c_DragTileOntoPageName() throws {
+        let (arguments, shot) = pinsLook()
+        app = launchSignedIn(arguments + ["-HQDebugResetPins", "YES"])
+        openArtifacts()
+        let list = app.collectionViews["artifacts.list"]
+        pinThree(in: list)
+        app.buttons["pins.view"].firstMatch.tap()
+        app.buttons["pins.view.grid"].firstMatch.tap()
+        app.buttons["pins.view"].firstMatch.tap()
+        app.buttons["pins.open-page"].firstMatch.tap()
+        let page = app.collectionViews["pinned.list"]
+        let pageTile = page.cells["pin-card-index.html"]
+        XCTAssertTrue(pageTile.waitForExistence(timeout: 5))
+        app.buttons["pins.view"].firstMatch.tap()
+        app.buttons["dashboard.page.new"].firstMatch.tap()
+        let name = app.textFields["dashboard.page.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.typeText("Finance")
+        addPage()
+        let finance = app.buttons["dashboard.page.Finance"].firstMatch
+        XCTAssertTrue(finance.waitForExistence(timeout: 3))
+        app.buttons["dashboard.page.main"].firstMatch.tap()
+        XCTAssertTrue(pageTile.waitForExistence(timeout: 3), "back on Main")
+        Thread.sleep(forTimeInterval: 1)
+        shot("pins-pages-band")
+        // In Edit Tiles a hold lifts the tile (out of it the hold opens the tile's menu first). Slowly, and held over
+        // the name a moment, as a finger would.
+        pageTile.press(forDuration: 1)
+        app.buttons["pins.edit"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["pins.done"].waitForExistence(timeout: 3))
+        let from = pageTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = finance.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        from.press(forDuration: 0.8, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 1)
+        XCTAssertTrue(waitUntil(4) { !pageTile.exists }, "the tile dropped on Finance left Main")
+        XCTAssertTrue(app.staticTexts["2 Items"].waitForExistence(timeout: 3))
+        app.buttons["pins.done"].tap()
+        finance.tap()
+        XCTAssertTrue(pageTile.waitForExistence(timeout: 3), "the tile is on Finance")
     }
 
     /// [tiles] Tiles as a tab (owner 2026-11-03: "Dashboard" was too long beside Bots, Sessions, Jobs): its name and icon.
@@ -1105,6 +1183,13 @@ final class PagesTests: XCTestCase {
         XCTAssertTrue(app.buttons["pins.view"].waitForExistence(timeout: 3), "Done ends it")
         XCTAssertFalse(pageTile.buttons["pin.unpin-badge"].exists)
         shot("pins-edit-done")
+    }
+
+    /// New Page's Add, again if a tap was lost while the keyboard settled (the alert stayed up).
+    @MainActor private func addPage() {
+        let add = app.alerts.buttons["Add"]
+        add.tap()
+        if !waitUntil(1.5, { !add.exists }), add.exists { add.tap() }
     }
 
     /// [pins] Pins the page (swiped), the picture (held) and the file (swiped) from Artifacts' list.

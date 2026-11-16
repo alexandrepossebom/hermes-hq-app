@@ -13,10 +13,10 @@ import UIKit
 
 final class ArtifactsViewController: UIViewController, UICollectionViewDelegate, UISearchResultsUpdating, PaneListEmptiness,
                                      UICollectionViewDragDelegate, UICollectionViewDropDelegate, UIGestureRecognizerDelegate {
-    private nonisolated enum Section: Hashable { case filter, pages, making, pinned, allPins, images, showAllImages, day(String), more, unavailable, state, count }
+    private nonisolated enum Section: Hashable { case filter, making, pinned, allPins, images, showAllImages, day(String), more, unavailable, state, count }
     private nonisolated enum Item: Hashable {
         case filter, image(String), showAllImages(Int), row(String), loadMore, unavailableToggle(Int), unavailableRow(String)
-        case state, skeleton(Int), count(String), pin(String), pinRow(String), allPins(Int), pages, making(String)
+        case state, skeleton(Int), count(String), pin(String), pinRow(String), allPins(Int), making(String)
     }
 
     /// [pins] As rows, Artifacts lists this many pins, then "See All N Pinned".
@@ -199,6 +199,8 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             snapshot.reloadSections(snapshot.sectionIdentifiers)
             dataSource.apply(snapshot, animatingDifferences: false)
         }
+        // [tiles-chips-same] The page names: a fixed band under the bar, as Tasks' views (they were the list's first row).
+        if pinnedOnly { pagesHeader.install(in: self, list: collectionView, backdrop: backdrop) }
         notices = PageNoticeHost(in: view)
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self] _ in self?.pulled() }, for: .valueChanged)
@@ -532,7 +534,6 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                     config.trailingSwipeActionsConfigurationProvider = { [weak self] path in self?.removeSwipe(at: path) }
                 }
                 if case .filter = section { config.showsSeparators = false }
-                if case .pages = section { config.showsSeparators = false }
                 if case .making = section { config.showsSeparators = false }
                 if case .state = section { config.showsSeparators = false }
                 if case .showAllImages = section { config.showsSeparators = false }
@@ -868,13 +869,6 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     }
 
     private func configureDataSource() {
-        // [dashboard] The Dashboard's pages, under its title.
-        let pagesCell = UICollectionView.CellRegistration<SoftCardListCell, String> { [weak self] cell, _, _ in
-            guard let self else { return }
-            let bar = (cell.contentView.subviews.first as? DashboardPagesBar) ?? self.makePagesBar(in: cell)
-            self.showPages(bar)
-            cell.backgroundConfiguration = .clear()
-        }
         // [tiles] A tile being made (owner 2026-11-03: "it says making a tile but idk where to see it doing anything"):
         // what was asked, the bot and the step it's on now; a tap opens the chat.
         let makingCell = UICollectionView.CellRegistration<TileMakingCell, String> { cell, _, id in
@@ -1046,7 +1040,6 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         dataSource = UICollectionViewDiffableDataSource<Section, Item>(collectionView: collectionView) { cv, path, item in
             switch item {
             case .filter: return cv.dequeueConfiguredReusableCell(using: filterCell, for: path, item: "filter")
-            case .pages: return cv.dequeueConfiguredReusableCell(using: pagesCell, for: path, item: "pages")
             case .making(let id): return cv.dequeueConfiguredReusableCell(using: makingCell, for: path, item: id)
             case .image(let id): return cv.dequeueConfiguredReusableCell(using: imageCell, for: path, item: id)
             case .showAllImages(let n): return cv.dequeueConfiguredReusableCell(using: showAllCell, for: path, item: n)
@@ -1289,34 +1282,42 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     /// [dashboard] The page names show on the Dashboard, not on Artifacts' shelf or Bot Info, and not while searching.
     private var showsPages: Bool { pinnedOnly && fixedProfile == nil && query.pgTrim.isEmpty }
 
-    private weak var pagesBar: DashboardPagesBar?
+    /// [tiles-chips-same] The names' band under the bar (installed on the Tiles page only).
+    private lazy var pagesHeader: DashboardPagesHeader = {
+        let header = DashboardPagesHeader(actions: DashboardPageActions(
+            select: { [weak self] id in self?.showPage(id) },
+            add: { [weak self] in self?.askNewPage() },
+            rename: { [weak self] page in self?.askRenamePage(page) },
+            move: { [weak self] page, by in
+                PagesHaptics.selection()
+                self?.pins.movePage(page.id, by: by)
+            },
+            delete: { [weak self] page in self?.confirmDeletePage(page) }))
+        header.acceptsDrop = { [weak self] session in
+            guard let self else { return false }
+            return self.showsPages && session.localDragSession?.items.first?.localObject is String
+        }
+        header.onDrop = { [weak self] session, pageId in
+            guard let self, let id = session.localDragSession?.items.first?.localObject as? String,
+                  let page = self.pins.pages.first(where: { $0.id == pageId }) else { return }
+            self.moveTile(id, to: page)
+        }
+        return header
+    }()
     /// The slot a held tile last opened among the pins: a tick each time the others slide into a new one.
     private var dropSlot: IndexPath?
     private var pageSwipes: [UISwipeGestureRecognizer] = []
 
-    private func makePagesBar(in cell: UICollectionViewListCell) -> DashboardPagesBar {
-        let bar = DashboardPagesBar()
-        bar.onSelect = { [weak self] id in self?.showPage(id) }
-        bar.onAdd = { [weak self] in self?.askNewPage() }
-        bar.menuFor = { [weak self] page in self?.pageMenu(page) }
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        cell.contentView.addSubview(bar)
-        NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 2),
-            bar.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -8),
-            bar.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 20),
-            bar.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -20),
-            bar.heightAnchor.constraint(greaterThanOrEqualToConstant: 34),
-        ])
-        pagesBar = bar
-        return bar
-    }
-
-    private func showPages(_ bar: DashboardPagesBar) {
+    /// The names in the band once there are two pages (none while searching, on the shelf or Bot Info).
+    private func showPages() {
+        guard pinnedOnly else { return }
+        guard showsPages, pins.pages.count > 1 else {
+            pagesHeader.update(pages: [], current: pins.currentPage, counts: [:])
+            return
+        }
         var counts: [String: Int] = [:]
         for pin in hidden.visible(pins.pins) { counts[pins.pageId(of: pin), default: 0] += 1 }
-        bar.show(pins.pages, current: pins.currentPage, counts: counts)
-        pagesBar = bar
+        pagesHeader.update(pages: pins.pages, current: pins.currentPage, counts: counts)
     }
 
     /// [dashboard] Another page shown (a name tapped, or a swipe sideways): the tiles cross-fade.
@@ -1374,37 +1375,12 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         present(alert, animated: true)
     }
 
-    /// [dashboard] A page name held: Rename, Move Left/Right, Delete (Main can be renamed, not moved or deleted).
-    private func pageMenu(_ page: DashboardPage) -> UIMenu {
-        let rename = UIAction(title: "Rename…", image: UIImage(systemName: "pencil")) { [weak self] _ in
-            self?.askPageName(title: "Rename Page", name: page.name, action: "Rename") { name in
-                PagesHaptics.success()
-                self?.pins.renamePage(page.id, to: name)
-            }
+    /// [dashboard] A page's Rename (its hold menu and the ⋯, `DashboardPagesBand`).
+    private func askRenamePage(_ page: DashboardPage) {
+        askPageName(title: "Rename Page", name: page.name, action: "Rename") { [weak self] name in
+            PagesHaptics.success()
+            self?.pins.renamePage(page.id, to: name)
         }
-        rename.accessibilityIdentifier = "dashboard.page.rename"
-        var children: [UIMenuElement] = [rename]
-        guard page.id != DashboardPage.mainId, let index = pins.pages.firstIndex(of: page) else { return UIMenu(children: children) }
-        var moves: [UIMenuElement] = []
-        if index > 1 {
-            moves.append(UIAction(title: "Move Left", image: UIImage(systemName: "arrow.left")) { [weak self] _ in
-                PagesHaptics.selection()
-                self?.pins.movePage(page.id, by: -1)
-            })
-        }
-        if index < pins.pages.count - 1 {
-            moves.append(UIAction(title: "Move Right", image: UIImage(systemName: "arrow.right")) { [weak self] _ in
-                PagesHaptics.selection()
-                self?.pins.movePage(page.id, by: 1)
-            })
-        }
-        if !moves.isEmpty { children.append(UIMenu(options: .displayInline, children: moves)) }
-        let delete = UIAction(title: "Delete Page", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-            self?.confirmDeletePage(page)
-        }
-        delete.accessibilityIdentifier = "dashboard.page.delete"
-        children.append(UIMenu(options: .displayInline, children: [delete]))
-        return UIMenu(title: page.name, children: children)
     }
 
     private func confirmDeletePage(_ page: DashboardPage) {
@@ -1804,11 +1780,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
         // [dashboard] The page names lead once there are two pages (not while searching: a search looks through every page).
         updateContentPop()
-        if showsPages, pins.pages.count > 1 {
-            snapshot.appendSections([.pages])
-            snapshot.appendItems([.pages], toSection: .pages)
-            snapshot.reconfigureItems([.pages])
-        }
+        showPages()
         // [tiles] The tiles being made, above the tiles (on every page: a bot works whatever page is shown).
         let makers = query.isEmpty ? TileMaker.makers(accountId: store.account.id) : []
         if !makers.isEmpty {
@@ -2122,6 +2094,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        if pinnedOnly { pagesHeader.layout() }
         if barFilterHost, dataSource != nil { placeBarFilter() }
         // [mac] Stress test 2026-10-28 #9: the window grew or shrank under an empty state; centre it again.
         guard DeviceWord.isMac, let collectionView, let dataSource,
@@ -2349,10 +2322,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
 
     func collectionView(_ collectionView: UICollectionView, dropSessionDidUpdate session: UIDropSession,
                         withDestinationIndexPath destination: IndexPath?) -> UICollectionViewDropProposal {
-        // [dashboard] A tile held over another page's name goes onto that page.
-        let page = pageUnderDrop(session)
-        pagesBar?.highlight(page)
-        if page != nil { return UICollectionViewDropProposal(operation: .move, intent: .unspecified) }
+        // [dashboard] A tile held over another page's name goes onto that page: the band's drop (`DashboardPagesHeader`).
         guard session.localDragSession?.items.first?.localObject is String, let destination,
               dataSource.sectionIdentifier(for: destination.section) == .pinned else {
             return UICollectionViewDropProposal(operation: .forbidden)
@@ -2364,23 +2334,10 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         return UICollectionViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
     }
 
-    /// [dashboard] The other page whose name a dragged tile is over (nil: none, or not a tile).
-    private func pageUnderDrop(_ session: UIDropSession) -> String? {
-        guard showsPages, session.localDragSession?.items.first?.localObject is String, let bar = pagesBar, bar.window != nil,
-              let id = bar.pageId(at: session.location(in: collectionView), in: collectionView), id != pins.currentPage else { return nil }
-        return id
-    }
-
-    func collectionView(_ collectionView: UICollectionView, dropSessionDidExit session: UIDropSession) { pagesBar?.highlight(nil); dropSlot = nil }
-    func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: UIDropSession) { pagesBar?.highlight(nil); dropSlot = nil }
+    func collectionView(_ collectionView: UICollectionView, dropSessionDidExit session: UIDropSession) { dropSlot = nil }
+    func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: UIDropSession) { dropSlot = nil }
 
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
-        if let pageId = pageUnderDrop(coordinator.session), let id = coordinator.items.first?.dragItem.localObject as? String,
-           let page = pins.pages.first(where: { $0.id == pageId }) {
-            pagesBar?.highlight(nil)
-            moveTile(id, to: page)
-            return
-        }
         guard coordinator.proposal.operation == .move, let item = coordinator.items.first, let id = item.dragItem.localObject as? String,
               let destination = coordinator.destinationIndexPath,
               let section = dataSource.sectionIdentifier(for: destination.section), section == .pinned else { return }
