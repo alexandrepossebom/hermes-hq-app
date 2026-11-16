@@ -419,7 +419,12 @@ extension UIBarButtonItem {
         #if targetEnvironment(macCatalyst)
         for state in [UIControl.State.normal, .selected] {
             var attributes = control.titleTextAttributes(for: state) ?? [:]
-            attributes[.font] = HQFont.system(ofSize: 13, weight: .regular)   // [type] one weight: the thumb shows the choice (as AppKit's segments)
+            // [type] One weight: the thumb shows the choice (as AppKit's segments). [primary-look] 13 pt on the
+            // screen in both looks: the literal 13 is × 1.3 in the Desktop Look but × 1.15 in the primary look, where
+            // the segments (the inspector's Info | Steps | Files | Helpers, Preview | Source) came out at 11.5 pt,
+            // smaller than the same control in the look the owner uses least (2026-11-16).
+            let size = 13 * 1.3 / max(ThemeState.macBase(desktopLook: Theme.isDesktop), 0.01)
+            attributes[.font] = HQFont.system(ofSize: size, weight: .regular)
             control.setTitleTextAttributes(attributes, for: state)
         }
         #else
