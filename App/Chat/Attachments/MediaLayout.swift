@@ -1,6 +1,6 @@
 import UIKit
 
-// Exact media geometry (docs/spec/1x-attachments.md §7.3, §7.5, §7.7): single-photo and grid frames, file rows and the
+// Exact media geometry (docs/spec/1x-attachments.md §7.3, §7.5, §7.7): album and single-photo frames, file rows and the
 // generated-image card, all known before any pixel loads (heights never wait for images; spec §7.8). Pure and
 // `nonisolated`, measured off the main thread with the rest of `TextLayout`.
 
@@ -27,7 +27,7 @@ nonisolated struct FileItem: Hashable, Sendable {
     var detail: String
 }
 
-/// Photos laid out together (a grid, a single photo, a generated image): their container inside the bubble.
+/// Photos laid out together (an album, a single photo, a generated image): their container inside the bubble.
 nonisolated struct MediaGroupLayout: @unchecked Sendable {
     /// In bubble coordinates.
     var frame: CGRect
@@ -36,11 +36,9 @@ nonisolated struct MediaGroupLayout: @unchecked Sendable {
     var tiles: [(item: MediaItem, frame: CGRect)]
     /// The photo is shown whole (aspect fit) on a blur of itself: a tall photo widened for its caption.
     var fits = false
-    /// A grid's photos past its last tile: that tile says "+N", and the viewer pages them after the ones shown.
-    var more: [MediaItem] = []
-    /// A grid: every tile is its own rounded card of this radius, with a hairline edge, its photo kept from the top
-    /// (a screenshot's title stays in view). nil = the tiles share the container's outline.
-    var tileRadius: CGFloat? = nil
+    /// Several photos as a stack you swipe through (owner 2026-10-30): the box in the group that every card fits in.
+    /// The cards behind fan out around it; the group keeps room above and below for their corners.
+    var stack: CGRect? = nil
 }
 
 /// One file row inside a bubble.
@@ -79,36 +77,82 @@ nonisolated enum MediaLayout {
         return CGSize(width: floor(w), height: floor(h))
     }
 
-    // MARK: Photo grids
-
-    /// How many photos a grid shows; with more, the last tile carries "+N" and the viewer pages them all.
-    static let gridVisible = 4
-    /// A grid is never wider than this (an iPad's or the Mac's column is far wider than a photo block should be).
-    static let gridMaxWidth: CGFloat = 520
-    /// Between a grid's tiles (each is its own rounded card).
-    static let gridGap: CGFloat = 8
-
-    /// Several photos as a grid across the chat's width (owner 2026-11-16: the swipe-through pile showed them "tiny" and
-    /// was "hard to get through"; then, of a first grid that followed the photos' shapes, "more like this … like Claude
-    /// does it", with a picture of that app's chat). Two columns of square tiles, each its own rounded card, 8 pt apart;
-    /// with three photos the first runs across the top at the same height. Four at most: with more, the fourth carries
-    /// "+N". Every frame follows from the count and the width alone (grids never wait for pixels). Returns one frame
-    /// per shown photo, origin (0, 0), and the whole size.
-    static func grid(count: Int, maxWidth: CGFloat) -> (frames: [CGRect], size: CGSize) {
-        let n = min(count, gridVisible)
-        guard n >= 2 else { return ([], .zero) }
-        let width = floor(min(maxWidth, gridMaxWidth))
-        let side = floor((width - gridGap) / 2)
+    /// Frames for `sizes` (pixel sizes, nil when unknown) inside `maxWidth`, origin (0, 0), and the whole size.
+    /// 2 → two squares; 3 → one w × w/2 cell over two squares; 4 → 2 × 2; ≥ 5 → rows of 3 squares, the last row's
+    /// cells sharing its width. Every frame follows from the width alone (albums never wait for pixels).
+    static func frames(sizes: [(Int?, Int?)], maxWidth: CGFloat) -> (frames: [CGRect], size: CGSize) {
+        guard !sizes.isEmpty else { return ([], .zero) }
+        if sizes.count == 1 {
+            let s = single(width: sizes[0].0, height: sizes[0].1, maxWidth: maxWidth)
+            return ([CGRect(origin: .zero, size: s)], s)
+        }
+        let w = floor(min(maxWidth, singleMax))
         var out: [CGRect] = []
-        var y: CGFloat = 0
-        if n == 3 {
-            out.append(CGRect(x: 0, y: 0, width: width, height: side))
-            y = side + gridGap
+        switch sizes.count {
+        case 2:
+            let side = floor((w - gap) / 2)
+            out = [CGRect(x: 0, y: 0, width: side, height: side), CGRect(x: w - side, y: 0, width: side, height: side)]
+        case 3:
+            let topH = floor(w / 2)
+            let side = floor((w - gap) / 2)
+            out = [CGRect(x: 0, y: 0, width: w, height: topH),
+                   CGRect(x: 0, y: topH + gap, width: side, height: side),
+                   CGRect(x: w - side, y: topH + gap, width: side, height: side)]
+        case 4:
+            let side = floor((w - gap) / 2)
+            for i in 0..<4 {
+                out.append(CGRect(x: i % 2 == 0 ? 0 : w - side, y: CGFloat(i / 2) * (side + gap), width: side, height: side))
+            }
+        default:
+            let side = floor((w - 2 * gap) / 3)
+            let rows = (sizes.count + 2) / 3
+            for r in 0..<rows {
+                let start = r * 3
+                let k = min(3, sizes.count - start)
+                let y = CGFloat(r) * (side + gap)
+                if k == 3 {
+                    for c in 0..<3 {
+                        let x = c == 2 ? w - side : CGFloat(c) * (side + gap)
+                        out.append(CGRect(x: x, y: y, width: side, height: side))
+                    }
+                } else {
+                    let cell = floor((w - CGFloat(k - 1) * gap) / CGFloat(k))
+                    for c in 0..<k {
+                        let x = c == k - 1 ? w - cell : CGFloat(c) * (cell + gap)
+                        out.append(CGRect(x: x, y: y, width: cell, height: side))
+                    }
+                }
+            }
         }
-        for i in 0..<(n - out.count) {
-            out.append(CGRect(x: i % 2 == 0 ? 0 : width - side, y: y + CGFloat(i / 2) * (side + gridGap), width: side, height: side))
+        let height = out.map(\.maxY).max() ?? 0
+        return (out, CGSize(width: w, height: height))
+    }
+
+    // MARK: Photo stacks
+
+    /// Room above and below a stack's card for the corners of the cards fanned out behind it. Sideways they reach into
+    /// the margin beside the bubble (never more than ~12 pt), so the card lines up with the text and bubble edges.
+    static let stackPadY: CGFloat = 10
+
+    /// A stack's box (owner 2026-10-30: several photos "sit on top of each other where you can swipe through them"):
+    /// one box for every photo, so the row never changes height as you flip. It takes the photos' middle shape (one
+    /// photo's rules, `single`); each card is its own photo's shape inside it (`PhotoStackView.cardSize`).
+    /// Unknown sizes make the 4:3 box. Returns the box's frame (origin `(0, stackPadY)`) and the group's size.
+    static func stack(sizes: [(Int?, Int?)], maxWidth: CGFloat) -> (card: CGRect, size: CGSize) {
+        let aspects = sizes.compactMap { w, h -> CGFloat? in
+            guard let w, let h, w > 0, h > 0 else { return nil }
+            return CGFloat(w) / CGFloat(h)
+        }.sorted()
+        var shape: (Int?, Int?) = (nil, nil)
+        if !aspects.isEmpty {
+            let k = aspects.count
+            // The middle shape, halfway between the two middle ones in proportion (log) for an even count.
+            let middle = k % 2 == 1 ? aspects[k / 2] : (aspects[k / 2 - 1] * aspects[k / 2]).squareRoot()
+            shape = (Int((middle * 1000).rounded()), 1000)
         }
-        return (out, CGSize(width: width, height: out.last?.maxY ?? 0))
+        let card = single(width: shape.0, height: shape.1, maxWidth: maxWidth)
+        return (CGRect(x: 0, y: stackPadY, width: card.width, height: card.height),
+                CGSize(width: card.width, height: card.height + 2 * stackPadY))
     }
 
     /// The generated-image card (spec §7.7): `w = min(column, 320)`, the result's aspect (else the requested one),

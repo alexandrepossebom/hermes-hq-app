@@ -54,42 +54,6 @@ import UIKit
                                         : "“\(name)” didn’t open in a window of its own. Click it again to try once more.", on: top)
     }
 
-    // MARK: Pages
-
-    /// [mac-pages] Owner 2026-11-16: an HTML page a bot made (a page card, a file, a tile, a Task Page) opens in a
-    /// window of its own too, not in a sheet of one fixed size ("you can't enlarge it"), and so does a Markdown note.
-    /// The page is live (its buttons talk to its bot, a note's links open the next note), so the window is handed the
-    /// page itself, kept here until its window connects. `key` names the page: the same one opened again takes the
-    /// window it has.
-    private static var waitingPages: [String: UIViewController] = [:]
-    private static let pageIdKey = "pageId"
-    private static let pageNameKey = "pageKey"
-    private static let pageTitleKey = "pageTitle"
-
-    @discardableResult static func open(page: UIViewController, title: String, key: String) -> Bool {
-        let open = scenes.first { ($0.delegate as? FileSceneDelegate)?.pageKey == key }
-        let id = UUID().uuidString
-        waitingPages[id] = page
-        let activity = NSUserActivity(activityType: activityType)
-        activity.userInfo = [pageIdKey: id, pageNameKey: key, pageTitleKey: title]
-        AppLog.note("mac", open == nil ? "page window: open" : "page window: to the front")
-        UIApplication.shared.requestSceneSessionActivation(open?.session, userActivity: activity, options: nil) { error in
-            AppLog.note("mac", "page window: couldn't open (\(error.localizedDescription))")
-            DispatchQueue.main.async { MainActor.assumeIsolated {
-                waitingPages[id] = nil
-                couldNotOpen(title)
-            } }
-        }
-        return true
-    }
-
-    /// The page a connecting (or continued) window was asked to show, with its key and title; taken once.
-    fileprivate static func page(in activity: NSUserActivity?) -> (page: UIViewController, key: String, title: String)? {
-        guard activity?.activityType == activityType, let id = activity?.userInfo?[pageIdKey] as? String,
-              let page = waitingPages.removeValue(forKey: id) else { return nil }
-        return (page, activity?.userInfo?[pageNameKey] as? String ?? id, activity?.userInfo?[pageTitleKey] as? String ?? page.title ?? "Page")
-    }
-
     static func close(_ scene: UIWindowScene) {
         UIApplication.shared.requestSceneSessionDestruction(scene.session, options: nil)
     }
@@ -238,18 +202,11 @@ import UIKit
                 try? FileManager.default.removeItem(at: copy)
                 try? FileManager.default.copyItem(at: source, to: copy)
                 if !FileManager.default.fileExists(atPath: copy.path) {   // out of the app's reach: a stand-in of that name
-                    let line = "The drive is about four hours with one stop, so leaving by nine puts us there for a late lunch and leaves the afternoon free. "
                     let text = source.pathExtension == "csv" ? "Month,Rent,Food,Travel\nJan,1200,410,90\nFeb,1200,385,140\nMar,1200,402,60\nApr,1200,398,210\n"
-                        : source.pathExtension == "md" ? "# Trip notes\n\nLeave **Friday** 9:00.\n\n\(line)\(line)\(line)\n\n- Bring the charger\n- Back Sunday evening\n"
                         : "Trip notes\n\nLeave Friday 9:00.\nBring the charger.\nBack Sunday evening.\n"
                     try? text.write(to: copy, atomically: true, encoding: .utf8)
                 }
-                // [mac-pages] A note opens as a chat opens it: formatted, in a window of its own.
-                if MarkdownFileSheet.opens(copy), let host = MainTabController.current {
-                    MarkdownFileSheet.present(copy, from: host)
-                } else {
-                    open(FileManager.default.fileExists(atPath: copy.path) ? copy : source)
-                }
+                open(FileManager.default.fileExists(atPath: copy.path) ? copy : source)
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -328,25 +285,11 @@ import UIKit
 final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     private(set) var url: URL?
-    /// [mac-pages] The live page or note this window shows (`MacFileWindow.open(page:)`), nil for a file.
-    private(set) var pageKey: String?
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         session.userInfo = (session.userInfo ?? [:]).merging(["HQFileWindow": true]) { $1 }
-        guard let windowScene = scene as? UIWindowScene else {
-            UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
-            return
-        }
-        let asked = connectionOptions.userActivities.first { $0.activityType == MacFileWindow.activityType }
-        // [mac-pages] A live page (an HTML page a bot made): the window's root is the page itself.
-        if let (page, key, title) = MacFileWindow.page(in: asked) {
-            pageKey = key
-            MacWindow.pageBar(page)
-            show(page, title: title, in: windowScene)
-            AppLog.note("mac", "page window: shown")
-            return
-        }
-        guard let url = MacFileWindow.url(in: connectionOptions), FileManager.default.fileExists(atPath: url.path) else {
+        guard let windowScene = scene as? UIWindowScene, let url = MacFileWindow.url(in: connectionOptions),
+              FileManager.default.fileExists(atPath: url.path) else {
             // [Mac UI check 2026-11-13] The file went from the cache between the click and the window: say so.
             let name = MacFileWindow.url(in: connectionOptions)?.lastPathComponent
             UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
@@ -354,13 +297,7 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
             return
         }
         self.url = url
-        show(MacFileWindow.viewer(for: url), title: url.lastPathComponent, in: windowScene)
-        AppLog.note("mac", "file window: shown")
-    }
-
-    /// The window, sized and placed, with `viewer` under its own bar.
-    private func show(_ viewer: UIViewController, title: String, in windowScene: UIWindowScene) {
-        windowScene.title = title   // the Window menu and Mission Control name it
+        windowScene.title = url.lastPathComponent   // the Window menu and Mission Control name it
         windowScene.titlebar?.titleVisibility = .hidden
         windowScene.titlebar?.toolbar = nil
         windowScene.sizeRestrictions?.minimumSize = CGSize(width: 520, height: 420)
@@ -389,11 +326,13 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
         MacToolTips.install(on: window)
         AppearanceSetting.apply(to: window)
         Theme.shared.adopt(window)
+        let viewer = MacFileWindow.viewer(for: url)
         let navigation = UINavigationController(rootViewController: viewer)
         navigation.navigationBar.prefersLargeTitles = false
         window.rootViewController = navigation
         window.makeKeyAndVisible()
         self.window = window
+        AppLog.note("mac", "file window: shown")
         #if DEBUG
         // `-HQDebugFileWindow <name>`: the window as <name>.png (POSTed with -HQDebugMacShotsPost) once it has drawn.
         if let name = UserDefaults.standard.string(forKey: "HQDebugFileWindow"), !name.isEmpty {
@@ -406,16 +345,9 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     /// The same file asked for again: this window comes forward (nothing to change). Another file: it shows that.
-    /// [mac-pages] A page asked for again: the window shows the page just made (the one its opener holds).
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
-        guard let navigation = window?.rootViewController as? UINavigationController else { return }
-        if let (page, key, title) = MacFileWindow.page(in: userActivity) {
-            pageKey = key
-            (scene as? UIWindowScene)?.title = title
-            navigation.setViewControllers([page], animated: false)
-            return
-        }
-        guard let url = MacFileWindow.url(in: userActivity), url != self.url else { return }
+        guard let url = MacFileWindow.url(in: userActivity), url != self.url,
+              let navigation = window?.rootViewController as? UINavigationController else { return }
         if let old = self.url { MediaLoader.shared.purgeBigPreview(old) }
         self.url = url
         (scene as? UIWindowScene)?.title = url.lastPathComponent

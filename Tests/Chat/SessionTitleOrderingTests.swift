@@ -54,8 +54,8 @@ import Testing
         gate.release()
         _ = await edit.value
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "Database connection…")
-        #expect(f.params("session.title").last?["title"]?.string == "Database connection…")
+        #expect(f.session.title == "Database connection")
+        #expect(f.params("session.title").last?["title"]?.string == "Database connection")
     }
 
     @Test func lateGatewayNameIsBudgetedAfterReopeningLocalFallback() async {
@@ -70,8 +70,8 @@ import Testing
         reopened.runtimeSessionId = f.rid1
         reopened.receiveAutomaticTitle("Database connection pool troubleshooting guide")
         await reopened.automaticTitleSave?.value
-        #expect(reopened.title == "Database connection…")
-        #expect(f.params("session.title").last?["title"]?.string == "Database connection…")
+        #expect(reopened.title == "Database connection")
+        #expect(f.params("session.title").last?["title"]?.string == "Database connection")
     }
 
     @Test(arguments: [false, true]) func lateSaveEchoDoesNotReplaceBufferedGatewayImprovement(reopened: Bool) async {
@@ -98,8 +98,8 @@ import Testing
         gate.release()
         _ = await edit.value
         await receiver.automaticTitleSave?.value
-        #expect(receiver.title == "Database connection…")
-        #expect(f.params("session.title").last?["title"]?.string == "Database connection…")
+        #expect(receiver.title == "Database connection")
+        #expect(f.params("session.title").last?["title"]?.string == "Database connection")
     }
 
     @Test func failedListRenameKeepsBufferedNameOnBothSurfaces() async {
@@ -127,7 +127,7 @@ import Testing
         gate.release()
         _ = await edit.value
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "Database connection…")
+        #expect(f.session.title == "Database connection")
         #expect(store.storedRow(row)?.title == f.session.title)
     }
 

@@ -38,6 +38,9 @@ nonisolated struct SkinOwnLook: Sendable, Hashable {
     var muted: RGBA
     /// A reply's bubble, where it isn't `card`: Paper's replies lie on the page itself, as Claude's do.
     var reply: RGBA? = nil
+    /// [paper-icons] The tile behind a Settings or More row's glyph, the glyph in the theme's own text, instead of iOS's
+    /// coloured tiles with white glyphs (owner 2026-11-16, Paper "needs a lot of work"). nil: iOS's tiles.
+    var iconTile: RGBA? = nil
 
     nonisolated struct Pair: Sendable, Hashable {
         var light: SkinOwnLook
@@ -116,12 +119,13 @@ nonisolated extension SkinCatalog {
             light: SkinOwnLook(page: Ivory.page, card: Ivory.card, pressed: Ivory.selected, meBubble: Ivory.box,
                                codeFill: Ivory.drawer, grey: Ivory.grey, fillAlphas: [0.2, 0.16, 0.12, 0.08],
                                separator: Ivory.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0), tableHead: Ivory.drawer,
-                               replyGlassTint: 0.85, subtle: Ivory.subtle, muted: Ivory.muted, reply: Ivory.page),
+                               replyGlassTint: 0.85, subtle: Ivory.subtle, muted: Ivory.muted, reply: Ivory.page,
+                               iconTile: Ivory.selected),
             dark: SkinOwnLook(page: Charcoal.page, card: Charcoal.card, pressed: Charcoal.selected, meBubble: Charcoal.box,
                               codeFill: Charcoal.deep, grey: Charcoal.grey, fillAlphas: [0.36, 0.32, 0.24, 0.12],
                               separator: Charcoal.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0),
                               tableHead: Charcoal.grey.alpha(0.2), replyGlassTint: 0.85, subtle: Charcoal.subtle,
-                              muted: Charcoal.muted, reply: Charcoal.page)),
+                              muted: Charcoal.muted, reply: Charcoal.page, iconTile: Charcoal.selected)),
         "rose-pine": SkinOwnLook.Pair(
             // Your box: the mockup's lavender, iris leaning to love.
             light: SkinOwnLook(page: Dawn.base, card: Dawn.surface, pressed: Dawn.overlay, meBubble: RGBA(hex: 0xEADCEF),
@@ -139,6 +143,16 @@ nonisolated extension SkinCatalog {
     /// Keywords love, function names iris, constants pine, types gold (the mockup's), strings gold, comments subtle, tags
     /// foam, errors love. Pine is the light constant; it is made readable in dark with the rest.
     static let syntaxColours: [String: SyntaxColours.Pair] = [
+        // [paper-code] Paper's code (owner 2026-11-16, "needs a lot of work"): muted and warm in place of GitHub's bright
+        // blue, purple and red. Keywords terracotta, strings olive, constants and types amber-brown, functions the ink,
+        // comments the warm grey. Each is taken just far enough to read at 4.5:1 on the code card (`ThemeTokens.syntax`).
+        "paper": SyntaxColours.Pair(
+            light: SyntaxColours(comment: RGBA(hex: 0x8A897F), keyword: RGBA(hex: 0x9C4A2E), string: RGBA(hex: 0x5C6B2F),
+                                 constant: RGBA(hex: 0x8A5A00), entity: RGBA(hex: 0x7A5230), function: RGBA(hex: 0x3D3A35),
+                                 tag: RGBA(hex: 0x9C4A2E), invalid: RGBA(hex: 0xB42318)),
+            dark: SyntaxColours(comment: RGBA(hex: 0x8A8980), keyword: RGBA(hex: 0xD99A7A), string: RGBA(hex: 0xB5C28A),
+                                constant: RGBA(hex: 0xD8B46A), entity: RGBA(hex: 0xC9A98A), function: RGBA(hex: 0xECEBE4),
+                                tag: RGBA(hex: 0xD99A7A), invalid: RGBA(hex: 0xF07167))),
         "rose-pine": SyntaxColours.Pair(
             light: SyntaxColours(comment: Dawn.subtle, keyword: Dawn.love, string: Dawn.gold, constant: Dawn.pine,
                                  entity: Dawn.gold, function: Dawn.iris, tag: Dawn.foam, invalid: Dawn.love),

@@ -113,6 +113,11 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
             content.imageToTextPadding = 14
             content.directionalLayoutMargins.top = MoreMetrics.rowPad      // [compact] as tall as a Settings row
             content.directionalLayoutMargins.bottom = MoreMetrics.rowPad
+            if Theme.inkIcons == .plain {   // [paper-icons] the glyph alone in the theme's text, in the tile's column
+                content.image = Self.glyph(row, configuration: UIImage.SymbolConfiguration(pointSize: 18 * side / 29, weight: .regular))
+                content.imageProperties.reservedLayoutSize = CGSize(width: side, height: side)
+                content.imageProperties.tintColor = HQPalette.label
+            }
             if Theme.isDesktop {   // [desktoplook2] the desktop's small monochrome glyph, no coloured tile (css:157-162)
                 content.image = Self.glyph(row)
                 content.imageProperties.maximumSize = CGSize(width: 20, height: 20)
@@ -298,14 +303,19 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
     /// A 29 pt rounded square in the row's colour with its white glyph.
     static func tile(_ row: MoreRow, side: CGFloat = 29) -> UIImage {
         let glyphSide = 19 * side / 29
+        // [paper-icons] A skin with ink icons: its own tile and its text for the glyph, for the current appearance.
+        let ink = Theme.inkIcons != nil
+        let traits = UITraitCollection.current
+        let fill = ink ? HQPalette.iconTile.resolvedColor(with: traits) : row.tile
+        let glyphColour = ink ? HQPalette.label.resolvedColor(with: traits) : UIColor.white
         return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
-            row.tile.setFill()
+            fill.setFill()
             UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side), cornerRadius: 7 * side / 29).fill()
             let glyph = row.image ?? row.symbol.flatMap {
                 UIImage(systemName: $0, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15 * side / 29, weight: .semibold))
             }
             guard let glyph else { return }
-            let tinted = glyph.withTintColor(.white, renderingMode: .alwaysOriginal)
+            let tinted = glyph.withTintColor(glyphColour, renderingMode: .alwaysOriginal)
             let fit = min(glyphSide / max(tinted.size.width, 1), glyphSide / max(tinted.size.height, 1), 1)
             let size = CGSize(width: tinted.size.width * fit, height: tinted.size.height * fit)
             tinted.draw(in: CGRect(x: (side - size.width) / 2, y: (side - size.height) / 2, width: size.width, height: size.height))

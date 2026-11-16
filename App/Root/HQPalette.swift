@@ -13,6 +13,8 @@ enum HQPalette {
     static let page = ThemedColor.make(\.page)
     static let label = ThemedColor.make(\.label)
     static let label2 = ThemedColor.make(\.label2)
+    /// [paper-icons] A row icon's tile in a skin with ink icons (`Theme.inkIcons`).
+    static let iconTile = ThemedColor.make(\.iconTile)
     static let label3 = ThemedColor.make(\.label3)
     static let tint = ThemedColor.make(\.tint)
     /// [message-colour] The Mac's chosen row: the tint, or the message colour picked on Chat Bubbles.
@@ -620,6 +622,7 @@ private struct GroupedPageModifier: ViewModifier {
             content
                 .scrollContentBackground(.hidden)
                 .listSectionSpacing(.compact)
+                .tint(Self.inkTint)
         } else if glassSheet {
             // [glass] In a sheet on Liquid Glass: no page, so the glass shows around the rows (each Section keeps its
             // rows' cards solid with `hqSheetRows`). [glass-design] Each section's cards get their thin edge.
@@ -627,6 +630,7 @@ private struct GroupedPageModifier: ViewModifier {
                 .scrollContentBackground(.hidden)
                 .background(GlassListProbe())
                 .listSectionSpacing(.compact)
+                .tint(Self.inkTint)
         } else {
             // [compact] iOS's compact gap between sections (owner 2026-10-17: things too tall); a header still
             // draws above its section.
@@ -652,8 +656,13 @@ private struct GroupedPageModifier: ViewModifier {
                 .hqMacCardCorners()   // [mac-ui-issues] a Mac group box's corners, not iOS's card ends
                 // [backdrop-cards] On Soft Cards a little more room between sections, so each plate keeps its own.
                 .listSectionSpacing(backdrop && Backdrop.app.cards ? .custom(BackdropPlates.sectionSpacing) : .compact)
+                .tint(Self.inkTint)
         }
     }
+
+    /// [paper-icons] A skin with ink icons draws its switches and controls in its ink too, not iOS's green; every other
+    /// skin keeps what it had (nil: inherited).
+    private static var inkTint: Color? { Theme.inkIcons != nil ? Color.hqTintText : nil }
 }
 
 /// [glass] A Section's rows on a glass sheet: solid cards (iOS draws them see-through on glass, and what is behind the

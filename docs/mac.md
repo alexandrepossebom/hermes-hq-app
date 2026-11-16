@@ -55,12 +55,11 @@ Mac window, scaled to Mac size. No separate code base; every iPhone and iPad cha
     on the Mac in both the Desktop Look and the iOS look"): UI Scale starts at **100 %**, and on the Mac 100 % is
     `ThemeState.macBase` × the look's own sizes: × 1.3 in the Desktop Look (its 15 pt body was 11.5 on the screen),
     × 1.15 in the iOS look (17 was 13). Both now draw chat text at 15 pt on the screen like Grok Bot (Electron,
-    `/Applications/Grok Bot.app`); faces, list rows and icons grow with it. **15 pt body** again (Nov 16): Mac 1002 to 1009 drew the
-    app at 13 pt (`ThemeState.macBody` 13 / 15, the owner's pick from pictures on Nov 14) with the sidebar's `native`
-    type (13 pt rows), and in use it was too small ("so tiny … hard to see"). `macBody` is 1 and `SidebarType.current`
-    ships (15 pt rows); Debug `-HQTypeBody 13 -HQSidebarType native` draws 1002's sizes. No text is under 11.5 pt on
-    the screen (`HQFont.macSmallest` 15). A bot's HTML page and a Markdown note open in a window of their own
-    (`MacFileWindow.open(page:)`), and HTML is drawn at a browser's size with − 100 % + in the bar (`PageZoom`). Mac-only geometry that does not follow
+    `/Applications/Grok Bot.app`); faces, list rows and icons grow with it. **13 pt body** (Nov 14, owner's pick after the type
+    trial): `ThemeState.macBody` (13 / 15) multiplies into `macBase`, so the app's text, faces and rows are 13 pt body
+    like Finder and Mail, while the chat keeps 15 pt through `ThemeState.chatText` (15 / 13, applied in `ChatStyle`:
+    bubbles, Markdown in replies, the message box). Debug `-HQTypeBody 15` draws the earlier sizes. The sidebar has
+    its own table, `SidebarType` (`native` ships: 13 pt rows, 11 pt small words). Mac-only geometry that does not follow
     the text: the chat column is 1280 (`ReadableColumn.maxWidth`, 960 on the screen), replies and their tool rows,
     cards and error cards stop at 728 (560 on the screen, `ChatMetrics.replyMaxWidth`, `TextLayout.replyWidth`) at the
     column's left, your messages reach its right edge (up to 728); body lines are 1.45 × the size (22 pt on the

@@ -549,7 +549,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
 
         placeholderLabel.text = placeholder
         placeholderLabel.font = textView.font
-        placeholderLabel.textColor = ChatPalette.label2   // [chat-refine] Owner chose the stronger hint, in both appearances.
+        placeholderLabel.textColor = ChatPalette.label3
         // One line, clipped (spec 06 §4.3); at the largest sizes it shrinks a little before it clips.
         placeholderLabel.adjustsFontSizeToFitWidth = true
         placeholderLabel.minimumScaleFactor = 0.7

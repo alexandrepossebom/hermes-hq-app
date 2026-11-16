@@ -119,6 +119,10 @@ nonisolated struct MarkdownTheme: @unchecked Sendable, Hashable {
                                       ChatPalette.meText.resolvedColor(with: traits).withAlphaComponent(0.18)
                                   }, variant: 1)
 
+    /// [paper-links] Links are underlined where they ask for it (your bubble) and wherever the skin's accent can't be
+    /// told from its text (`Skin.accentReadsAsText`): a link there is otherwise a plain word.
+    var underlinesLinks: Bool { underlineLinks || ThemeTable.current.state.skin.accentReadsAsText }
+
     static func == (a: MarkdownTheme, b: MarkdownTheme) -> Bool { a.variant == b.variant }
     func hash(into hasher: inout Hasher) { hasher.combine(variant) }
 }
@@ -365,7 +369,7 @@ nonisolated private struct BlockBuilder {
                     out.append(contentsOf: refs.map(MarkdownBlock.pageCard))
                     return
                 }
-                // Pictures one paragraph after another, nothing between, are one set (a grid; the viewer pages them).
+                // Pictures one paragraph after another, nothing between, are one set (a stack you swipe through).
                 if case .media(let before)? = out.last {
                     out[out.count - 1] = .media(before + refs)
                 } else {
@@ -806,7 +810,7 @@ nonisolated private struct BlockBuilder {
             guard !taken, let url = FileLinks.url(path) else { continue }
             text.addAttribute(.chatLink, value: url, range: range)
             text.addAttribute(.foregroundColor, value: theme.link, range: range)
-            if theme.underlineLinks { text.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
+            if theme.underlinesLinks { text.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
         }
     }
 
@@ -948,7 +952,7 @@ nonisolated private struct BlockBuilder {
         if let link = ctx.link {
             attrs[.chatLink] = link
             attrs[.foregroundColor] = theme.link
-            if theme.underlineLinks { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if theme.underlinesLinks { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
         }
         return attrs
     }

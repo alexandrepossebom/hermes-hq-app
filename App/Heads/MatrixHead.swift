@@ -32,8 +32,7 @@ nonisolated struct MatrixDesign: Hashable, Sendable {
 }
 
 nonisolated extension MatrixDesign {
-    /// A head's outline and face: its colour the colour's accent, turned to the right as every head is
-    /// (`MatrixHead.shownFacing`). Slit eyes and nothing
+    /// A head's outline and face: its colour the colour's accent, the way it faces from its seed. Slit eyes and nothing
     /// else, whatever the head keeps (owner, 2026-10-28: "i don't want mouths", then "only one kind of eyes - the
     /// normal ones"; `Head.plain`).
     init(_ head: Head) {
@@ -43,7 +42,7 @@ nonisolated extension MatrixDesign {
         blush = false
         mono = head.color == .ink
         color = HeadTones.accent(head.color).hex
-        facing = MatrixHead.shownFacing
+        facing = MatrixHead.facing(seed: head.seed)
     }
 }
 
@@ -93,8 +92,6 @@ nonisolated struct MatrixPose: Hashable, Sendable {
     var glitch = 0
 
     static let rest = MatrixPose()
-    /// How a head rests on screen: its eyes over to the right, at the words beside it (`MatrixHead.shownFacing`).
-    static let look = MatrixPose(gaze: 1)
 
     /// The same moment with the eyes turned the other way (a face turned left is one turned right, mirrored).
     var mirrored: MatrixPose {
@@ -163,14 +160,8 @@ nonisolated enum MatrixHead {
                    hw: Double(last - first + 1) / 2, hh: Double(bottom - top + 1) / 2)
     }
 
-    /// The way a head with this seed was turned when heads faced either way (bit 7); kept with the head, no longer drawn
-    /// (`shownFacing`).
+    /// The way a head with this seed faces (bit 7, so neighbouring seeds don't all face one way).
     static func facing(seed: Int) -> Int { (seed >> 7) & 1 == 0 ? -1 : 1 }
-
-    /// The way every head is drawn and acts: turned to the right, toward the words beside it (owner, 2026-11-16: "I
-    /// also need them to all look to the right ... so that they are looking at the text on the screen"). A face sits
-    /// left of its bot's name, its chat's title and its messages everywhere in the app.
-    static let shownFacing = 1
 
     /// `seed` turned to face the other way (bit 7 flipped; 128, which would become 0, becomes 256).
     static func turned(seed: Int) -> Int {

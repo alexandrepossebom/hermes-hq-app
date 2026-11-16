@@ -1887,6 +1887,20 @@ struct SettingsRowLabel: View {
                             .foregroundStyle(desktop ? Color.hqLabel2 : Color.hqLabel).frame(width: width, height: width)
                     } else if desktop {
                         Image(systemName: systemImage).font(Font.hqSystem(size: 15)).foregroundStyle(Color.hqLabel2).frame(width: width)
+                    } else if let ink = Theme.inkIcons {
+                        // [paper-icons] The theme's ink, on its own tile or alone, in the tile's column.
+                        let tile = Self.tile(for: symbol ?? systemImage)
+                        if ink == .plain {
+                            Image(systemName: systemImage).font(Self.tileFont(systemImage, tile: width * 1.2).weight(.regular))
+                                .foregroundStyle(Color.hqLabel).frame(width: width, height: width)
+                        } else {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color(uiColor: HQPalette.iconTile))
+                                .frame(width: width, height: width)
+                                .overlay {
+                                    Image(systemName: tile.glyph).font(Self.tileFont(tile.glyph, tile: width)).foregroundStyle(Color.hqLabel)
+                                }
+                        }
                     } else {
                         let tile = Self.tile(for: symbol ?? systemImage)
                         RoundedRectangle(cornerRadius: 7, style: .continuous)

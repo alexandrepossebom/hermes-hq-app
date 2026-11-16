@@ -60,7 +60,6 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     private let source: Source?
     private let tile: Tile?
     private var webView: WKWebView?
-    private let webBox = UIView()
     /// [tiles] The page has drawn once: until then the web view is hidden behind a spinner, so the sheet never shows
     /// its own empty colour and then the page's (Mac pass 2026-11-14: a black sheet, then a white page snapping in).
     private var painted = false
@@ -92,28 +91,12 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     @discardableResult
     static func present(_ url: URL, source: Source? = nil, tile: Tile? = nil, title: String? = nil,
                         from vc: UIViewController) -> HTMLPageSheet {
-        show(url, source: source, tile: tile, title: title ?? tile?.name ?? url.lastPathComponent, from: vc,
-             key: source?.path ?? url.standardizedFileURL.path)
+        show(url, source: source, tile: tile, title: title ?? tile?.name ?? url.lastPathComponent, from: vc)
     }
 
-    /// `key`: what names the page among the Mac's page windows (its path on the bot's computer, a tile's pin), so the
-    /// same page opened again takes the window it has.
-    private static func show(_ url: URL?, source: Source?, tile: Tile?, title: String, from vc: UIViewController, key: String) -> HTMLPageSheet {
+    private static func show(_ url: URL?, source: Source?, tile: Tile?, title: String, from vc: UIViewController) -> HTMLPageSheet {
         let page = HTMLPageSheet(file: url, source: source, tile: tile)
         AppLog.trace("chatui", "html page opened live, talk-back \(source?.send != nil || tile?.send != nil ? "on" : "off")\(tile != nil ? ", as a tile" : "")\(url == nil ? ", page still reading" : "")")
-        #if targetEnvironment(macCatalyst)
-        // [mac-pages] Owner 2026-11-16: "If you click an HTML file, you can't enlarge it because it's too small to
-        // actually be able to fully utilize and see." A page opens in a window of its own on the Mac, as a spreadsheet
-        // or a PDF does (`MacFileWindow`): it can be resized, made full screen and set beside the chat, and its bar
-        // zooms the page. An earlier version of a tile stays a sheet over Versions, where its Roll Back asks.
-        if tile?.version == nil {
-            page.title = title
-            page.navigationItem.largeTitleDisplayMode = .never
-            page.inOwnWindow = true
-            if MacFileWindow.open(page: page, title: title, key: key) { return page }
-            page.inOwnWindow = false
-        }
-        #endif
         let sheet = ChatSheet.wrap(page, title: title, detents: [.large()])
         // [ipad-polish] A page made for a browser, not a phone's width. [tiles] On the Mac: the document page size
         // (`SheetStyle.macPage`, the size a note's sheet takes too), 960 wide at most, as tall as the window allows, the
@@ -128,35 +111,6 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     }
 
     #if targetEnvironment(macCatalyst)
-    // MARK: A window of its own, and zoom (Mac)
-
-    /// [mac-pages] The page is a page window's root (`MacFileWindow.open(page:)`), not a sheet.
-    fileprivate(set) var inOwnWindow = false
-
-    /// Closing a page that has its own window closes the window (Change… and Versions from an opened tile, ⌘W).
-    override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
-        guard inOwnWindow, presentedViewController == nil, let scene = viewIfLoaded?.window?.windowScene else {
-            super.dismiss(animated: flag, completion: completion)
-            return
-        }
-        MacFileWindow.close(scene)
-        if let completion { DispatchQueue.main.async(execute: completion) }
-    }
-
-    /// [mac-pages] − 100 % + in the bar (`PageZoom`).
-    private lazy var zoomControls = PageZoom.Controls { [weak self] in self?.viewIfLoaded?.setNeedsLayout() }
-
-    /// View › Make Text Bigger / Smaller / Actual Size (⌘+ ⌘− ⌘0) zoom the page in front, as they size the Terminal's
-    /// text while it is in front, not the app's.
-    @objc func hqTextBigger(_ sender: Any?) { PageZoom.change(by: 1) }
-    @objc func hqTextSmaller(_ sender: Any?) { PageZoom.change(by: -1) }
-    @objc func hqTextNormal(_ sender: Any?) { PageZoom.change(by: 0) }
-
-    override func validate(_ command: UICommand) {
-        super.validate(command)
-        PageZoom.validate(command)
-    }
-
     /// The page's size in a window this size: `SheetStyle.macPage`'s (960 wide at most, 80 a side; as tall as the
     /// window allows, never past it), so a resize keeps the size it opened at.
     private static func macFit(_ window: CGSize) -> CGSize {
@@ -185,7 +139,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if presentedViewController == nil { becomeFirstResponder() }
-        guard !inOwnWindow, windowWatch == nil, let sheet = navigationController, sheet.modalPresentationStyle == .formSheet,
+        guard windowWatch == nil, let sheet = navigationController, sheet.modalPresentationStyle == .formSheet,
               let container = sheet.presentationController?.containerView else { return }
         // The sheet's container is the window's size; a probe filling it hears every resize (UIWindowScene's
         // effectiveGeometry wasn't reported to an observer on the Mac).
@@ -211,8 +165,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     static func openTile(path: String, name: String, context: MediaContext, tile: Tile, from vc: UIViewController) -> HTMLPageSheet {
         let store = MediaLoader.shared.store(for: context.accountId)
         let kept = store.cachedFile(MediaStore.gatewayKey(accountId: context.accountId, profile: context.profile, path: path), name: name)
-        let page = show(kept, source: FilePreviewPresenter.pageSource(path, context, from: vc), tile: tile, title: tile.name, from: vc,
-                        key: tile.id.map { "tile:" + $0 } ?? path)
+        let page = show(kept, source: FilePreviewPresenter.pageSource(path, context, from: vc), tile: tile, title: tile.name, from: vc)
         page.tileRead = { [weak page] in
             if let page, !page.painted, let backdrop = tile.backdrop { page.view.backgroundColor = backdrop; page.inkBar(for: backdrop) }
             page?.spinner.startAnimating()
@@ -341,24 +294,20 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         // The page's window is the part of the sheet that shows, from under the title bar to above the home bar: a
         // tile fills its window exactly (100vh, no scrolling), so a window running up under the bar hid its top (owner
         // 2026-11-03, the revenue tile opened from Tiles: its headline cut off).
-        // [mac-pages] The web view sits in a box that has that window; the box lays it out over the Mac's zoom
-        // (`layoutWeb`). Elsewhere it fills the box.
-        webBox.translatesAutoresizingMaskIntoConstraints = false
-        webBox.clipsToBounds = true
-        view.addSubview(webBox)
+        web.translatesAutoresizingMaskIntoConstraints = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.alpha = 0   // [tiles] shown once the page has drawn (`didFinish`)
-        webBox.addSubview(web)
+        view.addSubview(web)
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.hidesWhenStopped = true
         view.addSubview(spinner)
         NSLayoutConstraint.activate([
             spinner.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
-            webBox.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            webBox.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            webBox.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webBox.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            web.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            web.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            web.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            web.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         webView = web
         // Not loaded yet: the sheet takes the app's own look (Appearance, a skin) only once it is on screen, and a
@@ -435,9 +384,6 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                 }
             }
         }
-        #if targetEnvironment(macCatalyst)
-        items += zoomControls.items   // [mac-pages]
-        #endif
         navigationItem.rightBarButtonItems = items
 
         if source != nil {
@@ -454,17 +400,6 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             guard let self, !self.painted, self.contentUnavailableConfiguration == nil else { return }
             self.spinner.startAnimating()
         }
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        layoutWeb()
-    }
-
-    /// The web view in its box: filling it, or on the Mac laid out in the box's size over the zoom and drawn grown by
-    /// it ([mac-pages], `PageZoom`).
-    private func layoutWeb() {
-        if let webView { PageZoom.place(webView, in: webBox.bounds) }
     }
 
     override func viewIsAppearing(_ animated: Bool) {

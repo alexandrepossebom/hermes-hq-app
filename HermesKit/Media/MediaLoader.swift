@@ -307,9 +307,6 @@ actor AsyncLimiter {
     }
 
     private func gatewayOriginal(path: String, context: MediaContext, visible: Bool) async throws -> URL {
-        #if DEBUG
-        if context.accountId == MediaContext.demoAccount { return URL(fileURLWithPath: path) }   // -HQDemoPhotos: this Mac's file
-        #endif
         let store = store(for: context.accountId)
         let key = MediaStore.gatewayKey(accountId: context.accountId, profile: context.profile, path: path)
         if let hit = store.cachedOriginal(key) { return hit }

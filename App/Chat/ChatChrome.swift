@@ -429,12 +429,6 @@ final class ChatTitleView: UIView {
         glass.frame = bounds
         menuButton.frame = bounds
         applyLook()
-        // [session-title-clean] Owner 2026-11-16: with no face (a session's title) the words sit centred in the title,
-        // the name over the bot's name; beside a face they start after it. Set after `applyLook`, which may have just
-        // replaced the name's attributed text.
-        let alignment: NSTextAlignment = showsAccessory ? .natural : .center
-        nameLabel.textAlignment = alignment
-        subtitleLabel.textAlignment = alignment
         if Theme.isDesktop { layoutDesktop(); return }
         var x: CGFloat = showsAccessory ? 5 : 14
         accessory?.isHidden = !showsAccessory

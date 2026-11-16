@@ -49,9 +49,7 @@ nonisolated enum HQFont {
     /// [mac] The Mac draws the app at 77 % (Catalyst's iPad scaling), so a caption's 11 pt came out at 8.5 pt on its
     /// screen. There no text style is smaller than Footnote's 13 pt, 10 pt on the Mac (owner 2026-10-23: "no text
     /// under about 10 pt"). Captions take Footnote's style rather than a fixed size, so they still follow the text size.
-    /// 15 since 2026-11-16 (11.5 pt on the Mac's screen, the Mac's own small text): at 10 pt times, counts and
-    /// captions were "so tiny … that it's hard to see" (owner).
-    static let macSmallest: CGFloat = 15
+    static let macSmallest: CGFloat = 13
 
     static func legibleStyle(_ style: UIFont.TextStyle) -> UIFont.TextStyle {
         #if targetEnvironment(macCatalyst)

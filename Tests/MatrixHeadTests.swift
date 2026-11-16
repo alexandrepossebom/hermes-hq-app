@@ -52,9 +52,7 @@ struct MatrixHeadTests {
         #expect(head.mouth == vector.mouth)
         #expect(head.blush == vector.blush)
         #expect(head.seed == vector.seed)
-        // The seed still says which way it was turned; every head is drawn turned to the right.
-        #expect(MatrixHead.facing(seed: head.seed) == vector.facing)
-        #expect(MatrixDesign(head).facing == 1)
+        #expect(MatrixDesign(head).facing == vector.facing)
         #expect(head.specs == .none && head.tile == .none && head.hat == .none)
     }
 
@@ -414,7 +412,7 @@ struct MatrixHeadTests {
         #expect(design.silhouette == .leaf)
         #expect(design.mouth == .none, "a dot-matrix head draws no mouth")
         #expect(design.color == HeadTones.accent(.grape).hex && !design.mono)
-        #expect(design.facing == MatrixHead.shownFacing)
+        #expect(design.facing == MatrixHead.facing(seed: head.seed))
     }
 
     /// A saved `form` is an outline's own name, or a Shapes form read as the outline nearest it (what build 378 saved,
@@ -735,46 +733,3 @@ private func contrast(_ a: Double, _ b: Double) -> Double { (max(a, b) + 0.05) /
     }
 }
 #endif
-
-#if DEBUG
-/// Every kind of face at rest beside words; with `TEST_RUNNER_HQ_FACE_REST=<folder>` on the test run it is written
-/// there as faces-at-rest-light.png and -dark.png.
-@MainActor @Suite struct FaceRestSheetTests {
-    @Test func drawsBothPages() throws {
-        for dark in [false, true] {
-            let image = FaceRestSheet.render(dark: dark)
-            #expect(image.size.height > 1000)
-            guard let folder = ProcessInfo.processInfo.environment["HQ_FACE_REST"], !folder.isEmpty else { continue }
-            let data = try #require(image.pngData())
-            try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("faces-at-rest-\(dark ? "dark" : "light").png"))
-        }
-    }
-}
-#endif
-
-/// At rest every face looks to the right, at the words beside it, whichever way its seed once turned it.
-struct FaceRestLookTests {
-    @Test func dotMatrixHeadsTurnAndLookRight() {
-        for name in ["ivy", "default", "inbox", "scout"] {
-            let design = MatrixDesign(Head.defaultMatrixHead(profile: name))
-            #expect(design.facing == 1, "\(name)")
-            func eyes(_ pose: MatrixPose) -> Double {
-                let holes = MatrixHead.dots(design, pose: pose).filter { $0.kind == .hole }
-                return holes.map { Double($0.col) }.reduce(0, +) / Double(max(holes.count, 1))
-            }
-            #expect(eyes(.look) > eyes(.rest), "\(name): the eyes rest further right than straight ahead")
-            #expect(eyes(.look) > Double(MatrixHead.grid) / 2 - 0.5, "\(name): right of the middle")
-        }
-    }
-
-    @Test func drawnHeadsRestTheirEyesToTheRight() {
-        var robot = HeadRecord(), dots = HeadRecord(), orb = HeadRecord(), glyph = HeadRecord()
-        robot.theme = "robot"; dots.theme = "dots"; dots.pattern = "face"; orb.theme = "orb"; orb.eyes = true; glyph.theme = "glyph"
-        #expect(ThemeHeadSVG.restLook(robot, compact: false) > 0)
-        #expect(ThemeHeadSVG.restLook(dots, compact: false) == 86 && ThemeHeadSVG.restLook(dots, compact: true) == 158)
-        #expect(ThemeHeadSVG.restLook(orb, compact: false) > 0)
-        #expect(ThemeHeadSVG.restLook(glyph, compact: false) == 0)
-        orb.eyes = false
-        #expect(ThemeHeadSVG.restLook(orb, compact: false) == 0)
-    }
-}

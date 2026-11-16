@@ -13,18 +13,12 @@ enum MarkdownFileSheet {
         return size <= ArtifactFiles.textLimit
     }
 
-    /// The note in a sheet (on the Mac, a window of its own). With `gateway` (where the file lives on the bot's computer) its links to other files open
+    /// The note in a sheet. With `gateway` (where the file lives on the bot's computer) its links to other files open
     /// them: a note on the same sheet, anything else as a file in a chat opens.
     static func present(_ url: URL, from vc: UIViewController, gateway: (path: String, context: MediaContext)? = nil) {
         let name = url.lastPathComponent
         let page = page(name, file: { url }, gateway: gateway)
         AppLog.trace("chatui", "markdown file opened formatted")
-        #if targetEnvironment(macCatalyst)
-        // [mac-pages] A window of its own on the Mac, as a page or a spreadsheet: resized, full screen, beside the chat.
-        page.title = name
-        page.navigationItem.largeTitleDisplayMode = .never
-        if MacFileWindow.open(page: page, title: name, key: gateway?.path ?? url.standardizedFileURL.path) { return }
-        #endif
         let sheet = ChatSheet.wrap(page, title: name, detents: [.large()])
         SheetStyle.widen(sheet, to: 780, from: vc)   // [ipad-polish] a note at a readable line, not a phone's width
         vc.present(sheet, animated: true)

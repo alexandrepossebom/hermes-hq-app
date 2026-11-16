@@ -45,6 +45,19 @@ final class Theme {
     /// Text Box › Desktop picked. Otherwise it is the iOS look's glass bar, in either look.
     static var boxComposer: Bool { ThemeTable.current.state.boxComposer }
 
+    /// [paper-icons] How a skin with ink icons (Paper) draws Settings' and More's row icons in the iOS look: its glyph in
+    /// the theme's text on a tile of the theme's own (`tiles`), or the glyph alone (`plain`). nil: iOS's coloured tiles
+    /// (every other skin, and the Desktop Look, which draws its own glyphs). A DEBUG build compares the two with
+    /// `-HQDebugInkIcons tiles|plain`.
+    enum InkIcons { case tiles, plain }
+    static var inkIcons: InkIcons? {
+        guard !isDesktop, ThemeTable.current.light.ownLook?.iconTile != nil else { return nil }
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "HQDebugInkIcons") == "plain" { return .plain }
+        #endif
+        return .tiles
+    }
+
     /// SwiftUI bodies that pick a font, a shape or a colour call this (through `Font.hq`, `Color.hq…`), so they run
     /// again when the theme changes.
     static func touch() { _ = shared.generation; _ = shared.textSizeTick }

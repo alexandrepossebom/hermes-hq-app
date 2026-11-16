@@ -128,7 +128,7 @@ nonisolated extension HeadRenderer {
         if head.theme == .matrix {
             // Always the whole head: it blinks and glances by whole pictures (`HeadImageCache.matrixFrame`), not layers.
             let design = MatrixDesign(head)
-            return MatrixHeadRenderer.makeImage(design, pose: state == .thinking ? .thinking(design) : .look, side: side, scale: scale,
+            return MatrixHeadRenderer.makeImage(design, pose: state == .thinking ? .thinking(design) : .rest, side: side, scale: scale,
                                                 dark: dark)
         }
         let layout = HeadGeometry.layout(head, state: state, compact: side < 64, darkPage: dark)
@@ -155,16 +155,7 @@ nonisolated extension HeadRenderer {
         case .ground: .ground
         case .moving: .moving
         }
-        let size = CGSize(width: pixels, height: pixels)
-        let look = parts == .all && state == .idle ? ThemeHeadSVG.restLook(record, compact: side < 64) : 0
-        if look != 0 {
-            // The whole head at rest: its eyes drawn over to the right (as HeadView holds the eyes' own layer).
-            SVGMini.draw(root, in: ctx, side: CGFloat(pixels), pixels: size, parts: .body)
-            ctx.translateBy(x: look * CGFloat(pixels) / 1024, y: 0)
-            SVGMini.draw(root, in: ctx, side: CGFloat(pixels), pixels: size, parts: .face)
-        } else {
-            SVGMini.draw(root, in: ctx, side: CGFloat(pixels), pixels: size, parts: mode)
-        }
+        SVGMini.draw(root, in: ctx, side: CGFloat(pixels), pixels: CGSize(width: pixels, height: pixels), parts: mode)
         return ctx.makeImage()
     }
 }

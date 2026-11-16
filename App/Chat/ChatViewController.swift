@@ -495,7 +495,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         input.media = (session as? ChatAttachmentSending)?.mediaSnapshot ?? .empty             // [attachments]
         #if DEBUG
         if let demo = ChatDemo.pageContext { input.media.context = demo }   // -HQDemoPage: page cards read this Mac's disk
-        input.media.attachments.merge(ChatDemo.photoAttachments) { mine, _ in mine }   // -HQDemoPhotos: your photos
         #endif
         input.ownFace = ChatSender(key: session.profile, name: input.speakerName, head: session.head,
                                    profile: session.profile, colorHex: nil)

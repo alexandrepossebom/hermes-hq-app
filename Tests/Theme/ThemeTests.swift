@@ -125,6 +125,35 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(set.light.groupedCard == RGBA(hex: 0xFDFDFA))
         let dark = try #require(skin.dark)
         #expect(!skin.light.rendersDark && dark.rendersDark)
+        // [paper-code] Its own muted code colours, not GitHub's; [paper-icons] its row icons on its own tile.
+        #expect(set.light.syntax != nil && set.dark.syntax != nil)
+        #expect(set.light.iconTile == RGBA(hex: 0xE4E5DD) && set.dark.iconTile.a == 1)
+        #expect(ThemeResolver.resolve(.default).light.iconTile.a == 0, "every other skin keeps iOS's tiles")
+    }
+
+    /// [paper-links] A reply's link is drawn in the accent; where the accent can't be told from the text it is
+    /// underlined too. Paper's ink and Cyberpunk's green (the same green as its text) are the two.
+    @Test func linksAreUnderlinedWhereTheAccentReadsAsText() {
+        #expect(SkinCatalog.all.filter(\.accentReadsAsText).map(\.id) == ["paper", "cyberpunk"])
+        for (skin, underlined) in [("paper", true), ("cyberpunk", true), ("nous", false), ("catppuccin", false)] {
+            ThemeTable.$testSet.withValue(ThemeResolver.resolve(ThemeState(skinID: skin))) {
+                #expect(MarkdownTheme.bot.underlinesLinks == underlined, "\(skin)")
+                #expect(MarkdownTheme.me.underlinesLinks, "your bubble's links stay underlined")
+            }
+        }
+        #expect(ThemeState(skinID: "paper").layoutSignature != ThemeState(skinID: "nous").layoutSignature,
+                "the underline is part of a reply's cached layout")
+    }
+
+    /// [paper-icons] Paper draws Settings' and More's icons in its ink; every other skin, and the Desktop Look, don't.
+    @MainActor @Test func paperDrawsItsRowIconsInInk() {
+        let cases: [(ThemeState, Theme.InkIcons?)] = [(ThemeState(skinID: "paper"), .tiles), (ThemeState(skinID: "nous"), nil),
+                                                     (ThemeState(skinID: "rose-pine"), nil), (ThemeState(skinID: "paper", desktopLook: true), nil)]
+        for (state, expected) in cases {
+            ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
+                #expect(Theme.inkIcons == expected, "\(state.skinID) look=\(state.desktopLook)")
+            }
+        }
     }
 
     /// Every seed against the web app's own table, when the read-only reference is on this Mac.
@@ -308,10 +337,10 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(set.light.tableHead == RGBA(hex: 0xF2E9E1) && set.dark.codeFill == RGBA(hex: 0x191724))
         let desktop = ThemeResolver.resolve(ThemeState(skinID: "rose-pine", desktopLook: true))
         #expect(desktop.light.replyEdge.a == 0 && desktop.dark.replyEdge.a == 0 && desktop.dark.ownLook == nil, "the Desktop Look draws its own")
-        for skin in SkinCatalog.all where skin.id != "rose-pine" {
+        for skin in SkinCatalog.all where skin.id != "rose-pine" && skin.id != "paper" {   // Paper: `paperIsClaudesIvoryAndInk`
             let other = ThemeResolver.resolve(ThemeState(skinID: skin.id))
             #expect(other.light.syntax == nil && other.dark.syntax == nil, "\(skin.id)")
-            // Paper (owner 2026-11-16) has an own look too, with GitHub's code colours: `paperIsClaudesIvoryAndInk`.
+            // Paper (owner 2026-11-16) has an own look too: `paperIsClaudesIvoryAndInk`.
             guard skin.ownLook == nil else { continue }
             for tokens in [other.light, other.dark] {
                 #expect(tokens.replyEdge.a == 0 && tokens.tableBody == tokens.fill4 && tokens.tableHead == tokens.fill4, "\(skin.id)")

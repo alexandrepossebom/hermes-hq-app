@@ -208,17 +208,12 @@ extension LiveChatSession: ChatSessionActions {
         }
         let awaitingModel = ManualChatTitles.isAwaitingModel(title, account: account.id, profile: profile, id: storedSessionId)
         guard !titleManuallySet, needsShortTitle || automaticTitleIsLocal || awaitingModel else { return }
-        let first = firstUserText ?? ""
-        let opening = ShortTitle.isPlaceholder(raw, firstMessage: first)
-        // An opening excerpt is no improvement on an existing bounded name, even if its older save was skipped.
-        guard !opening || title.count > ShortTitle.maxCharacters ||
-                ShortTitle.genericTitles.contains(ShortTitle.normalized(title)) else { return }
         automaticTitleSource = raw
         automaticTitleIsLocal = !alreadyStored
-        let short = opening && !first.isEmpty
+        let first = firstUserText ?? ""
+        let short = ShortTitle.isPlaceholder(raw, firstMessage: first) && !first.isEmpty
             ? ShortTitle.fallback(for: first) : ShortTitle.compact(raw)
-        // A cut composed name may still improve; its original source keeps the local opening fallback from replacing it.
-        let waiting = !alreadyStored || opening || short.hasSuffix("…")
+        let waiting = !alreadyStored || ShortTitle.isPlaceholder(raw, firstMessage: first)
         ManualChatTitles.awaitModel(waiting ? short : nil, account: account.id, profile: profile, id: storedSessionId)
         applyTitle(short, rowTitle: short)
         // Even a short gateway name must be reasserted after an older automatic write already on the wire.
@@ -241,44 +236,17 @@ extension LiveChatSession: ChatSessionActions {
         !isBotChat && !titleManuallySet && ShortTitle.isPlaceholder(automaticTitleSource ?? title, firstMessage: firstUserText ?? "")
     }
 
-    /// A gateway's composed name that was cut to fit ("My account has been…"), still open to a better automatic name:
-    /// the longest form of it this chat knows. Not an opening excerpt (those go through `needsShortTitle`).
-    private var cutComposedName: String? {
-        guard !isBotChat, !titleManuallySet, !needsShortTitle, title.hasSuffix("…"),
-              ManualChatTitles.isAwaitingModel(title, account: account.id, profile: profile, id: storedSessionId)
-        else { return nil }
-        if let source = automaticTitleSource, ShortTitle.compact(source) == title { return source }
-        return title
-    }
-
-    /// After a reply, an opening-word name gets an on-device title when possible, and so does a gateway name that
-    /// was cut to fit. Give the gateway's own naming model a moment first; both paths write through the same strict
-    /// budget. A cut gateway name is only ever replaced by a model's name, never by the opening excerpt.
+    /// After a reply, an opening-word name gets an on-device title when possible. Give the gateway's own naming
+    /// model a moment first; both paths write through the same strict budget.
     func shortenTitleIfNeeded() {
-        guard !shortTitleTried, needsShortTitle || cutComposedName != nil,
-              let first = firstUserText, !ChatText.trimmed(first).isEmpty else { return }
+        guard !shortTitleTried, needsShortTitle, let first = firstUserText, !ChatText.trimmed(first).isEmpty else { return }
         shortTitleTried = true
-        shortTitleTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: self?.shortTitleDelay ?? .seconds(5))
-            // Decide after the wait: the gateway's name usually arrives during it, and may be a cut composed name.
-            guard let self else { return }
-            if self.needsShortTitle {
-                // The gateway's name can also land while the model answers: a model name still beats a cut name,
-                // but the opening excerpt only ever replaces an opening placeholder.
-                if let name = await ShortTitle.modelName(for: first, using: self.titleModel) {
-                    guard name != self.title, self.needsShortTitle || self.cutComposedName != nil else { return }
-                    self.receiveAutomaticTitle(name, alreadyStored: false)
-                } else {
-                    let short = ShortTitle.fallback(for: first)
-                    guard self.needsShortTitle, short != self.title else { return }
-                    self.receiveAutomaticTitle(short, alreadyStored: false)
-                }
-            } else if let long = self.cutComposedName {
-                let shown = self.title
-                let name = await ShortTitle.modelName(for: first, longTitle: long, using: self.titleModel)
-                guard let name, self.title == shown, self.cutComposedName != nil else { return }
-                self.receiveAutomaticTitle(name, alreadyStored: false)
-            }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, self.needsShortTitle else { return }
+            let short = await ShortTitle.make(from: first)
+            guard self.needsShortTitle, short != self.title else { return }
+            self.receiveAutomaticTitle(short, alreadyStored: false)
         }
     }
 

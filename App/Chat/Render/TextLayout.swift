@@ -555,8 +555,6 @@ nonisolated struct ToolRowLayout: @unchecked Sendable {
     /// [updates] An update group's line: centred, its marks before its words, "· 3 more" after them, no chevron.
     var group: UpdatesGroup? = nil
     var groupOpen = false
-    /// A shortened visual work line still speaks the full summary to VoiceOver.
-    var spokenTitle: String? = nil
 }
 
 nonisolated struct LineLayout: @unchecked Sendable {
@@ -707,20 +705,15 @@ nonisolated enum TextLayout {
             if let line = t.line {                          // Tool Call Style › One Line: the reply's line
                 let failed = t.tools.filter { $0.state == .failed }.count
                 let opensStep = t.tools.count == 1 && line.thought == nil
-                // [chat-refine] A summary too long for its row gives way to its count, whole, instead of being cut.
-                let swapped = oneLineSwaps(line, group: t.group, failed: failed, width: width, style: style)
-                var layout = toolRow(title: swapped ? line.short ?? line.title : line.title, glyph: line.glyph,
-                                     meta: t.group != nil ? nil : failed > 0 ? "\(failed) Failed" : swapped ? nil : line.meta,
+                var layout = toolRow(title: line.title, glyph: line.glyph,
+                                     meta: t.group != nil ? nil : failed > 0 ? "\(failed) Failed" : line.meta,
                                      metaIsError: failed > 0, live: t.live, expanded: t.expanded && !opensStep, single: opensStep,
                                      steps: t.expanded && !opensStep ? t.tools : [], thought: t.expanded ? line.thought : nil,
                                      gap: gap, width: width, style: style, capsSteps: true, centered: t.group != nil)
                 // [updates] Alone between two real rows it is a centred update line, its glyph before its words.
-                if case .tool(var tl) = layout.content {
-                    tl.spokenTitle = swapped ? line.title : nil
-                    if let group = t.group {
-                        tl.group = group
-                        tl.groupOpen = t.expanded && !opensStep
-                    }
+                if let group = t.group, case .tool(var tl) = layout.content {
+                    tl.group = group
+                    tl.groupOpen = t.expanded && !opensStep
                     layout.content = .tool(tl)
                 }
                 return layout
@@ -913,26 +906,6 @@ nonisolated enum TextLayout {
     /// The width a reply's rows take (text, tool rows and their cards, error cards): the column, but on the Mac no
     /// wider than Grok Bot's 560 pt bubbles (`ChatMetrics.replyMaxWidth`).
     static func replyWidth(_ width: CGFloat) -> CGFloat { min(width - 2 * ChatMetrics.sideInset, ChatMetrics.replyMaxWidth) }
-
-    /// [chat-refine] Whether a One Line row's words give way to its short form (`OneLineRow.short`) in a chat `width`
-    /// wide: only when the words would be cut. The room is the cell's own (`ChatToolCell.configure`, `fitGroup`).
-    static func oneLineSwaps(_ line: OneLineRow, group: UpdatesGroup?, failed: Int, width: CGFloat, style: ChatStyle) -> Bool {
-        guard line.short != nil else { return false }
-        if let group {
-            // The centred line's room, as `ChatToolCell.fitGroup` works it out (that one is the main actor's).
-            let font = style.notice
-            let marks = min(3, group.marks.count), side = (style.toolGlyph - 2).rounded()
-            let lead = marks == 0 ? 0 : CGFloat(marks) * side + CGFloat(marks - 1) * 4 + 6
-            let caretW = group.opens ? max(7, font.capHeight.rounded()) : 0
-            let trail = group.opens ? max(5, (caretW * 0.5).rounded()) + caretW : 0
-            let room = max(0, width - 2 * ChatMetrics.sideInset - 2 * 10 - lead - trail)
-            return ceil((line.title as NSString).size(withAttributes: [.font: font]).width) > room
-        }
-        let meta = failed > 0 ? "\(failed) Failed" : line.meta
-        let metaW = meta.map { ceil(($0 as NSString).size(withAttributes: [.font: style.toolMeta]).width) + 8 } ?? 0
-        let room = replyWidth(width) - 2 * ChatMetrics.toolRowPadH - style.toolGlyph - ChatMetrics.toolGap - style.toolChevron - 8 - metaW
-        return ceil((line.title as NSString).size(withAttributes: [.font: style.tool]).width) > room
-    }
 
     /// [wide-tables] Tester 2026-11-06 (a tester: "When the response has a table, it would be better to expand the width
     /// of the bubble to use almost all the available space", a 3-column table beside Hermes Desktop's): a reply's table

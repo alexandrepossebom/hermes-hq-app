@@ -49,6 +49,12 @@ nonisolated struct Skin: Sendable, Hashable, Identifiable {
     var onlyModeTag: String? { hasOneLook ? (light.rendersDark ? "Dark Only" : "Light Only") : nil }
 
     func seeds(dark wantsDark: Bool) -> SkinSeeds { wantsDark ? (dark ?? light) : light }
+
+    /// [paper-links] The accent can't be told from the text in either palette (ΔE76 under 15): Paper's ink and
+    /// Cyberpunk's green. A link in a reply is drawn in the accent, so in these skins it is underlined as well.
+    var accentReadsAsText: Bool {
+        [light, dark].compactMap { $0 }.contains { $0.brand.labDistance(to: $0.foreground) < 15 }
+    }
 }
 
 nonisolated enum SkinCatalog {

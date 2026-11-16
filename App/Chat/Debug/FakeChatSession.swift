@@ -910,18 +910,6 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         ]
     }
 
-    /// [photo-grid] `-HQDemoPhotos <folder>`: one message per set of pictures (`ChatDemo.photoSets`).
-    static func photosThread(now: Date = Date()) -> [ChatMessage] {
-        let sets = ChatDemo.photoSets
-        return sets.enumerated().map { i, set in
-            let at = now.addingTimeInterval(-Double(sets.count - i) * 60)
-            if set.mine { return ChatMessage(id: "ph-" + set.name, role: .user, parts: [.text(set.words)], timestamp: at, rowId: nil) }
-            let media = set.files.map { "MEDIA:\($0)" }.joined(separator: "\n")
-            return ChatMessage(id: "ph-" + set.name, role: .assistant, parts: [.text(set.words.isEmpty ? media : set.words + "\n\n" + media)],
-                               timestamp: at, rowId: nil)
-        }
-    }
-
     /// [mac-audit] `-HQDemoLinks`: short plain replies (their time on the last line) and two bare links, one a page
     /// with no title (pair with `-HQNLinkPreviewStub 'https://example.com/=>-;https://example.org/guide=>The Guide'`).
     static func linksThread(now: Date = Date()) -> [ChatMessage] {
@@ -1009,7 +997,6 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         if ChatDemo.flag("-HQDemoBotExchange") { return botExchangeThread(now: Date().addingTimeInterval(-35 * 60)) + botExchangeFollowUp() }
         if ChatDemo.flag("-HQDemoRestated") { return restatedThread() }
         if let page = ChatDemo.argument("-HQDemoPage") { return pageThread(page) }
-        if ChatDemo.argument("-HQDemoPhotos") != nil { return photosThread() }
         var rng = SeededRNG(seed: 42)
         var out: [ChatMessage] = []
         out.reserveCapacity(count)

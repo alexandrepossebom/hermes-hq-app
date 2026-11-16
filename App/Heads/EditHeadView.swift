@@ -320,9 +320,7 @@ struct EditHeadView: View {
                     ideas
                     parts
                     colours
-                    // A dot-matrix head has no extras: it no longer picks a way to face (every head turns to the right,
-                    // toward the words beside it: `MatrixHead.shownFacing`).
-                    if model.draft.theme != "matrix" { extras }
+                    extras
                     myStyle
                     if model.opened.saved {
                         Button("Reset Head", role: .destructive, action: reset)
@@ -650,6 +648,10 @@ struct EditHeadView: View {
                 choice("Backdrop", ["none", "dark", "light", "color"], HeadLabels.tiles, id: "backdrop",
                        get: { model.draft.tile }, set: { v in model.set { $0.tile = v } })
                 if draft.form == "blob" { remix("New Blob") }
+            case "matrix":
+                // Which way it turns: where the light falls and the eyes sit.
+                choice("Facing", ["left", "right"], HeadLabels.facings, id: "facing",
+                       get: { model.draft.facing < 0 ? "left" : "right" }, set: { v in model.set { $0.facing = v == "left" ? -1 : 1 } })
             default:
                 choice("Tile", ["dark", "light", "color"], HeadLabels.tiles, id: "tile", get: { model.draft.tile }, set: { v in model.set { $0.tile = v } })
                 if theme == "orb" || (theme == "dots" && (draft.pattern == "ring" || draft.pattern == "bloom")) {

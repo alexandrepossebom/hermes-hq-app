@@ -98,6 +98,12 @@ nonisolated struct RGBA: Sendable, Hashable {
     /// CIELAB lightness 0…100.
     var labL: Double { labD50.0 }
 
+    /// CIELAB ΔE76 to another colour: how far apart the two look, hue and lightness together.
+    func labDistance(to other: RGBA) -> Double {
+        let a = labD50, b = other.labD50
+        return ((a.0 - b.0) * (a.0 - b.0) + (a.1 - b.1) * (a.1 - b.1) + (a.2 - b.2) * (a.2 - b.2)).squareRoot()
+    }
+
     /// The same hue and chroma with CIELAB L raised to at least `floor` (clipped into sRGB).
     func raisingL(to floor: Double) -> RGBA {
         let lab = labD50

@@ -59,6 +59,8 @@ nonisolated struct ThemeTokens: Sendable, Hashable {
     var syntax: SyntaxColours? = nil
     /// A skin's own iOS look (`SkinOwnLook`), nil for the general rules and in the Desktop Look.
     var ownLook: SkinOwnLook? = nil
+    /// [paper-icons] A row icon's tile in a skin that draws its icons in ink (`SkinOwnLook.iconTile`); clear otherwise.
+    var iconTile: RGBA { ownLook?.iconTile ?? RGBA(unit: 0, 0, 0, 0) }
     /// [message-colour] The colour of the Mac's chosen row while a message colour is picked (owner 2026-11-11: the
     /// chosen row follows it); nil: the tint, as ever.
     var rowAccent: RGBA? = nil

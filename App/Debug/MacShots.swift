@@ -2491,7 +2491,7 @@ enum MacShots {
             artifacts.select(filter: .file)
             await snap("files")
             artifacts.select(filter: nil)
-            artifacts.debugOpen(UserDefaults.standard.string(forKey: "HQDebugGridsOpen") ?? "plan.md")   // -HQDebugGridsOpen index.html
+            artifacts.debugOpen("plan.md")
             try? await Task.sleep(for: .seconds(3))
             await snap("file-open")
             tabs.split?.closeDetail(animated: false)

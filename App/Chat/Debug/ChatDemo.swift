@@ -1,5 +1,4 @@
 #if DEBUG
-import ImageIO
 import UIKit
 
 /// DEBUG harness: `-HQDemoChat <N>` launches into a plain list that pushes a chat with N generated messages, so the
@@ -32,48 +31,11 @@ import UIKit
 /// - `-HQDemoSkippedQuestion` [questions] a question that went unanswered, then the reply waiting on it (Answer Now);
 ///   `-HQDemoAnswerNow` taps Answer Now, `-HQDemoAnswerSend <text>` sends that answer
 /// - `-HQDemoLinks` [mac-audit] short plain replies and two bare links (one page without a title)
-/// - `-HQDemoPhotos <folder>` [photo-grid] messages made from the pictures in <folder> on this Mac: `<set>-<n>.png`
-///   files are one message per set, in name order; a set whose name starts with "me" is yours, any other the bot's,
-///   and `<set>.txt` beside them is its words (2026-11-16)
 enum ChatDemo {
-    /// `-HQDemoPage`, `-HQDemoPhotos`: a media context whose files are read from this Mac's disk (`MediaLoader`).
+    /// `-HQDemoPage`: a media context whose files are read from this Mac's disk (`MediaLoader.file`).
     static var pageContext: MediaContext? {
-        argument("-HQDemoPage") == nil && argument("-HQDemoPhotos") == nil ? nil
-            : MediaContext(accountId: MediaContext.demoAccount, profile: "default")
+        argument("-HQDemoPage") == nil ? nil : MediaContext(accountId: MediaContext.demoAccount, profile: "default")
     }
-
-    /// `-HQDemoPhotos`: the folder's sets, in name order (each set's pictures in name order, and its words).
-    static let photoSets: [(name: String, mine: Bool, files: [String], words: String)] = {
-        guard let folder = argument("-HQDemoPhotos"),
-              let names = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return [] }
-        var sets: [String: [String]] = [:]
-        for name in names.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }) {
-            let ext = (name as NSString).pathExtension.lowercased()
-            guard ["png", "jpg", "jpeg", "heic"].contains(ext), let dash = name.lastIndex(of: "-") else { continue }
-            sets[String(name[..<dash]), default: []].append((folder as NSString).appendingPathComponent(name))
-        }
-        return sets.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.map { key in
-            let words = (try? String(contentsOfFile: (folder as NSString).appendingPathComponent(key + ".txt"), encoding: .utf8)) ?? ""
-            return (key, key.hasPrefix("me"), sets[key] ?? [], words.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-    }()
-
-    /// `-HQDemoPhotos`: your messages' photos by message id (a reply's are `MEDIA:` lines in its words).
-    static let photoAttachments: [String: [MessageAttachment]] = {
-        var out: [String: [MessageAttachment]] = [:]
-        for set in photoSets where set.mine {
-            out["ph-" + set.name] = set.files.map { path in
-                var a = MessageAttachment(kind: .image, source: .gateway(path: path), name: (path as NSString).lastPathComponent)
-                if let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-                   let info = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
-                    a.pixelWidth = info[kCGImagePropertyPixelWidth] as? Int
-                    a.pixelHeight = info[kCGImagePropertyPixelHeight] as? Int
-                }
-                return a
-            }
-        }
-        return out
-    }()
 
     static func makeRoot(count: Int) -> UIViewController {
         let list = ChatDemoListViewController(count: count)
