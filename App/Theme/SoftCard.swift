@@ -74,23 +74,24 @@ nonisolated enum SoftCardStyle: String, Sendable, Hashable, CaseIterable {
     }
 
     /// The theme's page colour at the density this picture needs, for `traits` (Light or Dark, the skin).
-    static func tint(_ traits: UITraitCollection) -> UIColor {
-        HQPalette.page.resolvedColor(with: traits).withAlphaComponent(CGFloat(density(traits)))
+    /// [bubble-card] `backdrop`: the picture the card stands on (a chat's reply stands on the chats').
+    static func tint(_ traits: UITraitCollection, on backdrop: Backdrop = .app) -> UIColor {
+        HQPalette.page.resolvedColor(with: traits).withAlphaComponent(CGFloat(density(traits, on: backdrop)))
     }
 
     /// [soft-card-style] The style the cards draw just now.
     static var style: SoftCardStyle { Backdrop.app.cardStyle.shown(reduceTransparency: HQAccessibility.reduceTransparency) }
 
-    static func density(_ traits: UITraitCollection) -> Double {
+    static func density(_ traits: UITraitCollection, on backdrop: Backdrop = .app) -> Double {
         let dark = traits.userInterfaceStyle == .dark
-        let tone = Backdrop.app.picture(for: traits).flatMap { picture in
+        let tone = backdrop.picture(for: traits).flatMap { picture in
             BackdropImages.shared.image(picture).map { SoftCardTone.of($0, picture: picture) }
         }
         let ink = HQPalette.label2.resolvedColor(with: traits)
         var alpha: CGFloat = 1
         ink.getRed(nil, green: nil, blue: nil, alpha: &alpha)
         // No picture made yet: the worst one (white in the dark, black in the light).
-        return density(picture: tone.map { dark ? $0.bright : $0.dark } ?? (dark ? 1 : 0), dim: Double(Backdrop.app.dim) / 100,
+        return density(picture: tone.map { dark ? $0.bright : $0.dark } ?? (dark ? 1 : 0), dim: Double(backdrop.dim) / 100,
                        page: luminance(HQPalette.page.resolvedColor(with: traits)), card: luminance(HQPalette.page.resolvedColor(with: traits)),
                        ink: luminance(ink.withAlphaComponent(1)), inkAlpha: Double(alpha))
     }
@@ -177,6 +178,10 @@ final class SoftCardSurface: UIView {
 
     var shape: Shape = .card { didSet { setNeedsLayout() } }
     var open: Sides = [] { didSet { setNeedsLayout() } }
+    /// [bubble-card] A chat bubble's own corner instead of the cards' (Chat Bubbles › Style › Card).
+    var radius: CGFloat? { didSet { if radius != oldValue { setNeedsLayout() } } }
+    /// [bubble-card] The picture this card stands on: the app's, or the chats' for a reply.
+    var backdrop: Backdrop = .app { didSet { if backdrop !== oldValue { paint() } } }
 
     private let blur = UIVisualEffectView(effect: DesktopFrost.blur())
     private let tint = UIView()
@@ -222,12 +227,12 @@ final class SoftCardSurface: UIView {
         tint.isHidden = style == .glass
         rim.isHidden = style == .glass
         switch style {
-        case .tinted: tint.backgroundColor = SoftCard.tint(traitCollection)
+        case .tinted: tint.backgroundColor = SoftCard.tint(traitCollection, on: backdrop)
         case .solid: tint.backgroundColor = HQPalette.card.resolvedColor(with: traitCollection).withAlphaComponent(1)
         case .glass: break
         }
         rim.layer.borderColor = SoftCard.edge.resolvedColor(with: traitCollection).cgColor
-        let glassTint = style == .glass ? SoftCard.tint(traitCollection) : nil
+        let glassTint = style == .glass ? SoftCard.tint(traitCollection, on: backdrop) : nil
         if style == .glass, glass == nil {
             let view = UIVisualEffectView(effect: nil)
             view.isUserInteractionEnabled = false
@@ -251,7 +256,7 @@ final class SoftCardSurface: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let radius = shape == .capsule ? bounds.height / 2 : min(SoftCard.radius, min(bounds.width, bounds.height) / 2)
+        let radius = shape == .capsule ? bounds.height / 2 : min(self.radius ?? SoftCard.radius, min(bounds.width, bounds.height) / 2)
         var corners: CACornerMask = []
         if !open.contains(.top) { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
         if !open.contains(.bottom) { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
@@ -279,10 +284,16 @@ final class SoftCardSurface: UIView {
 /// The surface behind a SwiftUI view (`hqPictureBacking`).
 struct SoftCardBackground: UIViewRepresentable {
     var capsule = false
+    /// [bubble-card] A chat bubble's corner, on the chats' picture (the Chat Bubbles preview).
+    var bubbleRadius: CGFloat?
     func makeUIView(context: Context) -> SoftCardSurface {
         let surface = SoftCardSurface()
-        surface.shape = capsule ? .capsule : .card
+        updateUIView(surface, context: context)
         return surface
     }
-    func updateUIView(_ surface: SoftCardSurface, context: Context) { surface.shape = capsule ? .capsule : .card }
+    func updateUIView(_ surface: SoftCardSurface, context: Context) {
+        surface.shape = capsule ? .capsule : .card
+        surface.radius = bubbleRadius
+        surface.backdrop = bubbleRadius == nil ? .app : .chats
+    }
 }

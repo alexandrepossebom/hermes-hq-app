@@ -75,7 +75,8 @@ import UIKit
 
     /// Picked, the look is the iOS one, Reduce Transparency is off, and chats show a background.
     static var applies: Bool {
-        ThemeTable.bubbleStyle == .tinted && !HQAccessibility.reduceTransparency && Backdrop.chats.shows
+        // [bubble-card] Card draws your own messages (and a reply in a bot's own colour) as Tinted does.
+        (ThemeTable.bubbleStyle == .tinted || ThemeTable.bubbleStyle == .card) && !HQAccessibility.reduceTransparency && Backdrop.chats.shows
     }
 
     /// The soft copy of a picture, and its pixels for the contrast check.

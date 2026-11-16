@@ -374,6 +374,7 @@ struct ChatBubblesSettingsView: View {
         switch style {
         case .glass: "Glass: Liquid Glass in your theme’s colors."
         case .tinted: "Tinted: the colors of your Chat Background."
+        case .card: "Card: replies are soft cards, as App Background’s Soft Cards. Your messages are Tinted."
         default: "Solid: filled with your theme’s colors."
         }
     }
@@ -430,7 +431,7 @@ struct ChatBubblesSettingsView: View {
                     } else {
                         Text(Self.note)
                     }
-                    if bubbleStyle(state) == .tinted && Backdrop.chats.drawn == nil {
+                    if (bubbleStyle(state) == .tinted || bubbleStyle(state) == .card) && Backdrop.chats.drawn == nil {
                         Text(Self.tintedNeedsBackground).accessibilityIdentifier("theme.tintedNeedsBackground")
                     }
                 }
@@ -555,7 +556,8 @@ private struct BubbleCornersRow: View {
 /// [glass-bubbles] [tinted-bubbles] The style choices where they are offered, and their names.
 @MainActor enum BubbleStyles {
     /// Solid, Glass and Tinted; the Mac has no glass (`GlassBubbles.offered`).
-    static var offered: [BubbleStyle] { GlassBubbles.offered ? [.solid, .glass, .tinted] : [.solid, .tinted] }
+    /// [bubble-card] Card where the three are.
+    static var offered: [BubbleStyle] { GlassBubbles.offered ? [.solid, .glass, .tinted, .card] : [.solid, .tinted] }
     /// A stored style as it draws here: Glass is solid where it isn't offered.
     static func shown(_ stored: BubbleStyle) -> BubbleStyle { offered.contains(stored) ? stored : .solid }
 }
@@ -566,6 +568,7 @@ extension BubbleStyle {
         case .solid: "Solid"
         case .glass: "Glass"
         case .tinted: "Tinted"
+        case .card: "Card"
         }
     }
 }
@@ -657,8 +660,10 @@ struct BubbleCornersPreview: View {
 
     private func solidBubble(_ text: String, mine: Bool, joinsAbove: Bool, joinsBelow: Bool, tail: Bool) -> some View {
         let glassy = style == .glass && GlassBubbles.offered && !reduceTransparency
-        // Glass takes rounded corners only: no tail, its corner as round as the rest.
-        let outline = BubbleOutline(radius: radius, mine: mine, joinsAbove: joinsAbove, joinsBelow: joinsBelow, tail: tail && !glassy)
+        // [bubble-card] A reply on Soft Cards' surface, where a chat draws one.
+        let cardy = style == .card && !mine && !Theme.isDesktop && ground != nil
+        // Glass takes rounded corners only: no tail, its corner as round as the rest. A card too.
+        let outline = BubbleOutline(radius: radius, mine: mine, joinsAbove: joinsAbove, joinsBelow: joinsBelow, tail: tail && !glassy && !cardy)
         let colour = mine ? Color.hqMeBubble : Color.hqBotBubble
         let alpha = contrast == .increased ? GlassBubbles.contrastTint : mine ? GlassBubbles.ownTint : GlassBubbles.replyTint
         return Text(text)
@@ -666,8 +671,8 @@ struct BubbleCornersPreview: View {
             .foregroundStyle(mine ? Color.hqMeText : Color.hqLabel)
             .padding(.horizontal, ChatMetrics.bubblePadH)
             .padding(.vertical, ChatMetrics.bubblePadV)
-            .background { tinted(mine: mine, in: outline) }
-            .hqChatBubble(glassy ? colour.opacity(Double(alpha)) : nil, solid: tint(mine: mine) == nil ? colour : .clear, in: outline)
+            .background { if cardy { SoftCardBackground(bubbleRadius: radius) } else { tinted(mine: mine, in: outline) } }
+            .hqChatBubble(glassy ? colour.opacity(Double(alpha)) : nil, solid: cardy || tint(mine: mine) != nil ? .clear : colour, in: outline)
             // As wide as the chat lets each side go (`TextLayout.maxBubbleWidth`): a reply the row, yours a short column.
             .frame(maxWidth: mine ? ChatMetrics.userMaxWidth : ChatMetrics.replyMaxWidth, alignment: mine ? .trailing : .leading)
             // Room for the tail, which hangs outside the bubble.
@@ -680,7 +685,7 @@ extension BubbleCornersPreview {
     /// [tinted-bubbles] The bubble's own copy of the picture, as a chat's bubble draws it (`BubbleShapeView`): nil
     /// unless Tinted is picked, Reduce Transparency is off and the preview stands on the chat background.
     private func tint(mine: Bool) -> (image: CGImage, aspect: CGSize)? {
-        guard style == .tinted, !reduceTransparency, !Theme.isDesktop, ground != nil else { return nil }
+        guard style == .tinted || (style == .card && mine), !reduceTransparency, !Theme.isDesktop, ground != nil else { return nil }
         let traits = UITraitCollection { traits in
             traits.userInterfaceStyle = scheme == .dark ? .dark : .light
             traits.accessibilityContrast = contrast == .increased ? .high : .normal

@@ -223,6 +223,11 @@ final class BubbleShapeView: UIView {
     private weak var tintAnchor: BackdropView?
     private var anchorLooked = false
     private var drawsTint = false
+    /// [bubble-card] Chat Bubbles › Style › Card (owner 2026-11-15, beside Sessions on Soft Cards: "toggle between how
+    /// it is now and exactly how the soft cards are"): a reply is Soft Cards' own surface, made on first use, standing
+    /// on the chats' picture. It takes rounded corners only, so no tail, as glass.
+    private var card: SoftCardSurface?
+    private var drawsCard = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -241,8 +246,14 @@ final class BubbleShapeView: UIView {
     @objc private func accessibilityChanged() { updateFill() }
 
     @objc private func backdropChanged() {
-        guard drawsTint || ThemeTable.bubbleStyle == .tinted else { return }
+        guard drawsTint || drawsCard || ThemeTable.bubbleStyle == .tinted || ThemeTable.bubbleStyle == .card else { return }
         updateFill()
+    }
+
+    /// [bubble-card] Picked, a reply in the theme's own colour, and chats show a background (with none there is no
+    /// picture for a card to soften: the bubble is solid).
+    private var wantsCard: Bool {
+        allowsGlass && !plainReply && ThemeTable.bubbleStyle == .card && fill == ChatPalette.botBubble && Backdrop.chats.shows
     }
 
     private var wantsGlass: Bool { allowsGlass && GlassBubbles.applies && !plainReply }
@@ -263,8 +274,9 @@ final class BubbleShapeView: UIView {
 
     private func updatePath() {
         guard let key else { shapeLayer.path = nil; return }
-        shapeLayer.path = BubbleShape.path(drawsGlass ? key.withoutTail : key)
+        shapeLayer.path = BubbleShape.path(drawsGlass || drawsCard ? key.withoutTail : key)
         if drawsGlass { shapeGlass(key) }
+        if drawsCard { placeCard() }
         if drawsTint {
             tint?.outline.path = shapeLayer.path
             edge?.path = shapeLayer.path
@@ -274,6 +286,7 @@ final class BubbleShapeView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         placeGlass()
+        placeCard()
         edge?.frame = bounds
         if drawsTint {
             tint?.frame = bounds
@@ -286,7 +299,7 @@ final class BubbleShapeView: UIView {
         // [tinted-bubbles] A new place may have another chat's background behind it, or none.
         anchorLooked = false
         tintAnchor = nil
-        if window != nil, drawsTint || ThemeTable.bubbleStyle == .tinted { updateFill() }
+        if window != nil, drawsTint || ThemeTable.bubbleStyle == .tinted || ThemeTable.bubbleStyle == .card { updateFill() }
         placeGlass()   // [reply-backing] the screen it stands in
     }
 
@@ -322,6 +335,34 @@ final class BubbleShapeView: UIView {
         tintAspect = soft.aspect
         drawEdge(contrast: contrast, mine: mine, card: TintedBubbles.isDark(fill, traits: traitCollection))
         return true
+    }
+
+    /// [bubble-card] Soft Cards' surface under the reply's words, in the bubble's corners.
+    private func applyCard() {
+        shapeLayer.fillColor = UIColor.clear.cgColor
+        shapeLayer.lineWidth = 0
+        shapeLayer.strokeColor = nil
+        let view = card ?? {
+            let made = SoftCardSurface()
+            made.backdrop = .chats
+            insertSubview(made, at: 0)
+            card = made
+            return made
+        }()
+        view.isHidden = false
+        placeCard()
+        // The surface draws Soft Cards' own hairline; Increase Contrast adds the solid bubble's edge over it.
+        if traitCollection.accessibilityContrast == .high || HQAccessibility.overrides.contrast {
+            drawEdge(contrast: true, mine: false)
+        } else {
+            edge?.isHidden = true
+        }
+    }
+
+    private func placeCard() {
+        guard drawsCard, let card, let key else { return }
+        if card.frame != bounds { card.frame = bounds }
+        card.radius = GlassBubbles.corners(key).topLeft
     }
 
     /// [glass-bubbles] The glass in the outline's corners (glass takes rounded corners, not a path: the tail's corner
@@ -433,11 +474,25 @@ final class BubbleShapeView: UIView {
         }
         if glassy {
             setTinted(false)
+            if drawsCard { drawsCard = false }
+            card?.isHidden = true
             applyGlass()
             return
         }
         glass?.isHidden = true
         edge?.isHidden = true
+        // [bubble-card] Soft Cards' surface; a change redraws the outline (the tail).
+        let cardy = wantsCard
+        if cardy != drawsCard {
+            drawsCard = cardy
+            updatePath()
+        }
+        if cardy {
+            setTinted(false)
+            applyCard()
+            return
+        }
+        card?.isHidden = true
         // [tinted-bubbles] Tinted, or the solid fill below while its picture is made.
         if wantsTint {
             setTinted(true)

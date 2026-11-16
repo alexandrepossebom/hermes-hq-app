@@ -124,6 +124,7 @@ nonisolated struct ThemeState: Sendable, Hashable {
     var appliedBubbleStyle: BubbleStyle { desktopLook ? .solid : bubbleStyle }
     var appliedGlassBubbles: Bool { appliedBubbleStyle == .glass }
     var appliedTintedBubbles: Bool { appliedBubbleStyle == .tinted }
+    var appliedCardBubbles: Bool { appliedBubbleStyle == .card }
     /// [message-colour] The Desktop Look keeps its skin's own box for your messages.
     var appliedMessageColour: MessageColour { desktopLook ? .theme : messageColour }
     /// [plain-replies] Replies drawn with no bubble: always in the Desktop Look (unless High Contrast boxes them), and in
@@ -218,6 +219,9 @@ nonisolated enum BubbleStyle: String, Sendable, Hashable, CaseIterable {
     case glass
     /// It over a soft copy of the Chat Background lined up with the screen (`TintedBubbles`).
     case tinted
+    /// [bubble-card] A reply is Soft Cards' own surface (`SoftCardSurface`), as the lists' cards over the App
+    /// Background; yours is Tinted's. Not on the Mac.
+    case card
 }
 
 /// [desktop-composer] How the Desktop Look draws the text box at the foot of a chat (Theme › Text Box).

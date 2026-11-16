@@ -1127,9 +1127,28 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
 
     /// The Mac has no glass: a stored Glass shows and draws as Solid there, and the choices are Solid and Tinted.
     @Test func theChoicesWhereGlassIsOffered() {
-        #expect(BubbleStyles.offered == (GlassBubbles.offered ? [.solid, .glass, .tinted] : [.solid, .tinted]))
+        #expect(BubbleStyles.offered == (GlassBubbles.offered ? [.solid, .glass, .tinted, .card] : [.solid, .tinted]))
         #expect(BubbleStyles.shown(.tinted) == .tinted && BubbleStyles.shown(.solid) == .solid)
         #expect(BubbleStyles.shown(.glass) == (GlassBubbles.offered ? .glass : .solid))
+        #expect(BubbleStyles.shown(.card) == (GlassBubbles.offered ? .card : .solid))
+    }
+
+    /// [bubble-card] Owner 2026-11-15, beside Sessions on Soft Cards: "I want to be able to toggle between how it is now
+    /// and exactly how the soft cards are." Card is a fourth style, stored by name; the Desktop Look keeps its boxes;
+    /// colours only, so a card bubble has the solid one's frame; your own messages draw as Tinted's.
+    @Test func cardIsAStyleOfItsOwn() throws {
+        let suite = try #require(UserDefaults(suiteName: "bubble-card-\(UUID().uuidString)"))
+        let store = ThemeStore(defaults: suite)
+        store.setBubbleStyle(.card)
+        #expect(store.load().bubbleStyle == .card && suite.string(forKey: "hqn.theme.bubbleStyle") == "card")
+        var card = ThemeState.default
+        card.bubbleStyle = .card
+        #expect(card.appliedCardBubbles && !card.appliedTintedBubbles && !card.appliedGlassBubbles)
+        #expect(card.layoutSignature == ThemeState.default.layoutSignature)
+        var look = card
+        look.desktopLook = true
+        #expect(look.appliedBubbleStyle == .solid)
+        #expect(BubbleStyle.card.title == "Card" && ChatBubblesSettingsView.styleLine(.card).hasPrefix("Card:"))
     }
 
     /// Owner 2026-11-02, a Light chat over a night photo: the reply was a lavender-grey slab. A Light reply over a dark
