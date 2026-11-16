@@ -1,7 +1,7 @@
 // desktoplook2: DEBUG launch hook for the screenshot tour of every screen (scripts/desktoplook2-tour.sh). It only
 // navigates, as a person would; nothing is drawn differently.
 //
-// - `-HQDebugTour <screen>`   bots | sessions | jobs | tab3 | more | settings | theme | chat | room | botinfo | editbot | changeface
+// - `-HQDebugTour <screen>`   bots | sessions | session (the top session open) | jobs | tab3 | more | settings | theme | chat | room | botinfo | editbot | changeface
 //                             | morescrolled | morepage (a row of More pushed: `-HQDebugTourItem "section,item"`, default the first) | sheet (Kanban's New Task)
 //                             | task (Kanban's task sheet; `-HQDebugTourTask <id>`, default: the running one)
 // - `-HQDebugTourBot <id>`    the bot for chat / botinfo / editbot / changeface (default: the first listed)
@@ -132,6 +132,11 @@ enum DesktopLookTourHooks {
         switch screen {
         case "bots": root.select(.bots)
         case "sessions": root.select(.sessions)
+        case "session":     // [session-title-clean] the list's top session open: its bar has no face
+            root.select(.sessions)
+            let list = root.sessionsViewController
+            guard let key = list.isViewLoaded ? list.paneOrder.first : nil else { return retry() }
+            list.open(key)
         case "jobs": root.select(.jobs)
         case "tab3": root.select(.workspace)
         case "sheet":       // [desktoplook3] a sheet with a segmented choice: Kanban's New Task

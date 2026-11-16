@@ -1107,15 +1107,18 @@ final class AppModel: AppServices {
 
     // MARK: - Chat screen
 
-    /// The chat screen for a model: the bot's head left of the name in the title (dropped at the largest text sizes,
-    /// spec 06 §10), ⋯ with Info and Share, and the title opening the same Info sheet (spec 06 §4.1).
+    /// The chat screen for a model: in a bot's own chat, the bot's head left of the name in the title (dropped at the
+    /// largest text sizes, spec 06 §10; a session's title has no face), ⋯ with Info and Share, and the title opening the
+    /// same Info sheet (spec 06 §4.1).
     func makeChatScreen(_ model: any ChatSessionModel) -> UIViewController {
         AppLog.note("screen", "open chat (\(model.messages.count) messages)")
         let screen = ChatViewController(session: model)
         screen.promptSheets = promptSheets   // [questions]
         let head = HeadView(side: 34)
         head.configure(raw: model.head, profile: model.profile, follows: true)   // [moods] the face acts out its turn
-        screen.titleAccessoryView = head
+        // [session-title-clean] Owner 2026-11-16: "on a session, it's just overkill … it needs to be clean." Only a
+        // bot's own chat shows the bot's face in the bar; a session's title is its words (and the bot's name) alone.
+        if (model as? ChatSessionActions)?.isBotChat == true { screen.titleAccessoryView = head }
         screen.onSignInAgain = { [weak self] in self?.offlineHub.signInAgain() }   // UX study #121
         openChatScreens.removeAll { $0.screen.value == nil }
         openChatScreens.append((WeakBox(screen), WeakBox(head)))
