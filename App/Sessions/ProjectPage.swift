@@ -1,22 +1,20 @@
 // [project-pills] Owner 2026-11-15: a project pill opens its project as a page (`SessionListPipeline.projectPage`).
-// This is the page's header, the list's first row: the project's name; its folder and the newest chat's branch; the
-// bots that work in it; how many chats need the owner, are ready to review and are at work (a tap scrolls to that
-// section); and New Chat in the project. The chats follow under it in the list's own rows, by section.
+// This is the page's header, the list's first row. [projects-switch] Owner 2026-11-15 ("maximizing screen real estate
+// and improving visual clarity … less visually stressful"): it is three short lines, not a block: the project's name
+// with New Chat beside it; one quiet line with its folder, the newest chat's branch and the bots that work in it; and
+// the three counts as small chips, always in the same places, a zero dimmed (Needs You, Ready, Working; a tap
+// scrolls to that section). No faces here:
+// the rows under it carry them (Show › Bot Faces). The chats follow in the list's own rows, by section.
 
 import SwiftUI
 
 struct ProjectPageHeader: View {
-    struct BotFace: Identifiable, Hashable {
-        var id: String
-        var name: String
-        var head: Head
-    }
-
     var name: String
     /// The project's key: its folder (as the gateway's computer has it).
     var folder: String
     var branch: String?
-    var bots: [BotFace]
+    /// The bots that work in it, the one with the newest chat first.
+    var bots: [String]
     var needs: Int
     var ready: Int
     var working: Int
@@ -35,106 +33,93 @@ struct ProjectPageHeader: View {
         return path
     }
 
-    private var place: String {
-        [Self.shortFolder(folder), branch].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    /// "~/site · main · Hermes, Otto": each part only when there is one; past three bots, "and N more".
+    static func meta(folder: String, branch: String?, bots: [String]) -> String {
+        let who = bots.count > 3 ? bots.prefix(2).joined(separator: ", ") + " and \(bots.count - 2) more" : bots.joined(separator: ", ")
+        return [shortFolder(folder), branch ?? "", who].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
+    private var lead: CGFloat { Theme.isDesktop ? DesktopRows.gutter : 20 }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        let meta = Self.meta(folder: folder, branch: branch, bots: bots)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(name)
-                    .font(Font.hq(.title2).weight(.bold))
+                    .font(Font.hq(.title3).weight(.bold))
                     .foregroundStyle(Color.hqLabel)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
-                if !place.isEmpty {
-                    HStack(spacing: 5) {
-                        Image(systemName: branch == nil ? "folder" : "arrow.triangle.branch")
-                            .imageScale(.small)
-                            .accessibilityHidden(true)
-                        Text(place).lineLimit(1).truncationMode(.middle)
-                    }
-                    .font(Font.hq(.footnote))
-                    .foregroundStyle(Color.hqLabel2)
-                    .accessibilityIdentifier("sessions.projectPage.place")
-                }
-                if !bots.isEmpty {
-                    HStack(spacing: 6) {
-                        HStack(spacing: -6) {
-                            ForEach(bots.prefix(4)) { bot in
-                                HeadImage(head: bot.head, profile: bot.id, size: HQFont.scaled(20), working: false,
-                                          phase: HeadView.phase(for: bot.id))
-                            }
+                Spacer(minLength: 0)
+                if let onNewChat {
+                    Button(action: onNewChat) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus").imageScale(.small)
+                            Text("New Chat").lineLimit(1)
                         }
-                        Text(botWords)
-                            .font(Font.hq(.footnote))
-                            .foregroundStyle(Color.hqLabel2)
-                            .lineLimit(1)
+                            .font(Font.hq(.footnote).weight(.semibold))
+                            .foregroundStyle(Color.hqTintText)
+                            .padding(.horizontal, 11)
+                            .frame(minHeight: HQFont.scaled(28))
+                            .background(Capsule().fill(Color.hqFill3))
+                            .frame(minHeight: 44)                    // the touch reaches 44 pt around the 28 pt capsule
+                            .contentShape(Rectangle())
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(botWords)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New Chat in \(name)")
+                    .accessibilityIdentifier("sessions.projectPage.newChat")
                 }
             }
-            HStack(spacing: 8) {
-                tile(needs, "Needs You", id: "needs", mark: AnyView(Circle().fill(Color.hqOrange).frame(width: 8, height: 8)))
-                tile(ready, "Ready", id: "ready", mark: AnyView(Circle().fill(Color.hqTint).frame(width: 8, height: 8)))
-                tile(working, "Working", id: "working", mark: AnyView(
+            // The button's 44 pt touch reaches past this row; the row itself is as tall as the name.
+            .frame(height: HQFont.scaled(30))
+            if !meta.isEmpty {
+                Text(meta)
+                    .font(Font.hq(.footnote))
+                    .foregroundStyle(Color.hqLabel2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("sessions.projectPage.place")
+            }
+            // Owner 2026-11-15 (picked from four drawings): the three counts always, in the same places, a zero dimmed.
+            HStack(spacing: 6) {
+                chip(needs, "Needs You", id: "needs") { Circle().fill(Color.hqOrange).frame(width: 7, height: 7) }
+                chip(ready, "Ready", id: "ready") { Circle().fill(Color.hqTint).frame(width: 7, height: 7) }
+                chip(working, "Working", id: "working") {
                     ZStack {
                         Circle().stroke(Color.hqLabel.opacity(0.25), lineWidth: 2)
                         Circle().trim(from: 0, to: 0.25).stroke(Color.hqLabel, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    }.frame(width: 10, height: 10)))
-            }
-            if let onNewChat {
-                Button(action: onNewChat) {
-                    Label("New Chat in \(name)", systemImage: "square.and.pencil")
-                        .font(Font.hq(.subheadline).weight(.semibold))
-                        .foregroundStyle(Color.hqOnTint)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }.frame(width: 9, height: 9)
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .tint(Color.hqTint)
-                .accessibilityIdentifier("sessions.projectPage.newChat")
             }
+            .padding(.top, 2)
         }
-        .padding(.horizontal, Theme.isDesktop ? DesktopRows.gutter : 20)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
+        .padding(.leading, lead)
+        .padding(.trailing, lead - 4)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var botWords: String {
-        let names = bots.map(\.name)
-        guard names.count > 3 else { return names.joined(separator: ", ") }
-        return names.prefix(2).joined(separator: ", ") + " and \(names.count - 2) more"
-    }
-
-    private func tile(_ count: Int, _ word: String, id: String, mark: AnyView) -> some View {
+    /// One count: its mark, the number and the word, in a small capsule. A zero is dimmed and takes no tap.
+    private func chip<Mark: View>(_ count: Int, _ word: String, id: String, @ViewBuilder mark: () -> Mark) -> some View {
         Button {
             onJump(SessionListPipeline.statePrefix + id)
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    mark
-                    Text("\(count)")
-                        .font(Font.hq(.title3).weight(.semibold)).monospacedDigit()
-                        .foregroundStyle(count == 0 ? Color.hqLabel3 : Color.hqLabel)
-                }
-                Text(word)
-                    .font(Font.hq(.caption))
-                    .foregroundStyle(Color.hqLabel2)
+            HStack(spacing: 5) {
+                mark()
+                Text("\(count) \(word)")
+                    .font(Font.hq(.caption).weight(.medium)).monospacedDigit()
+                    .foregroundStyle(Color.hqLabel)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : 14, style: .continuous).fill(Color.hqFill3))
+            .padding(.horizontal, 9)
+            .frame(minHeight: HQFont.scaled(24))
+            .background(Capsule().fill(Color.hqFill3))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(count == 0)
+        .opacity(count == 0 ? 0.45 : 1)
         .accessibilityLabel("\(word), \(count) \(count == 1 ? "chat" : "chats")")
         .accessibilityIdentifier("sessions.projectPage.\(id)")
     }

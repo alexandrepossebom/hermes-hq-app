@@ -432,11 +432,14 @@ nonisolated enum SessionFilterMenuModel {
             filter.append(check("sessions.filter.allbots", "All Bots", state.botFilter == nil, .allBots, symbol: "person.2"))
         }
         // [sessions-fresh] Bot Faces and Project Chats in Recent only under Group By Recent: the other groupings keep
-        // their full rows and have no Recent.
-        let faces = SessionListPipeline.isFresh(prefs)
-            ? [check("sessions.filter.faces", "Bot Faces", prefs.botFaces, .botFaces, symbol: "face.smiling"),
-               check("sessions.filter.projectchats", "Project Chats in Recent", prefs.projectChatsInRecent, .projectChatsInRecent,
-                     symbol: "folder")] : []
+        // their full rows and have no Recent. [projects-switch] Owner 2026-11-15 ("an option to hide bot faces"): Bot
+        // Faces under Group By Project too, whose rows are Recent's.
+        var faces: [SessionFilterNode] = []
+        if prefs.recentRows { faces.append(check("sessions.filter.faces", "Bot Faces", prefs.botFaces, .botFaces, symbol: "face.smiling")) }
+        if SessionListPipeline.isFresh(prefs) {
+            faces.append(check("sessions.filter.projectchats", "Project Chats in Recent", prefs.projectChatsInRecent, .projectChatsInRecent,
+                               symbol: "folder"))
+        }
         filter.append(SessionFilterNode(
             id: "sessions.filter.show", title: "Show", subtitle: W.showSubtitle(state), symbol: "eye", kind: .submenu(single: false),
             children: faces + [check("sessions.filter.outside", "Outside Chats", state.showOutsideChats, .outside,

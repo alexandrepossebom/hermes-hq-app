@@ -57,8 +57,10 @@ import Testing
                                             "sessions.filter.runs", "sessions.filter.archived"])
         #expect(show.children.prefix(2).allSatisfy { $0.checked && $0.keepsOpen })
         let byProject = SessionFilterMenuModel.nodes(state { $0.prefs.groupBy = .project })
-        #expect(node("sessions.filter.faces", in: byProject) == nil)
+        // [projects-switch] Owner 2026-11-15 ("an option to hide bot faces"): Bot Faces under Group By Project too.
+        #expect(node("sessions.filter.faces", in: byProject) != nil)
         #expect(node("sessions.filter.projectchats", in: byProject) == nil)
+        #expect(node("sessions.filter.faces", in: SessionFilterMenuModel.nodes(state { $0.prefs.groupBy = .status })) == nil)
         var hidden = state()
         SessionFilterApply.apply(.projectChatsInRecent, to: &hidden, homeBot: "default")
         #expect(!hidden.prefs.projectChatsInRecent && SessionFilterWords.filterCount(hidden) == 0)
@@ -301,6 +303,15 @@ import Testing
         s.botFilter = "research"
         SessionFilterApply.apply(.group(.date), to: &s, homeBot: "default")
         #expect(s.botFilter == "research")
+        // [projects-switch] Show › Bot Faces under Group By Project too (its rows are Recent's); Project Chats in Recent
+        // stays Recent's alone; Status has neither.
+        func show(_ group: SessionGroupBy) -> [String] {
+            node("sessions.filter.show", in: SessionFilterMenuModel.nodes(state { $0.prefs.groupBy = group }))?.children.map(\.title) ?? []
+        }
+        #expect(show(.project).first == "Bot Faces" && !show(.project).contains("Project Chats in Recent"))
+        #expect(show(.date).prefix(2) == ["Bot Faces", "Project Chats in Recent"] && !show(.status).contains("Bot Faces"))
+        #expect(ProjectPageHeader.meta(folder: "/Users/me/code/site", branch: "main", bots: ["Otto", "Ivy"]) == "~/code/site · main · Otto, Ivy")
+        #expect(ProjectPageHeader.meta(folder: "id:x/p", branch: nil, bots: ["Otto", "Ivy", "Wren", "Juno"]) == "Otto, Ivy and 2 more")
         var prefs = SessionsViewPrefs(); prefs.pills = .projects
         #expect(prefs.groupBy == .project)
         prefs.pills = .bots

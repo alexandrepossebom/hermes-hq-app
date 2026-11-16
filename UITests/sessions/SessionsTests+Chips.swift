@@ -25,7 +25,9 @@ extension SessionsTests {
                                  "the rail sits above the list (rail \(rail.frame), first row \(row(app, "s-release").frame))")
         shot(app, "C1-rail")
         // The status chips (New, Working) sit between All and the bots; the bot pills are one element each.
-        let botPills = rail.buttons.matching(NSPredicate(format: "NOT (identifier BEGINSWITH %@)", "sessions.chip.status."))
+        // [projects-switch] Nor is the Bots | Projects switch at the rail's start a bot pill.
+        let botPills = rail.buttons.matching(NSPredicate(format: "NOT (identifier BEGINSWITH %@) AND NOT (identifier BEGINSWITH %@)",
+                                                         "sessions.chip.status.", "sessions.pills."))
         XCTAssertEqual(botPills.count, 4, "each chip is one element\n\(rail.debugDescription)")
         app.terminate()
 
@@ -228,17 +230,16 @@ extension SessionsTests {
         defer { fixture("/__fixture/mode", ["working": [String]()]) }
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        // [project-pills] Group By › Project is the project pills (owner 2026-11-15, "replace the Projects view"). The
-        // projects are read when the menu first opens; Project is offered once they are known.
-        var offered = false
-        for _ in 0..<4 where !offered {
-            openFilter(app)
-            tapFilter(app, "group")
-            offered = filterItem(app, "group.project").waitForExistence(timeout: 3)
-            if !offered { closeFilter(app) }
-        }
-        XCTAssertTrue(offered, "Group By offers Project")
-        tapFilter(app, "group.project")
+        // [projects-switch] One tap on the rail's switch is Group By › Project (the projects are read as
+        // the list loads; the switch shows once they are known).
+        let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
+        XCTAssertTrue(toProjects.waitForExistence(timeout: 15), "the switch offers the projects")
+        XCTAssertEqual(toProjects.label, "Switch to Projects")
+        XCTAssertFalse(toBots.exists)
+        toProjects.tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now it offers the bots")
+        openFilter(app)
+        XCTAssertTrue(filterWords(app, "group").contains("Project"), filterWords(app, "group"))
         closeFilter(app)
         let rail = app.scrollViews["sessions.chips"]
         XCTAssertTrue(waitUntil(6) { rail.label == "Projects" }, "the rail is the projects (\(rail.label))")
@@ -259,15 +260,17 @@ extension SessionsTests {
         let page = app.cells["sessions.projectPage"]
         XCTAssertTrue(page.waitForExistence(timeout: 6), "the project page's header")
         XCTAssertTrue(app.staticTexts["Website"].exists, "the project's name")
+        // The three counts, always: a zero is dimmed and takes no tap.
         XCTAssertEqual(app.buttons["sessions.projectPage.ready"].label, "Ready, 1 chat")
         XCTAssertEqual(app.buttons["sessions.projectPage.needs"].label, "Needs You, 0 chats")
+        XCTAssertFalse(app.buttons["sessions.projectPage.needs"].isEnabled, "a zero takes no tap")
+        XCTAssertTrue(app.staticTexts["sessions.projectPage.place"].label.contains("~/site"), "its folder")
         XCTAssertTrue(app.buttons["sessions.projectPage.newChat"].exists, "New Chat in the project")
         XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Ready to Review"] }, "its sections (\(headers(app)))")
         shot(app, "P2-project-pill-picked")
         // Reading's page: its working chat under Working.
         pills[1].tap()
         XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Working"] && self.order(app) == ["s-trip"] }, "Reading's page (\(headers(app)), \(order(app)))")
-        XCTAssertEqual(app.buttons["sessions.projectPage.working"].label, "Working, 1 chat")
         shot(app, "P2b-project-page-working")
         pills[1].tap()
         XCTAssertTrue(waitUntil(6) { !page.exists && self.headers(app).contains("Website") }, "every project again (\(headers(app)))")
@@ -309,10 +312,36 @@ extension SessionsTests {
         openFilter(app)
         tapFilter(app, "show", "archived")
         closeFilter(app)
-        // Back to the bot pills.
+        // [projects-switch] A page with two sections: the Working chip counts its chat.
+        fixture("/__fixture/mode", ["working": ["s-trip", "s-garden"]])          // a turn at work in App too
+        let appPill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(waitUntil(20) { appPill.exists && appPill.label.contains("Working") }, "App is at work (\(appPill.exists ? appPill.label : "no pill"))")
+        appPill.tap()
+        let workingChip = app.buttons["sessions.projectPage.working"]
+        XCTAssertTrue(workingChip.waitForExistence(timeout: 6), "the Working count's chip")
+        XCTAssertEqual(workingChip.label, "Working, 1 chat")
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Working", "Earlier"] }, "\(headers(app))")
+        shot(app, "P5b-project-page-chips")
+        appPill.tap()
+        fixture("/__fixture/mode", ["working": ["s-trip"]])
+        XCTAssertTrue(waitUntil(20) { !appPill.label.contains("Working") }, "App is quiet again")
+        // [projects-switch] Show › Bot Faces off: the rows and the page draw no faces.
         openFilter(app)
-        tapFilter(app, "group", "group.date")
+        tapFilter(app, "show", "faces")
         closeFilter(app)
+        shot(app, "P6-faces-off-all")
+        rail.swipeRight()
+        pills[0].tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6))
+        shot(app, "P7-faces-off-page")
+        pills[0].tap()
+        openFilter(app)
+        tapFilter(app, "show", "faces")
+        closeFilter(app)
+        // Back to the bot pills.
+        rail.swipeRight()
+        XCTAssertTrue(waitUntil(4) { toBots.isHittable })
+        toBots.tap()
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").exists && rail.label == "Bots" }, "the bot pills again")
     }
 }

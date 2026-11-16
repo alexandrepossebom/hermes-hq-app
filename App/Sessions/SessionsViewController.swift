@@ -17,6 +17,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     private var sessionsByID: [String: SessionSummary] = [:]
     /// What the Other Apps row last drew (a change reconfigures it).
     private var otherAppsSign = ""
+    private var groupBeforeProjects: SessionGroupBy = .date   // [projects-switch] what Bots goes back to
     private var pageSign = ""            // [project-pills] the project page's header, as last drawn
     /// The Other Apps page while it is in the stack (its rows' actions and reloads go through this list).
     private weak var otherAppsPage: OtherAppsViewController?
@@ -448,7 +449,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             // [sessions-fresh] Pinned's and Recent's one line, with or without the face (Show › Bot Faces, which only
             // Group By Recent offers; the cards follow it there too).
             let fresh: SessionRowView.Fresh? = self.freshPinnedKeys.contains(id) ? .pinned : self.freshKeys.contains(id) ? .recent : nil
-            let faces = !self.freshLayout || (self.store?.view.botFaces ?? true)
+            let faces = !(self.freshLayout || self.projectLayout) || (self.store?.view.botFaces ?? true)   // [projects-switch]
             let row = UIHostingConfiguration {
                 SessionRowView(session: session, ownerName: owner.name, ownerHead: owner.head,
                                time: ListTime.string(session.lastActive), busy: busy, detail: detail, muted: muted,
@@ -496,11 +497,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         // [project-pills] The project page's header: name, folder, branch, bots, the three counts and New Chat.
         let pageRegistration = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, _ in
             guard let self, let group = self.groups.first(where: { $0.id == SessionListPipeline.pageId }), let key = group.pageKey else { return }
-            let bots = group.profiles.map { profile -> ProjectPageHeader.BotFace in
-                let bot = self.owners[profile]
-                return .init(id: profile, name: bot?.name ?? Self.readableProfileName(profile),
-                             head: Head.resolve(bot?.head, profile: profile))
-            }
+            let bots = group.profiles.map { self.owners[$0]?.name ?? Self.readableProfileName($0) }
             let header = ProjectPageHeader(
                 name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
@@ -1431,7 +1428,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         // [card-gutters] Group By Recent's narrower face column: every row is drawn again as the grouping flips.
         // [slim-rail] And Bot Faces off's slimmer one.
         let columnWas = ProjectCard.column
-        ProjectCard.fresh = freshLayout
+        ProjectCard.fresh = freshLayout || projectLayout      // [projects-switch] Group By Project's rows are Recent's
         ProjectCard.facesOff = !(store?.view.botFaces ?? true)
         let columnFlipped = ProjectCard.column != columnWas
         let pinnedKeys = searching ? [] : Set(groups.first { $0.id == "pinned" }?.sessions.map(Self.key) ?? [])
@@ -2088,6 +2085,17 @@ extension SessionsViewController {
         crossfade { store.setStatusChip(chip); self.reload(animated: false) }
     }
 
+    /// [projects-switch] The rail's Bots | Projects switch: Projects is Group By Project; Bots goes back to the grouping
+    /// the list had before (Recent the first time).
+    func pickPills(_ pills: SessionPills) {
+        guard var state = filterStateNow(), state.prefs.pills != pills else { return }
+        Haptics.play(.selection)
+        if pills == .projects { groupBeforeProjects = state.prefs.groupBy }
+        let group: SessionGroupBy = pills == .projects ? .project : (groupBeforeProjects == .project ? .date : groupBeforeProjects)
+        SessionFilterApply.apply(.group(group), to: &state, homeBot: homeBot)
+        apply(state)
+    }
+
     /// [project-pills] A project pill: that project's chats alone (Filter › Project with it alone); nil: every project.
     func pickProject(_ key: String?) {
         guard var state = filterStateNow() else { return }
@@ -2179,6 +2187,9 @@ extension SessionsViewController {
         let pickedProjects = SessionFilterWords.effectiveProjects(state)
         if headerModel.pickedProjects != pickedProjects { headerModel.pickedProjects = pickedProjects; headerChanged = true }
         if headerModel.botPicked != (state.botFilter != nil) { headerModel.botPicked = state.botFilter != nil; headerChanged = true }
+        // [projects-switch] The Bots | Projects switch, once there are projects to show (or while they are shown).
+        let showsSwitch = !DeviceWord.isMac && (pills == .projects || state.projects.contains { $0.key != SessionProjects.homeKey })
+        if headerModel.showsSwitch != showsSwitch { headerModel.showsSwitch = showsSwitch; headerChanged = true }
         // UX study 2026-10-19 #36: the field names what it searches: every bot's chats, or the picked chip's bot's.
         let placeholder = SessionsSearchWords.placeholder(botName: state.botFilter.flatMap { id in bots.first { $0.id == id }?.name })
         if let bar = navigationItem.searchController?.searchBar, bar.placeholder != placeholder {
@@ -2261,6 +2272,7 @@ extension SessionsViewController {
         headerModel.onPickStatus = { [weak self] chip in self?.pickStatus(chip) }
         headerModel.onPickAll = { [weak self] in self?.pickAll() }
         headerModel.onPickProject = { [weak self] key in self?.pickProject(key) }
+        headerModel.onSwitch = { [weak self] pills in self?.pickPills(pills) }
         headerModel.onArchiveProject = { [weak self] key, on in
             Haptics.play(.selection)
             self?.store?.setArchivedProject(key, on)

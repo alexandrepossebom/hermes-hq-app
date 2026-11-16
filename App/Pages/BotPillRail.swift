@@ -16,6 +16,10 @@ struct BotPillRail<Extra: View>: View {
     var identifier: String
     /// [project-pills] VoiceOver's name for the row: "Projects" when its pills are projects.
     var label = "Bots"
+    /// [projects-switch] Drawn before All (Sessions' Bots | Projects switch).
+    var leading: AnyView? = nil
+    /// [projects-switch] No All when it would stand alone beside the switch (one bot, nothing New or Working).
+    var showsAll = true
     var onPick: (String?) -> Void
     var onPickAll: () -> Void
     @ViewBuilder var extra: () -> Extra
@@ -27,12 +31,15 @@ struct BotPillRail<Extra: View>: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    SessionPill(caption: "All", name: "All Bots", picked: allPicked, identifier: allId) {
-                        onPickAll()
-                    } face: {
-                        EmptyView()
+                    if let leading { leading }
+                    if showsAll {
+                        SessionPill(caption: "All", name: "All Bots", picked: allPicked, identifier: allId) {
+                            onPickAll()
+                        } face: {
+                            EmptyView()
+                        }
+                        .id(allId)
                     }
-                    .id(allId)
                     extra()
                     ForEach(bots) { bot in
                         // [photoheads] Reading `version` redraws the pill when a photo arrives or goes.

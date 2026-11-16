@@ -65,7 +65,11 @@ final class SessionsHeaderModel {
     var isEmpty: Bool { !hasRail && strip == nil }
     /// The rail shows with a second bot, or a status chip. Not on the Mac: its bots are the bar's "All Bots ⌄"
     /// ([Mac full pass 2026-11-14], `SessionsViewController.placeBotsItem`), where every other list has it.
-    var hasRail: Bool { !DeviceWord.isMac && (hasPills || !shownStatus.isEmpty) }
+    var hasRail: Bool { !DeviceWord.isMac && (hasPills || !shownStatus.isEmpty || showsSwitch) }
+    /// [projects-switch] Owner 2026-11-15: the project view was three taps into Filter. With projects to show, the rail
+    /// starts with a Bots | Projects switch (one tap; Group By follows it).
+    var showsSwitch = false
+    @ObservationIgnored var onSwitch: (SessionPills) -> Void = { _ in }
     /// [project-pills] A bot pill or a project pill to draw.
     var hasPills: Bool { pills == .projects ? !projects.isEmpty : !bots.isEmpty }
     /// The lit project pill's scroll id (the first picked, in the pills' order).
@@ -199,12 +203,43 @@ struct SessionsHeaderView: View {
         if model.pills == .projects { projectRail } else { botRail }
     }
 
+    /// [projects-switch] The switch at the rail's start: one round button showing the other pills (a folder while the
+    /// bots are drawn, two people while the projects are). One glyph, not two in a capsule: the capsule was 76 pt wide
+    /// and pushed a third bot off an iPhone's screen. It scrolls away with the pills.
+    @ViewBuilder private var pillsSwitch: some View {
+        if model.showsSwitch {
+            let to: SessionPills = model.pills == .projects ? .bots : .projects
+            let side: CGFloat = Theme.isDesktop ? HQFont.scaled(28) : HQFont.scaled(34)
+            Button {
+                model.onSwitch(to)
+            } label: {
+                Image(systemName: to == .projects ? "folder" : "person.2")
+                    .font(Font.hqSystem(size: HQFont.scaled(14), weight: .medium))
+                    .foregroundStyle(Color.hqLabel)
+                    .frame(width: side, height: side)
+                    .background {
+                        if Theme.isDesktop { RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3) }
+                    }
+                    .hqPickGlass(false, in: Circle(), prominent: true)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(to == .projects ? "Switch to Projects" : "Switch to Bots")
+            .accessibilityIdentifier("sessions.pills.\(to.rawValue)")
+            .id("pills-switch")
+        }
+    }
+
     private var botRail: some View {
         BotPillRail(bots: model.bots, picked: model.picked, allPicked: model.picked == nil && model.status == nil,
-                    identifier: "sessions.chip", onPick: model.onPick, onPickAll: model.onPickAll) {
+                    identifier: "sessions.chip", leading: AnyView(pillsSwitch),
+                    showsAll: !model.bots.isEmpty || !model.shownStatus.isEmpty, onPick: model.onPick, onPickAll: model.onPickAll) {
             // [sessions-fresh] New and Working, then a rule before the bots.
             statusPills
-            if !model.shownStatus.isEmpty, !model.bots.isEmpty { railRule }
+            // [projects-switch] With the switch the status pills are a mark and a count, told apart from the faces
+            // after them without a rule (and the rail is no wider than it was before the switch).
+            if !model.shownStatus.isEmpty, !model.bots.isEmpty, !model.showsSwitch { railRule }
         }
     }
 
@@ -212,7 +247,11 @@ struct SessionsHeaderView: View {
         ForEach(model.shownStatus, id: \.self) { chip in
             let count = model.statusChips[chip] ?? 0
             let word = chip == .new ? "New" : "Working"
-            SessionPill(caption: "\(word) \(count)", name: "\(word), \(count) \(count == 1 ? "chat" : "chats")",
+            // [projects-switch] Its mark and count alone ("3"), so more bots or projects fit; VoiceOver still says the
+            // word. With the switch at the rail's start the worded pills pushed a third bot off an iPhone's screen; without
+            // the switch (no projects yet) they keep their words.
+            SessionPill(caption: model.showsSwitch ? "\(count)" : "\(word) \(count)",
+                        name: "\(word), \(count) \(count == 1 ? "chat" : "chats")",
                         picked: model.status == chip, identifier: "sessions.chip.status.\(chip.rawValue)",
                         hasFace: true, lead: 12) {
                 model.onPickStatus(model.status == chip ? nil : chip)
@@ -229,7 +268,8 @@ struct SessionsHeaderView: View {
     private var projectRail: some View {
         BotPillRail(bots: [], picked: model.pickedProjectId,
                     allPicked: model.pickedProjects.isEmpty && model.status == nil && !model.botPicked,
-                    identifier: "sessions.chip", label: "Projects", onPick: { _ in }, onPickAll: model.onPickAll) {
+                    identifier: "sessions.chip", label: "Projects", leading: AnyView(pillsSwitch), onPick: { _ in },
+                    onPickAll: model.onPickAll) {
             statusPills
             if !model.shownStatus.isEmpty, !model.shownProjects.isEmpty { railRule }
             ForEach(Array(model.shownProjects.enumerated()), id: \.element.key) { index, project in
