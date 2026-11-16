@@ -128,7 +128,7 @@ final class ChatPromptCell: ChatBaseCell {
         if let frame = l.cardFrame {
             card.isHidden = false
             card.frame = frame
-            card.backgroundColor = ChatPalette.botBubble   // every card: a reply bubble's fill, no edge
+            card.backgroundColor = ChatPalette.promptCard   // a reply bubble's fill; [paper-cards] its own card in Paper
             let panel = l.draft?.paper ?? l.approval?.paper
             paper.isHidden = panel == nil
             if let p = panel {
@@ -232,7 +232,10 @@ final class ChatPromptCell: ChatBaseCell {
 
     private func updateBorder() {
         let hair = 1 / max(1, traitCollection.displayScale)
-        card.layer.borderWidth = 0
+        // [paper-cards] No edge, except where the cards stand on the page (Paper): a hairline sets them apart.
+        let edge = ChatPalette.promptEdge.resolvedColor(with: traitCollection)
+        card.layer.borderColor = edge.cgColor
+        card.layer.borderWidth = edge.cgColor.alpha > 0 ? max(hair, 1) : 0
         for rule in ruleViews where rule.bounds.height != hair { rule.frame.size.height = hair }
     }
 
@@ -255,7 +258,7 @@ final class ChatPromptCell: ChatBaseCell {
             // [paper-ink] A filled mark's glyph (the ?, the –) is drawn in the card's own colour, never left to the
             // system: on Paper's black card in dark the ? came out faint on its light disc (owner 2026-11-16, "the
             // question card looks odd"). In an ink skin the dim mark's glyph is the card's too (white vanished on it).
-            let cardInk = ChatPalette.botBubble
+            let cardInk = ChatPalette.promptCard
             switch symbol.style {
             case .header:
                 config = config.applying(UIImage.SymbolConfiguration(paletteColors: [cardInk, ChatPalette.label2]))

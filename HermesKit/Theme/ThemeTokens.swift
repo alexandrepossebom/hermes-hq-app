@@ -73,6 +73,11 @@ nonisolated struct ThemeTokens: Sendable, Hashable {
     var tableHead: RGBA { ownLook?.tableHead ?? fill4 }
     /// The line round a reply's bubble in the iOS look: none unless a skin draws one.
     var replyEdge: RGBA { ownLook?.replyEdge ?? RGBA(unit: 0, 0, 0, 0) }
+    /// [paper-cards] A card in the chat that isn't a reply (a question, a draft, an approval): the reply's own bubble,
+    /// except in a skin whose replies lie on the page (Paper), where it is the skin's raised card inside a hairline
+    /// (owner 2026-11-16: "Shouldn't it stand out a little more since it isn't just part of the normal chat thread?").
+    var promptCard: RGBA { ownLook?.reply != nil ? ownLook?.card ?? botBubble : botBubble }
+    var promptEdge: RGBA { ownLook?.reply != nil ? ownLook?.separator ?? RGBA(unit: 0, 0, 0, 0) : RGBA(unit: 0, 0, 0, 0) }
 }
 
 /// Light and dark tokens plus what is not colour.

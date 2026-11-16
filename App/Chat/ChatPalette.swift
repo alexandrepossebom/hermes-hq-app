@@ -48,6 +48,9 @@ nonisolated enum ChatPalette {
     static let tintText = ThemedColor.make(\.tintText)
     static let onTint = ThemedColor.make(\.onTint)
     static let botBubble = ThemedColor.make(\.botBubble)
+    /// [paper-cards] `ThemeTokens.promptCard` / `promptEdge`.
+    static let promptCard = ThemedColor.make(\.promptCard)
+    static let promptEdge = ThemedColor.make(\.promptEdge)
     static let meBubble = ThemedColor.make(\.meBubble)
     static let meText = ThemedColor.make(\.meText)
     static let meTime = ThemedColor.make(\.meTime)

@@ -129,6 +129,12 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(set.light.syntax != nil && set.dark.syntax != nil)
         #expect(set.light.iconTile == RGBA(hex: 0xE4E5DD) && set.dark.iconTile.a == 1)
         #expect(ThemeResolver.resolve(.default).light.iconTile.a == 0, "every other skin keeps iOS's tiles")
+        // [paper-cards] Questions, drafts and approvals stand out from the replies on the page: a raised card in a hairline.
+        for tokens in [set.light, set.dark] {
+            #expect(tokens.promptCard != tokens.page && tokens.promptEdge.a > 0)
+        }
+        let nous = ThemeResolver.resolve(.default).light
+        #expect(nous.promptCard == nous.botBubble && nous.promptEdge.a == 0, "elsewhere a card is the reply's bubble, no edge")
     }
 
     /// [paper-links] A reply's link is drawn in the accent; where the accent can't be told from the text it is
