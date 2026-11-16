@@ -24,22 +24,14 @@ import UIKit
 final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuInteractionDelegate {
     /// The screen (the cell's delegate, when it adopts `ChatMediaCellDelegate`).
     var delegateProvider: (() -> ChatMediaCellDelegate?)?
-    /// A photo stack mid-flip (0 at rest, up to 1): the cell fades the time in its capsule with it.
-    var onStackMotion: ((CGFloat) -> Void)?
-    /// How far the time's capsule sits from where the layout put it: in the top card's corner when that card is smaller
-    /// than its stack's box. `onTimeOffset` tells the cell (it moves the time with it).
-    private(set) var timeOffset = CGVector.zero
-    var onTimeOffset: ((CGVector) -> Void)?
     private(set) var messageId = ""
 
     private var groupViews: [UIView] = []
+    /// Each group's photos: the ones on its tiles, then a grid's photos past its "+N" (the viewer pages them all).
     private var groupItems: [[MediaItem]] = []
     private var tiles: [[MediaTileView]] = []
     private var rows: [FileRowView] = []
     private let capsule = UIView()
-    private var capsuleFrame = CGRect.zero
-    /// The stack whose top card carries the time's capsule (a photo-only bubble's).
-    private weak var capsuleStack: PhotoStackView?
     private var tileInteractions: [ObjectIdentifier: UIContextMenuInteraction] = [:]
 
     override init(frame: CGRect) {
@@ -60,7 +52,6 @@ final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuIn
     var accessibleViews: [UIView] {
         var out: [UIView] = []
         for (g, group) in tiles.enumerated() where g < groupViews.count && !groupViews[g].isHidden && g < groupItems.count {
-            if let stack = groupViews[g] as? PhotoStackView { out.append(stack); continue }   // one element, adjustable
             out += group.filter { !$0.isHidden }
         }
         return out + rows.filter { !$0.isHidden }
@@ -79,20 +70,15 @@ final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuIn
             fileRows += media.rows.map { r in var c = r; c.frame = r.frame.offsetBy(dx: o.x, dy: o.y); return c }
         }
         isHidden = groups.isEmpty && fileRows.isEmpty
-        capsuleStack = nil
         configureGroups(groups, shape: b.shape)
         configureRows(fileRows, style: style)
         if let cap = b.timeCapsule {
             capsule.isHidden = false
-            capsuleFrame = cap
-            capsuleStack = groups.last?.stack != nil ? groupViews[groups.count - 1] as? PhotoStackView : nil
-            timeOffset = capsuleStack?.cornerOffset ?? .zero
-            capsule.frame = cap.offsetBy(dx: timeOffset.dx, dy: timeOffset.dy)
+            capsule.frame = cap
             capsule.layer.cornerRadius = cap.height / 2
             bringSubviewToFront(capsule)
         } else {
             capsule.isHidden = true
-            timeOffset = .zero
         }
     }
 
@@ -104,30 +90,22 @@ final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuIn
             groupViews.append(v)
             tiles.append([])
         }
-        groupItems = groups.map { $0.tiles.map(\.item) }
+        groupItems = groups.map { $0.tiles.map(\.item) + $0.more }
         for g in groupViews.indices {
             guard g < groups.count else {
-                let view = groupViews[g]
-                view.isHidden = true
-                (view as? PhotoStackView)?.prepareForReuse()
+                groupViews[g].isHidden = true
                 for t in tiles[g] { t.prepareForReuse(); t.isHidden = true }
                 continue
             }
             let group = groups[g]
-            if group.stack != nil {
-                // Several photos: the stack you swipe through (its own cards and tiles).
-                let stack = stackView(at: g)
-                stack.isHidden = false
-                stack.configure(group, key: "\(messageId)#\(g)")
-                tiles[g] = stack.tiles
-                for (i, tile) in stack.tiles.enumerated() { tile.accessibilityIdentifier = "chat.media.\(messageId).\(flatIndex(g, i))" }
-                stack.accessibilityIdentifier = "chat.media.\(messageId).stack.\(g)"
-                continue
-            }
-            let view = plainView(at: g)
+            let view = groupViews[g]
             view.isHidden = false
             view.frame = group.frame
-            if let radius = group.radius {
+            if group.tileRadius != nil {
+                // A grid: each tile is its own rounded card; nothing clips them together.
+                view.layer.mask = nil
+                view.layer.cornerRadius = 0
+            } else if let radius = group.radius {
                 view.layer.mask = nil
                 view.layer.cornerRadius = radius
                 view.layer.cornerCurve = .continuous
@@ -150,7 +128,9 @@ final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuIn
             for (i, tile) in tiles[g].enumerated() {
                 if i < group.tiles.count {
                     tile.isHidden = false
-                    tile.configure(group.tiles[i].item, frame: group.tiles[i].frame, fits: group.fits)
+                    // A grid's last tile stands for the photos after it too.
+                    tile.configure(group.tiles[i].item, frame: group.tiles[i].frame, fits: group.fits,
+                                   more: i == group.tiles.count - 1 ? group.more.count : 0, card: group.tileRadius)
                     tile.accessibilityIdentifier = "chat.media.\(messageId).\(flatIndex(g, i))"
                 } else {
                     tile.isHidden = true
@@ -168,52 +148,6 @@ final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuIn
         tile.addInteraction(UIDragInteraction(delegate: self))   // [mac] #19: drag the photo out
         #endif
         return tile
-    }
-
-    /// Group `g`'s view as a photo stack, made in place of an album's container when the slot held one.
-    private func stackView(at g: Int) -> PhotoStackView {
-        if let stack = groupViews[g] as? PhotoStackView { return stack }
-        let stack = PhotoStackView()
-        stack.makeTile = { [unowned self] in self.makeTile() }
-        stack.onOpen = { [weak self, weak stack] in
-            guard let self, let tile = stack?.topTile else { return }
-            self.tileTapped(tile)
-        }
-        stack.onMotion = { [weak self] p in
-            guard let self, !self.capsule.isHidden else { return }
-            self.capsule.alpha = 1 - p
-            self.onStackMotion?(p)
-        }
-        stack.onSettle = { [weak self, weak stack] in
-            // A new top card of another shape: the time goes to its corner (faded out while it moves).
-            guard let self, let stack, stack === self.capsuleStack, !self.capsule.isHidden else { return }
-            let offset = stack.cornerOffset
-            guard offset != self.timeOffset else { return }
-            self.timeOffset = offset
-            self.capsule.frame = self.capsuleFrame.offsetBy(dx: offset.dx, dy: offset.dy)
-            self.onTimeOffset?(offset)
-        }
-        replaceGroupView(at: g, with: stack)
-        return stack
-    }
-
-    /// Group `g`'s view as an album's clipping container, made in place of a stack when the slot held one.
-    private func plainView(at g: Int) -> UIView {
-        guard groupViews[g] is PhotoStackView else { return groupViews[g] }
-        let view = UIView()
-        view.clipsToBounds = true
-        replaceGroupView(at: g, with: view)
-        return view
-    }
-
-    private func replaceGroupView(at g: Int, with view: UIView) {
-        let old = groupViews[g]
-        (old as? PhotoStackView)?.prepareForReuse()
-        for t in tiles[g] { t.prepareForReuse() }
-        insertSubview(view, aboveSubview: old)
-        old.removeFromSuperview()
-        groupViews[g] = view
-        tiles[g] = []
     }
 
     private func flatIndex(_ group: Int, _ index: Int) -> Int {
@@ -243,7 +177,6 @@ final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuIn
     }
 
     func prepareForReuse() {
-        for view in groupViews { (view as? PhotoStackView)?.prepareForReuse() }
         for group in tiles { for t in group { t.prepareForReuse() } }
         for r in rows { r.prepareForReuse() }
         capsule.alpha = 1
@@ -262,18 +195,14 @@ final class BubbleMediaView: UIView, MediaTileHost, FileRowHost, UIContextMenuIn
         return false
     }
 
-    /// The tile at a flat photo index (zoom transition source). In a stack, that photo comes to the top first: the
-    /// viewer closing on the third photo zooms back onto the pile with the third one on top.
+    /// The tile at a flat photo index (zoom transition source); nil for a photo past a grid's "+N" (it has no tile).
     func tile(at flat: Int) -> MediaTileView? {
         var k = flat
         for (g, group) in tiles.enumerated() where g < groupItems.count {
             let count = groupItems[g].count
             if k < count {
-                if let stack = groupViews[g] as? PhotoStackView, !stack.isHidden {
-                    stack.show(k)
-                    return stack.topTile.flatMap { $0.window == nil ? nil : $0 }
-                }
-                return group[k].isHidden || group[k].window == nil ? nil : group[k]
+                guard k < group.count, !group[k].isHidden, group[k].window != nil else { return nil }
+                return group[k]
             }
             k -= count
         }

@@ -284,33 +284,6 @@ struct MediaLayoutTests {
         #expect(MediaLayout.single(width: nil, height: nil, maxWidth: 200) == CGSize(width: 200, height: 195))
     }
 
-    @Test func albumsFollowFromTheWidthAlone() {
-        let unknown: (Int?, Int?) = (nil, nil)
-        for maxW in [260.0, 320.0] as [CGFloat] {
-            let two = MediaLayout.frames(sizes: Array(repeating: unknown, count: 2), maxWidth: maxW)
-            #expect(two.size == CGSize(width: 260, height: 129))
-            #expect(two.frames.map(\.width) == [129, 129])
-            let three = MediaLayout.frames(sizes: Array(repeating: unknown, count: 3), maxWidth: maxW)
-            #expect(three.frames[0] == CGRect(x: 0, y: 0, width: 260, height: 130))
-            #expect(three.frames[1].width == three.frames[1].height)
-            #expect(three.size.height == CGFloat(261))
-            let four = MediaLayout.frames(sizes: Array(repeating: unknown, count: 4), maxWidth: maxW)
-            #expect(four.size == CGSize(width: 260, height: 260))
-            let five = MediaLayout.frames(sizes: Array(repeating: unknown, count: 5), maxWidth: maxW)
-            #expect(five.frames.count == 5)
-            #expect(five.frames[3].width == 129 && five.frames[4].maxX == 260)          // the last row shares its width
-            let seven = MediaLayout.frames(sizes: Array(repeating: unknown, count: 7), maxWidth: maxW)
-            #expect(seven.frames[6].width == 260)
-            let sixteen = MediaLayout.frames(sizes: Array(repeating: unknown, count: 16), maxWidth: maxW)
-            #expect(sixteen.frames.count == 16)
-            #expect(sixteen.size.height == CGFloat(520))
-            // Known pixel sizes never change an album's geometry (heights never wait for pixels).
-            let known = MediaLayout.frames(sizes: Array(repeating: (4000, 1000), count: 5), maxWidth: maxW)
-            #expect(known.frames == five.frames)
-        }
-        #expect(MediaLayout.frames(sizes: [(nil, nil), (nil, nil)], maxWidth: 200).size.width == 200)
-    }
-
     @Test func fileRowsGetRealPadding() {
         let style = ChatStyleCache.shared.style(for: .large)
         let item = FileItem(attachment: MessageAttachment(kind: .file, source: .gateway(path: "/a/report.pdf"), name: "report.pdf"),
@@ -559,120 +532,161 @@ struct WindowsGatewayPathTests {
     }
 }
 
-// Owner 2026-10-30: several photos "sit on top of each other where you can swipe through them".
+// Owner 2026-11-16: the swipe-through pile showed several photos "tiny" and was "hard to get through"; a grid across
+// the chat's width, "+N" on its last tile, and a tap opens them swipeable (the viewer).
 @MainActor
-@Suite("Attachments: photo stacks")
-struct PhotoStackTests {
+@Suite("Attachments: photo grids")
+struct PhotoGridTests {
     let style = ChatStyle.make(category: .large)
+    static let phone = (1179, 2556), mac = (2560, 1600), square = (1200, 1200)
 
     private func photo(_ name: String, _ w: Int?, _ h: Int?, index: Int = 0) -> MediaItem {
         var a = MessageAttachment(kind: .image, source: .gateway(path: "/tmp/\(name)"), name: name)
         a.pixelWidth = w
         a.pixelHeight = h
-        return MediaItem(attachment: a, index: index, context: nil, label: "Photo")
+        return MediaItem(attachment: a, index: index, context: nil, label: "Photo, \(name)")
     }
 
-    private func bubble(_ text: String, _ media: [MediaItem]) -> BubbleLayout? {
-        var b = BubbleRow(mine: true, text: text, markdown: false, partIndex: 0, joinsAbove: false, joinsBelow: false,
+    private func bubble(_ text: String, _ media: [MediaItem], mine: Bool = true) -> BubbleLayout? {
+        var b = BubbleRow(mine: mine, text: text, markdown: false, partIndex: 0, joinsAbove: false, joinsBelow: false,
                           tail: true, time: Date(timeIntervalSince1970: 1_793_389_000), pending: false, streaming: false)
         b.media = media
         let row = ChatRow(id: "m1|b0", messageId: "m1", scope: "acct|default|s1",
-                          fingerprint: ChatRowBuilder.bubbleFingerprint(text, mine: true, speaker: nil),
+                          fingerprint: ChatRowBuilder.bubbleFingerprint(text, mine: mine, speaker: nil),
                           kind: .bubble(b), gapAbove: 6, variant: 0)
         guard case .bubble(let box) = AttachmentBubbleLayout.bubble(b, row: row, width: 402, style: style, keep: false).content
         else { return nil }
         return box
     }
 
-    @Test func oneCardSizeFromTheMiddleShape() {
-        let pad = MediaLayout.stackPadY
-        let photos = MediaLayout.stack(sizes: Array(repeating: (1600, 1200), count: 3), maxWidth: 320)
-        #expect(photos.card == CGRect(x: 0, y: pad, width: 260, height: 195))
-        #expect(photos.size == CGSize(width: 260, height: 195 + 2 * pad))
-        // Unknown sizes: the 4:3 card, never waiting for pixels.
-        #expect(MediaLayout.stack(sizes: [(nil, nil), (nil, nil)], maxWidth: 320).card.size == CGSize(width: 260, height: 195))
-        // Phone screenshots: one photo's tall rule.
-        #expect(MediaLayout.stack(sizes: Array(repeating: (1179, 2556), count: 3), maxWidth: 320).card.size == CGSize(width: 150, height: 320))
-        // The odd one out doesn't set the shape: the middle one does.
-        #expect(MediaLayout.stack(sizes: [(1179, 2556), (1200, 1200), (1600, 1200)], maxWidth: 320).card.size == CGSize(width: 260, height: 260))
-        // Two: halfway (in proportion) between them, 16:9 and square → 4:3.
-        #expect(MediaLayout.stack(sizes: [(1920, 1080), (1200, 1200)], maxWidth: 320).card.size == CGSize(width: 260, height: 195))
-        #expect(MediaLayout.stack(sizes: [(1600, 1200), (nil, nil)], maxWidth: 320).card.size == CGSize(width: 260, height: 195))
+    /// The rows a grid came out as: how many tiles share each top edge.
+    private func rows(_ frames: [CGRect]) -> [Int] {
+        var out: [Int] = []
+        var y: CGFloat = -1
+        for f in frames {
+            if f.minY == y { out[out.count - 1] += 1 } else { out.append(1); y = f.minY }
+        }
+        return out
     }
 
-    @Test func photosAloneAreAStackWithTheTimeOnTheCard() throws {
+    @Test func twoColumnsOfSquareTiles() {
+        let gap = MediaLayout.gridGap
+        let two = MediaLayout.grid(count: 2, maxWidth: 370)
+        #expect(two.frames == [CGRect(x: 0, y: 0, width: 181, height: 181), CGRect(x: 189, y: 0, width: 181, height: 181)])
+        #expect(two.size == CGSize(width: 370, height: 181))
+        // Three: the first across the top at the same height, two under it.
+        let three = MediaLayout.grid(count: 3, maxWidth: 370)
+        #expect(three.frames[0] == CGRect(x: 0, y: 0, width: 370, height: 181))
+        #expect(rows(three.frames) == [1, 2] && three.size.height == 181 * 2 + gap)
+        let four = MediaLayout.grid(count: 4, maxWidth: 370)
+        #expect(rows(four.frames) == [2, 2] && four.size == CGSize(width: 370, height: 181 * 2 + gap))
+        // More than four still lay out four tiles; never wider than 520 pt (an iPad's or the Mac's column).
+        #expect(MediaLayout.grid(count: 14, maxWidth: 370).frames == four.frames)
+        #expect(MediaLayout.grid(count: 2, maxWidth: 728).size.width == MediaLayout.gridMaxWidth)
+        #expect(MediaLayout.grid(count: 1, maxWidth: 370).frames.isEmpty, "one photo is not a grid")
+        for n in 2...9 {
+            for width in [284.0, 296.0, 338.0, 370.0, 728.0] as [CGFloat] {
+                let laid = MediaLayout.grid(count: n, maxWidth: width)
+                #expect(laid.frames.count == min(n, 4))
+                #expect(laid.frames.map(\.maxX).max() == laid.size.width && laid.frames.map(\.maxY).max() == laid.size.height)
+                for (i, a) in laid.frames.enumerated() {
+                    for b in laid.frames[(i + 1)...] { #expect(!a.insetBy(dx: -gap + 0.5, dy: -gap + 0.5).intersects(b), "\(a) \(b)") }
+                }
+            }
+        }
+    }
+
+    @Test func pastFourTheLastTileStandsForTheRest() throws {
+        let box = try #require(bubble("", (0..<14).map { photo("p\($0).png", 1179, 2556, index: $0) }))
+        let group = try #require(box.mediaGroups.first)
+        #expect(group.tiles.count == 4 && group.more.count == 10)
+        #expect(group.tiles.map(\.item.index) == Array(0..<4) && group.more.map(\.index) == Array(4..<14))
+        // Four or fewer: every photo has its tile.
+        let four = try #require(bubble("", (0..<4).map { photo("p\($0).png", 1179, 2556, index: $0) }))
+        #expect(four.mediaGroups.first?.tiles.count == 4 && four.mediaGroups.first?.more.isEmpty == true)
+    }
+
+    @Test func aTallPhotoShowsFromItsTopInACard() {
+        let tile = CGRect(x: 0, y: 0, width: 181, height: 181)
+        // A phone screenshot: the card's width, its own height, from the top.
+        #expect(MediaTileView.imageFrame(card: true, image: CGSize(width: 1179, height: 2556), in: tile)
+            == CGRect(x: 0, y: 0, width: 181, height: 393))
+        // A wide one, a square one, a tile that is not a card, a picture not loaded yet: the tile itself (filled, centred).
+        #expect(MediaTileView.imageFrame(card: true, image: CGSize(width: 2560, height: 1600), in: tile) == tile)
+        #expect(MediaTileView.imageFrame(card: true, image: CGSize(width: 1200, height: 1200), in: tile) == tile)
+        #expect(MediaTileView.imageFrame(card: false, image: CGSize(width: 1179, height: 2556), in: tile) == tile)
+        #expect(MediaTileView.imageFrame(card: true, image: nil, in: tile) == tile)
+    }
+
+    @Test func photosAloneAreTheBubbleWithTheTimeInTheCorner() throws {
         let box = try #require(bubble("", (0..<3).map { photo("p\($0).png", 1600, 1200, index: $0) }))
         #expect(box.mediaOnly)
         let group = try #require(box.mediaGroups.first)
-        let card = try #require(group.stack)
         #expect(box.mediaGroups.count == 1 && group.tiles.count == 3)
-        #expect(group.tiles.allSatisfy { $0.frame == card }, "every photo is the same card")
-        #expect(card.size == CGSize(width: 260, height: 195))
-        #expect(group.frame.height == card.height + 2 * MediaLayout.stackPadY, "room for the fanned corners")
-        #expect(group.radius == ChatMetrics.bubbleRadius)
+        #expect(group.frame == CGRect(origin: .zero, size: box.frame.size).insetBy(dx: 0, dy: 4), "the grid is the bubble, with a little air")
+        #expect(group.tileRadius == AttachmentBubbleLayout.gridRadius(inFill: false), "each tile its own rounded card")
         let capsule = try #require(box.timeCapsule)
-        let onCard = card.offsetBy(dx: group.frame.minX, dy: group.frame.minY)
-        #expect(onCard.contains(capsule), "the time sits on the top card, not in the room around it: \(capsule) \(onCard)")
+        let last = try #require(group.tiles.last?.frame)
+        #expect(last.offsetBy(dx: group.frame.minX, dy: group.frame.minY).contains(capsule), "the time sits on the last tile: \(capsule) \(last)")
     }
 
-    @Test func aCaptionedStackSitsInTheBubble() throws {
+    @Test func aCaptionComesUnderTheGridInsideTheFill() throws {
         let box = try #require(bubble("Which of these three works best for the header?",
                                       (0..<3).map { photo("p\($0).png", 1600, 1200, index: $0) }))
         #expect(!box.mediaOnly)
         let group = try #require(box.mediaGroups.first)
-        let card = try #require(group.stack)
-        #expect(card.minX == MediaLayout.stackPadY && card.minY == MediaLayout.stackPadY, "in from the fill's edges")
-        #expect(group.frame.minX >= 0 && group.frame.maxX <= ceil(box.frame.width))
-        #expect(group.radius ?? 0 < ChatMetrics.bubbleRadius, "a smaller corner inside the bubble's")
-        #expect(box.blocks.allSatisfy { $0.frame.minY >= group.frame.maxY }, "the caption comes under the stack")
-        // Tall screenshots: the caption gets a photo's width and the stack sits centred over it.
-        let tall = try #require(bubble("These are the three screens from the new onboarding flow, in order",
-                                       (0..<3).map { photo("s\($0).png", 1179, 2556, index: $0) }))
-        let tallGroup = try #require(tall.mediaGroups.first)
-        #expect(tall.frame.width > tallGroup.frame.width)
-        #expect(abs(tallGroup.frame.midX - tall.frame.width / 2) <= 1)
+        #expect(group.frame.minX == 6 && group.frame.minY == 6 && group.frame.maxX == box.frame.width - 6, "in from the fill's edges")
+        #expect((group.tileRadius ?? 99) < ChatMetrics.bubbleRadius, "a smaller corner inside the bubble's")
+        #expect(box.blocks.allSatisfy { $0.frame.minY >= group.frame.maxY }, "the caption comes under the photos")
     }
 
-    @Test func onePhotoIsNotAStack() throws {
+    @Test func onePhotoKeepsItsOwnRules() throws {
         let box = try #require(bubble("", [photo("p.png", 1600, 1200)]))
-        #expect(box.mediaGroups.first?.stack == nil)
+        let group = try #require(box.mediaGroups.first)
+        #expect(group.tiles.count == 1 && group.more.isEmpty && group.tileRadius == nil)
+        #expect(box.frame.size == CGSize(width: 260, height: 195))
     }
 
-    @Test func aRepliesPicturesAreAStack() {
+    @Test func aRepliesPicturesAreAGrid() {
         let refs = ["a", "b", "c"].compactMap { MarkdownMedia.ref(destination: "#media:%2Ftmp%2F\($0).png", title: "Image: \($0).png", image: false) }
-        let block = AttachmentBubbleLayout.mediaBlock(refs, context: nil, maxText: 300, mine: false, style: ChatStyle.make(category: .large))
+        let block = AttachmentBubbleLayout.mediaBlock(refs, context: nil, maxText: 338, mine: false, style: style)
         #expect(block.media.groups.count == 1)
         let group = block.media.groups[0]
-        #expect(group.stack != nil && group.tiles.count == 3)
-        #expect(block.size.height == (group.stack?.height ?? 0) + 2 * MediaLayout.stackPadY)
-        #expect(group.radius == MediaLayout.replyRadius)
-        // A reply's pictures come without sizes: once their first load learns them, the card takes their shape.
+        #expect(group.tiles.count == 3 && group.more.isEmpty)
+        #expect(block.size == group.frame.size && block.size.width == 338, "across the reply's words")
+        #expect(group.tileRadius == MediaLayout.replyRadius)
+        // A grid never waits for pixels: learnt sizes leave it where it is.
         let tall = MediaPixelSize(width: 1179, height: 2556)
-        let learnt = AttachmentBubbleLayout.mediaBlock(refs, context: nil, maxText: 300, mine: false, style: ChatStyle.make(category: .large),
+        let learnt = AttachmentBubbleLayout.mediaBlock(refs, context: nil, maxText: 338, mine: false, style: style,
                                                        sizes: ["/tmp/a.png": tall, "/tmp/b.png": tall, "/tmp/c.png": tall])
-        #expect(learnt.media.groups.first?.stack?.size == CGSize(width: 150, height: 320))
+        #expect(learnt.media.groups[0].tiles.map(\.frame) == group.tiles.map(\.frame))
         #expect(learnt.media.groups.first?.tiles.first?.item.attachment.pixelHeight == 2556)
-        // And the row re-measures: its fingerprint follows the learnt sizes.
+        // One picture in a reply stays one photo (≤ 280 wide), and takes its learnt shape.
+        let one = AttachmentBubbleLayout.mediaBlock(Array(refs.prefix(1)), context: nil, maxText: 338, mine: false, style: style)
+        #expect(one.size == CGSize(width: 260, height: 195) && one.media.groups[0].tileRadius == nil)
+        let oneTall = AttachmentBubbleLayout.mediaBlock(Array(refs.prefix(1)), context: nil, maxText: 338, mine: false, style: style,
+                                                        sizes: ["/tmp/a.png": tall])
+        #expect(oneTall.size == CGSize(width: 150, height: 320))
         #expect(ChatRowBuilder.bubbleFingerprint("MEDIA:/tmp/a.png", mine: false, speaker: nil)
             != ChatRowBuilder.bubbleFingerprint("MEDIA:/tmp/a.png", mine: false, speaker: nil, sizes: ["/tmp/a.png": tall]))
-        // A reply of pictures alone (no fill) takes them too: each card gets its own photo's shape.
+    }
+
+    @Test func aReplyOfPicturesAloneIsAGridAcrossTheColumn() {
         let text = "MEDIA:/tmp/wide.png\nMEDIA:/tmp/square.png"
         var b = BubbleRow(mine: false, text: text, markdown: true, partIndex: 0, joinsAbove: false, joinsBelow: false,
                           tail: true, time: Date(timeIntervalSince1970: 1_793_389_000), pending: false, streaming: false)
-        b.mediaSizes = ["/tmp/wide.png": MediaPixelSize(width: 1920, height: 1080), "/tmp/square.png": MediaPixelSize(width: 1200, height: 1200)]
         let row = ChatRow(id: "m2|b0", messageId: "m2", scope: "acct|default|s1",
                           fingerprint: ChatRowBuilder.bubbleFingerprint(text, mine: false, speaker: nil, sizes: b.mediaSizes),
                           kind: .bubble(b), gapAbove: 6, variant: 0)
-        let style = ChatStyle.make(category: .large)
+        b.mediaSizes = [:]
         let rendered = MarkdownRenderer.render(text, style: style)
         guard case .bubble(let box)? = AttachmentBubbleLayout.photoOnlyReply(rendered, b, row: row, width: 402, style: style)?.content,
-              let items = box.mediaGroups.first?.tiles.map(\.item) else { Issue.record("no photo-only reply"); return }
-        #expect(items.map(\.attachment.pixelWidth) == [1920, 1200])
-        #expect(items.map { PhotoStackView.cardSize($0, in: CGSize(width: 260, height: 195)) }
-            == [CGSize(width: 260, height: 146), CGSize(width: 195, height: 195)])
+              let group = box.mediaGroups.first else { Issue.record("no photo-only reply"); return }
+        #expect(box.frame.width == 370, "the reply column's width")
+        #expect(rows(group.tiles.map(\.frame)) == [2])
     }
 
-    @Test func picturesNextToEachOtherMakeOneStack() {
+    @Test func picturesNextToEachOtherMakeOneGrid() {
         let style = ChatStyleCache.shared.style(for: .large)
         let media = { (markdown: String) in
             MarkdownRenderer.render(markdown, style: style).blocks.compactMap { if case .media(let r) = $0 { r } else { nil } }
@@ -684,68 +698,27 @@ struct PhotoStackTests {
         #expect(media("/tmp/a.png\n\nThen the second:\n\n/tmp/b.png").map(\.count) == [1, 1])
     }
 
-    @Test func theFanKeepsItsCornersInTheRoom() {
-        for size in [CGSize(width: 260, height: 195), CGSize(width: 150, height: 320), CGSize(width: 260, height: 100),
-                     CGSize(width: 260, height: 320), CGSize(width: 280, height: 210)] {
-            let a = PhotoStackView.fan(for: size)
-            #expect(a > 0 && a <= 4.5 * .pi / 180, "\(size)")
-            let s: CGFloat = 0.985
-            let tall = s * (size.width * sin(a) + size.height * cos(a)), wide = s * (size.width * cos(a) + size.height * sin(a))
-            #expect((tall - size.height) / 2 <= MediaLayout.stackPadY - 2, "\(size)")
-            #expect((wide - size.width) / 2 <= 10, "\(size)")
-        }
-        #expect(PhotoStackView.fan(for: .zero) == 0)
-    }
-
-    /// [perf] A 16-photo stack loads the cards that can show: the top three, the next under them, and the bottom one.
-    @Test func onlyTheCardsNearTheTopLoad() {
-        #expect((0..<16).filter { PhotoStackView.loads(depth: $0, count: 16) } == [0, 1, 2, 3, 15])
-        #expect((0..<3).allSatisfy { PhotoStackView.loads(depth: $0, count: 3) })
-        #expect((0..<5).allSatisfy { PhotoStackView.loads(depth: $0, count: 5) })
-    }
-
-    @Test func eachCardTakesItsPhotosShapeInTheBox() {
-        let box = CGSize(width: 260, height: 195)
-        #expect(PhotoStackView.cardSize(photo("a.png", 1600, 1200), in: box) == box)
-        #expect(PhotoStackView.cardSize(photo("wide.png", 1920, 1080), in: box) == CGSize(width: 260, height: 146))
-        #expect(PhotoStackView.cardSize(photo("square.png", 1200, 1200), in: box) == CGSize(width: 195, height: 195))
-        #expect(PhotoStackView.cardSize(photo("shot.png", 1179, 2556), in: box) == CGSize(width: 130, height: 195),
-                "never under half the box")
-        #expect(PhotoStackView.cardSize(photo("new.png", nil, nil), in: box) == box)
-    }
-
-    @Test func aPhotoOfAnotherShapeShowsWhole() {
-        let card = CGSize(width: 260, height: 195)
-        #expect(!MediaTileView.differs(CGSize(width: 1600, height: 1200), card))
-        #expect(!MediaTileView.differs(CGSize(width: 1500, height: 1200), card), "close enough fills")
-        #expect(MediaTileView.differs(CGSize(width: 1179, height: 2556), card))
-        #expect(MediaTileView.differs(CGSize(width: 1200, height: 1200), card))
-        #expect(!MediaTileView.differs(.zero, card))
-    }
-
-    @Test func theTopPhotoIsRememberedAndShown() throws {
-        let items = (0..<3).map { photo("r\($0).png", 1600, 1200, index: $0) }
-        let laid = MediaLayout.stack(sizes: items.map { ($0.attachment.pixelWidth, $0.attachment.pixelHeight) }, maxWidth: 320)
-        let group = MediaGroupLayout(frame: CGRect(origin: .zero, size: laid.size), radius: 12, tiles: items.map { ($0, laid.card) },
-                                     stack: laid.card)
-        let key = "remember-\(UUID().uuidString)#0"
-        let stack = PhotoStackView(frame: .zero)
-        stack.makeTile = { MediaTileView(frame: .zero) }
-        stack.configure(group, key: key)
-        #expect(stack.top == 0 && stack.tiles.count == 3)
-        #expect(stack.accessibilityLabel == "3 photos")
-        #expect(stack.accessibilityValue?.hasPrefix("1 of 3") == true)
-        stack.show(2)
-        #expect(stack.top == 2 && stack.topTile === stack.tiles[2])
-        #expect(stack.accessibilityValue?.hasPrefix("3 of 3") == true)
-        // Only the top card takes touches.
-        #expect(stack.tiles.enumerated().allSatisfy { $0.element.isUserInteractionEnabled == ($0.offset == 2) })
-        // Scrolled away and back in another cell: the same photo on top.
-        let again = PhotoStackView(frame: .zero)
-        again.makeTile = { MediaTileView(frame: .zero) }
-        again.configure(group, key: key)
-        #expect(again.top == 2)
-        again.configure(group, key: "other-\(UUID().uuidString)#0")
-        #expect(again.top == 0)
+    @Test func theViewFindsATileForEveryShownPhotoAndNoneForTheRest() throws {
+        let items = (0..<9).map { photo("v\($0).png", 1179, 2556, index: $0) }
+        let box = try #require(bubble("", items))
+        let view = BubbleMediaView(frame: .zero)
+        view.configure(box, messageId: "m1", style: style)
+        let shown = view.accessibleViews.compactMap { $0 as? MediaTileView }
+        #expect(shown.count == 4)
+        #expect(shown.map(\.accessibilityIdentifier) == (0..<4).map { "chat.media.m1.\($0)" })
+        #expect(shown.prefix(3).allSatisfy { $0.accessibilityHint == "Opens the photo" })
+        #expect(shown.last?.accessibilityHint == "Opens this photo and 5 more")
+        #expect(shown.allSatisfy { $0.layer.cornerRadius == AttachmentBubbleLayout.gridRadius(inFill: false) })
+        // Off screen no tile is a zoom's landing place; past the "+5" there is none at all (and no crash asking).
+        #expect(view.tile(at: 7) == nil && view.tile(at: 40) == nil)
+        // Reused for a message with two photos: the last tile no longer stands for more.
+        let two = try #require(bubble("", Array(items.prefix(2))))
+        view.configure(two, messageId: "m2", style: style)
+        let again = view.accessibleViews.compactMap { $0 as? MediaTileView }
+        #expect(again.count == 2 && again.allSatisfy { $0.accessibilityHint == "Opens the photo" })
+        // And for one photo: a plain tile again, no card.
+        let one = try #require(bubble("", Array(items.prefix(1))))
+        view.configure(one, messageId: "m3", style: style)
+        #expect(view.accessibleViews.compactMap { $0 as? MediaTileView }.first?.layer.cornerRadius == 0)
     }
 }

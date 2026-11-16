@@ -705,7 +705,7 @@ nonisolated struct MessageAttachment: Hashable, Sendable {
 
 Spec 06 §2 applies (fill, radius 18, run corners 6, tail, one time per run, max width `min(80 %, 320 pt)`):
 
-- **Order inside the bubble:** the photo (or the photo stack) at the top, edge to edge (no padding), clipped to the
+- **Order inside the bubble:** the photo (or the photo grid) at the top, edge to edge (no padding), clipped to the
   bubble's outline;
   then file rows; then the caption text with the normal 6/12 padding (6 pt above it after media); the time sits in the
   caption's last line as today.
@@ -717,27 +717,23 @@ Spec 06 §2 applies (fill, radius 18, run corners 6, tail, one time per run, max
 - **Single photo frame** (`maxW` = the bubble's max width): `w = min(maxW, 260)`; `h = w × ph / pw`; if `h > 320`:
   `h = 320`, `w = max(150, min(maxW, 320 × pw / ph))`; if `h < 100`: `h = 100`. Draw aspect-fill inside `(w, h)`.
   Unknown size: `(min(maxW, 260), 195)`.
-- **Photo stacks** (2 or more photos; owner 2026-10-30, replacing the album grid in bubbles): the photos sit on top of
-  each other as cards you swipe through (`N:App/Chat/Attachments/PhotoStackView.swift`).
-  - **One box** for the stack (`MediaLayout.stack`), so the row never changes height while you flip: the single
-    photo frame above for the photos' middle shape (the median aspect; an even count takes the two middle ones'
-    geometric mean); unknown sizes give the 4:3 `min(maxW, 260) × 195` box. **Each card is its own photo's shape**
-    fitted in the box and centred on whole points (`PhotoStackView.cardSize`), so mixed shapes pile up like prints,
-    never letterboxed; a card is never under half the box either way, and a photo narrower than that shows whole
-    (aspect-fit) on a blurred fill of itself. The photo-only time capsule and the Mac's ‹ › sit on the top card (they
-    move to the next one's corner while faded out mid-flip).
-  - **The fan:** the two cards under the top one turn a few degrees either way, sized from the box so their corners
-    stay within 10 pt (`stackPadY`) above and below and ~10 pt beside. In a bubble with a caption or file rows the stack
-    keeps that room inside the bubble; a photo-only stack has no fill and the room is the row's.
-  - **Swipe left:** the top card follows the finger, tilting from where it was held (up to 12° over a card's width),
-    flies off and tucks in at the back. **Swipe right:** the bottom card slides out and lands on top. A flip needs 28 %
-    of the card's width or a 450 pt/s flick; less springs back. It goes round (after the last photo, the first). One
-    selection tick per flip.
-  - **Each card** shows **"2/5"** (11 pt semibold digits white on a black 45 % capsule, top-trailing, 6 pt in and further past
-    a round corner). The photo-only time
-    capsule sits on the top card and fades while a card is mid-flip.
-  - **Tap** opens the viewer on the top photo; closing the viewer on another photo leaves that one on top, so the zoom
-    lands on it. The top photo is remembered per message while the app runs (scroll away and back keeps it).
+- **Photo grids** (2 or more photos; owner 2026-11-16, replacing the 2026-10-30 swipe-through pile, which showed the
+  photos "tiny" and was "hard to get through"; the look is the Claude app's chat, which he sent as the model): the
+  photos are a grid of rounded tiles across the bubble (`MediaLayout.grid`), and a tap on any of them opens the
+  viewer on it, which pages all of the message's photos.
+  - **Width:** your bubble's max width; a reply's whole column (photo-only reply) or its words' width (pictures among
+    words); never over 520 pt.
+  - **Tiles:** two columns of square tiles, 8 pt apart (`side = floor((width − 8) / 2)`). Two photos: one row. Three:
+    the first runs across the top at the same height, two under it. Four: 2 × 2. Every frame follows from the count
+    and the width alone (a grid never waits for pixels and never moves when they load).
+  - **Each tile is its own card:** radius 12 (a smaller one inside your bubble's fill), a hairline separator edge, the
+    photo aspect-fill; a photo taller than its tile is kept **from the top** (a screenshot's title stays in view),
+    a wider one is centred.
+  - **More than four:** the fourth tile is dimmed (black 45 %) under **"+N"** (24 pt medium digits, white), N = the
+    photos without a tile. They load only in the viewer.
+  - **Photo-only:** no fill; the tiles are the bubble, with 4 pt of air above and below, and the time capsule sits on
+    the last tile's bottom-trailing corner. With a caption or files the grid sits in the bubble's fill, 6 pt in.
+  - **VoiceOver:** each tile is its photo ("Opens the photo"); the "+N" tile's hint is "Opens this photo and N more".
   - **Hold menu, drag out, upload rings and failure tiles** are the top card's (each card is a normal tile).
   - **Mac:** a trackpad's two-finger swipe flips (a click-drag still drags the photo out); hovering shows ‹ › buttons
     at the top card's sides.
@@ -777,10 +773,10 @@ Spec 06 §2 applies (fill, radius 18, run corners 6, tail, one time per run, max
 
 - A **paragraph whose only content is media** — `#media:` links, images `![alt](src)`, file-path links (`/…`, `~/…`,
   `file://…`, `C:\…`, `V:components/assistant-ui/markdown-text.tsx:320-341`), separated by whitespace or line breaks —
-  becomes a new `MarkdownBlock.media([MediaRef])`: images → photos (single/stack rules of §7.3 with
+  becomes a new `MarkdownBlock.media([MediaRef])`: images → photos (single/grid rules of §7.3 with
   `maxW = min(bubble content width, 280)`, radius 12, inset like code blocks) and everything else → file rows.
   Media blocks next to each other (pictures listed one per paragraph or list item) join into one block, so a reply's
-  pictures make one stack. Reply pictures arrive without pixel sizes: the first load reports each one's size
+  pictures make one grid. Reply pictures arrive without pixel sizes: the first load reports each one's size
   (`ChatMediaSnapshot.replySizes`, keyed by `MessageAttachment.sizeKey`), and the next layout takes its real shape
   (the row changes height once, as history photos do).
   A reply part whose blocks are **only** images draws like a photo-only bubble (no fill).
@@ -1270,8 +1266,8 @@ Never point anything at the owner's gateway (100.101.102.104, `*.ts.net`); never
 11. **Remote policy:** refused: `http:`, `https://10.0.0.1`, `192.168.1.2`, `172.20.0.1`, `100.100.1.1`, `127.0.0.1`,
     `[::1]`, `[fd7a:115c:a1e0::1]`, `x.local`, `box.tail1234.ts.net`, a redirect to any of them, the 6th redirect;
     allowed: a public https host.
-12. **Layout:** `MediaLayout.frames` for 1–16 items at max widths 260/320 matches §7.3 (single tall/wide/unknown,
-    albums 2, 3, 4, 5, 7, 16); `MediaLayout.stack` takes the middle shape (`PhotoStackTests`); file rows grow by 12/12
+12. **Layout:** `MediaLayout.single` matches §7.3 (tall/wide/unknown); `MediaLayout.grid` is two columns of square
+    tiles from the count and width alone (`PhotoGridTests`); file rows grow by 12/12
     padding with 2-line names; heights never depend on loaded pixels.
 13. **Markdown:** `MEDIA:` alone in a paragraph → `.media` block; inline → link with glyph; `![a](https://…)`,
     `![a](/p.png)`, `[n](/x/notes.md)`; `.svg` → file row.
@@ -1287,8 +1283,8 @@ compiled out of Release). Test media live in `N:UITests/Fixtures/attachments/` (
    `/fixture/uploads/.dispatch-attachments/<UUID>/`, the HEIC arrived as `photo.jpg` with `jpeg:true, gps:false,
    camera:false`) → type "hello", Send → `attachLedger` = `image.attach`, `image.attach`, `file.attach` with exactly the
    §3.4/§3.5 keys; `prompts[-1].text == "@file:/fixture-home/attachments/report.pdf\n\nhello"`, `images` = 2; one
-   `DELETE` for the PDF's folder and none for the photos'; the bubble shows a 2-photo stack, a file row and "hello"; after the
-   history refresh the bubble count is unchanged and the stack's frame (screenshot rect) is identical.
+   `DELETE` for the PDF's folder and none for the photos'; the bubble shows a 2-photo grid, a file row and "hello"; after the
+   history refresh the bubble count is unchanged and the grid's frame (screenshot rect) is identical.
 2. **Photo only:** text sent is `What do you see in this image?`; the bubble shows the photo and no text, before and
    after reopening the chat.
 3. **Remove while uploading** (`uploadDelay: 3`): remove the 2nd tile → its upload never completes or its folder is

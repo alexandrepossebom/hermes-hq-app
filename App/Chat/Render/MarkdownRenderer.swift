@@ -365,7 +365,7 @@ nonisolated private struct BlockBuilder {
                     out.append(contentsOf: refs.map(MarkdownBlock.pageCard))
                     return
                 }
-                // Pictures one paragraph after another, nothing between, are one set (a stack you swipe through).
+                // Pictures one paragraph after another, nothing between, are one set (a grid; the viewer pages them).
                 if case .media(let before)? = out.last {
                     out[out.count - 1] = .media(before + refs)
                 } else {
