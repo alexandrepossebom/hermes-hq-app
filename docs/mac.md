@@ -97,7 +97,12 @@ Mac window, scaled to Mac size. No separate code base; every iPhone and iPad cha
   chats are heads with the group tile's face (`GroupAvatar`), unread dot or running dots on its corner, the room's
   menu on a right click; a click opens the room beside the rail. With more than one gateway the Bots title's switcher
   sits at the rail's top (`MacRailGateway`: the network symbol with a news dot, or the gateway's name and a chevron
-  with the names on), and a right click on the rail's empty space offers Gateways ▸ too.
+  with the names on), and a right click on the rail's empty space offers Gateways ▸ too. The open sidebar has no
+  switcher at its top (owner 2026-11-16: it named the gateway twice): its foot's gateway line (state dot and name)
+  gains the pop-up's up-down chevrons and a news dot, and a click on it opens the same Gateways menu
+  (`MacSidebar.showGateway`, `mac-sidebar.gateway-switcher`); Search and the rows start at `topRoom`.
+  `-HQDebugMacShots <name> -HQDebugMacShotsWait 6 -HQDebugGatewayFoot YES` writes `<name>-gateway.txt` (the foot's
+  switcher, its menu, the rail's top switcher).
   `-HQDebugMacShotsRailMore YES` (with a second gateway from `HQN_ADD_*`, removed again) photographs both widths.
 - **Rail names** (owner 2026-11-02: "some more room on the side ... to fit in the name of each bot underneath"): the
   folded rail's outer edge drags (left-right cursor). Pushed in it is the faces alone (`MacSidebar.compactRailWidth`);

@@ -283,6 +283,15 @@ final class MacSidebar: UIView {
     private let gatewayName = UILabel()
     private let gatewayTip = UIToolTipInteraction()
     private var gatewayLeading: NSLayoutConstraint!
+    /// [gateway-foot] Owner 2026-11-16: the gateway switcher at the open sidebar's top showed the gateway a second time
+    /// (the foot already named it with its dot), "move that to the bottom … so we can move the rest of the contents of
+    /// the sidebar up". With more than one gateway the foot's line is the switcher now: the up-down chevrons of a pop-up
+    /// after the name, a news dot when another gateway has news, and a click opens the same Gateways menu. The open
+    /// sidebar's rows start at `topRoom` again; the folded rail (no room for words at its foot) keeps its switcher on top.
+    private let gatewayLine = UIStackView()
+    private let gatewayArrows = UIImageView()
+    private let gatewayNews = UIView()
+    private let gatewayButton = UIButton(type: .custom)
     static let connectionChanged = Notification.Name("HQMacSidebarConnectionChanged")
     private var connectionToken: NSObjectProtocol?
     private var settingsSize: [NSLayoutConstraint] = []
@@ -402,19 +411,49 @@ final class MacSidebar: UIView {
         gatewayName.accessibilityIdentifier = "mac-sidebar.gateway"
         gatewayName.isUserInteractionEnabled = true   // its tooltip
         gatewayName.addInteraction(gatewayTip)
+        // [gateway-foot] The name, then (more than one gateway) the pop-up's chevrons and the news dot, as one line.
+        gatewayArrows.contentMode = .center
+        gatewayArrows.isUserInteractionEnabled = false
+        gatewayArrows.setContentHuggingPriority(.required, for: .horizontal)
+        gatewayArrows.setContentCompressionResistancePriority(.required, for: .horizontal)
+        gatewayNews.isUserInteractionEnabled = false
+        gatewayNews.layer.cornerRadius = 3
+        gatewayNews.widthAnchor.constraint(equalToConstant: 6).isActive = true
+        gatewayNews.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        gatewayLine.axis = .horizontal
+        gatewayLine.alignment = .center
+        gatewayLine.spacing = 4
+        gatewayLine.translatesAutoresizingMaskIntoConstraints = false
+        [gatewayName, gatewayArrows, gatewayNews].forEach(gatewayLine.addArrangedSubview)
+        gatewayButton.translatesAutoresizingMaskIntoConstraints = false
+        gatewayButton.isPointerInteractionEnabled = true
+        gatewayButton.showsMenuAsPrimaryAction = true
+        gatewayButton.accessibilityIdentifier = "mac-sidebar.gateway-switcher"
+        gatewayButton.accessibilityHint = "Shows your gateways."
+        gatewayButton.menu = UIMenu(title: "Gateways", children: [UIDeferredMenuElement.uncached { [weak self] done in
+            done(self?.tabs?.botsViewController.gatewaySwitcher?.menu([]).children ?? [])
+        }])
+        gatewayButton.isHidden = true
+        MacHover.surface(gatewayButton, shape: .rounded((7 * Self.chrome).rounded()))
         addSubview(gatewayDot)
-        addSubview(gatewayName)
+        addSubview(gatewayLine)
+        addSubview(gatewayButton)
         // [sidebar-feel] The gateway's name in the name column, under the bots' and places' names (it started 2 pt
         // right of them), its dot before it. Short of required: folded, the name is hidden and has no room.
-        gatewayLeading = gatewayName.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.contentInset + MacBotsRail.nameLeading)
+        gatewayLeading = gatewayLine.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.contentInset + MacBotsRail.nameLeading)
         gatewayLeading.priority = .required - 1
         NSLayoutConstraint.activate([
             gatewayDot.widthAnchor.constraint(equalToConstant: 7), gatewayDot.heightAnchor.constraint(equalToConstant: 7),
-            gatewayDot.trailingAnchor.constraint(equalTo: gatewayName.leadingAnchor, constant: -6),
+            gatewayDot.trailingAnchor.constraint(equalTo: gatewayLine.leadingAnchor, constant: -6),
             gatewayDot.centerYAnchor.constraint(equalTo: toggle.centerYAnchor),
             gatewayLeading,
-            gatewayName.centerYAnchor.constraint(equalTo: toggle.centerYAnchor),
-            gatewayName.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -6),
+            gatewayLine.centerYAnchor.constraint(equalTo: toggle.centerYAnchor),
+            gatewayLine.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -6),
+            // The switcher's click and hover: from just before the dot to just past the line, the foot's buttons' height.
+            gatewayButton.leadingAnchor.constraint(equalTo: gatewayDot.leadingAnchor, constant: -6),
+            gatewayButton.trailingAnchor.constraint(equalTo: gatewayLine.trailingAnchor, constant: 6),
+            gatewayButton.centerYAnchor.constraint(equalTo: toggle.centerYAnchor),
+            gatewayButton.heightAnchor.constraint(equalTo: toggle.heightAnchor),
         ])
         connectionToken = NotificationCenter.default.addObserver(forName: Self.connectionChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.showGateway() }
@@ -1148,19 +1187,29 @@ final class MacSidebar: UIView {
     }
 
     private var railGatewayWanted: Bool {
-        // [mac-layout] Open too: the Bots list (and its title's switcher) no longer shows beside the sidebar.
-        showsBots && (tabs?.botsViewController.gatewaySwitcher?.isActive ?? false)
+        // [gateway-foot] The folded rail only: open, the foot's gateway line is the switcher (owner 2026-11-16).
+        Self.isCollapsed && showsBots && switcherActive
     }
+
+    /// More than one gateway saved: the Bots title's switcher (and so the rail's and the foot's) is on.
+    private var switcherActive: Bool { tabs?.botsViewController.gatewaySwitcher?.isActive ?? false }
 
     /// [sidebar-tidy] The foot's gateway line: the current gateway's name and a dot for the connection (green
     /// connected, orange while it connects, red offline or signed out).
     private func showGateway() {
         let shown = Self.tidy && !Self.isCollapsed
         gatewayDot.isHidden = !shown
-        gatewayName.isHidden = !shown
+        gatewayLine.isHidden = !shown
+        gatewayButton.isHidden = true
         guard shown, let tabs else { return }
-        let rows = tabs.botsViewController.gatewaySwitcher?.gateways.accounts ?? []
-        let title = rows.first(where: \.isCurrent)?.title ?? tabs.services.account?.baseURL.host() ?? ""
+        let gateways = tabs.botsViewController.gatewaySwitcher?.gateways
+        let rows = gateways?.accounts ?? []
+        let current = rows.first(where: \.isCurrent)?.title ?? tabs.services.account?.baseURL.host() ?? ""
+        // [gateway-foot] More than one gateway: the line opens the Gateways menu, as the rail's switcher does.
+        let switcher = switcherActive
+        let switching = switcher ? gateways?.switchingTo.flatMap { id in rows.first { $0.id == id }?.title } : nil
+        let news = switcher && switching == nil && (gateways?.otherNews ?? 0) > 0
+        let title = switching.map { "Switching to \($0)…" } ?? current
         let state = tabs.services.connection
         gatewayLeading.constant = Self.contentInset + MacBotsRail.nameLeading   // UI Scale moves the column
         gatewayName.text = title
@@ -1175,6 +1224,18 @@ final class MacSidebar: UIView {
         }
         gatewayTip.defaultToolTip = "\(AccountView.status(state)): \(title)"
         gatewayName.accessibilityLabel = "Gateway \(title), \(AccountView.status(state))"
+        gatewayName.alpha = switching == nil ? 1 : 0.6
+        gatewayArrows.isHidden = !switcher
+        gatewayNews.isHidden = !news
+        gatewayButton.isHidden = !switcher
+        guard switcher else { return }
+        gatewayArrows.image = UIImage(systemName: "chevron.up.chevron.down",
+                                      withConfiguration: UIImage.SymbolConfiguration(pointSize: Self.sized(14, Self.scheme.gatewayName) * 0.72, weight: .semibold))
+        gatewayArrows.tintColor = gatewayName.textColor
+        gatewayNews.backgroundColor = HQPalette.tint
+        gatewayButton.isEnabled = switching == nil
+        gatewayButton.toolTip = gatewayTip.defaultToolTip
+        gatewayButton.accessibilityLabel = "Gateway \(title), \(AccountView.status(state))" + (news ? ", news on another gateway" : "")
     }
 
     private func gatewaysChanged() {
@@ -1254,6 +1315,16 @@ final class MacSidebar: UIView {
         guard let railGateway else { return "no switcher" }
         let items = tabs?.botsViewController.gatewaySwitcher?.menu([]).children.flatMap { ($0 as? UIMenu)?.children ?? [$0] } ?? []
         return "switcher \(railGateway.accessibilityLabel ?? "") frame \(railGateway.frame.integral): "
+            + items.compactMap { ($0 as? UIAction).map { $0.title + ($0.state == .on ? " ✓" : "") } }.joined(separator: ", ")
+    }
+    /// [gateway-foot] The foot's gateway line and its switcher (hidden or not, frame, the menu's items), the rail's
+    /// top switcher, and where Search and New Chat start.
+    var debugFootGateway: String {
+        let items = gatewayButton.isHidden ? [] : (tabs?.botsViewController.gatewaySwitcher?.menu([]).children.flatMap { ($0 as? UIMenu)?.children ?? [$0] } ?? [])
+        return "collapsed \(Self.isCollapsed) top-switcher \(railGateway == nil ? "none" : "\(railGateway!.frame.integral)")"
+            + " tools-top \(tools.map { "\($0.frame.minY)" } ?? "-")\n"
+            + "foot line hidden \(gatewayLine.isHidden) text \"\(gatewayName.text ?? "")\" arrows \(!gatewayArrows.isHidden) news \(!gatewayNews.isHidden)\n"
+            + "foot switcher hidden \(gatewayButton.isHidden) enabled \(gatewayButton.isEnabled) frame \(gatewayButton.frame.integral) label \"\(gatewayButton.accessibilityLabel ?? "")\": "
             + items.compactMap { ($0 as? UIAction).map { $0.title + ($0.state == .on ? " ✓" : "") } }.joined(separator: ", ")
     }
     #endif

@@ -144,6 +144,11 @@ enum MacShots {
                     try? "scroll frame \(rows.frame) in \(rows.superview.map { String(describing: type(of: $0)) } ?? "-") offset \(rows.contentOffset) inset \(rows.contentInset) content \(rows.contentSize) clips \(rows.clipsToBounds) sidebar \(sidebar.frame)".write(to: folder.appending(path: "\(name)-rail.txt"), atomically: true, encoding: .utf8)
                     post(folder.appending(path: "\(name)-rail.txt"))
                 }
+                // [gateway-foot] `-HQDebugGatewayFoot YES`: the foot's gateway switcher and the rail's top one, as text.
+                if UserDefaults.standard.bool(forKey: "HQDebugGatewayFoot"), let sidebar = findView(MacSidebar.self, in: window) {
+                    try? sidebar.debugFootGateway.write(to: folder.appending(path: "\(name)-gateway.txt"), atomically: true, encoding: .utf8)
+                    post(folder.appending(path: "\(name)-gateway.txt"))
+                }
                 // [icon-study] `-HQDebugIconInk YES`: each sidebar row's icon drawn alone, its ink box in points.
                 if UserDefaults.standard.bool(forKey: "HQDebugIconInk"), let sidebar = findView(MacSidebar.self, in: window) {
                     var text = "rows:\n" + iconInk(sidebar.debugIcons)
