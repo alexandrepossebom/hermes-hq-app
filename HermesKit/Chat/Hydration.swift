@@ -63,6 +63,13 @@ nonisolated enum Hydration {
         guard var record = row.object else { return [row] }
         let text = record["content"]?.string ?? ""
         let kind = record["display_kind"]?.string
+        if record["role"]?.string == "user" || record["role"]?.string == "system",
+           TimelineNotes.isTaskSnapshot(Hydration.text(from: record["display_content"] ?? record["content"])) {
+            // Classify before legacy internal_notification wording can replace it with "Background update".
+            // Keep the raw row (and pagination offsets) intact; only its display kind changes.
+            record["display_kind"] = "hidden"
+            return [.object(record)]
+        }
         // [botdm] A bot DM runner's note stays the plain user row it is live, so BotDMs draws it as the other bot's
         // reply, or nothing when there is none (owner, 2026-10-28: from history it was a "…/python3 …/bot_mode_dm.py"
         // process line). Hermes files it as internal_notification, and lately as process_complete.

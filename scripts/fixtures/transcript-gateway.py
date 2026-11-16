@@ -33,6 +33,14 @@ MODEL_SWITCH = ('[System: The active model for this chat has changed to claude-o
                 'From this point on, answer as that model.]')
 
 PRESETS = {
+    'task-snapshot': [
+        {'role': 'user', 'content': 'Simplify the activity display.'},
+        {'role': 'assistant', 'content': 'I am checking the layout.'},
+        {'role': 'user', 'content': '[Your active task list was preserved across context compression]\n'
+                                    '- [>] update-layout. Simplify the activity display (in_progress)\n'
+                                    '- [ ] verify-layout. Run the native checks (pending)'},
+        {'role': 'assistant', 'content': 'The layout is ready for review.'},
+    ],
     'cron': [
         {'role': 'user', 'content': 'Good morning'},
         {'role': 'assistant', 'content': 'Morning. Your jobs report in here.'},
