@@ -1,8 +1,9 @@
 // A bot's head on screen: two cached pictures, the head without its eyes and the eyes alone, so motion is only
-// transforms and nothing is redrawn. At rest it blinks and a Shapes head glances about now and then (`motion.ts`);
-// while its bot works a robot sways and looks up, a pixel creature bobs (spec 02 §10.5, `bot-head.css`). A dot-matrix
-// head is one picture swapped for another pose (each drawn once): it blinks and glances in whole LED steps and a light
-// runs over it now and then. [moods] While its bot is at something, a dot-matrix, Shapes or Dots face acts it out
+// transforms and nothing is redrawn. At rest it keeps still, looking to the right, at the words beside it (owner,
+// 2026-11-16: "The bot faces need to all be still when not in use ... all look to the right ... so that they are
+// looking at the text on the screen"): no blinks, glances or light of its own. While its bot works a robot sways and
+// looks up, a pixel creature bobs (spec 02 §10.5, `bot-head.css`). A dot-matrix head is one picture swapped for
+// another pose (each drawn once). [moods] While its bot is at something, a dot-matrix, Shapes or Dots face acts it out
 // (FaceRoutines): the body turns, tips, hops and squashes in 3D, the eyes look about, narrow and blink (a
 // dot-matrix head's a LED at a time, a Dots head's a lamp at a time), and over a dot-matrix head's LEDs a light plays
 // (`MatrixAct`: a comet round the outline while thinking, code rain while running a command, a radar sweep while
@@ -32,12 +33,6 @@ final class HeadView: UIView {
     private var eyeCentre = CGPoint(x: 0.5, y: 0.45)
     /// The box round the eyes, as fractions of the head (how far they can look before they leave the face).
     private var eyeBox = CGRect(x: 0.5, y: 0.45, width: 0, height: 0)
-    /// A dot-matrix head's light over its LEDs (an idle shimmer, the scan while working): a band of light masked by the
-    /// head's own picture, so the dots light up and nothing is redrawn.
-    private let sheen = CAGradientLayer()
-    private let sheenMask = CALayer()
-    /// Where a dot-matrix head's eyes are now (a glance leaves them there; a blink closes them there).
-    private var matrixPose = MatrixPose.rest
     /// [moods] The bot whose doings this face acts out (its row, its tile, its chip, its chat's header), told by
     /// `BotMoods`; nil acts out nothing but `working`.
     private(set) var moodProfile: String?
@@ -81,21 +76,13 @@ final class HeadView: UIView {
         mover.addSublayer(bodyLayer)
         mover.addSublayer(gazeLayer)
         gazeLayer.addSublayer(eyesLayer)
-        sheenMask.contentsGravity = .resize
-        sheenMask.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
-        sheen.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "locations": NSNull(), "colors": NSNull(),
-                         "startPoint": NSNull(), "endPoint": NSNull()]
-        sheen.mask = sheenMask
-        sheen.locations = Self.sheenAway
-        sheen.isHidden = true
-        mover.addSublayer(sheen)
         // [moods]
         flare.contentsGravity = .resize
         flareMask.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
         flare.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
         flare.mask = flareMask
         flare.isHidden = true
-        mover.insertSublayer(flare, below: sheen)
+        mover.addSublayer(flare)
         jellyLayer.actions = ["path": NSNull(), "transform": NSNull(), "hidden": NSNull(), "fillColor": NSNull(),
                               "strokeColor": NSNull(), "lineWidth": NSNull(), "bounds": NSNull(), "position": NSNull()]
         jellyLayer.isHidden = true
@@ -190,10 +177,6 @@ final class HeadView: UIView {
         return !mood.once && mood != .asking
     }
 
-    /// Whether the face is taken up with its bot (off the idle clock): a face that plays the routines acting, another
-    /// face busy.
-    private var acting: Bool { isMatrix || playsRoutines ? shownMood != nil : busy }
-
     /// [moods] A Shapes or Dots head: it acts out its bot's doings with the routines itself (a dot-matrix head does too,
     /// through its act); the other themes keep their own work motion.
     private var playsRoutines: Bool { !isMatrix && (head.themed == nil || head.themed?.theme == "dots") }
@@ -214,8 +197,6 @@ final class HeadView: UIView {
         jellyLayer.frame = stage.bounds
         gazeLayer.frame = stage.bounds
         eyesLayer.frame = stage.bounds
-        sheen.frame = stage.bounds
-        sheenMask.frame = sheen.bounds
         flare.frame = stage.bounds
         flareMask.frame = flare.bounds
         layoutPhoto()       // [photoheads]
@@ -273,8 +254,8 @@ final class HeadView: UIView {
     /// Reduce Motion or Low Power Mode changed (or the app came back): redraw as one or two layers, start or stop motion.
     func motionSettingsChanged() { refresh() }
 
-    /// How this head moves at rest (`movesFor`): a Shapes head by its parts; another theme blinks when it has eyes; a
-    /// dot-matrix head blinks and glances.
+    /// How this head's eyes can move while it acts (`movesFor`): whether it has eyes to shut, and how far they look (a
+    /// Shapes head by its parts).
     private var moves: (blinks: Bool, glance: Double) {
         if isMatrix { return (true, 1) }
         guard let record = head.themed else { return HeadGeometry.motion(head) }
@@ -282,9 +263,6 @@ final class HeadView: UIView {
     }
 
     private var isMatrix: Bool { head.theme == .matrix }
-
-    /// Whether there are eyes for the idle clock to move: a dot-matrix head's are in its one picture.
-    private var hasIdleFace: Bool { isMatrix || !eyesLayer.isHidden }
 
     /// Whether a themed head draws eyes (`dh-face`): robots and pixel creatures always, an orb or a ring/bloom pattern
     /// with Eyes on, a dots face; never an emoji.
@@ -363,26 +341,23 @@ final class HeadView: UIView {
         for layer in [groundLayer, bodyLayer, eyesLayer] { layer.contentsScale = scale }
         if jellyKey != "\(head.cacheKey)|\(side)" { dropJelly() }
         gazeLayer.removeAllAnimations()
-        gazeLayer.transform = CATransform3DIdentity
-        // A dot-matrix head shown here before: its swaps and its light go with it.
+        // A drawn head's eyes rest over to the right (a Shapes head's are drawn there already).
+        let look = state == .idle ? head.themed.map { ThemeHeadSVG.restLook($0, compact: side < 64) * side / 1024 } ?? 0 : 0
+        gazeLayer.transform = CATransform3DMakeTranslation(look, 0, 0)
+        // A dot-matrix head shown here before: its swaps go with it.
         bodyLayer.removeAllAnimations()
-        sheen.removeAllAnimations()
-        sheen.isHidden = true
-        sheenMask.contents = nil
         clearAct()
         updateMotion()
     }
 
     // MARK: The dot-matrix head
 
-    /// A dot-matrix head: its picture at rest, and the same picture as the mask its light runs through (what its bot
-    /// is doing plays over it: `syncAct`).
+    /// A dot-matrix head: its picture at rest (what its bot is doing plays over it: `syncAct`).
     private func showMatrix(side: CGFloat, scale: CGFloat, dark: Bool) {
         let key = "\(head.cacheKey)|\(side)|\(scale)|\(dark)|matrix"
         guard key != drawnKey else { return }
         drawnKey = key
-        matrixPose = .rest
-        let picture = matrixFrame(matrixPose)?.cgImage
+        let picture = matrixFrame(.look)?.cgImage
         groundLayer.contents = nil
         eyesLayer.contents = nil
         eyesLayer.isHidden = true
@@ -397,14 +372,7 @@ final class HeadView: UIView {
         dropJelly()
         bodyLayer.removeAllAnimations()
         bodyLayer.contents = picture
-        sheenMask.contents = picture
-        for layer in [bodyLayer, sheenMask] { layer.contentsScale = scale }
-        // White light on glowing LEDs; on a light page a softer white, so coloured dots brighten without washing out.
-        let light = UIColor.white.withAlphaComponent(dark ? 0.62 : 0.45).cgColor
-        sheen.colors = [UIColor.white.withAlphaComponent(0).cgColor, light, UIColor.white.withAlphaComponent(0).cgColor]
-        sheen.removeAllAnimations()
-        sheen.locations = Self.sheenAway
-        sheen.isHidden = true
+        bodyLayer.contentsScale = scale
     }
 
     /// The head at `pose`, at this view's size, scale and page (drawn once per head, then from the shared cache).
@@ -415,54 +383,6 @@ final class HeadView: UIView {
         let image = HeadImageCache.shared.matrixFrame(for: head, pose: pose, side: side, scale: scale,
                                                       dark: traitCollection.userInterfaceStyle == .dark, mark: mark)
         return image.cgImage == nil ? nil : image
-    }
-
-    /// Where the band of light rests: off the head (every stop before the start).
-    private static let sheenAway: [NSNumber] = [-0.5, -0.25, 0]
-
-    /// A dot-matrix blink: the lids drop a row, shut and lift again (0.2 s), as three whole pictures.
-    private func blinkMatrix() {
-        var half = matrixPose, shut = matrixPose
-        half.lids = 1
-        shut.lids = 2
-        let frames = [half, shut, half].compactMap { matrixFrame($0)?.cgImage }
-        guard frames.count == 3 else { return }
-        let blink = CAKeyframeAnimation(keyPath: "contents")   // motion-ok: heads are still under Reduce Motion (isStill)
-        blink.values = frames
-        blink.keyTimes = [0, 0.28, 0.72, 1]
-        blink.calculationMode = .discrete
-        blink.duration = 0.2
-        bodyLayer.add(blink, forKey: "blink")
-    }
-
-    /// A dot-matrix glance: the eyes jump a dot to the side or up (as LEDs do), and stay there. The rest spots read
-    /// as: far left, right, up, up and left.
-    private func glanceMatrix(to spot: CGPoint) {
-        let gaze = spot.x <= -0.1 ? -1 : spot.x <= -0.05 ? 1 : 0
-        matrixPose = MatrixPose(gaze: gaze, lift: spot.y < -0.005 ? -1 : 0)
-        guard let picture = matrixFrame(matrixPose)?.cgImage else { return }
-        bodyLayer.removeAnimation(forKey: "blink")
-        bodyLayer.contents = picture
-    }
-
-    /// Now and then at rest, a light runs across the LEDs (1.1 s, corner to corner).
-    func shimmer() {
-        guard idleEligible, isMatrix, sheenMask.contents != nil else { return }
-        sheen.startPoint = CGPoint(x: 0, y: 0.15)
-        sheen.endPoint = CGPoint(x: 1, y: 0.85)
-        sheen.isHidden = false
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self, self.sheen.animation(forKey: "work") == nil, self.sheen.animation(forKey: "shimmer") == nil else { return }
-            self.sheen.isHidden = true
-        }
-        let sweep = CABasicAnimation(keyPath: "locations")   // motion-ok: heads are still under Reduce Motion (isStill)
-        sweep.fromValue = [-0.6, -0.35, -0.1]
-        sweep.toValue = [1.1, 1.35, 1.6]
-        sweep.duration = 1.1
-        sweep.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.35, 1)
-        sheen.add(sweep, forKey: "shimmer")
-        CATransaction.commit()
     }
 
     // MARK: [moods] Acting out what the bot is doing
@@ -514,11 +434,10 @@ final class HeadView: UIView {
         return (since, seed &+ Int((since * 10).rounded()))
     }
 
-    /// The act stops and the face looks ahead again.
+    /// The act stops and the face is as it rests again.
     private func endAct() {
         clearAct()
-        matrixPose = .rest
-        bodyLayer.contents = matrixFrame(.rest)?.cgImage
+        bodyLayer.contents = matrixFrame(.look)?.cgImage
     }
 
     /// Whatever an act left: its swaps, its moves, its light. `settle`: the body eases back to standing (not when another
@@ -897,7 +816,7 @@ final class HeadView: UIView {
         if !actKey.isEmpty { clearAct(settle: false) }
         actKey = key
         let (begin, seed) = actClock()
-        let loop = FaceLoop(mood, facing: head.themed?.facing ?? MatrixHead.facing(seed: head.seed), seed: seed)
+        let loop = FaceLoop(mood, facing: MatrixHead.shownFacing, seed: seed)
         playFace(loop, begin: begin, once: mood.once, from: shown, looking: looking)
     }
 
@@ -994,8 +913,8 @@ final class HeadView: UIView {
             let then = Self.sample(in: samples, at: CACurrentMediaTime() + Self.bridgeLength - begin, period: period, once: once)
             bridge(gazeLayer, "transform", from: NSValue(caTransform3D: looking), to: values[min(then, values.count - 1)])
         }
-        // Narrowing and blinking, about the eyes' own middle. A Dots face's lamps only shut (squashed for a moment, as
-        // its idle blink): lamps held half squashed read as a fault, not a look.
+        // Narrowing and blinking, about the eyes' own middle. A Dots face's lamps only shut (squashed for a moment):
+        // lamps held half squashed read as a fault, not a look.
         let stepped = lamps && head.themed?.pattern == "face"
         let dx = (eyeCentre.x - 0.5) * bounds.width, dy = (eyeCentre.y - 0.5) * bounds.height
         let lids = CAKeyframeAnimation(keyPath: "transform")   // motion-ok: still under Reduce Motion (syncFace)
@@ -1119,56 +1038,12 @@ final class HeadView: UIView {
         bodyLayer.isHidden = false
     }
 
-    // MARK: Idle life (blinks and glances, from HeadIdleMotion's one timer)
-
-    /// Whether the idle timer should visit this head now.
-    var idleEligible: Bool {
-        !acting && window != nil && !isHidden && alpha > 0.01 && hasIdleFace && !HeadMotionSettings.shared.isStill && !showsPhoto
-    }
-    var glances: Bool { moves.glance > 0 }
-    /// Whether a light runs over this head now and then (a dot-matrix head).
-    var shimmers: Bool { isMatrix }
-
-    /// A blink: the eyes squash to a line and open again in 0.19 s, about their own centre.
-    func blink() {
-        guard idleEligible, moves.blinks else { return }
-        if isMatrix { blinkMatrix(); return }
-        let dy = (eyeCentre.y - 0.5) * bounds.height
-        func squash(_ k: CGFloat) -> NSValue {
-            var t = CATransform3DMakeTranslation(0, dy, 0)
-            t = CATransform3DScale(t, 1, k, 1)
-            t = CATransform3DTranslate(t, 0, -dy, 0)
-            return NSValue(caTransform3D: t)
-        }
-        let blink = CAKeyframeAnimation(keyPath: "transform")   // motion-ok: heads are still under Reduce Motion (isStill)
-        blink.values = [squash(1), squash(0.08), squash(1)]
-        blink.keyTimes = [0, 0.42, 1]
-        blink.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
-        blink.duration = 0.19
-        eyesLayer.add(blink, forKey: "blink")
-    }
-
-    /// A glance: the eyes move to one of the rest spots (fractions of the head) in 0.42 s and stay there.
-    func glance(to spot: CGPoint) {
-        guard idleEligible, glances else { return }
-        if isMatrix { glanceMatrix(to: spot); return }
-        let reach = moves.glance * (HeadGeometry.layout(head, compact: bounds.width < 64, darkPage: nil).placement?.k ?? 1) * bounds.width
-        let target = CATransform3DMakeTranslation(spot.x * reach, spot.y * reach, 0)
-        let move = CABasicAnimation(keyPath: "transform")   // motion-ok: heads are still under Reduce Motion (isStill)
-        move.fromValue = NSValue(caTransform3D: gazeLayer.presentation()?.transform ?? gazeLayer.transform)
-        move.toValue = NSValue(caTransform3D: target)
-        move.duration = 0.42
-        move.timingFunction = CAMediaTimingFunction(controlPoints: 0.35, 0, 0.25, 1)
-        gazeLayer.transform = target
-        gazeLayer.add(move, forKey: "glance")
-    }
+    // MARK: Motion while the bot works
 
     private var moving = false
     private func updateMotion() {
         let still = HeadMotionSettings.shared.isStill
-        // [photoheads] a photo keeps still: off the idle clock, no working motion. [moods] A face taken up with its bot
-        // is off it too: a dot-matrix face plays its act instead.
-        if !acting, !still, window != nil, hasIdleFace, !showsPhoto { HeadIdleMotion.shared.add(self) } else { HeadIdleMotion.shared.remove(self) }
+        // Nothing moves at rest. [photoheads] A photo keeps still while its bot works too.
         if isMatrix {
             syncAct(still: still)
             return
@@ -1229,103 +1104,6 @@ final class HeadView: UIView {
     }
 }
 
-/// A head's idle life (`motion.ts`): smooth blinks and glances at each head's own random moments, from one timer that
-/// sleeps until the next head on screen is due, with nothing running in between.
-final class HeadIdleMotion {
-    static let shared = HeadIdleMotion()
-    /// Where a Shapes head's eyes rest, as fractions of the head's width (`GLANCES`).
-    static let glances: [CGPoint] = [CGPoint(x: 0, y: 0), CGPoint(x: -0.146, y: 0.025), CGPoint(x: -0.078, y: 0.078),
-                                     CGPoint(x: -0.02, y: -0.012), CGPoint(x: -0.11, y: -0.02)]
-    private struct Entry {
-        weak var view: HeadView?
-        var blinkAt: CFTimeInterval
-        var glanceAt: CFTimeInterval
-        var glance = 0
-        /// When a light next runs over a dot-matrix head.
-        var shimmerAt: CFTimeInterval
-    }
-    private var entries: [ObjectIdentifier: Entry] = [:]
-    private var timer: Timer?
-
-    private static func between(_ low: Double, _ high: Double) -> Double { Double.random(in: low..<high) }
-
-    func add(_ view: HeadView) {
-        let id = ObjectIdentifier(view)
-        guard entries[id] == nil else { return }
-        let now = CACurrentMediaTime()
-        let entry = Entry(view: view, blinkAt: now + Self.between(1.2, 6), glanceAt: now + Self.between(1.8, 5),
-                          shimmerAt: now + Self.between(2.5, 14))
-        entries[id] = entry
-        // [perf] Build 297: the clock already wakes before this head's first blink or glance: nothing to re-plan (every
-        // face on the Bots list joins at once as the list comes back, each re-planning took the pop's first frame).
-        if let timer, timer.isValid, timer.fireDate.timeIntervalSinceNow + now <= Self.due(entry, view) { return }
-        schedule()
-    }
-
-    func remove(_ view: HeadView) {
-        guard entries.removeValue(forKey: ObjectIdentifier(view)) != nil else { return }
-        schedule()
-    }
-
-    /// Re-plans after Reduce Motion or Low Power Mode changes.
-    func reschedule() { schedule() }
-
-    private func schedule() {
-        timer?.invalidate()
-        timer = nil
-        guard !HeadMotionSettings.shared.isStill else { return }
-        entries = entries.filter { $0.value.view != nil }
-        var soonest = Double.infinity
-        for entry in entries.values {
-            guard let view = entry.view else { continue }
-            soonest = min(soonest, Self.due(entry, view))
-        }
-        guard soonest.isFinite else { return }
-        let timer = Timer(timeInterval: max(0.04, soonest - CACurrentMediaTime()), repeats: false) { _ in
-            MainActor.assumeIsolated { HeadIdleMotion.shared.tick() }
-        }
-        timer.tolerance = 0.05
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
-    }
-
-    /// When this head next has something to do.
-    private static func due(_ entry: Entry, _ view: HeadView) -> CFTimeInterval {
-        min(entry.blinkAt, view.glances ? entry.glanceAt : .infinity, view.shimmers ? entry.shimmerAt : .infinity)
-    }
-
-    private func tick() {
-        timer = nil
-        let now = CACurrentMediaTime()
-        for (id, var entry) in entries {
-            guard let view = entry.view else { entries[id] = nil; continue }
-            if now >= entry.blinkAt {
-                view.blink()
-                // Now and then a double blink.
-                if Double.random(in: 0..<1) < 0.15 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { [weak view] in view?.blink() }
-                }
-                entry.blinkAt = now + Self.between(4.2, 9.4)
-            }
-            if view.glances, now >= entry.glanceAt {
-                // Somewhere new, and now and then back to rest.
-                let others = Self.glances.count - 1
-                var next = Double.random(in: 0..<1) < 0.25 ? 0 : 1 + Int.random(in: 0..<others)
-                if next == entry.glance { next = next != 0 ? 0 : 1 + Int.random(in: 0..<others) }
-                entry.glance = next
-                view.glance(to: Self.glances[next])
-                entry.glanceAt = now + Self.between(3.4, 8)
-            }
-            if view.shimmers, now >= entry.shimmerAt {
-                view.shimmer()
-                entry.shimmerAt = now + Self.between(9, 22)
-            }
-            entries[id] = entry
-        }
-        schedule()
-    }
-}
-
 /// Whether heads may move (not under Reduce Motion, Low Power Mode or heat), observed once for every `HeadView`.
 ///
 /// Block observers on the main queue only: `NSProcessInfoPowerStateDidChange` is posted on a background queue, and a
@@ -1364,7 +1142,6 @@ final class HeadMotionSettings {
     func update() {
         isStill = Self.readStill()
         for view in views.allObjects { view.motionSettingsChanged() }
-        HeadIdleMotion.shared.reschedule()
     }
 }
 
