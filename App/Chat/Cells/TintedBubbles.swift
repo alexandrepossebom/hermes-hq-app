@@ -19,11 +19,14 @@
 //   have a heavy blur of something so that they adapt to the background. Yours are not doing that."): 0.6 of its light
 //   and shade where 0.15 was (a Light reply's lightness moved 0.016 from the top of a night photo to the bottom, a Dark
 //   one's 0.020: now 0.06 and 0.11), and half the blur, so a horizon or a hill stays a soft shape.
-// - Never more colourful than the picture where it stands (owner 2026-11-15, a Dark Nous chat over a dusk photo: "very
-//   messed up in dark mode"). The copy is saturated 1.7 times and replies take 1.3 times that: a light bubble has no
-//   room for it and stays pastel, but a dark one took all of it, about twice the picture's colour, a loud blue-violet
-//   slab on every two-look skin. A dark bubble's colour now stops at the picture's own as the page shows it (the
-//   copy's colour before the 1.7), or the bubble's own where that is more. Light bubbles are as they were.
+// - A dark bubble is a soft card (owner 2026-11-15, a Dark Nous chat over a dusk photo: "very messed up in dark mode").
+//   The copy is saturated 1.7 times and replies take 1.3 times that: a light bubble has no room for it and stays
+//   pastel, but a dark one took all of it, a loud blue-violet slab. Build 1030 stopped its colour at the picture's own:
+//   then the bubble had the picture's colour and lightness and no shape at all (owner, beside Sessions on Soft Cards:
+//   "Shouldn't it be more like this? At least in dark mode"). Now a dark bubble is Soft Cards' card: the theme's page
+//   colour for a reply (your own bubble's colour for yours) with `cardShow` of the picture, soft and as the page
+//   shows it, coming through, and Soft Cards' hairline round it. Darker than the picture, calm, and the picture
+//   still passes as the chat scrolls. Light bubbles are as they were.
 // - The tail stays: a mask takes any outline (glass takes rounded corners only).
 // - On the Mac too: these are plain layers, which Catalyst draws as the iPhone does (it drew glass without its tint).
 
@@ -47,6 +50,12 @@ import UIKit
     nonisolated static let blurPart = 16.0
     /// How much the copy's colour is raised (Telegram's 1.7): a wash this soft would be grey without it.
     nonisolated static let saturation = 1.7
+    /// [tinted-dark] How much of the picture comes through a dark bubble's card (Soft Cards' cards on a night photo
+    /// are about this dense), and under Increase Contrast.
+    nonisolated static let cardShow = 0.24
+    nonisolated static let contrastCardShow = 0.1
+    /// [tinted-dark] A bubble this dark or darker (OKLab lightness of its solid colour) is drawn as a card.
+    nonisolated static let darkBelow = 0.6
 
     /// Picked, the look is the iOS one, Reduce Transparency is off, and chats show a background.
     static var applies: Bool {
@@ -126,8 +135,8 @@ import UIKit
     // MARK: The bubble's own copy
 
     private struct PaintKey: Hashable {
-        let picture: BackdropPicture?, bubble: RGBA, page: RGBA, text: RGBA, time: RGBA, dim: Int, colour: Double, shade: Double,
-            target: Double
+        let picture: BackdropPicture?, bubble: RGBA, ground: RGBA?, page: RGBA, text: RGBA, time: RGBA, dim: Int, colour: Double,
+            shade: Double, target: Double, show: Double
     }
     private static var painted: [PaintKey: CGImage] = [:]
 
@@ -148,13 +157,22 @@ import UIKit
         if defaults.object(forKey: "HQDebugTintColour") != nil { colour *= defaults.double(forKey: "HQDebugTintColour") }
         if !increaseContrast, defaults.object(forKey: "HQDebugTintShade") != nil { shade = defaults.double(forKey: "HQDebugTintShade") }
         #endif
-        let key = PaintKey(picture: picture, bubble: rgba(bubble), page: rgba(HQPalette.page),
+        // [tinted-dark] A reply's card is the page's colour, as Soft Cards'; yours (and a reply in a bot's own colour)
+        // keeps its own.
+        let fill = rgba(bubble), page = rgba(HQPalette.page)
+        var show = increaseContrast ? contrastCardShow : cardShow
+        #if DEBUG
+        // `-HQDebugTintCard <part>`: another share of the picture through a dark bubble without a build.
+        if defaults.object(forKey: "HQDebugTintCard") != nil { show = defaults.double(forKey: "HQDebugTintCard") }
+        #endif
+        let key = PaintKey(picture: picture, bubble: fill, ground: fill == rgba(ChatPalette.botBubble) ? page : nil, page: page,
                            text: rgba(mine ? ChatPalette.meText : ChatPalette.label),
                            time: rgba(mine ? ChatPalette.meTime : ChatPalette.label2), dim: Backdrop.chats.dim,
-                           colour: colour, shade: shade, target: increaseContrast ? 7 : 4.5)
+                           colour: colour, shade: shade, target: increaseContrast ? 7 : 4.5, show: show)
         if let hit = painted[key] { return hit }
-        let colours = paint(pixels: soft.pixels, plain: soft.plain, bubble: key.bubble, page: key.page, dim: Double(key.dim) / 100, text: key.text,
-                            time: key.time, colour: key.colour, shade: key.shade, target: key.target)
+        let colours = paint(pixels: soft.pixels, plain: soft.plain, bubble: key.bubble, ground: key.ground, page: key.page,
+                            dim: Double(key.dim) / 100, text: key.text, time: key.time, colour: key.colour, shade: key.shade,
+                            target: key.target, show: key.show)
         guard let made = makeImage(colours, width: soft.width, height: soft.height) else { return nil }
         if painted.count > 16 { painted.removeAll() }
         painted[key] = made
@@ -168,11 +186,14 @@ import UIKit
     /// lightness give or take `shade` of its own (half on the lighter side of a light bubble), with `colour` of its
     /// OKLab colour added to the bubble's. Where that would leave `text` under `target` or `time` under 3:1 (or under the
     /// solid bubble's own, where less, or under `keep` of it), less of the picture is taken there, down to the solid
-    /// bubble itself. [tinted-dark] A dark bubble's colour stops at `plain`'s there (the picture before the copy's
-    /// colour was raised, under the same veil), or the bubble's own where that is more; with no `plain`, at the copy's
-    /// own colour over `saturation`.
-    nonisolated static func paint(pixels: [RGBA], plain: [RGBA]? = nil, bubble: RGBA, page: RGBA, dim: Double, text: RGBA,
-                                  time: RGBA, colour: Double, shade: Double, target: Double) -> [RGBA] {
+    /// bubble itself.
+    ///
+    /// [tinted-dark] A dark bubble (`isDark`) is a card instead: `ground` (the solid bubble with none) with `show` of
+    /// the picture through it, the picture being `plain` (the copy before its colour was raised; `pixels` with none)
+    /// under the same veil. Less of the picture where the words need it, as above.
+    nonisolated static func paint(pixels: [RGBA], plain: [RGBA]? = nil, bubble: RGBA, ground: RGBA? = nil, page: RGBA,
+                                  dim: Double, text: RGBA, time: RGBA, colour: Double, shade: Double, target: Double,
+                                  show: Double = cardShow) -> [RGBA] {
         let solid = bubble.over(page.over(.white))
         func want(_ ink: RGBA, _ goal: Double) -> Double {
             let own = ink.over(solid).contrast(with: solid)
@@ -183,44 +204,47 @@ import UIKit
             text.over(shown).contrast(with: shown) >= wantText && time.over(shown).contrast(with: shown) >= wantTime
         }
         let veil = page.alpha(dim * page.a)
-        let seen = pixels.map { veil.over($0).oklab }
-        let limits: [Double] = plain.flatMap { $0.count == pixels.count ? $0 : nil }
-            .map { $0.map { let (_, a, b) = veil.over($0).oklab; return hypot(a, b) } }
-            ?? seen.map { hypot($0.1, $0.2) / saturation }
-        let middle = seen.isEmpty ? 0 : seen.reduce(0) { $0 + $1.0 } / Double(seen.count)
-        let (lightness, a0, b0) = solid.oklab
-        let lighter = lightness > 0.6 ? shade / 2 : shade
-        // [tinted-dark] Only a dark bubble has the room to go past the picture; a light one stays as it was tuned.
-        let capped = lightness <= 0.6
-        return zip(seen, limits).map { lab, limit in
-            let step = (lab.0 - middle) * (lab.0 > middle ? lighter : shade)
-            let strength = capped ? colour * richest(a0, b0, lab.1 * colour, lab.2 * colour, limit: limit) : colour
-            func shown(_ part: Double) -> RGBA {
-                inGamut(lightness + part * step, a0, b0, strength * part * lab.1, strength * part * lab.2)
-            }
+        // As much as still reads, found by halving: next to each other, pixels take next to the same part (steps of
+        // a quarter showed a hill's outline as a dark blotch where it crossed the limit).
+        func most(_ shown: (Double) -> RGBA, else none: RGBA) -> RGBA {
             let all = shown(1)
             if reads(all) { return all }
-            // As much as still reads, found by halving: next to each other, pixels take next to the same part (steps of
-            // a quarter showed a hill's outline as a dark blotch where it crossed the limit).
             var low = 0.0, high = 1.0
             for _ in 0..<10 {
                 let middle = (low + high) / 2
                 if reads(shown(middle)) { low = middle } else { high = middle }
             }
-            return low > 0 ? shown(low) : solid
+            return low > 0 ? shown(low) : none
+        }
+        if isDark(solid) {
+            let card = (ground ?? bubble).over(page.over(.white))
+            let picture = plain.flatMap { $0.count == pixels.count ? $0 : nil } ?? pixels
+            return picture.map { pixel in
+                let under = veil.over(pixel)
+                return most({ part in card.alpha(1 - show * part).over(under) }, else: card)
+            }
+        }
+        let seen = pixels.map { veil.over($0).oklab }
+        let middle = seen.isEmpty ? 0 : seen.reduce(0) { $0 + $1.0 } / Double(seen.count)
+        let (lightness, a0, b0) = solid.oklab
+        let lighter = lightness > 0.6 ? shade / 2 : shade
+        return seen.map { lab in
+            let step = (lab.0 - middle) * (lab.0 > middle ? lighter : shade)
+            return most({ part in inGamut(lightness + part * step, a0, b0, colour * part * lab.1, colour * part * lab.2) }, else: solid)
         }
     }
 
-    /// [tinted-dark] The most of `da`, `db` (0…1 of it) the bubble's colour (`a0`, `b0`) can take and stay no more
-    /// colourful than `limit` (OKLab chroma), or its own colour where that is more: the theme's colour still leads.
-    nonisolated static func richest(_ a0: Double, _ b0: Double, _ da: Double, _ db: Double, limit: Double) -> Double {
-        let added = da * da + db * db
-        guard added > 0 else { return 1 }
-        let own = a0 * a0 + b0 * b0, ceiling = max(limit * limit, own)
-        // |own + t·added| = ceiling, the larger t (own is inside the ceiling, so it is ≥ 0).
-        let toward = a0 * da + b0 * db
-        let t = (-toward + (toward * toward - added * (own - ceiling)).squareRoot()) / added
-        return min(max(t, 0), 1)
+    /// [tinted-dark] Whether a bubble of this solid colour is drawn as a card.
+    nonisolated static func isDark(_ solid: RGBA) -> Bool { solid.oklab.0 <= darkBelow }
+
+    /// [tinted-dark] The same for a bubble's fill as `traits` resolve it (the hairline round a card: `BubbleShapeView`).
+    static func isDark(_ fill: UIColor, traits: UITraitCollection) -> Bool {
+        func rgba(_ colour: UIColor) -> RGBA {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            colour.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a)
+            return RGBA(unit: Double(r), Double(g), Double(b), Double(a))
+        }
+        return isDark(rgba(fill).over(rgba(HQPalette.page).over(.white)))
     }
 
     /// `l` with the bubble's colour (`a0`, `b0`) and as much of `da`, `db` on top as sRGB can show.

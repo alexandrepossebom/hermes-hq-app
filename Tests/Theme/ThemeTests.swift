@@ -1133,22 +1133,44 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
     }
 
     /// Owner 2026-11-02, a Light chat over a night photo: the reply was a lavender-grey slab. A Light reply over a dark
-    /// purple sky keeps its lightness and takes the sky's colour (no grey), and a Dark reply over a bright pink keeps
-    /// its darkness and takes the pink.
-    @Test func aBubbleKeepsItsLightnessAndTakesThePicturesColour() {
-        for dark in [false, true] {
-            let tokens = ThemeResolver.resolve(.default).tokens(dark: dark)
-            let pixel = dark ? RGBA(hex: 0xF0A0C0) : RGBA(hex: 0x2A1E50)
-            let shown = TintedBubbles.paint(pixels: [pixel], bubble: tokens.botBubble, page: tokens.page, dim: 0, text: tokens.label,
-                                            time: tokens.label2, colour: TintedBubbles.replyColour, shade: TintedBubbles.shade,
-                                            target: 4.5)[0]
-            let solid = tokens.botBubble.over(tokens.page.over(.white))
-            let (l, a, b) = shown.oklab, (ls, as0, bs) = solid.oklab, (_, ap, bp) = pixel.oklab
-            #expect(abs(l - ls) < 0.02, "dark=\(dark): lightness \(l) vs the solid bubble's \(ls)")
-            // Its colour moved from the solid bubble's toward the picture's hue.
-            let moved = (a - as0, b - bs)
-            #expect(hypot(moved.0, moved.1) > 0.02, "dark=\(dark): took no colour")
-            #expect(moved.0 * ap + moved.1 * bp > 0, "dark=\(dark): moved away from the picture's hue")
+    /// purple sky keeps its lightness and takes the sky's colour (no grey).
+    @Test func aLightBubbleKeepsItsLightnessAndTakesThePicturesColour() {
+        let tokens = ThemeResolver.resolve(.default).tokens(dark: false)
+        let pixel = RGBA(hex: 0x2A1E50)
+        let shown = TintedBubbles.paint(pixels: [pixel], bubble: tokens.botBubble, page: tokens.page, dim: 0, text: tokens.label,
+                                        time: tokens.label2, colour: TintedBubbles.replyColour, shade: TintedBubbles.shade,
+                                        target: 4.5)[0]
+        let solid = tokens.botBubble.over(tokens.page.over(.white))
+        let (l, a, b) = shown.oklab, (ls, as0, bs) = solid.oklab, (_, ap, bp) = pixel.oklab
+        #expect(abs(l - ls) < 0.02, "lightness \(l) vs the solid bubble's \(ls)")
+        // Its colour moved from the solid bubble's toward the picture's hue.
+        let moved = (a - as0, b - bs)
+        #expect(hypot(moved.0, moved.1) > 0.02, "took no colour")
+        #expect(moved.0 * ap + moved.1 * bp > 0, "moved away from the picture's hue")
+    }
+
+    /// [tinted-dark] Owner 2026-11-15 (a Dark Nous chat on build 1030, beside Sessions on Soft Cards): "Shouldn't it be
+    /// more like this? At least in dark mode". A Dark reply over a bright pink is a card: the page's colour with
+    /// `cardShow` of the picture through it, far nearer the page than the picture, and darker than the picture.
+    @Test func aDarkBubbleIsACardOfThePagesColour() {
+        let tokens = ThemeResolver.resolve(.default).tokens(dark: true)
+        let pixel = RGBA(hex: 0xF0A0C0), page = tokens.page.over(.white)
+        let reply = TintedBubbles.paint(pixels: [pixel], plain: [pixel], bubble: tokens.botBubble, ground: tokens.page, page: tokens.page,
+                                        dim: 0, text: tokens.label, time: tokens.label2, colour: TintedBubbles.replyColour,
+                                        shade: TintedBubbles.shade, target: 4.5)[0]
+        #expect(TintedBubbles.isDark(tokens.botBubble.over(page)))
+        let whole = page.alpha(1 - TintedBubbles.cardShow).over(pixel)
+        #expect(reply.oklab.0 <= whole.oklab.0 + 0.001 && reply.oklab.0 >= page.oklab.0 - 0.001, "between the page and the card at full show")
+        #expect(reply.oklab.0 < pixel.oklab.0 - 0.3, "darker than the picture")
+        #expect(tokens.label.over(reply).contrast(with: reply) >= 4.5)
+        // Yours keeps its own colour under the same share of the picture.
+        let own = tokens.meBubble.over(page)
+        let mine = TintedBubbles.paint(pixels: [RGBA(hex: 0x201830)], plain: [RGBA(hex: 0x201830)], bubble: tokens.meBubble, page: tokens.page,
+                                       dim: 0, text: tokens.meText, time: tokens.meTime, colour: TintedBubbles.ownColour,
+                                       shade: TintedBubbles.shade, target: 4.5)[0]
+        if TintedBubbles.isDark(own) {
+            let (_, a, b) = mine.oklab, (_, a0, b0) = own.oklab
+            #expect(hypot(a - a0, b - b0) < 0.05, "your bubble keeps its colour")
         }
     }
 
@@ -1197,8 +1219,8 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
                         let bubble = mine ? tokens.meBubble : tokens.botBubble
                         let text = mine ? tokens.meText : tokens.label, time = mine ? tokens.meTime : tokens.label2
                         let goal = contrast ? 7.0 : 4.5
-                        let colours = TintedBubbles.paint(pixels: soft.pixels, plain: soft.plain, bubble: bubble, page: tokens.page,
-                                                          dim: 0.3, text: text,
+                        let colours = TintedBubbles.paint(pixels: soft.pixels, plain: soft.plain, bubble: bubble,
+                                                          ground: mine ? nil : tokens.page, page: tokens.page, dim: 0.3, text: text,
                                                           time: time,
                                                           colour: contrast ? TintedBubbles.contrastColour
                                                               : mine ? TintedBubbles.ownColour : TintedBubbles.replyColour,
@@ -1223,14 +1245,13 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         print("[tinted-bubbles] weakest words on a tinted bubble: \(String(format: "%.2f", weakest)):1")
     }
 
-    /// [tinted-dark] Owner 2026-11-15, a Dark Nous chat over a dusk photo: "very messed up in dark mode". A Dark reply
-    /// took about twice the picture's colour (the copy's 1.7 times 1.3); a Light one has no room for it and stays as it
-    /// was tuned. Every app picture, Light and Dark, every skin: a dark bubble (a one-look skin's in Light too) is no
-    /// more colourful than the picture as the page shows it (its copy before the 1.7, under the same Dim), or its own
-    /// colour where that is more.
-    @Test func aBubbleIsNoMoreColourfulThanThePicture() {
+    /// [tinted-dark] Every app picture, Light and Dark, every skin: a dark bubble (a one-look skin's in Light too) is a
+    /// card. Each pixel lies between its card colour (the page for a reply, its own for yours) and that colour with
+    /// `cardShow` of the picture through it: never more of the picture than that, so never the loud slab of 1018 (twice
+    /// the picture's colour) nor the shapeless bubble of 1030 (the picture's own colour and lightness).
+    @Test func aDarkBubbleIsACardOnEveryPicture() {
         var failures: [String] = []
-        var worst = 0.0, checked = 0
+        var checked = 0
         let noAccent = BackdropPreset.Ink(r: 0.4, g: 0.5, b: 0.9)
         func chroma(_ c: RGBA) -> Double { let (_, a, b) = c.oklab; return hypot(a, b) }
         for preset in BackdropPreset.allCases {
@@ -1240,34 +1261,36 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
                     failures.append("\(preset) dark=\(dark): no soft copy")
                     continue
                 }
+                #expect(soft.plain.count == soft.pixels.count)
                 for skin in SkinCatalog.all {
                     let tokens = ThemeResolver.resolve(ThemeState(skinID: skin.id)).tokens(dark: dark)
-                    let veil = tokens.page.alpha(0.3 * tokens.page.a)
-                    #expect(soft.plain.count == soft.pixels.count)
-                    let page = soft.plain.map { chroma(veil.over($0)) }
+                    let ground = tokens.page.over(.white), veil = tokens.page.alpha(0.3 * tokens.page.a)
                     for mine in [false, true] {
                         let bubble = mine ? tokens.meBubble : tokens.botBubble
-                        guard bubble.over(tokens.page.over(.white)).oklab.0 <= 0.6 else { continue }
+                        guard TintedBubbles.isDark(bubble.over(ground)) else { continue }
                         checked += 1
-                        let colours = TintedBubbles.paint(pixels: soft.pixels, plain: soft.plain, bubble: bubble, page: tokens.page,
-                                                          dim: 0.3, text: mine ? tokens.meText : tokens.label, time: mine ? tokens.meTime : tokens.label2,
+                        let card = mine ? bubble.over(ground) : ground
+                        let colours = TintedBubbles.paint(pixels: soft.pixels, plain: soft.plain, bubble: bubble, ground: mine ? nil : tokens.page,
+                                                          page: tokens.page, dim: 0.3, text: mine ? tokens.meText : tokens.label,
+                                                          time: mine ? tokens.meTime : tokens.label2,
                                                           colour: mine ? TintedBubbles.ownColour : TintedBubbles.replyColour,
                                                           shade: TintedBubbles.shade, target: 4.5)
-                        let shown = colours.map(chroma).reduce(0, +) / Double(colours.count)
-                        // Where it stands: the picture's colour there, or the bubble's own where that is more.
-                        let own = chroma(bubble.over(tokens.page.over(.white)))
-                        let ceiling = page.map { max($0, own) }.reduce(0, +) / Double(page.count)
-                        worst = max(worst, shown / max(ceiling, 0.001))
-                        if shown > ceiling * 1.1 + 0.005 {
-                            failures.append("\(preset) dark=\(dark) \(skin.id) mine=\(mine): \(String(format: "%.3f", shown)) over \(String(format: "%.3f", ceiling))")
+                        for (shown, pixel) in zip(colours, soft.plain) {
+                            let whole = card.alpha(1 - TintedBubbles.cardShow).over(veil.over(pixel))
+                            let far = max(abs(whole.r - card.r), abs(whole.g - card.g), abs(whole.b - card.b))
+                            let gone = max(abs(shown.r - card.r), abs(shown.g - card.g), abs(shown.b - card.b))
+                            if gone > far + 0.005 || chroma(shown) > max(chroma(whole), chroma(card)) + 0.005 {
+                                failures.append("\(preset) dark=\(dark) \(skin.id) mine=\(mine): \(String(format: "%.3f", gone)) from its card, at most \(String(format: "%.3f", far))")
+                                break
+                            }
                         }
                     }
                 }
             }
         }
         #expect(checked > 500, "dark bubbles checked: \(checked)")
-        #expect(failures.isEmpty, "\(failures.count) too colourful:\n\(failures.prefix(20).joined(separator: "\n"))")
-        print("[tinted-dark] \(checked) dark bubbles; most colourful against its picture: \(String(format: "%.2f", worst))x")
+        #expect(failures.isEmpty, "\(failures.count) not a card:\n\(failures.prefix(20).joined(separator: "\n"))")
+        print("[tinted-dark] \(checked) dark bubbles are cards")
     }
 
     /// A picture whose colour would break the words takes less of it, down to the solid bubble: a Light reply over

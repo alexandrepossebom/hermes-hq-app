@@ -320,7 +320,7 @@ final class BubbleShapeView: UIView {
         layer.outline.path = shapeLayer.path
         if (layer.copy.contents as AnyObject?) !== image { layer.copy.contents = image }
         tintAspect = soft.aspect
-        drawEdge(contrast: contrast, mine: mine)
+        drawEdge(contrast: contrast, mine: mine, card: TintedBubbles.isDark(fill, traits: traitCollection))
         return true
     }
 
@@ -359,9 +359,12 @@ final class BubbleShapeView: UIView {
 
     /// The line over glass or the tint: Increase Contrast's solid-bubble edge (spec 06 §1.2), else a skin's faint line
     /// round a reply (`replyLine`), else none.
-    private func drawEdge(contrast: Bool, mine: Bool) {
-        let colour = contrast
-            ? (mine ? UIColor(white: 0, alpha: 0.3) : ChatPalette.label3).resolvedColor(with: traitCollection) : replyLine
+    /// [tinted-dark] `card`: a dark tinted bubble, which is a soft card and takes Soft Cards' hairline where the skin
+    /// draws no line of its own.
+    private func drawEdge(contrast: Bool, mine: Bool, card: Bool = false) {
+        let own = contrast ? (mine ? UIColor(white: 0, alpha: 0.3) : ChatPalette.label3).resolvedColor(with: traitCollection) : replyLine
+        let cardLine = own == nil && card
+        let colour = own ?? (card ? SoftCard.edge.resolvedColor(with: traitCollection) : nil)
         guard let colour else {
             edge?.isHidden = true
             return
@@ -376,7 +379,7 @@ final class BubbleShapeView: UIView {
         line.isHidden = false
         line.frame = bounds
         line.path = shapeLayer.path
-        line.lineWidth = contrast ? 1 : replyLineWidth
+        line.lineWidth = contrast ? 1 : cardLine ? 1 / max(traitCollection.displayScale, 2) : replyLineWidth
         line.strokeColor = colour.cgColor
     }
 
