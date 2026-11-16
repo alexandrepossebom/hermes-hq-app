@@ -195,7 +195,8 @@ struct KanbanChipView: View {
 
     var body: some View {
         let alert = status == "blocked" && count > 0 && !selected
-        let textColor: Color = selected ? .hqTintText : alert ? .hqRed : count == 0 ? .hqLabel2 : .hqLabel
+        let solid = selected && Theme.flatPills   // [paper-pills] the picked chip is the solid accent
+        let textColor: Color = solid ? .hqOnTint : selected ? .hqTintText : alert ? .hqRed : count == 0 ? .hqLabel2 : .hqLabel
         HStack(spacing: 6) {
             Circle().fill(KanbanTone.color(status)).frame(width: 8, height: 8)
             Text(KanbanModel.label(status))
@@ -204,7 +205,7 @@ struct KanbanChipView: View {
             Text("\(count)")
                 .font(Font.hq(.subheadline))
                 .monospacedDigit()
-                .foregroundStyle(selected ? Color.hqTintText : alert ? Color.hqRed : Color.hqLabel2)
+                .foregroundStyle(solid ? Color.hqOnTint.opacity(0.75) : selected ? Color.hqTintText : alert ? Color.hqRed : Color.hqLabel2)
         }
         .lineLimit(1)
         .padding(.horizontal, 14)
@@ -226,6 +227,12 @@ private struct KanbanChipShape: ViewModifier {
                 .background(selected ? Color(uiColor: HQPalette.cellPressed) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
                 .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(selected ? Color.hqTintText : Color.hqStroke, lineWidth: 1))
                 .contentShape(RoundedRectangle(cornerRadius: 3))
+        } else if Theme.flatPills {
+            // [paper-pills] As every pill in a flat-pill skin: the card with a hairline, picked the solid accent.
+            content
+                .background(Capsule().fill(selected ? Color.hqTint : Color(uiColor: HQPalette.card)))
+                .overlay(Capsule().strokeBorder(Color.hqStroke, lineWidth: selected ? 0 : 1))
+                .contentShape(Capsule())
         } else {
             content
                 .background(Capsule().fill(selected ? Color.hqTint.opacity(0.16) : Color.hqFill3))

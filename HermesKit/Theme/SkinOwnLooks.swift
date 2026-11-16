@@ -41,6 +41,10 @@ nonisolated struct SkinOwnLook: Sendable, Hashable {
     /// [paper-icons] The tile behind a Settings or More row's glyph, the glyph in the theme's own text, instead of iOS's
     /// coloured tiles with white glyphs (owner 2026-11-16, Paper "needs a lot of work"). nil: iOS's tiles.
     var iconTile: RGBA? = nil
+    /// [paper-pills] Pills and chips on pages (Sessions' bots, Tasks' views, Tiles' pages, Kanban's statuses, New Job's
+    /// picks) are drawn flat in this skin: unpicked on the card with a hairline, picked in the solid accent with its own
+    /// ink, the same on every page. Otherwise iOS's Liquid Glass.
+    var flatPills = false
 
     nonisolated struct Pair: Sendable, Hashable {
         var light: SkinOwnLook
@@ -120,12 +124,13 @@ nonisolated extension SkinCatalog {
                                codeFill: Ivory.drawer, grey: Ivory.grey, fillAlphas: [0.2, 0.16, 0.12, 0.08],
                                separator: Ivory.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0), tableHead: Ivory.drawer,
                                replyGlassTint: 0.85, subtle: Ivory.subtle, muted: Ivory.muted, reply: Ivory.page,
-                               iconTile: Ivory.selected),
+                               iconTile: Ivory.selected, flatPills: true),
             dark: SkinOwnLook(page: Charcoal.page, card: Charcoal.card, pressed: Charcoal.selected, meBubble: Charcoal.box,
                               codeFill: Charcoal.deep, grey: Charcoal.grey, fillAlphas: [0.36, 0.32, 0.24, 0.12],
                               separator: Charcoal.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0),
                               tableHead: Charcoal.grey.alpha(0.2), replyGlassTint: 0.85, subtle: Charcoal.subtle,
-                              muted: Charcoal.muted, reply: Charcoal.page, iconTile: Charcoal.selected)),
+                              muted: Charcoal.muted, reply: Charcoal.page, iconTile: Charcoal.selected,
+                              flatPills: true)),
         "rose-pine": SkinOwnLook.Pair(
             // Your box: the mockup's lavender, iris leaning to love.
             light: SkinOwnLook(page: Dawn.base, card: Dawn.surface, pressed: Dawn.overlay, meBubble: RGBA(hex: 0xEADCEF),

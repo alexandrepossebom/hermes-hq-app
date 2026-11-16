@@ -153,6 +153,8 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         for (state, expected) in cases {
             ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
                 #expect(Theme.inkIcons == expected, "\(state.skinID) look=\(state.desktopLook)")
+                // [paper-pills] Pills on pages are flat exactly where the icons are ink: Paper in the iOS look.
+                #expect(Theme.flatPills == (expected != nil), "\(state.skinID) look=\(state.desktopLook)")
             }
         }
     }

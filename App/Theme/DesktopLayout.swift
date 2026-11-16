@@ -437,7 +437,7 @@ extension EnvironmentValues {
 private struct PickGlassRow: ViewModifier {
     @Environment(\.hqFlatPicks) private var flat
     @ViewBuilder func body(content: Content) -> some View {
-        if Theme.isDesktop || flat { content } else { GlassEffectContainer(spacing: 0) { content } }
+        if Theme.isDesktop || flat || Theme.flatPills { content } else { GlassEffectContainer(spacing: 0) { content } }
     }
 }
 
@@ -504,10 +504,13 @@ private struct PickGlass<S: InsettableShape>: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if Theme.isDesktop {
             content
-        } else if flat {
-            // `hqFlatPicks`: the same pill, drawn solid.
-            let ink = prominent && scheme == .dark ? Color.hqTint.mix(with: .black, by: 0.3) : Color.hqTint
-            let fill: Color = selected ? (prominent ? ink : Color.hqTint.opacity(0.16)) : Color(uiColor: HQPalette.card)
+        } else if flat || Theme.flatPills {
+            // `hqFlatPicks`: the same pill, drawn solid. [paper-pills] A flat-pill skin's accent as it is (no glass lifts
+            // it in the dark); a picked card (New Job's bots and templates, ink words) keeps the page's card and its ring.
+            let paper = Theme.flatPills
+            let ink = prominent && scheme == .dark && !paper ? Color.hqTint.mix(with: .black, by: 0.3) : Color.hqTint
+            let fill: Color = selected ? (prominent ? ink : paper ? Color(uiColor: HQPalette.card) : Color.hqTint.opacity(0.16))
+                : Color(uiColor: HQPalette.card)
             content
                 .background(shape.fill(fill))
                 .overlay(shape.strokeBorder(selected ? (prominent ? Color.clear : Color.hqTint) : Color.hqStroke,

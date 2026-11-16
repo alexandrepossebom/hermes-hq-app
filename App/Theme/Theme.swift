@@ -50,6 +50,9 @@ final class Theme {
     /// or on a tile of the theme's own (`tiles`). nil: iOS's coloured tiles (every other skin, and the Desktop Look,
     /// which draws its own glyphs). A DEBUG build draws the other with `-HQDebugInkIcons tiles`, to compare.
     enum InkIcons { case tiles, plain }
+
+    /// [paper-pills] The skin draws pills on pages flat (`SkinOwnLook.flatPills`, Paper), in the iOS look.
+    static var flatPills: Bool { !isDesktop && ThemeTable.current.light.ownLook?.flatPills == true }
     static var inkIcons: InkIcons? {
         guard !isDesktop, ThemeTable.current.light.ownLook?.iconTile != nil else { return nil }
         #if DEBUG
