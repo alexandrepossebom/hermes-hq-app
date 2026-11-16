@@ -1034,7 +1034,8 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
     /// In the Desktop Look your box is the skin's pale user colour, never the tint, so your words take the reply's
     /// highlight too: the white read as a grey, stuck selection there (Mac polish #74).
     static func selectionColor(mine: Bool, desktopLook: Bool) -> UIColor {
-        mine && !desktopLook ? UIColor.white.withAlphaComponent(0.35) : DesktopFrost.tint(ChatPalette.tint)
+        // [paper-ink] Your words' own ink at 35 %: white on a tint bubble as before, dark on Paper's light box.
+        mine && !desktopLook ? ChatPalette.meText.withAlphaComponent(0.35) : DesktopFrost.tint(ChatPalette.tint)
     }
 
     /// The point (bubble coordinates) is on the message's words.

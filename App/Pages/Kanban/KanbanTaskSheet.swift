@@ -707,7 +707,7 @@ struct KanbanTaskView: View {
             Button { model.move(quick.to) } label: {
                 Text(model.busy.contains("move") ? "Moving…" : quick.label)
                     .font(Font.hq(.subheadline).weight(.semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(Color.hqOnTint)   // [paper-ink]
                     .padding(.horizontal, 14)
                     .frame(minHeight: MacForm.controlHeight)
                     .background(RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : MacPush.radius, style: .continuous).fill(Color.hqTint))

@@ -1023,7 +1023,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
                 self?.archive(task)
                 done(true)
             }
-            archive.backgroundColor = .systemIndigo
+            archive.backgroundColor = Theme.inkSwipe(.systemIndigo)   // [paper-ink]
             archive.image = UIImage(systemName: "archivebox.fill")
             actions.append(archive)
         }

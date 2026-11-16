@@ -447,7 +447,7 @@ struct WebhooksListView: View {
                     .accessibilityIdentifier("webhooks.swipe.delete")
             }
             Button("Copy URL") { model.copyURL(route) }
-                .tint(.blue)
+                .tint(Color(uiColor: Theme.inkSwipe(.systemBlue)))   // [paper-ink]
                 .accessibilityIdentifier("webhooks.swipe.copy")
         }
         .contextMenu {

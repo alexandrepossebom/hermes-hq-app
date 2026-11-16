@@ -347,7 +347,7 @@ final class ImportPreviewModel {
                 // the one action of the page a grey pill.
                 var look = UIButton.Configuration.borderedProminent()
                 look.baseBackgroundColor = host.view.tintColor
-                look.baseForegroundColor = .white
+                look.baseForegroundColor = HQPalette.onTint   // [paper-ink]
                 let button = UIButton(configuration: look, primaryAction: UIAction { [weak self] _ in self?.act() })
                 button.accessibilityIdentifier = "import-sessions.import"
                 // One width that holds the longest words: in the Desktop Look the bar never re-measured it, and "Open in

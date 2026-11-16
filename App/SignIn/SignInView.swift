@@ -558,7 +558,7 @@ struct SignInView: View {
                 VStack(spacing: 4) {
                     Button(action: { focus = nil; model.signInWithNous() }) {
                         HStack(spacing: 8) {
-                            if model.busy == .nous { ProgressView().tint(.white) }
+                            if model.busy == .nous { ProgressView().tint(Color.hqOnTint) }
                             Text(model.busy == .nous ? "Signing In…" : model.browserTitle).font(Font.hq(.headline))
                         }
                         .frame(maxWidth: .infinity, minHeight: fieldHeight - 16)

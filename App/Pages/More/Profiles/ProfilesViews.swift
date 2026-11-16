@@ -173,7 +173,7 @@ struct ProfileRowView: View {
                 Button { model.rename(row, from: model.host) } label: {
                     Label("Rename", systemImage: "pencil")
                 }
-                .tint(.blue)
+                .tint(Color(uiColor: Theme.inkSwipe(.systemBlue)))   // [paper-ink]
                 .accessibilityIdentifier("profiles.swipe.rename.\(row.name)")
             }
         }

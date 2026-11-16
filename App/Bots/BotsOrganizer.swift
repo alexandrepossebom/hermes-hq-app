@@ -266,7 +266,7 @@ import UIKit
             done(true)
         }
         mute.image = UIImage(systemName: item.image)
-        mute.backgroundColor = .systemIndigo
+        mute.backgroundColor = Theme.inkSwipe(.systemIndigo)   // [paper-ink]
         let more = UIContextualAction(style: .normal, title: "More") { [weak self] _, _, done in
             done(true)
             RowMoreMenu.afterSwipe { [weak self] in

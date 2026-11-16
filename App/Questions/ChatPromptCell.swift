@@ -252,15 +252,21 @@ final class ChatPromptCell: ChatBaseCell {
             v.frame = symbol.frame
             var config = UIImage.SymbolConfiguration(pointSize: symbol.frame.height * 0.86,
                                                      weight: symbol.style == .header ? .semibold : .regular)
+            // [paper-ink] A filled mark's glyph (the ?, the –) is drawn in the card's own colour, never left to the
+            // system: on Paper's black card in dark the ? came out faint on its light disc (owner 2026-11-16, "the
+            // question card looks odd"). In an ink skin the dim mark's glyph is the card's too (white vanished on it).
+            let cardInk = ChatPalette.botBubble
             switch symbol.style {
-            case .header: v.tintColor = ChatPalette.label2
+            case .header:
+                config = config.applying(UIImage.SymbolConfiguration(paletteColors: [cardInk, ChatPalette.label2]))
+                v.tintColor = ChatPalette.label2
             case .blank: v.tintColor = ChatPalette.label3
             case .dim:
-                config = config.applying(UIImage.SymbolConfiguration(paletteColors: [.white, ChatPalette.label3]))
+                config = config.applying(UIImage.SymbolConfiguration(paletteColors: [Theme.inkIcons != nil ? cardInk : .white, ChatPalette.label3]))
                 v.tintColor = ChatPalette.label3
             case .picked:
                 // The dock's picked mark: a tint disc with a white check.
-                config = config.applying(UIImage.SymbolConfiguration(paletteColors: [.white, ChatPalette.tint]))
+                config = config.applying(UIImage.SymbolConfiguration(paletteColors: [ChatPalette.onTint, ChatPalette.tint]))
                 v.tintColor = ChatPalette.tint
             }
             v.image = UIImage(systemName: symbol.name, withConfiguration: config)
@@ -300,7 +306,7 @@ final class ChatPromptCell: ChatBaseCell {
         case .run:
             c = .filled()
             c.baseBackgroundColor = ChatPalette.tint
-            c.baseForegroundColor = .white
+            c.baseForegroundColor = ChatPalette.onTint   // [paper-ink]
         case .more, .session, .always:
             c = .filled()
             c.baseBackgroundColor = ChatPalette.fill2
@@ -366,7 +372,7 @@ final class ChatPromptCell: ChatBaseCell {
         answerNow.frame = frame
         var c = UIButton.Configuration.filled()
         c.baseBackgroundColor = ChatPalette.tint
-        c.baseForegroundColor = .white
+        c.baseForegroundColor = ChatPalette.onTint   // [paper-ink] read on Paper's ivory accent in dark
         c.cornerStyle = .capsule
         c.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
         c.title = PromptLayout.answerNowTitle
@@ -426,7 +432,7 @@ final class ChatPromptCell: ChatBaseCell {
         case .send:
             c = .filled()
             c.baseBackgroundColor = ChatPalette.tint
-            c.baseForegroundColor = .white
+            c.baseForegroundColor = ChatPalette.onTint   // [paper-ink]
         case .edit:
             c = .filled()
             c.baseBackgroundColor = ChatPalette.fill2

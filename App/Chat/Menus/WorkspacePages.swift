@@ -639,7 +639,7 @@ final class WorkspaceTextPage: UIViewController {
                 if line.hasPrefix("+++") || line.hasPrefix("---") { color = ChatPalette.label2 }
                 else if line.hasPrefix("+") { background = UIColor.systemGreen.withAlphaComponent(0.15) }
                 else if line.hasPrefix("-") { background = UIColor.systemRed.withAlphaComponent(0.15) }
-                else if line.hasPrefix("@@") { color = .systemBlue }
+                else if line.hasPrefix("@@") { color = Theme.inkIcons != nil ? HQPalette.label2 : .systemBlue }   // [paper-ink]
             }
             var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
             if let background { attributes[.backgroundColor] = background; attributes[.lineWash] = true }

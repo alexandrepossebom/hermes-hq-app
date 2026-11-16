@@ -605,7 +605,7 @@ final class BlockView: UIView, UIScrollViewDelegate {
         case "Important": return .systemPurple
         case "Warning": return .systemOrange
         case "Caution": return .systemRed
-        default: return .systemBlue
+        default: return Theme.inkIcons != nil ? ChatPalette.tint : .systemBlue   // [paper-ink] Note in an ink skin's ink
         }
     }
 

@@ -751,7 +751,7 @@ struct EditFaceBadge: View {
     var body: some View {
         Image(systemName: "pencil")
             .font(Font.hqSystem(size: height * 0.5, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.hqOnTint)   // [paper-ink]
             .frame(width: height, height: height)
             .background(Circle().fill(Color.hqTint))
             .background(Circle().fill(Color.hqGroupedPage).padding(-2))

@@ -94,8 +94,9 @@ final class FileRowView: UIControl {
     private func recolor() {
         guard let layout else { return }
         if layout.mine {
-            circle.backgroundColor = UIColor(white: 1, alpha: 0.22)
-            glyph.tintColor = .white
+            // [paper-ink] Your words' own ink: white on a tint bubble, dark on a light one (Paper's paper box).
+            circle.backgroundColor = ChatPalette.meText.resolvedColor(with: traitCollection).withAlphaComponent(0.22)
+            glyph.tintColor = ChatPalette.meText
             name.textColor = ChatPalette.meText
             detail.textColor = ChatPalette.meTime
         } else {

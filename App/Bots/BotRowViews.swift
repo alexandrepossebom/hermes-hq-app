@@ -131,7 +131,7 @@ struct ComputerBadge: View {
     var body: some View {
         Image(systemName: "display")
             .font(Font.hqSystem(size: height * 0.5, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.hqOnTint)   // [paper-ink] the tint's own ink: white on blue, dark on Paper's ivory
             .frame(width: height, height: height)
             .background(Circle().fill(Color.hqTint))
             .background(Circle().fill(ring ?? Color.hqPage).padding(-2))

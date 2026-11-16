@@ -507,14 +507,23 @@ private struct PickGlass<S: InsettableShape>: ViewModifier {
         } else if flat || Theme.flatPills {
             // `hqFlatPicks`: the same pill, drawn solid. [paper-pills] A flat-pill skin's accent as it is (no glass lifts
             // it in the dark); a picked card (New Job's bots and templates, ink words) keeps the page's card and its ring.
-            let paper = Theme.flatPills
-            let ink = prominent && scheme == .dark && !paper ? Color.hqTint.mix(with: .black, by: 0.3) : Color.hqTint
-            let fill: Color = selected ? (prominent ? ink : paper ? Color(uiColor: HQPalette.card) : Color.hqTint.opacity(0.16))
-                : Color(uiColor: HQPalette.card)
-            content
-                .background(shape.fill(fill))
-                .overlay(shape.strokeBorder(selected ? (prominent ? Color.clear : Color.hqTint) : Color.hqStroke,
-                                            lineWidth: selected ? (prominent ? 0 : 2) : 1))
+            let paper = Theme.paperPills
+            let ink = prominent && scheme == .dark && paper == nil ? Color.hqTint.mix(with: .black, by: 0.3) : Color.hqTint
+            if paper == .solid || paper == .soft {
+                // [paper-pills] No outlines: an unpicked pill is its words alone; the picked one the solid ink, or a soft
+                // grey pill. A picked card (New Job's bots and templates) keeps a ring, as its words are the ink.
+                let picked: Color = paper == .soft ? Color(uiColor: HQPalette.iconTile) : ink
+                content
+                    .background(shape.fill(selected && prominent ? picked : Color.clear))
+                    .overlay(shape.strokeBorder(Color.hqTint, lineWidth: selected && !prominent ? 2 : 0))
+            } else {
+                let fill: Color = selected ? (prominent ? ink : paper != nil ? Color(uiColor: HQPalette.card) : Color.hqTint.opacity(0.16))
+                    : Color(uiColor: HQPalette.card)
+                content
+                    .background(shape.fill(fill))
+                    .overlay(shape.strokeBorder(selected ? (prominent ? Color.clear : Color.hqTint) : Color.hqStroke,
+                                                lineWidth: selected ? (prominent ? 0 : 2) : 1))
+            }
         } else {
             // In the dark the glass lifts the tint, and white words on a chosen chip read 3.3:1; a third darker, 7.5:1.
             let ink = prominent && scheme == .dark ? Color.hqTint.mix(with: .black, by: 0.3) : Color.hqTint

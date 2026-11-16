@@ -397,7 +397,7 @@ final class MemoLockedRow: UIView {
         playDisc.isUserInteractionEnabled = false
         play.addSubview(playDisc)
         playGlyph.contentMode = .center
-        playGlyph.tintColor = .white
+        playGlyph.tintColor = ChatPalette.onTint   // [paper-ink] on the tint's disc
         playGlyph.isUserInteractionEnabled = false
         play.addSubview(playGlyph)
         play.addAction(UIAction { [weak self] _ in self?.onPlay?() }, for: .touchUpInside)

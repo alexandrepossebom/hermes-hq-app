@@ -67,7 +67,7 @@ struct AppIconPage: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: iconSide * 0.3, weight: .semibold))
                                 .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, Color.hqTint)
+                                .foregroundStyle(Color.hqOnTint, Color.hqTint)   // [paper-ink]
                                 .background(Circle().fill(Color.hqGroupedCard).padding(-2.5))
                                 .offset(x: iconSide * 0.08, y: iconSide * 0.08)
                                 .transition(.hqMotion(.scale(scale: 0.6).combined(with: .opacity)))

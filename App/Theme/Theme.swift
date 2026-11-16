@@ -51,8 +51,29 @@ final class Theme {
     /// which draws its own glyphs). A DEBUG build draws the other with `-HQDebugInkIcons tiles`, to compare.
     enum InkIcons { case tiles, plain }
 
-    /// [paper-pills] The skin draws pills on pages flat (`SkinOwnLook.flatPills`, Paper), in the iOS look.
-    static var flatPills: Bool { !isDesktop && ThemeTable.current.light.ownLook?.flatPills == true }
+    /// [paper-ink] A swipe action's or status colour that is only a hue (iOS's indigo, blue): in an ink skin (Paper) the
+    /// theme's graphite instead, a warm grey white reads on in both modes (7:1). Red and orange keep their meaning.
+    static func inkSwipe(_ colour: UIColor) -> UIColor {
+        inkIcons != nil ? UIColor(red: 0x5A / 255, green: 0x59 / 255, blue: 0x55 / 255, alpha: 1) : colour
+    }
+
+    /// [paper-pills] How a flat-pill skin (`SkinOwnLook.flatPills`, Paper) draws the pills on pages in the iOS look.
+    /// `outlined`: every pill on the card with a hairline, the picked one the solid ink. `solid`: no outlines, the picked
+    /// one the solid ink. `soft`: no outlines, the picked one a soft grey pill with the ink's words (as Claude's filters).
+    /// `glass`: iOS's Liquid Glass, as every other skin. nil: not a flat-pill skin, or the Desktop Look. A DEBUG build
+    /// draws another with `-HQDebugPaperPills outlined|solid|soft|glass` (owner 2026-11-16: "Show me all options").
+    enum PaperPills: String { case outlined, solid, soft, glass }
+    static var paperPills: PaperPills? {
+        guard !isDesktop, ThemeTable.current.light.ownLook?.flatPills == true else { return nil }
+        #if DEBUG
+        if let pick = UserDefaults.standard.string(forKey: "HQDebugPaperPills").flatMap(PaperPills.init(rawValue:)) { return pick }
+        #endif
+        return .outlined
+    }
+    /// The pills are drawn flat, not on glass.
+    static var flatPills: Bool { paperPills.map { $0 != .glass } ?? false }
+    /// A picked pill's words: the ink's own on a soft pill, the on-accent ink on the solid accent.
+    static var pickedPillInk: Color { paperPills == .soft ? .hqLabel : .hqOnTint }
     static var inkIcons: InkIcons? {
         guard !isDesktop, ThemeTable.current.light.ownLook?.iconTile != nil else { return nil }
         #if DEBUG

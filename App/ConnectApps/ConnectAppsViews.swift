@@ -652,7 +652,7 @@ struct ConnectAppsBotsView: View {
                 if let notice = model.botsNotice { Section { ConnectNotice(notice: notice).accessibilityIdentifier("connect-apps.bots-notice") } }
                 Section {
                     HStack(spacing: 12) {
-                        Image(systemName: "person.2.fill").font(Font.hqSystem(size: 14, weight: .semibold)).foregroundStyle(.white).frame(width: 29, height: 29)
+                        Image(systemName: "person.2.fill").font(Font.hqSystem(size: 14, weight: .semibold)).foregroundStyle(Color.hqOnTint).frame(width: 29, height: 29)
                             .background(Color.hqTint, in: RoundedRectangle(cornerRadius: 7)).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
                             Text("All Bots").foregroundStyle(Color.hqLabel)

@@ -154,7 +154,7 @@ final class ChatBlocksViewController: UIViewController {
                 config = .filled()
                 config.cornerStyle = .capsule
                 config.baseBackgroundColor = ChatPalette.tint
-                config.baseForegroundColor = .white
+                config.baseForegroundColor = ChatPalette.onTint   // [paper-ink]
             }
             config.title = action.title
             config.image = action.image

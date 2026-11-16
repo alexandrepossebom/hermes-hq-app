@@ -508,7 +508,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         pages.forEach { $0.isLocked = sending != .none }
         var c = UIButton.Configuration.filled()
         c.baseBackgroundColor = ChatPalette.tint
-        c.baseForegroundColor = .white
+        c.baseForegroundColor = ChatPalette.onTint   // [paper-ink]
         c.cornerStyle = .capsule
         c.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 22, bottom: 0, trailing: 22)
         c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
@@ -526,7 +526,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         primaryButton.configurationUpdateHandler = Theme.isDesktop ? nil : { button in
             guard var c = button.configuration else { return }
             c.background.backgroundColor = button.isEnabled ? ChatPalette.tint : DockFill.answers
-            c.baseForegroundColor = button.isEnabled ? .white : ChatPalette.label3
+            c.baseForegroundColor = button.isEnabled ? ChatPalette.onTint : ChatPalette.label3
             button.configuration = c
         }
         for (i, page) in pages.enumerated() { page.returnKey = i == count - 1 ? .send : .next }
@@ -1101,7 +1101,7 @@ final class MarkView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         check.image = UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .heavy))
-        check.tintColor = .white
+        check.tintColor = ChatPalette.onTint   // [paper-ink] on the tint when on
         check.contentMode = .center
         addSubview(check)
         layer.borderWidth = 1.5

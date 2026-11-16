@@ -201,7 +201,7 @@ extension AppModel: SessionsServices {}
             self?.archive(session)
         }
         archive.image = UIImage(systemName: session.archived ? "tray.and.arrow.up.fill" : "archivebox.fill")
-        archive.backgroundColor = .systemIndigo
+        archive.backgroundColor = Theme.inkSwipe(.systemIndigo)   // [paper-ink]
         let more = UIContextualAction(style: .normal, title: "More") { [weak self] _, _, done in
             done(true)
             RowMoreMenu.afterSwipe { self?.openMenu(key: key) }

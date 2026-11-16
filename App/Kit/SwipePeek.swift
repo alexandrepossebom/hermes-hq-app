@@ -79,7 +79,7 @@ import UIKit
         UserDefaults.standard.set(true, forKey: key)
         // The strip starts past the trailing edge and slides in as the row's content slides away.
         let reveal = UIView(frame: CGRect(x: cell.bounds.width, y: 0, width: 60, height: cell.bounds.height))
-        reveal.backgroundColor = revealColor
+        reveal.backgroundColor = Theme.inkSwipe(revealColor)   // [paper-ink] as the swipe action it previews
         reveal.isUserInteractionEnabled = false
         reveal.isAccessibilityElement = false
         let glyph = UIImageView(image: UIImage(systemName: symbol))

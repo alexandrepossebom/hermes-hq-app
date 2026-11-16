@@ -225,7 +225,7 @@ struct GuideStepRow<Content: View>: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(number)")
                 .font(Font.hq(.subheadline).weight(.hqBold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.hqOnTint)   // [paper-ink]
                 .frame(width: badge, height: badge)
                 .background(Circle().fill(Color.hqTint))
                 .accessibilityHidden(true)

@@ -566,13 +566,13 @@ struct SessionPill<Face: View>: View {
                 if hasFace { face() }
                 Text(caption)
                     .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
-                    .foregroundStyle(picked ? Color.hqOnTint : Color.hqLabel)
+                    .foregroundStyle(picked ? Theme.pickedPillInk : Color.hqLabel)
                     .lineLimit(1)
                     .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 if let detail {
                     Text(detail)
                         .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline)).monospacedDigit()
-                        .foregroundStyle((picked ? Color.hqOnTint : Color.hqLabel).opacity(0.65))
+                        .foregroundStyle((picked ? Theme.pickedPillInk : Color.hqLabel).opacity(0.65))
                         .lineLimit(1)
                         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                         .padding(.leading, -1)
@@ -608,10 +608,10 @@ private struct StatusChipMark: View {
     var picked: Bool
 
     var body: some View {
-        let ink = picked ? Color.hqOnTint : Color.hqLabel
+        let ink = picked ? Theme.pickedPillInk : Color.hqLabel
         switch chip {
         case .new:
-            Circle().fill(picked ? Color.hqOnTint : Color.hqTint).frame(width: 8, height: 8)
+            Circle().fill(picked ? Theme.pickedPillInk : Color.hqTint).frame(width: 8, height: 8)
         case .working:
             ZStack {
                 Circle().stroke(ink.opacity(0.25), lineWidth: 2)

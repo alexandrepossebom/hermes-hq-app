@@ -77,6 +77,12 @@ final class MoreSearchUI: NSObject, UISearchResultsUpdating, UISearchBarDelegate
             content.textToSecondaryTextVerticalPadding = 2
             content.image = self.tile(kind, item)
             content.imageProperties.maximumSize = CGSize(width: 29, height: 29)
+            if Theme.inkIcons == .plain, kind == .goTo || kind == .settings || kind == .actions {
+                // [paper-icons] As More's own rows in an ink skin: the glyph alone in the theme's text.
+                content.image = MoreViewController.glyph(self.row(kind, item), configuration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
+                content.imageProperties.reservedLayoutSize = CGSize(width: 29, height: 29)
+                content.imageProperties.tintColor = HQPalette.label
+            }
             content.imageToTextPadding = 14
             // A row whose text can wrap: 12 pt above and below.
             content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: content.directionalLayoutMargins.leading,
