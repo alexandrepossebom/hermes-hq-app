@@ -145,9 +145,10 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
                 "the underline is part of a reply's cached layout")
     }
 
-    /// [paper-icons] Paper draws Settings' and More's icons in its ink; every other skin, and the Desktop Look, don't.
+    /// [paper-icons] Paper draws Settings' and More's icons as plain glyphs in its ink (the owner's pick); every other
+    /// skin, and the Desktop Look, don't.
     @MainActor @Test func paperDrawsItsRowIconsInInk() {
-        let cases: [(ThemeState, Theme.InkIcons?)] = [(ThemeState(skinID: "paper"), .tiles), (ThemeState(skinID: "nous"), nil),
+        let cases: [(ThemeState, Theme.InkIcons?)] = [(ThemeState(skinID: "paper"), .plain), (ThemeState(skinID: "nous"), nil),
                                                      (ThemeState(skinID: "rose-pine"), nil), (ThemeState(skinID: "paper", desktopLook: true), nil)]
         for (state, expected) in cases {
             ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
