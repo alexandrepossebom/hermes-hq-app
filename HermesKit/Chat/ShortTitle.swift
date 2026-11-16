@@ -12,8 +12,8 @@ nonisolated enum ShortTitle {
     /// Names that mean "no title yet".
     static let genericTitles: Set<String> = ["", "new chat", "untitled", "untitled chat", "new session", "new conversation", "chat"]
     /// Longest name the app writes: about what the iPhone bar shows beside its back and ⋯ buttons.
-    static let maxWords = 6
-    static let maxCharacters = 36
+    static let maxWords = 3
+    static let maxCharacters = 20
 
     /// True when `title` is no real name: empty or generic, or the opening message's own first words (the gateway's
     /// instant title, cut with "…", or a long message used whole).
@@ -23,7 +23,7 @@ nonisolated enum ShortTitle {
         let message = normalized(firstMessage)
         guard !message.isEmpty, message.hasPrefix(shown) else { return false }
         let cut = title.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("…") || title.hasSuffix("...")
-        return cut || message.count > shown.count || words(shown).count > maxWords
+        return cut || message.count > shown.count || words(shown).count > maxWords || shown.count > maxCharacters
     }
 
     /// A short title for `message`: the on-device model's when it gives a usable one, else `fallback(for:)`.
@@ -35,12 +35,24 @@ nonisolated enum ShortTitle {
 
     /// The model's answer when it reads as a name: a few words, not the message's own opening, not a reply.
     static func accepted(_ raw: String, message: String) -> String? {
+        let cleaned = cleanName(raw)
+        guard !cleaned.contains(where: \.isNewline) else { return nil }
+        let title = capitalizedFirst(words(cleaned).joined(separator: " "))
+        guard !title.isEmpty, words(title).count <= maxWords, title.count <= maxCharacters,
+              !isPlaceholder(title, firstMessage: message) else { return nil }
+        return title
+    }
+
+    /// Gateway names use the same budget as local ones. Keep an already-short name intact; otherwise drop filler
+    /// and keep whole topic words. This is the stored name, not a display-only ellipsis.
+    static func compact(_ raw: String) -> String {
+        accepted(raw, message: "") ?? fallback(for: cleanName(raw))
+    }
+
+    private static func cleanName(_ raw: String) -> String {
         var title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if title.lowercased().hasPrefix("title:") { title = String(title.dropFirst(6)) }
-        title = title.trimmingCharacters(in: CharacterSet(charactersIn: " \"'“”‘’`*.。!?:;\n"))
-        guard !title.isEmpty, !title.contains("\n"), words(title).count <= maxWords + 1,
-              title.count <= maxCharacters + 12, !isPlaceholder(title, firstMessage: message) else { return nil }
-        return capitalizedFirst(title)
+        return title.trimmingCharacters(in: CharacterSet(charactersIn: " \"'“”‘’`*.。!?:;\n"))
     }
 
     // MARK: Word rule (no model)
@@ -58,31 +70,33 @@ nonisolated enum ShortTitle {
         "which", "who", "whether", "get", "got", "make", "sure", "know", "think", "one", "new",
     ]
 
-    /// The message's topic words, filler dropped, at most `maxWords` and `maxCharacters`: "I just added another Philips
-    /// hue ceiling light in the bonus/play room. Set it up." → "Added Philips hue ceiling light".
+    /// The message's topic words, filler dropped, at most `maxWords` and `maxCharacters`.
     static func fallback(for message: String) -> String {
         let firstLine = message.split(whereSeparator: \.isNewline).first.map(String.init) ?? message
-        let topic = words(firstLine).filter { !filler.contains(bare($0).lowercased()) && !bare($0).isEmpty }
+        let all = words(firstLine).map(bare).filter { !$0.isEmpty }
+        let topic = all.filter { !filler.contains($0.lowercased()) }
         var picked: [String] = []
-        for word in topic {
-            let clean = bare(word)
+        // All filler ("Hi there!"): the first words as typed, under the very same limits.
+        for word in (topic.isEmpty ? all : topic).prefix(maxWords) {
+            let clean = picked.isEmpty ? capitalizedFirst(word) : word
             let next = (picked + [clean]).joined(separator: " ")
-            if picked.count == maxWords - 1 || (next.count > maxCharacters && !picked.isEmpty) { break }
+            if next.count > maxCharacters {
+                // A single long token (including languages without spaces) still needs a bounded name. String's
+                // Character prefix keeps composed characters whole, and capitalization happens before the bound.
+                if picked.isEmpty { picked.append(String(clean.prefix(maxCharacters))) }
+                break
+            }
             picked.append(clean)
         }
-        if picked.isEmpty {
-            // All filler ("Hi there!"): the first words as typed, cut to fit.
-            picked = Array(words(firstLine).map(bare).filter { !$0.isEmpty }.prefix(4))
-        }
         let title = picked.joined(separator: " ")
-        return title.isEmpty ? "New Chat" : capitalizedFirst(String(title.prefix(maxCharacters)))
+        return title.isEmpty ? "New Chat" : title
     }
 
     // MARK: On-device model
 
     static let instructions = """
         You name chat sessions so they can be found again in a short list on a phone. Given the user's opening message, \
-        reply with only a title of 2 to 5 words, under 30 characters, in sentence case, in the message's language. Name \
+        reply with only a title of 1 to \(maxWords) words, at most \(maxCharacters) characters including spaces, in sentence case, in the message's language. Name \
         what the user wants done. Keep names, product names and numbers exact. No quotes, no ending punctuation. Never \
         answer the message.
         """

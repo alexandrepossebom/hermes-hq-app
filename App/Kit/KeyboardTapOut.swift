@@ -65,6 +65,8 @@ final class KeyboardTapOut: NSObject, UIGestureRecognizerDelegate {
             if current === typingView { return false }                   // inside the field itself
             if Self.takesTyping(current) { return false }               // another field: focus moves to it
             if current is UIControl { return false }                     // buttons and switches act with the keys up
+            // UIKit's alert actions are not UIControls. Ending editing moves the alert out from under their tap.
+            if current.next is UIAlertController { return false }
             if current is KeepsKeyboardOnTap { return false }            // the message box and its drawer
             view = current.superview
         }

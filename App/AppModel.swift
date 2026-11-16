@@ -328,6 +328,7 @@ final class AppModel: AppServices {
             // MENUS (spec 1x §2.3): favourites, recents and presets go with the account's other caches.
             ModelPrefs.forget(accountId: leaving.id)
             CommandFavorites.forget(accountId: leaving.id)            // starred commands
+            ManualChatTitles.forget(accountId: leaving.id)
             ModelCatalogCache.shared.forget(account: leaving.id)
             CommandsCatalogCache.shared.forget(account: leaving.id)
             LaunchChatMemory.shared.forget(account: leaving.id)   // [restore] the chat left on show, the preference

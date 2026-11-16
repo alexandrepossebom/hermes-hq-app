@@ -330,6 +330,7 @@ extension SessionStore {
             throw error
         }
         AppLog.trace("sessions", "delete \(tag): succeeded in \(AppLog.ms(since: started)) ms")
+        ManualChatTitles.set(false, account: account.id, profile: session.profile, id: session.id)
         func drop(_ rows: inout [SidebarSessionRow]) { rows.removeAll { $0.id == session.id && $0.profile == session.profile } }
         drop(&recents); drop(&cron); drop(&messaging); drop(&archivedRows)
         onDeleted?(session.profile, session.id)         // [sessions-m9] its "Not Delivered:" words go with it
@@ -351,14 +352,24 @@ extension SessionStore {
         AppLog.trace("sessions", "rename \(tag): started")
         update(session) { $0.title = typed.isEmpty ? nil : typed }
         do {
-            let answer = try await patch(session, ["title": .string(typed)])
-            let stored = answer?["title"]?.string ?? typed
+            let writes = ChatTitleWrites.shared(account: account.id, profile: session.profile, id: session.id)
+            let stored = try await writes.rename(to: typed) { [self] in
+                do {
+                    let answer = try await patch(session, ["title": .string(typed)])
+                    return answer?["title"]?.string ?? typed
+                } catch {
+                    // Roll back before the queue reconsiders a buffered gateway title, not after it.
+                    if storedRow(session)?.title == (typed.isEmpty ? nil : typed) {
+                        update(session) { $0.title = before }
+                    }
+                    throw error
+                }
+            }
             update(session) { $0.title = stored.isEmpty ? nil : stored }
             AppLog.trace("sessions", "rename \(tag): succeeded in \(AppLog.ms(since: started)) ms")
             return stored
         } catch {
             AppLog.note("sessions", "rename \(tag): failed, \(SessionActionText.reason(error))")
-            update(session) { $0.title = before }
             throw error
         }
     }

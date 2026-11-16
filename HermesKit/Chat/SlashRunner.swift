@@ -352,15 +352,15 @@ extension LiveChatSession: ChatSlashRunning {
     /// `/title <name>`: `session.title`, then the title shows like a rename.
     private func slashTitle(_ arg: String, _ out: SlashOutput) async {
         do {
-            let result = try await sessionCall("session.title", timeout: .seconds(30), runtime: .resumeFirst) { _ in
-                ["title": .string(arg)]
+            var queued = false
+            let final = try await titleWrites.rename(to: arg) { [self] in
+                let result = try await sessionCall("session.title", timeout: .seconds(30), runtime: .resumeFirst) { _ in
+                    ["title": .string(arg)]
+                }
+                queued = result["pending"]?.bool == true
+                return (result["title"]?.string.flatMap { $0.isEmpty ? nil : $0 } ?? arg).trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            let final = (result["title"]?.string.flatMap { $0.isEmpty ? nil : $0 } ?? arg).trimmingCharacters(in: .whitespacesAndNewlines)
-            let queued = result["pending"]?.bool == true
-            if !final.isEmpty {
-                applyTitle(final, rowTitle: final)
-                menus.hooks.titleApplied?(final)
-            }
+            if !final.isEmpty { menus.hooks.titleApplied?(final) }
             out.finish(final.isEmpty ? "Session title cleared."
                        : "Session title set: \(final)\(queued ? " (queued while session initializes)" : "")")
         } catch {

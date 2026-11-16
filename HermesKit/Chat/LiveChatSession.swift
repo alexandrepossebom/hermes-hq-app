@@ -141,6 +141,34 @@ final class LiveChatSession: ChatSessionModel {
     var title: String
     /// The app's own short title was tried for this chat (`ShortTitle`); once per open.
     var shortTitleTried = false
+    /// The unshortened automatic name: a gateway's later model name may improve its first-word placeholder.
+    var automaticTitleSource: String?
+    var automaticTitleIsLocal = false
+    var pendingAutomaticTitle: (raw: String, alreadyStored: Bool)?
+    private let unresolvedTitleKey = UUID().uuidString
+    private var titleWriteQueue: ChatTitleWrites?
+    var titleWrites: ChatTitleWrites {
+        let id = storedSessionId ?? runtimeSessionId ?? unresolvedTitleKey
+        if titleWriteQueue?.id != id {
+            let previous = titleWriteQueue?.tail
+            let queue = ChatTitleWrites.shared(account: account.id, profile: profile, id: id)
+            if let previous {
+                let next = queue.tail
+                queue.tail = Task { await previous.value; await next?.value }
+            }
+            titleWriteQueue = queue
+        }
+        titleWriteQueue!.attach(self)
+        return titleWriteQueue!
+    }
+    var titleManuallySet: Bool {
+        titleWrites.manualRequests > 0 || ManualChatTitles.contains(account: account.id, profile: profile, id: storedSessionId)
+    }
+    /// Shared with other screens and Sessions-list renames of this chat.
+    var automaticTitleSave: Task<Void, Never>? {
+        get { titleWrites.tail }
+        set { titleWrites.tail = newValue }
+    }
     let profile: String
     /// The bot's head record; the app model updates it when the bot is edited while its chat is open.
     var head: JSONValue?
@@ -163,7 +191,9 @@ final class LiveChatSession: ChatSessionModel {
     /// The open failed with nothing to show (03 §4.7): the screen shows an error state with Retry (`start()` again).
     var openError: String?
     /// The id this chat was opened with (the cache key). REST/RPC reads use the resolved tip when it differs.
-    var storedSessionId: String?
+    var storedSessionId: String? {
+        didSet { if storedSessionId != oldValue { _ = titleWrites } }
+    }
     var runtimeSessionId: String?
 
     // MARK: App-model hooks (integration)
@@ -529,6 +559,7 @@ final class LiveChatSession: ChatSessionModel {
             everReady = true
         }
         paintFromCache()
+        _ = titleWrites // An idle open chat must hear a Sessions-list rename before its first title event.
     }
 
     /// [smooth-open] The chat is about to be shown: its first page is asked for now, and the open takes the read over

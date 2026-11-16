@@ -180,16 +180,15 @@ extension LiveChatSession: ChatSessionActions {
     @discardableResult
     func rename(to newTitle: String) async throws -> String {
         let typed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let previous = title
-        applyTitle(typed.isEmpty ? "Untitled Chat" : typed, rowTitle: typed)
-        do {
-            let stored = try await storeTitle(typed)
-            applyTitle(stored.isEmpty ? "Untitled Chat" : stored, rowTitle: stored)
-            return stored
-        } catch {
-            applyTitle(previous, rowTitle: previous)
-            throw error
+        return try await titleWrites.rename(to: typed) { [self] in
+            try await storeTitle(typed)
         }
+    }
+
+    func reconsiderAutomaticTitle() {
+        guard let pending = pendingAutomaticTitle else { return }
+        pendingAutomaticTitle = nil
+        receiveAutomaticTitle(pending.raw, alreadyStored: pending.alreadyStored)
     }
 
     /// The opening message's text, when the loaded page starts at the chat's start.
@@ -198,19 +197,56 @@ extension LiveChatSession: ChatSessionActions {
         return messages.first(where: { $0.role == .user })?.plainText
     }
 
-    /// After a reply, a chat still named by its opening words gets a short title (`ShortTitle`), saved to the gateway so
-    /// every device shows it. Waits a moment first: the gateway's own model title, when it works, lands and wins.
+    /// Only automatic names are budgeted. Existing named chats and explicit Rename / /title choices stay intact.
+    func receiveAutomaticTitle(_ raw: String, alreadyStored: Bool = true) {
+        guard !isBotChat else { return }
+        // Filter save echoes before buffering: an older echo must not displace a pending model improvement.
+        guard raw != title, !titleWrites.automaticTitleWrites.contains(raw) else { return }
+        if titleWrites.manualRequests > 0 {
+            pendingAutomaticTitle = (raw, alreadyStored)
+            return
+        }
+        let awaitingModel = ManualChatTitles.isAwaitingModel(title, account: account.id, profile: profile, id: storedSessionId)
+        guard !titleManuallySet, needsShortTitle || automaticTitleIsLocal || awaitingModel else { return }
+        automaticTitleSource = raw
+        automaticTitleIsLocal = !alreadyStored
+        let first = firstUserText ?? ""
+        let short = ShortTitle.isPlaceholder(raw, firstMessage: first) && !first.isEmpty
+            ? ShortTitle.fallback(for: first) : ShortTitle.compact(raw)
+        let waiting = !alreadyStored || ShortTitle.isPlaceholder(raw, firstMessage: first)
+        ManualChatTitles.awaitModel(waiting ? short : nil, account: account.id, profile: profile, id: storedSessionId)
+        applyTitle(short, rowTitle: short)
+        // Even a short gateway name must be reasserted after an older automatic write already on the wire.
+        guard short != raw || !alreadyStored || automaticTitleSave != nil else { return }
+        let previous = automaticTitleSave
+        automaticTitleSave = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self, !self.titleManuallySet, self.title == short, self.automaticTitleSource == raw else { return }
+            do {
+                self.titleWrites.automaticTitleWrites.insert(short)
+                _ = try await self.storeTitle(short)
+                AppLog.note("chat", "automatic title on \(self.logIds): saved \(short.count) chars")
+            } catch {
+                AppLog.note("chat", "automatic title on \(self.logIds): save failed")
+            }
+        }
+    }
+
+    private var needsShortTitle: Bool {
+        !isBotChat && !titleManuallySet && ShortTitle.isPlaceholder(automaticTitleSource ?? title, firstMessage: firstUserText ?? "")
+    }
+
+    /// After a reply, an opening-word name gets an on-device title when possible. Give the gateway's own naming
+    /// model a moment first; both paths write through the same strict budget.
     func shortenTitleIfNeeded() {
-        guard !shortTitleTried, !isBotChat, let first = firstUserText, !ChatText.trimmed(first).isEmpty,
-              ShortTitle.isPlaceholder(title, firstMessage: first) else { return }
+        guard !shortTitleTried, needsShortTitle, let first = firstUserText, !ChatText.trimmed(first).isEmpty else { return }
         shortTitleTried = true
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
-            guard let self, ShortTitle.isPlaceholder(self.title, firstMessage: first) else { return }
+            guard let self, self.needsShortTitle else { return }
             let short = await ShortTitle.make(from: first)
-            guard ShortTitle.isPlaceholder(self.title, firstMessage: first), short != self.title else { return }
-            AppLog.note("chat", "short title on \(self.logIds): gateway left the opening words; saved \(short.count) chars")
-            _ = try? await self.rename(to: short)
+            guard self.needsShortTitle, short != self.title else { return }
+            self.receiveAutomaticTitle(short, alreadyStored: false)
         }
     }
 

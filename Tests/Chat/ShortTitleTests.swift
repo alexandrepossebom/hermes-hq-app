@@ -19,17 +19,17 @@ import Testing
     }
 
     @Test func wordRuleKeepsTheTopic() {
-        #expect(ShortTitle.fallback(for: hue) == "Added Philips hue ceiling light")
+        #expect(ShortTitle.fallback(for: hue) == "Added Philips hue")
         #expect(ShortTitle.fallback(for: "Can you please check why the Postgres pool keeps running out?")
-                == "Check Postgres pool keeps running")
+                == "Check Postgres pool")
         #expect(ShortTitle.fallback(for: "hi there!") == "Hi there")
         let long = ShortTitle.fallback(for: "Refactor HermesKit/Chat/LiveChatSession+Events.swift onComplete settlement")
         #expect(long.count <= ShortTitle.maxCharacters)
     }
 
     @Test func modelAnswersMustLookLikeNames() {
-        #expect(ShortTitle.accepted("\"Set up bonus room Hue light.\"", message: hue) == "Set up bonus room Hue light")
-        #expect(ShortTitle.accepted("Title: hue ceiling light setup", message: hue) == "Hue ceiling light setup")
+        #expect(ShortTitle.accepted("\"Hue light setup.\"", message: hue) == "Hue light setup")
+        #expect(ShortTitle.accepted("Title: hue ceiling light", message: hue) == "Hue ceiling light")
         #expect(ShortTitle.accepted("Sure! I'll set up the new Philips Hue ceiling light in your bonus room right away for you.",
                                     message: hue) == nil)                                                    // a reply
         #expect(ShortTitle.accepted("I just added another", message: hue) == nil)                          // its own opening

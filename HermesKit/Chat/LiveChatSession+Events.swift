@@ -208,10 +208,7 @@ extension LiveChatSession {
                 lastSeq = nil
             }
         case "session.title":
-            // The gateway's model title replaces its own instant one (the opening words), not only an empty name.
-            if let t = p["title"]?.nonEmptyString, t != title, ShortTitle.isPlaceholder(title, firstMessage: firstUserText ?? "") {
-                applyTitle(t, rowTitle: t)
-            }
+            if let t = p["title"]?.nonEmptyString { receiveAutomaticTitle(t) }
         default: break
         }
     }

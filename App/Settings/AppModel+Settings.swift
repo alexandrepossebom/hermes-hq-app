@@ -200,6 +200,7 @@ import UIKit
         MemoPaths.purge(accountId: account.id)                            // VOICE: recordings, drafts, played memos
         ModelPrefs.forget(accountId: account.id)                          // MENUS: favourites, recents, presets
         CommandFavorites.forget(accountId: account.id)                    // starred commands
+        ManualChatTitles.forget(accountId: account.id)
         ModelCatalogCache.shared.forget(account: account.id)
         CommandsCatalogCache.shared.forget(account: account.id)
         PagesCache.purge(account: account)                                // [m2/pages] Jobs, Kanban, Artifacts

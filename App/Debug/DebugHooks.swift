@@ -146,6 +146,7 @@ enum DebugHooks {
         }
         ModelPrefs.forgetAll()                  // MENUS: favourites, recents, presets of every account
         CommandFavorites.forgetAll()            // starred commands of every account
+        ManualChatTitles.forgetAll()
         defaults.removeObject(forKey: PromptLibrary.defaultsKey)            // ⋯ › Prompts starts empty
         // [m2/pages] integration: a clean first run starts on Bots — no restored tab, Kanban decision or scope (the
         // keys are per account, and a reset signs the same fixture account in again).
