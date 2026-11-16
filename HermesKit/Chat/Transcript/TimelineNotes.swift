@@ -23,6 +23,21 @@ nonisolated enum TimelineNotes {
     /// A reply's text longer than this (UTF-8 bytes, all text parts) can't be a padded "[SILENT]".
     static let silentScanLimit = 256
 
+    /// `tools/todo_tool.py` reinjects the agent's task list as a user-role row after compression. It is not a
+    /// message from the person, nor a progress update; the actual task list has its own activity UI.
+    private static let taskSnapshotHeader = "[Your active task list was preserved across context compression]"
+
+    static func isTaskSnapshot(_ text: String) -> Bool {
+        let trimmed = text.drop(while: \.isWhitespace)
+        guard trimmed.hasPrefix(taskSnapshotHeader) else { return false }
+        let rest = trimmed.dropFirst(taskSnapshotHeader.count)
+        guard rest.isEmpty || rest.first?.isWhitespace == true else { return false }
+        let body = rest.drop(while: \.isWhitespace)
+        // Also recognises a flattened, truncated Sessions preview saved by an older app. Quoted examples and a
+        // question after the header are not snapshots: a nonempty body must start with a runtime task marker.
+        return body.isEmpty || ["- [>] ", "- [ ] ", "- [x] ", "- [~] ", "- [?] "].contains { body.hasPrefix($0) }
+    }
+
     /// "Model changed to Opus 5.5"; the id when it has no name; "Model changed" when the text names none.
     static func modelSwitchLabel(_ content: String, displayName: (String) -> String = { ModelNames.displayModelName($0) }) -> String {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,6 +84,15 @@ nonisolated enum TimelineNotes {
         }
         for index in messages.indices {
             let m = messages[index]
+            if m.role != .assistant, m.sender == nil, let t = text(m), isTaskSnapshot(t) {
+                // Live and already-cached messages bypass history normalisation. Hide only the display copy,
+                // keeping the message's position for the transcript's row ranges and its original task context.
+                if out == nil { out = messages }
+                out![index].role = .system
+                out![index].parts = [.text("")]
+                out![index].report = nil
+                continue
+            }
             switch m.role {
             case .system:
                 guard let t = text(m) else { continue }
