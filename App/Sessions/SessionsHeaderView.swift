@@ -522,7 +522,9 @@ struct SessionPill<Face: View>: View {
     /// [density] UI Scale in the iOS look too, but not Compact: the pills are controls, kept easy to tap and read beside
     /// the bar's buttons, and shrinking their one row saved about 6 pt (owner 2026-11-09).
     static var faceSize: CGFloat { Theme.isDesktop ? HQFont.scaled(20) : HQFont.scaled(24) }
-    private var height: CGFloat { Theme.isDesktop ? HQFont.scaled(28) : HQFont.scaled(34) }
+    /// The pill's own height (its touch reaches 44 pt).
+    static var height: CGFloat { Theme.isDesktop ? HQFont.scaled(28) : HQFont.scaled(34) }
+    private var height: CGFloat { Self.height }
 
     var body: some View {
         Button(action: action) {
