@@ -602,6 +602,19 @@ nonisolated enum ThemeHeadSVG {
                     body: body)
     }
 
+    /// How far to the right a drawn head's eyes rest, in the picture's 1024 units: every face looks to the right, at the
+    /// words beside it (owner, 2026-11-16: "all look to the right ... so that they are looking at the text on the
+    /// screen"). A robot's as far as they look over while it works, a Dots face's one lamp, an orb's a little; a pixel
+    /// creature's eyes stay on their squares and carry their glint on the right instead; nothing without eyes.
+    static func restLook(_ head: HeadRecord, compact: Bool) -> Double {
+        switch head.theme {
+        case "robot": 22 * round(geometry(head.shape, seed: head.seed).k * 100) / 100
+        case "dots": HeadView.hasFace(head) ? (compact ? 158 : 86) : 0
+        case "orb": head.eyes ? 34 : 0
+        default: 0
+        }
+    }
+
     // MARK: Orb (`render.ts:137-166`)
 
     static let neighbour: [String: [String]] = [
@@ -611,7 +624,7 @@ nonisolated enum ThemeHeadSVG {
         "lime": ["#96DB3C", "#22BCD8", "#F2F06B"], "paper": ["#D9D2C2", "#FFFFFF", "#A39A86"],
     ]
 
-    static func orb(_ head: HeadRecord, _ tone: Tone, _ id: String) -> Made {
+    static func orb(_ head: HeadRecord, _ tone: Tone, _ id: String, plain: Bool = false) -> Made {
         // A Shapes head's own colour, carried over to an orb, glows in its own shades.
         let g = ground(head, tone, id)
         var random = SeededRandom(seed: UInt32(truncatingIfNeeded: head.seed))
@@ -638,7 +651,11 @@ nonisolated enum ThemeHeadSVG {
         body += "<g clip-path=\"url(#\(id)c)\"><rect width=\"1024\" height=\"1024\" fill=\"\(hues[0])\"/><g filter=\"url(#\(id)b)\"><g class=\"dh-drift\">\(blobs)</g></g><circle cx=\"512\" cy=\"512\" r=\"340\" fill=\"url(#\(id)e)\"/><circle cx=\"512\" cy=\"512\" r=\"340\" fill=\"url(#\(id)r)\"/>"
             + "<ellipse cx=\"408\" cy=\"330\" rx=\"150\" ry=\"74\" transform=\"rotate(-30 408 330)\" fill=\"#FFF\" filter=\"url(#\(id)f)\" opacity=\".85\"/></g>"
             + "<ellipse cx=\"372\" cy=\"322\" rx=\"46\" ry=\"26\" transform=\"rotate(-30 372 322)\" fill=\"#FFF\" opacity=\".95\"/>"
-        if head.eyes { body += eye(ink, 10, 0.22) + "<g class=\"dh-face\">\(eye("#FFF", 0, 1))</g>" }
+        // The app's own drawing: the eyes' shadow is part of the face, so it goes with them where they look (`restLook`).
+        if head.eyes {
+            body += plain ? "<g class=\"dh-face\">\(eye(ink, 10, 0.22))\(eye("#FFF", 0, 1))</g>"
+                : eye(ink, 10, 0.22) + "<g class=\"dh-face\">\(eye("#FFF", 0, 1))</g>"
+        }
         return Made(frame: g.frame, panel: g.panel, defs: defs, body: body)
     }
 
@@ -709,7 +726,9 @@ nonisolated enum ThemeHeadSVG {
             }
         }
         func eye(_ col: Int) -> String {
-            "<path d=\"\(box(col, eyeRow, 1, tallEyes ? 2 : 1))\" fill=\"\(inkColor)\"/><rect x=\"\(js(origin + Double(col) * cell + 8))\" y=\"\(js(origin + Double(eyeRow) * cell + 8))\" width=\"17\" height=\"17\" fill=\"#FFF\"/>"
+            // The app's own drawing: the glint on the right of each eye, looking to the right, at the words beside it
+            // (`restLook`).
+            "<path d=\"\(box(col, eyeRow, 1, tallEyes ? 2 : 1))\" fill=\"\(inkColor)\"/><rect x=\"\(js(plain ? origin + Double(col + 1) * cell - 25 : origin + Double(col) * cell + 8))\" y=\"\(js(origin + Double(eyeRow) * cell + 8))\" width=\"17\" height=\"17\" fill=\"#FFF\"/>"
         }
         let smile = mouth == 0 ? box(mid - 1, eyeRow + 3, 3, 1) : mouth == 1 ? box(mid, eyeRow + 3) : ""
         let cheeks = random.next() < 0.4 && !plain ? "<path d=\"\(box(mid - 4, eyeRow + 2))\(box(mid + 4, eyeRow + 2))\" fill=\"#FF7FA8\" opacity=\".85\"/>" : ""
@@ -765,7 +784,7 @@ nonisolated enum ThemeHeadSVG {
         let made: Made
         switch head.theme {
         case "dots": made = dots(head, tone, id, compact: compact, state: state)
-        case "orb": made = orb(head, tone, id)
+        case "orb": made = orb(head, tone, id, plain: plain)
         case "pixel": made = pixel(head, tone, id, plain: plain)
         case "glyph": made = glyph(head, tone, id)
         default: made = Made(frame: ink, panel: tone.panel, body: robotMarkup(head, tone, state: plain ? nil : state, id: robotID))
