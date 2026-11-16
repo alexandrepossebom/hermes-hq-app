@@ -10,7 +10,10 @@ struct ActivityPillTests {
             #expect(Set(pill.ordered.map(\.kind)) == Set(kinds))
             #expect(pill.ordered.count == kinds.count)
             #expect(!pill.isRunning)
-            if kinds.count > 2 { #expect(pill.words().hasSuffix("+\(kinds.count - 2) more")) }
+            // The approved pill names every current category; "+N more" only when the view runs out of width.
+            #expect(!pill.words().contains("more"))
+            for kind in kinds { #expect(pill.words().contains("kind \(kind.rawValue)")) }
+            if kinds.count > 2 { #expect(pill.words(maxSegments: 2).hasSuffix("+\(kinds.count - 2) more")) }
             for kind in kinds { #expect(pill.accessibilityLabel.contains("kind \(kind.rawValue)")) }
         }
     }
@@ -33,7 +36,8 @@ struct ActivityPillTests {
             .init(kind: .goal, words: "Goal blocked", needsAttention: true),
             .init(kind: .browser, words: "Browser needs you", needsAttention: true),
             .init(kind: .previousTasks, words: "Previous tasks 5/5")])
-        #expect(pill.words() == "Goal blocked · Browser needs you · +3 more")
+        #expect(pill.words() == "Goal blocked · Browser needs you · Tasks 2/5 · Previous tasks 5/5 · 2 helpers")
+        #expect(pill.words(maxSegments: 2) == "Goal blocked · Browser needs you · +3 more")
         #expect(pill.words(maxSegments: 1) == "2 need attention · +3 more")
         #expect(pill.singleAttentionKind == nil)
         #expect(pill.needsAttention)
@@ -50,9 +54,30 @@ struct ActivityPillTests {
             .init(kind: .tasks, words: "Tasks 2/5"),
             .init(kind: .subagents, words: "1 helper", isRunning: true, accessibilityWords: "1 helper · 3 done"),
             .init(kind: .background, words: "2 background", isRunning: true)])
-        #expect(pill.words() == "Tasks 2/5 · 1 helper · +2 more")
+        #expect(pill.words() == "Tasks 2/5 · 1 helper · 2 background · Goal active")
+        #expect(pill.words(maxSegments: 2) == "Tasks 2/5 · 1 helper · +2 more")
         #expect(pill.accessibilityLabel.contains("1 helper · 3 done"))
         #expect(pill.accessibilityLabel.contains("2 background"))
+    }
+
+    /// 1043 said "1 helper · +2 more" when the other two were finished history: overflow counts current work only.
+    @Test func finishedHistoryIsNeverCountedAsMore() {
+        let pill = ActivityPill(entries: [
+            .init(kind: .goal, words: "Goal done", isHistorical: true),
+            .init(kind: .subagents, words: "1 helper", isRunning: true),
+            .init(kind: .previousTasks, words: "Tasks 2/2", isHistorical: true)])
+        #expect(pill.words() == "1 helper")
+        #expect(pill.words(maxSegments: 1) == "1 helper")
+        #expect(pill.current.map(\.kind) == [.subagents])
+        #expect(pill.ordered.count == 3, "history is still reachable in the overview")
+    }
+
+    @Test func anUnfinishedEarlierPlanReadsAsTasksBeforeHelpers() {
+        let pill = ActivityPill(entries: [
+            .init(kind: .goal, words: "Goal active"),
+            .init(kind: .subagents, words: "1 helper", isRunning: true),
+            .init(kind: .previousTasks, words: "Tasks 1/2")])
+        #expect(pill.words() == "Tasks 1/2 · 1 helper · Goal active")
     }
 
     @Test func completedHistoryOnlyStaysWhileItsDetailsAreBeingRead() {
@@ -63,14 +88,14 @@ struct ActivityPillTests {
         #expect(!pill.isRunning)
     }
 
-    @Test func parentRunningIsIndependentOfChecklistStatus() {
-        var pill = ActivityPill(entries: [.init(kind: .tasks, words: "Tasks 0/1")], parentIsRunning: true,
-                                currentStep: "Reading release-notes.md")
+    /// 1043 put the parent's step in the pill as well as the transcript's "<Bot> is …" line: the same thing twice.
+    @Test func parentRunningSpinsThePillButNeverPinsOrNamesItsStep() {
+        var pill = ActivityPill(entries: [.init(kind: .tasks, words: "Tasks 0/1")], parentIsRunning: true)
         #expect(pill.isRunning)
         #expect(pill.shouldShow())
+        #expect(pill.words() == "Tasks 0/1")
         pill.entries = []
-        #expect(pill.words() == "Reading release-notes.md")
-        #expect(pill.accessibilityLabel == "Reading release-notes.md, running")
+        #expect(!pill.shouldShow(), "a running parent alone is the transcript's line, not a pill")
         pill.parentIsRunning = false
         #expect(!pill.shouldShow())
     }

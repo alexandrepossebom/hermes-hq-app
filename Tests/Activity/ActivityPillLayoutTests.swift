@@ -77,7 +77,6 @@ struct ActivityPillLayoutTests {
 
     @Test func arrivingAndRemovedCategoriesFollowAccessibilityVisibility() {
         let shelf = ActivityShelfView()
-        shelf.summary.parentIsRunning = true
         layout(shelf)
         let piece = shelf.piece(.tasks) { ShelfPieceView(kind: .tasks, body: UIView()) }
         piece.setPresent(true, animated: false)
@@ -92,10 +91,9 @@ struct ActivityPillLayoutTests {
         layout(shelf)
         #expect(piece.scroll.accessibilityElementsHidden)
         piece.setPresent(false, animated: false)
-        shelf.summary.parentIsRunning = false
         layout(shelf)
         #expect(shelf.accessibilityElementsHidden)
-        shelf.summary.parentIsRunning = true
+        piece.setPresent(true, animated: false)
         layout(shelf)
         #expect(!shelf.accessibilityElementsHidden)
     }
@@ -154,37 +152,76 @@ struct ActivityPillLayoutTests {
         #expect(shelf.pieces[.tasks]?.isHidden == false, "a refresh does not switch the selected detail")
     }
 
-    @Test func parentOnlyPillAndExpandedStepAreVisibleWithoutCategoryRows() {
+    @Test func aRunningParentAloneDrawsNoPill() {
         let shelf = ActivityShelfView()
-        shelf.summary = ActivityPill(entries: [], parentIsRunning: true, currentStep: "Reading release-notes.md")
-        layout(shelf)
-        #expect(shelf.bounds.height == 44)
-        #expect(!shelf.summaryHeader.isHidden)
-        #expect(shelf.summaryHeader.spinner != nil)
-        shelf.expanded = true
-        layout(shelf)
-        #expect(shelf.summaryHeader.label.text == "Reading release-notes.md")
-        #expect(shelf.summaryHeader.label.frame.minY >= 0)
-        #expect(shelf.summaryHeader.label.frame.maxY <= shelf.summaryHeader.bounds.height)
-        shelf.summary.parentIsRunning = false
-        shelf.summary.currentStep = nil
+        shelf.summary = ActivityPill(entries: [], parentIsRunning: true)
         layout(shelf)
         #expect(shelf.bounds.height == 0)
         #expect(shelf.summaryHeader.isHidden)
     }
 
-    @Test func aLongCurrentStepCannotTakeOverTheViewport() {
+    /// The owner-approved mock: "Tasks 2/5 · 1 background ⌄" collapsed; "Activity ⌃" over rows of
+    /// "Title ··· value ›" with hairlines; "‹ Activity" over one detail. The step stays in the transcript.
+    @Test func matchesTheApprovedMock() throws {
         let shelf = ActivityShelfView()
-        shelf.summary = ActivityPill(entries: [], parentIsRunning: true,
-                                     currentStep: String(repeating: "Checking a very long command argument ", count: 30))
+        shelf.summary = ActivityPill(entries: [
+            .init(kind: .tasks, words: "Tasks 2/5"),
+            .init(kind: .background, words: "1 background", isRunning: true)], parentIsRunning: true)
+        for (kind, title, value) in [(ShelfPieceKind.tasks, "Tasks", "2/5"), (.background, "Background", "1 running")] {
+            let piece = shelf.piece(kind) { ShelfPieceView(kind: kind, body: UIView()) }
+            piece.header.set(words: title, value: value, spinner: nil)
+            piece.setPresent(true, animated: false)
+        }
+        layout(shelf, width: 386)
+        let header = shelf.summaryHeader
+        #expect(header.label.text == "Tasks 2/5 · 1 background", "every current category is named, no \"+N more\"")
+        #expect(header.chevronStyle == .expand)
+        #expect(header.chevron.transform == .identity, "⌄ while collapsed")
+        #expect(header.chevron.frame.minX > header.label.frame.maxX, "the chevron follows the words")
+
         shelf.expanded = true
-        shelf.maxHeight = 160
-        shelf.maxCardHeight = 160
-        layout(shelf, width: 280)
-        #expect(shelf.bounds.height <= 160)
-        #expect(shelf.summaryHeader.label.frame.minY >= 0)
-        #expect(shelf.summaryHeader.label.frame.maxY <= shelf.bounds.height)
-        #expect(shelf.summaryHeader.accessibilityLabel?.contains("command argument") == true)
+        layout(shelf, width: 386)
+        #expect(header.label.text == "Activity", "the expanded header is neither the pill again nor the transcript's step")
+        #expect(abs(header.chevron.transform.a + 1) < 0.001, "⌃ while expanded")
+        let tasks = try #require(shelf.pieces[.tasks])
+        tasks.layoutIfNeeded()
+        tasks.header.layoutIfNeeded()
+        #expect(tasks.header.label.text == "Tasks")
+        #expect(tasks.header.valueLabel.text == "2/5")
+        #expect(abs(tasks.header.chevron.frame.maxX - (tasks.header.bounds.width - 10)) < 1, "› at the row's trailing edge")
+        #expect(abs(tasks.header.valueLabel.frame.maxX - (tasks.header.chevron.frame.minX - 6)) < 1, "the value right-aligned before ›")
+        #expect(tasks.header.valueLabel.frame.minX > tasks.header.label.frame.maxX)
+        func all(_ view: UIView) -> [UIView] { view.subviews + view.subviews.flatMap(all) }
+        let rules = all(shelf).filter { $0.backgroundColor == ChatPalette.separator && !$0.isHidden }
+        #expect(rules.count == 2, "a hairline under the header and one between the two rows")
+
+        tasks.setOpen(true, animated: false)
+        layout(shelf, width: 386)
+        #expect(header.chevronStyle == .back)
+        #expect(header.label.text == "Activity")
+        #expect(header.chevron.frame.maxX <= header.label.frame.minX, "‹ before the words")
+        #expect(header.accessibilityLabel == "All activity")
+    }
+
+    @Test func aNarrowPillDropsOnlyWhatDoesNotFit() {
+        let shelf = ActivityShelfView()
+        shelf.summary = ActivityPill(entries: [
+            .init(kind: .tasks, words: "Tasks 2/5"),
+            .init(kind: .subagents, words: "1 helper", isRunning: true),
+            .init(kind: .background, words: "1 background", isRunning: true),
+            .init(kind: .goal, words: "Goal done", isHistorical: true)])
+        for entry in shelf.summary.entries {
+            let piece = shelf.piece(entry.kind) { ShelfPieceView(kind: entry.kind, body: UIView()) }
+            piece.setPresent(true, animated: false)
+        }
+        layout(shelf, width: 386)
+        #expect(shelf.summaryHeader.label.text == "Tasks 2/5 · 1 helper · 1 background")
+        layout(shelf, width: 200)
+        let words = shelf.summaryHeader.label.text ?? ""
+        #expect(words.hasPrefix("Tasks 2/5"))
+        #expect(words.hasSuffix("more"))
+        #expect(!words.contains("+3 more"), "finished history never counts as more")
+        #expect(shelf.summaryHeader.fittingWidth <= 200 || words == "Tasks 2/5 · +2 more")
     }
 
     @Test func aLargeGoalHeaderMeasuresTheSpaceItsControlsActuallyLeave() {

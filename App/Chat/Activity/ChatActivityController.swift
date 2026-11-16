@@ -794,7 +794,10 @@ import UIKit
 
         if let goal {
             let piece = pieceView(.goal)
-            piece.header.set(words: ControlRules.chipWords(goal), spinner: nil)
+            // A row: "Goal" on the left, its state and turn on the right ("Active · Turn 3/20").
+            let state = ControlRules.chipWords(goal)
+            let value = state.hasPrefix("Goal ") ? String(state.dropFirst(5)) : state
+            piece.header.set(words: "Goal", value: value.prefix(1).uppercased() + value.dropFirst(), spoken: state, spinner: nil)
             piece.header.leadingDot.backgroundColor = {
                 switch ControlRules.tone(goal) {
                 case .blocked: return ChatPalette.red
@@ -809,17 +812,25 @@ import UIKit
         if let todos = a.liveTodos {
             let piece = pieceView(.tasks)
             let spinning = !idle && todos.contains { $0.status == .inProgress }
-            piece.header.set(words: TodoRules.chipWords(todos, previous: false), spinner: spinning ? ChatPalette.label2 : nil)
+            let done = todos.filter { $0.status == .completed }.count
+            piece.header.set(words: "Tasks", value: "\(done)/\(todos.count)", spoken: TodoRules.chipWords(todos, previous: false),
+                             spinner: spinning ? ChatPalette.label2 : nil)
             tasksBody.update(todos, historical: false)
         }
         if !shown.isEmpty {
             let piece = pieceView(.subagents)
             let done = shown.count - live.count
             if live.isEmpty {
-                piece.header.set(words: shown.count == 1 ? "Helper finished" : "Helpers finished", spinner: nil)
+                let failed = unreadFailures.count
+                piece.header.set(words: shown.count == 1 ? "Helper" : "Helpers",
+                                 value: failed > 0 ? "\(failed) failed" : "\(shown.count) finished",
+                                 spoken: shown.count == 1 ? "Helper finished" : "Helpers finished", spinner: nil)
             } else {
                 let words = SubagentRules.chipWords(liveCount: live.count)
-                piece.header.set(words: done > 0 ? "\(words) · \(done) done" : words, spinner: GlyphFrames.purple)
+                piece.header.set(words: live.count == 1 && done == 0 ? "Helper" : "Helpers",
+                                 value: done > 0 ? "\(live.count) running · \(done) done" : "\(live.count) running",
+                                 spoken: done > 0 ? "\(words) · \(done) done" : words,
+                                 spinner: GlyphFrames.purple)
             }
             if let sel = selectedSubagent, !shown.contains(where: { $0.id == sel }) { selectedSubagent = nil }
             // Wide (the Mac, iPad): the list and a page side by side, so one is always open (a running one first).
@@ -838,12 +849,15 @@ import UIKit
         }
         if !backgroundTasks.isEmpty {                           // [background]
             let piece = pieceView(.background)
-            piece.header.set(words: BackgroundProcess.chipWords(backgroundTasks) ?? "Background task", spinner: ChatPalette.label2)
+            piece.header.set(words: "Background", value: "\(backgroundTasks.count) running",
+                             spoken: BackgroundProcess.chipWords(backgroundTasks) ?? "Background task", spinner: ChatPalette.label2)
             backgroundBody.update(backgroundTasks, stopping: backgroundStopping)
         }
         if present.contains(.previousTasks) {
             let piece = pieceView(.previousTasks)
-            piece.header.set(words: TodoRules.chipWords(a.retainedTodos, previous: true), spinner: nil)
+            let done = a.retainedTodos.filter { $0.status == .completed }.count
+            piece.header.set(words: "Previous tasks", value: "\(done)/\(a.retainedTodos.count)",
+                             spoken: TodoRules.chipWords(a.retainedTodos, previous: true), spinner: nil)
             previousBody.update(a.retainedTodos, historical: true)
             // A list with nothing left to do can be put away (here only; nothing is sent).
             let finished = a.retainedTodos.allSatisfy { $0.status == .completed || $0.status == .cancelled }
@@ -864,8 +878,9 @@ import UIKit
         }
         shelf.summary = ActivityPill(entries: present.map { kind in
             let piece = pieceView(kind)
+            // The pill's own short words for each category; the row's title and value are for the overview.
             var words = piece.header.label.text ?? "Activity"
-            var accessibilityWords = words
+            var accessibilityWords = piece.header.spokenWords
             var running = piece.header.spinner != nil
             var attention = false
             var historical = false
@@ -883,6 +898,7 @@ import UIKit
                 }
             case .goal:
                 if let goal {
+                    words = ControlRules.chipWords(goal).components(separatedBy: " · ").first ?? "Goal"
                     historical = goal.status == .done
                     attention = ControlRules.tone(goal) == .blocked || ControlRules.tone(goal) == .waiting
                     if attention { words = ControlRules.tone(goal) == .blocked ? "Goal blocked" : "Goal waiting" }
@@ -898,14 +914,15 @@ import UIKit
                 if attention { words = "Browser needs you" }
                 running = !idle && !attention
             case .tasks:
+                words = TodoRules.chipWords(a.liveTodos ?? [], previous: false)
                 historical = a.liveTodos?.allSatisfy { $0.status == .completed || $0.status == .cancelled } == true
             case .previousTasks:
+                words = TodoRules.chipWords(a.retainedTodos, previous: false)
                 historical = a.retainedTodos.allSatisfy { $0.status == .completed || $0.status == .cancelled }
             }
             return .init(kind: kind, words: words, isRunning: running, needsAttention: attention,
                          accessibilityWords: accessibilityWords, isHistorical: historical)
-        }, parentIsRunning: p.statusIsWorking,
-            currentStep: idle ? nil : p.providerWait ?? p.liveStep?.statusWords ?? "Working")
+        }, parentIsRunning: p.statusIsWorking)
         if !shelf.summary.shouldShow(keepingDetailsOpen: shelf.expanded && !openPieces.isEmpty) {
             present.removeAll()
             openPieces.removeAll()

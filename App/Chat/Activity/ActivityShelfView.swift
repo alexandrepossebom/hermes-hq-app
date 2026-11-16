@@ -21,6 +21,18 @@ final class ActivityShelfView: UIView {
     static let minCardBody: CGFloat = 60
     private var themeWatch: NSObjectProtocol?
     private var styledExpanded: Bool?
+    private var turnedExpanded: Bool?
+    /// Hairlines under the expanded header and between overview rows, as in the approved mock.
+    private let headerRule = ActivityShelfView.makeRule()
+    private var rowRules: [UIView] = []
+
+    private static func makeRule() -> UIView {
+        let rule = UIView()
+        rule.backgroundColor = ChatPalette.separator
+        rule.isUserInteractionEnabled = false
+        rule.isAccessibilityElement = false
+        return rule
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -28,6 +40,7 @@ final class ActivityShelfView: UIView {
         // The header is outside the glass so the invisible 5 pt margins remain tappable.
         addSubview(summaryHeader)
         glass.contentView.addSubview(overview)
+        glass.contentView.addSubview(headerRule)
         overview.contentInsetAdjustmentBehavior = .never
         overview.alwaysBounceVertical = false
         overview.accessibilityIdentifier = "chat.shelf.scroll"
@@ -72,7 +85,7 @@ final class ActivityShelfView: UIView {
     }
 
     private var detail: ShelfPieceView? { expanded ? visiblePieces.first(where: \.isOpen) : nil }
-    var hasActivity: Bool { !visiblePieces.isEmpty || summary.parentIsRunning }
+    var hasActivity: Bool { !visiblePieces.isEmpty }
     var hasOpenCard: Bool { expanded }
     var piecesHeight: CGFloat { bounds.height }
 
@@ -82,20 +95,29 @@ final class ActivityShelfView: UIView {
         return min(width, 300)
     }
 
-    /// Keep the ordinary collapsed pill on one line. Aggregate urgent categories before using ordinary overflow;
-    /// expanded details and accessibility text can wrap. VoiceOver keeps every category and its complete count.
+    /// The approved design: collapsed, one line naming each current category ("Tasks 2/5 · 1 background ⌄"), dropping
+    /// trailing categories into "+N more" only when they don't fit. Expanded, the header is "Activity ⌃" (or what
+    /// needs you), never a repeat of the rows under it or of the transcript's current-step line; over one detail it is
+    /// "‹ Activity", back to the overview. Accessibility text can wrap; VoiceOver keeps every category.
     private func prepareHeader(width: CGFloat) {
-        let showsStep = expanded && detail == nil && !summary.needsAttention && summary.currentStep != nil
-        summaryHeader.requiresFullText = expanded && (summary.needsAttention || showsStep)
-        let color: UIColor? = summary.isRunning ? ChatPalette.label2 : nil
-        let showsSummary = detail == nil || summary.needsAttention
-        summaryHeader.set(words: showsStep ? summary.currentStep! : showsSummary ? summary.words() : "All activity", spinner: detail == nil ? color : nil)
-        if detail == nil, summaryHeader.fittingWidth > width, !showsStep {
-            summaryHeader.set(words: summary.words(maxSegments: 1), spinner: color)
+        let inDetail = detail != nil
+        summaryHeader.chevronStyle = inDetail ? .back : .expand
+        summaryHeader.requiresFullText = expanded && summary.needsAttention
+        let color: UIColor? = summary.isRunning && !inDetail ? ChatPalette.label2 : nil
+        let showsSummary = !inDetail || summary.needsAttention
+        let words = !expanded || summary.needsAttention ? summary.words() : "Activity"
+        summaryHeader.set(words: words, spinner: color)
+        if !expanded {
+            var segments = summary.current.count
+            while segments > 1, summaryHeader.fittingWidth > width {
+                segments -= 1
+                summaryHeader.set(words: summary.words(maxSegments: segments), spinner: color)
+            }
         }
-        summaryHeader.setOpen(expanded, animated: false)
+        // ⌄ turns to ⌃ as the shelf opens (the spring itself is the controller's), only when the state changes.
+        summaryHeader.setOpen(expanded, animated: window != nil && turnedExpanded != nil && turnedExpanded != expanded)
+        turnedExpanded = expanded
         summaryHeader.accessibilityLabel = showsSummary ? summary.accessibilityLabel : "All activity"
-        if showsStep, !summary.entries.isEmpty { summaryHeader.accessibilityLabel = summary.currentStep! + ", " + summary.accessibilityLabel }
         summaryHeader.accessibilityValue = detail != nil ? "detail" : expanded ? "expanded" : "collapsed"
         summaryHeader.accessibilityHint = detail != nil ? "Returns to activity categories" : expanded ? "Collapses activity" : "Shows activity categories"
     }
@@ -174,6 +196,22 @@ final class ActivityShelfView: UIView {
             if p.superview !== parent { parent.addSubview(p) }
             if let frame = frames[p.kind] { p.place(frame) }
         }
+        let hair = 1 / max(1, traitCollection.displayScale)
+        headerRule.isHidden = !expanded
+        headerRule.frame = CGRect(x: 14, y: headerH - hair, width: max(0, actualW - 28), height: hair)
+        let rows = detail == nil ? frames.values.map(\.minY).sorted().dropFirst() : []
+        while rowRules.count < rows.count {
+            let rule = Self.makeRule()
+            overview.addSubview(rule)
+            rowRules.append(rule)
+        }
+        for (index, rule) in rowRules.enumerated() {
+            rule.isHidden = index >= rows.count
+            if index < rows.count {
+                overview.bringSubviewToFront(rule)
+                rule.frame = CGRect(x: 14, y: rows[rows.startIndex + index] - hair / 2, width: max(0, actualW - 28), height: hair)
+            }
+        }
         let contentH = detail == nil ? frames.values.map(\.maxY).max() ?? 0 : 0
         overview.contentSize = CGSize(width: actualW, height: contentH)
         overview.isScrollEnabled = contentH > overview.bounds.height
@@ -234,6 +272,7 @@ final class ShelfPieceView: UIView {
         alpha = 0
         cornerConfiguration = .capsule()
         header.addTarget(self, action: #selector(toggled), for: .touchUpInside)
+        header.isRow = true
         addSubview(header)
         // The goal's ⋯ sits over the header's trailing end, a sibling (the header is one accessibility element).
         addSubview(header.more)
@@ -382,8 +421,18 @@ final class ShelfPieceView: UIView {
 /// The chip's words, its spinner and a chevron (turned down when open); the goal adds a leading tone dot and a trailing ⋯
 /// once open. 44 pt tall, Subheadline (capped at 22), 14 pt leading / 10 pt trailing.
 final class ShelfHeader: UIControl {
+    /// disclosure: a category row (› turning ⌄ when its detail is open). expand: the pill (⌄, ⌃ when open).
+    /// back: the expanded shelf's header over one detail (‹ before the words: it returns to the overview).
+    enum ChevronStyle { case disclosure, expand, back }
     let label = UILabel()
+    /// A category row's count or state, right-aligned beside its chevron (the approved mock's "Tasks ··· 2/5 ›").
+    let valueLabel = UILabel()
     let chevron = UIImageView()
+    var chevronStyle = ChevronStyle.disclosure {
+        didSet { guard chevronStyle != oldValue else { return }; updateFonts(); setOpen(open, animated: false) }
+    }
+    /// A category row inside the expanded shelf: its chevron sits at the trailing edge, as in a list.
+    var isRow = false { didSet { setNeedsLayout() } }
     private(set) var spinner: GlyphSpinner?
     let leadingDot = UIView()
     /// [browser] A symbol before the words (the browser chip's globe), shown whenever it has an image.
@@ -411,6 +460,11 @@ final class ShelfHeader: UIControl {
         label.lineBreakMode = .byTruncatingTail
         label.isUserInteractionEnabled = false
         addSubview(label)
+        valueLabel.textColor = ChatPalette.label2
+        valueLabel.textAlignment = .right
+        valueLabel.isUserInteractionEnabled = false
+        valueLabel.isHidden = true
+        addSubview(valueLabel)
         chevron.contentMode = .center
         chevron.tintColor = ChatPalette.label2
         chevron.isUserInteractionEnabled = false
@@ -449,17 +503,25 @@ final class ShelfHeader: UIControl {
     fileprivate func updateFonts() {
         let size = min(HQFont.preferred(.subheadline, compatibleWith: traitCollection).pointSize, 22)
         label.font = HQFont.face(ofSize: size)
+        valueLabel.font = HQFont.face(ofSize: size)
         label.numberOfLines = wrapsNow ? maximumWrappedLines : 1
         let config = UIImage.SymbolConfiguration(pointSize: (size * 0.7).rounded(), weight: .semibold)
-        chevron.image = UIImage(systemName: "chevron.right", withConfiguration: config)
+        let symbol = switch chevronStyle { case .disclosure: "chevron.right"; case .expand: "chevron.down"; case .back: "chevron.left" }
+        chevron.image = UIImage(systemName: symbol, withConfiguration: config)
         // The ⋯ grows with the words too (it stayed at the system's default size while the chevron followed them).
         more.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: size, weight: .semibold), forImageIn: .normal)
         spinner?.font = HQFont.monoFace(ofSize: size, weight: .regular)
     }
 
-    /// The words and whether a spinner (in `color`) follows them.
-    func set(words: String, spinner color: UIColor?) {
+    /// What VoiceOver reads for the row (without ", running"): `spoken` when given, else the words and value.
+    private(set) var spokenWords = ""
+
+    /// The words, an optional right-aligned value, and whether a spinner (in `color`) leads them. `spoken` keeps a
+    /// row's full sentence for VoiceOver ("Goal active · Turn 3/20") while it draws as "Goal ··· Active · Turn 3/20".
+    func set(words: String, value: String? = nil, spoken: String? = nil, spinner color: UIColor?) {
         if label.text != words { label.text = words; setNeedsLayout() }
+        let value = value?.isEmpty == false ? value : nil
+        if valueLabel.text != value { valueLabel.text = value; valueLabel.isHidden = value == nil; setNeedsLayout() }
         if let color {
             if spinner == nil {
                 let s = GlyphSpinner(style: .braille, color: color, size: label.font.pointSize, prescaled: true)
@@ -474,7 +536,8 @@ final class ShelfHeader: UIControl {
             spinner = nil
             setNeedsLayout()
         }
-        accessibilityLabel = words + (color != nil ? ", running" : "")
+        spokenWords = spoken ?? words + (value.map { " " + $0 } ?? "")
+        accessibilityLabel = spokenWords + (color != nil ? ", running" : "")
         accessibilityValue = open ? "expanded" : "collapsed"
     }
 
@@ -484,7 +547,8 @@ final class ShelfHeader: UIControl {
         more.isHidden = !(showsMore && open)
         leadingDot.isHidden = !(showsLeadingDot && open)
         accessibilityValue = open ? "expanded" : "collapsed"
-        let turn = { self.chevron.transform = open ? CGAffineTransform(rotationAngle: .pi / 2) : .identity }
+        let angle: CGFloat = switch chevronStyle { case .disclosure: open ? .pi / 2 : 0; case .expand: open ? .pi : 0; case .back: 0 }
+        let turn = { self.chevron.transform = CGAffineTransform(rotationAngle: angle) }
         if animated && !HQMotion.reduced { UIView.animate(withDuration: 0.25, animations: turn) } else { turn() }
         setNeedsLayout()
     }
@@ -498,28 +562,41 @@ final class ShelfHeader: UIControl {
         return max(44, ceil(text) + 20)
     }
 
-    /// Measurement and placement must reserve the same space for the goal's dot, actions and optional spinner.
-    private func availableLabelWidth(in width: CGFloat) -> CGFloat {
-        let leading: CGFloat = 14 + (leadingDot.isHidden ? 0 : 16) + (leadingIcon.isHidden ? 0 : 28)
-        let trailing: CGFloat = more.isHidden ? 10 : 44
-        let chevW = (chevron.image?.size.width ?? 8) + 4
-        let spinW = spinner.map { $0.intrinsicContentSize.width } ?? 0
-        return max(1, width - leading - trailing - chevW - 2 - (spinW > 0 ? spinW + 4 : 0) - 4)
+    private var chevronWidth: CGFloat { (chevron.image?.size.width ?? 8) + 4 }
+    /// A back chevron leads the words; the others trail them.
+    private var leadingReserve: CGFloat {
+        14 + (leadingDot.isHidden ? 0 : 16) + (leadingIcon.isHidden ? 0 : 28) + (chevronStyle == .back ? chevronWidth + 2 : 0)
+    }
+    /// The value column, at most half the row, plus its gap before the chevron.
+    private func valueWidth(in width: CGFloat) -> CGFloat {
+        valueLabel.isHidden ? 0 : min(ceil(valueLabel.intrinsicContentSize.width), width / 2) + 8
     }
 
-    /// Words + spinner + chevron + paddings.
+    /// Measurement and placement must reserve the same space for the goal's dot, actions, value and optional spinner.
+    private func availableLabelWidth(in width: CGFloat) -> CGFloat {
+        let trailing: CGFloat = more.isHidden ? 10 : 44
+        let chev = chevronStyle == .back ? 0 : chevronWidth + 2
+        let spinW = spinner.map { $0.intrinsicContentSize.width } ?? 0
+        return max(1, width - leadingReserve - trailing - chev - (spinW > 0 ? spinW + 4 : 0) - valueWidth(in: width) - 4)
+    }
+
+    /// Words + value + spinner + chevron + paddings.
     var fittingWidth: CGFloat {
         let words = ceil(label.intrinsicContentSize.width)
         let spin = spinner.map { $0.intrinsicContentSize.width + 4 } ?? 0
-        let chev: CGFloat = 2 + (chevron.image?.size.width ?? 8) + 4
-        let icon: CGFloat = leadingIcon.isHidden ? 0 : 22 + 6
-        return 14 + icon + words + 4 + spin + chev + 10
+        let chev: CGFloat = chevronStyle == .back ? 0 : 2 + chevronWidth
+        let value = valueLabel.isHidden ? 0 : ceil(valueLabel.intrinsicContentSize.width) + 8
+        return leadingReserve + words + 4 + spin + value + chev + 10
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let h = bounds.height
         var x: CGFloat = 14
+        if chevronStyle == .back {
+            chevron.frame = CGRect(x: x, y: (h - 16) / 2, width: chevronWidth - 4, height: 16)
+            x += chevronWidth + 2
+        }
         if !leadingDot.isHidden {
             leadingDot.frame = CGRect(x: x, y: (h - 8) / 2, width: 8, height: 8)
             x += 8 + 8
@@ -528,7 +605,7 @@ final class ShelfHeader: UIControl {
             leadingIcon.frame = CGRect(x: x, y: (h - 22) / 2, width: 22, height: 22)
             x += 22 + 6
         }
-        let chevW = (chevron.image?.size.width ?? 8) + 4
+        let chevW = chevronWidth
         let spinW = spinner.map { $0.intrinsicContentSize.width } ?? 0
         let available = availableLabelWidth(in: bounds.width)
         if let s = spinner {
@@ -538,8 +615,19 @@ final class ShelfHeader: UIControl {
         let wordsW = max(1, min(available, ceil(label.intrinsicContentSize.width)))
         let labelH = wrapsNow ? ceil(label.sizeThatFits(CGSize(width: wordsW, height: .greatestFiniteMagnitude)).height) : ceil(label.font.lineHeight)
         label.frame = CGRect(x: x, y: (h - labelH) / 2, width: wordsW, height: labelH)
-        x = label.frame.maxX + 4
-        chevron.frame = CGRect(x: x + 2, y: (h - 16) / 2, width: chevW - 4, height: 16)
+        guard chevronStyle != .back else { return }
+        if valueLabel.isHidden && !isRow {
+            chevron.frame = CGRect(x: label.frame.maxX + 6, y: (h - 16) / 2, width: chevW - 4, height: 16)
+        } else {
+            // A row: the chevron at the trailing edge, the value right-aligned before it.
+            let trailing: CGFloat = more.isHidden ? 10 : 44
+            chevron.frame = CGRect(x: bounds.width - trailing - (chevW - 4), y: (h - 16) / 2, width: chevW - 4, height: 16)
+            guard !valueLabel.isHidden else { return }
+            let valueRight = chevron.frame.minX - 6
+            let valueW = max(0, min(ceil(valueLabel.intrinsicContentSize.width), valueRight - label.frame.maxX - 8))
+            let valueH = ceil(valueLabel.font.lineHeight)
+            valueLabel.frame = CGRect(x: valueRight - valueW, y: (h - valueH) / 2, width: valueW, height: valueH)
+        }
     }
 
     override var isHighlighted: Bool { didSet { alpha = isHighlighted ? 0.6 : 1 } }

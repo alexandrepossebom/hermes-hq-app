@@ -84,7 +84,8 @@ extension ActivityEndToEndTests {
         try reset(account)
     }
 
-    @MainActor func test36_OverviewShowsTheActualCurrentStep() throws {
+    /// The step is the transcript's "<Bot> is …" line; the pill only counts categories (1043 showed it twice).
+    @MainActor func test36_TheStepIsNotRepeatedInThePill() throws {
         let account = try FixtureAccount.load()
         try reset(account)
         try account.control("/__fixture/plan", ["plans": [["holdAfter": 40, "events": [
@@ -93,26 +94,36 @@ extension ActivityEndToEndTests {
         let app = launchAndSend(account, "Read the release notes")
         let summary = app.buttons["chat.shelf.summary"]
         XCTAssertTrue(summary.waitForExistence(timeout: 8))
-        XCTAssertTrue(waitUntil(timeout: 5) { summary.label.contains("running") }, "the parent's real run drives the spinner, not todo status")
+        XCTAssertTrue(waitUntil(timeout: 5) { summary.label.contains("Tasks 0/1") && summary.label.contains("running") },
+                      "the parent's real run drives the spinner, not todo status")
+        XCTAssertTrue(labelled(app, containing: "release-notes.md").waitForExistence(timeout: 5), "the transcript names the step")
+        XCTAssertFalse(summary.label.contains("release-notes.md"), "collapsed, the pill doesn't repeat it: \(summary.label)")
         summary.tap()
-        XCTAssertTrue(waitUntil(timeout: 3) { summary.label.contains("Reading release-notes.md") }, "the overview uses existing human-readable tool text")
+        XCTAssertTrue(waitUntil(timeout: 3) { summary.value as? String == "expanded" })
+        XCTAssertFalse(summary.label.contains("release-notes.md"), "expanded, nor does its header: \(summary.label)")
+        XCTAssertTrue(app.activityCategory("tasks").exists)
         shot("minimal-activity-current-step")
         app.buttons["composer.stop"].tap()
         try reset(account)
     }
 
-    @MainActor func test37_ParentWithoutCategoriesStillHasOnePill() throws {
+    @MainActor func test37_ParentWithoutCategoriesHasNoPill() throws {
         let account = try FixtureAccount.load()
         try reset(account)
         try account.control("/__fixture/plan", ["plans": [["holdAfter": 40, "events": [
             ["type": "tool.start", "payload": ["tool_id": "call_pill_only", "name": "read_file", "args": ["path": "release-notes.md"]]]]]]])
-        let app = launchAndSend(account, "Read just this file")
-        let summary = app.buttons["chat.shelf.summary"]
-        XCTAssertTrue(summary.waitForExistence(timeout: 8))
-        XCTAssertTrue(waitUntil(timeout: 4) { summary.label.contains("Reading release-notes.md") && summary.label.contains("running") })
-        XCTAssertEqual(element(app, "chat.shelf").frame.height, 44, accuracy: 1)
+        // At the Bottom, the default (the owner's report, 1043: "Inbox is using browser exec…" and the pill both named it).
+        let app = launchAndSend(account, "Read just this file", args: ["-hq.chat.toolCallStyle", "bottom"])
+        XCTAssertTrue(labelled(app, containing: "release-notes.md").waitForExistence(timeout: 8), "the transcript names the step")
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertFalse(app.buttons["chat.shelf.summary"].exists, "no second copy of the step above the composer")
+        let copies = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'release-notes.md'"))
+            .allElementsBoundByIndex.filter { $0.exists && !$0.frame.isEmpty }
+        // A row and its text can both carry the label; count places on screen, not elements.
+        let places = Set(copies.map { "\(Int($0.frame.midY / 20))" })
+        XCTAssertEqual(places.count, 1, "the step appears once: \(copies.map { "\($0.label) @\(Int($0.frame.midY))" })")
+        shot("minimal-activity-step-only")
         app.buttons["composer.stop"].tap()
-        XCTAssertTrue(waitUntil(timeout: 6) { !summary.exists })
         try reset(account)
     }
 
@@ -145,22 +156,6 @@ extension ActivityEndToEndTests {
         try reset(account)
     }
 
-    @MainActor func test39_CurrentStepFollowsToolsWithoutAnActivityEvent() throws {
-        let account = try FixtureAccount.load()
-        try reset(account)
-        try account.control("/__fixture/plan", ["plans": [["holdAfter": 120, "events": [
-            ["type": "tool.start", "payload": ["tool_id": "step_one", "name": "read_file", "args": ["path": "first.md"]]]]]]])
-        let app = launchAndSend(account, "Read both files")
-        let summary = app.buttons["chat.shelf.summary"]
-        XCTAssertTrue(waitUntil(timeout: 5) { summary.exists && summary.label.contains("Reading first.md") })
-        summary.tap()
-        try event(account, "tool.complete", ["tool_id": "step_one", "name": "read_file", "result": "First file read"])
-        try event(account, "tool.start", ["tool_id": "step_two", "name": "read_file", "args": ["path": "second.md"]])
-        XCTAssertTrue(waitUntil(timeout: 3) { summary.label.contains("Reading second.md") }, "no todo or roster poll is needed")
-        XCTAssertLessThanOrEqual(element(app, "chat.shelf").frame.height, 100)
-        app.buttons["composer.stop"].tap()
-        try reset(account)
-    }
 
     @MainActor func test40_FallbackHelperFailureRemainsActionable() throws {
         let account = try FixtureAccount.load()

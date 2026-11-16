@@ -14,15 +14,16 @@ nonisolated struct ActivityPill: Equatable, Sendable {
     }
 
     var entries: [Entry]
+    /// The parent reply is running: only the pill's spinner. Its current step belongs to the transcript's own
+    /// "<Bot> is …" line; the pill never repeats it (owner, 1043: "We're showing the same thing twice").
     var parentIsRunning = false
-    var currentStep: String? = nil
 
     /// Attention first, then task progress and independently running work. Ties retain category order.
     var ordered: [Entry] {
         entries.sorted { lhs, rhs in
             func rank(_ entry: Entry) -> Int {
                 if entry.needsAttention { return 0 }
-                if entry.kind == .tasks { return 1 }
+                if entry.kind == .tasks || (entry.kind == .previousTasks && !entry.isHistorical) { return 1 }
                 if entry.isRunning, entry.kind == .subagents || entry.kind == .background { return 2 }
                 if entry.isRunning { return 3 }
                 return 4
@@ -40,28 +41,33 @@ nonisolated struct ActivityPill: Equatable, Sendable {
     }
     var accessibilityLabel: String {
         let parts = ordered.map { $0.accessibilityWords ?? $0.words }
-        return (parts.isEmpty ? currentStep ?? "Working" : parts.joined(separator: ", ")) + (isRunning ? ", running" : "")
+        return (parts.isEmpty ? "Activity" : parts.joined(separator: ", ")) + (isRunning ? ", running" : "")
     }
 
-    /// Finished history is reachable alongside current work, but never pins an otherwise empty live surface.
+    /// Shown for current categories only. A running parent with nothing else is the transcript's job, not a pill;
+    /// finished history is reachable alongside current work but never pins an otherwise empty surface.
     func shouldShow(keepingDetailsOpen: Bool = false) -> Bool {
-        parentIsRunning || entries.contains { !$0.isHistorical || $0.isRunning || $0.needsAttention }
+        entries.contains { !$0.isHistorical || $0.isRunning || $0.needsAttention }
             || (keepingDetailsOpen && !entries.isEmpty)
     }
 
-    /// Overflow counts categories, never adds checklist items to workers. Width is measured by UIKit.
-    func words(maxSegments: Int = 2) -> String {
-        let current = ordered.filter { !$0.isHistorical || $0.needsAttention || $0.isRunning }
+    /// Current work only: finished history stays in the overview and is never counted in the pill.
+    var current: [Entry] { ordered.filter { !$0.isHistorical || $0.needsAttention || $0.isRunning } }
+
+    /// The approved pill names each current category ("Tasks 2/5 · 1 background"). The view lowers `maxSegments`
+    /// only when the words don't fit its width; "+N more" then counts the current categories left out, never history.
+    /// Three or more urgent categories are counted rather than listed.
+    func words(maxSegments: Int = .max) -> String {
+        let current = current
+        let limit = max(1, maxSegments)
         let urgent = current.filter(\.needsAttention)
-        if urgent.count > max(1, maxSegments) {
-            let other = entries.count - urgent.count
+        if urgent.count > min(limit, 2) {
+            let other = current.count - urgent.count
             return "\(urgent.count) need attention" + (other > 0 ? " · +\(other) more" : "")
         }
-        if current.isEmpty, parentIsRunning {
-            return (currentStep ?? "Working") + (entries.isEmpty ? "" : " · +\(entries.count) more")
-        }
-        let shown = Array((current.isEmpty ? ordered : current).prefix(max(1, maxSegments)))
-        let overflow = entries.count - shown.count
+        if current.isEmpty { return ordered.first?.words ?? "Activity" }
+        let shown = Array(current.prefix(limit))
+        let overflow = current.count - shown.count
         return (shown.map(\.words) + (overflow > 0 ? ["+\(overflow) more"] : [])).joined(separator: " · ")
     }
 }
