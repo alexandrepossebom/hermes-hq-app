@@ -206,9 +206,12 @@ struct SessionsHeaderView: View {
     /// [projects-switch] The switch at the rail's start: the two views side by side in one capsule (owner 2026-11-15
     /// on 1039's single round button: "needs to be more clear that it's a toggle between two views"). The robot is
     /// the tab bar's Bots glyph and the folder the project pills' own (owner: "They need to match what we use in the
-    /// menu"). The side of the view drawn is also All (owner picked this of four drawings, so the switch costs the
-    /// rail no width): the tint while nothing is picked, as All was; dark while a pill is, and a tap on it shows
-    /// everything again. It scrolls away with the pills.
+    /// menu"). The side of the view drawn is also All (owner picked this of four drawings): the tint while nothing is
+    /// picked, as All was; dark while a pill is, and a tap on it shows everything again.
+    /// [sessions-ux] Owner 2026-11-16 ("it needs to be very clear what you're working on"): the switch stays at the
+    /// rail's start while the pills scroll (`BotPillRail.leading`); scrolled along with them it left the screen. It
+    /// stays the two glyphs alone (owner, on a drawing with the side's name beside its glyph: "I don't want the
+    /// bots/projects toggle to be fixed unless we have it only be the icons").
     @ViewBuilder private func pillsSwitch(allPicked: Bool) -> some View {
         if model.showsSwitch {
             let side: CGFloat = Theme.isDesktop ? HQFont.scaled(24) : HQFont.scaled(30)
@@ -221,16 +224,9 @@ struct SessionsHeaderView: View {
             HStack(spacing: 0) {
                 ForEach(views, id: \.self) { view in
                     let here = model.pills == view
-                    Group {
-                        if view == .bots {
-                            Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(14), line: 0.1)).renderingMode(.template)
-                        } else {
-                            Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
-                        }
-                    }
-                    .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqPage)
-                    .frame(width: half, height: side)
-                    .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel) } }
+                    switchSide(view, here: here, half: half, side: side)
+                        .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqPage)
+                        .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel) } }
                 }
             }
             .padding(2)
@@ -240,7 +236,8 @@ struct SessionsHeaderView: View {
             .hqPickGlass(false, in: Capsule(), prominent: true)
             .accessibilityHidden(true)
             .frame(height: 44)
-            // The touch: one clear button over each side.
+            // The touch: one clear button over each side (its own drawing, unseen, sizes it), reaching past the
+            // capsule's end.
             .overlay {
                 HStack(spacing: 0) {
                     ForEach(views, id: \.self) { view in
@@ -248,7 +245,11 @@ struct SessionsHeaderView: View {
                         Button {
                             if here { model.onPickAll() } else { model.onSwitch(view) }
                         } label: {
-                            Color.clear.frame(width: half + 2 + reach, height: 44).contentShape(Rectangle())
+                            switchSide(view, here: here, half: half, side: side)
+                                .hidden()
+                                .padding(view == .bots ? .leading : .trailing, 2 + reach)
+                                .frame(height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(here ? (view == .projects ? "All Projects" : "All Bots")
@@ -261,6 +262,18 @@ struct SessionsHeaderView: View {
             }
             .id("sessions.chip.all")
         }
+    }
+
+    /// One side of the switch: its glyph.
+    private func switchSide(_ view: SessionPills, here: Bool, half: CGFloat, side: CGFloat) -> some View {
+        Group {
+            if view == .bots {
+                Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(14), line: 0.1)).renderingMode(.template)
+            } else {
+                Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
+            }
+        }
+        .frame(width: half, height: side)
     }
 
     private var botRail: some View {

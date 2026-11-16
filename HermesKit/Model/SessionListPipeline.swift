@@ -402,23 +402,26 @@ nonisolated enum SessionListPipeline {
         for session in quiet where !session.pinned { aged[pageAge(session, input), default: []].append(session) }
         let byPref = input.prefs.sortBy == .manual ? SessionSortBy.updated : input.prefs.sortBy
         let sections: [(id: String, title: String, chats: [SessionSummary], sort: SessionSortBy, capped: Bool)] = [
-            ("needs", "Needs You", buckets[.needsYou] ?? [], .updated, false), ("ready", "Ready", buckets[.ready] ?? [], .updated, false),
+            ("needs", "Needs You", buckets[.needsYou] ?? [], .updated, false), ("ready", "New", buckets[.ready] ?? [], .updated, false),
             ("working", "Working", buckets[.working] ?? [], .updated, true), ("pinned", "Pinned", quiet.filter(\.pinned), byPref, true),
             ("today", "Today", aged["today"] ?? [], byPref, true), ("week", "This Week", aged["week"] ?? [], byPref, true),
             ("older", "Older", aged["older"] ?? [], byPref, true)]
         // A status filter shows every match (a closed section would hide what the filter was set to find).
         let filtered = !input.prefs.statusFilter.isEmpty
+        // [sessions-ux] A project whose chats fit one screen draws them all: nothing starts closed and nothing is cut
+        // to Show More (a project of seven chats opened on two of them, two closed headings and an empty screen).
+        let short = rows.count <= pageFitsWhole
         for section in sections where !section.chats.isEmpty {
             var group = SessionGroup(id: statePrefix + section.id, title: section.title, sessions: sort(section.chats, by: section.sort))
             group.total = group.sessions.count
             group.unread = group.sessions.reduce(0) { $0 + ($1.unread ? 1 : 0) }
             if !filtered {
-                // This Week and Older start closed under the sections above them (never as the page's first).
-                let startsClosed = pageStartsClosed.contains(group.id) && out.count > 1
+                // On a long page This Week and Older start closed under the sections above them (never as the page's first).
+                let startsClosed = !short && pageStartsClosed.contains(group.id) && out.count > 1
                 if input.collapsedGroups.contains(group.id) || (startsClosed && !input.openGroups.contains(group.id)) {
                     group.collapsed = true
                     group.sessions = []
-                } else if section.capped, group.sessions.count > pageFirstRows + 1 {
+                } else if section.capped, !short, group.sessions.count > pageFirstRows + 1 {
                     if input.expandedGroups.contains(group.id) {
                         group.expanded = true
                     } else {
@@ -435,6 +438,9 @@ nonisolated enum SessionListPipeline {
     /// [project-sections] The project page: the chats a long section draws before "Show More" (one more than this is
     /// drawn whole: no row is spent hiding a single chat), and the sections that start closed.
     static let pageFirstRows = 3
+    /// [sessions-ux] The most chats a project page draws whole, every section open: about what an iPhone's screen
+    /// holds under the page's header (one-line rows and their headings).
+    static let pageFitsWhole = 10
     static let pageStartsClosed: Set<String> = [statePrefix + "week", statePrefix + "older"]
 
     /// A section of the project page ("state-working").

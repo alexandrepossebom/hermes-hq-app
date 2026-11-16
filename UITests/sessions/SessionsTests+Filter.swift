@@ -128,7 +128,7 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { self.headers(app) == ["New for You", "Pinned", "Website", "App", "Reading", "Home"] },
                       "one header per project, what needs you first, Home last (\(headers(app)))")
         XCTAssertEqual(order(app), ["s-budget", "s-release"], "the projects start folded")
-        XCTAssertTrue((header(app, "Website").value as? String)?.contains("1 unread") == true, "Website counts its unread chat")
+        XCTAssertTrue((header(app, "Website").value as? String)?.contains("1 new") == true, "Website counts its unread chat")
         shot(app, "A4-group-project")
         closeFilter(app)
         for project in ["App", "Reading", "Website", "Home"] { openProject(app, project) }

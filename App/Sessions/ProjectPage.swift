@@ -1,8 +1,8 @@
 // [project-pills] Owner 2026-11-15: a project pill opens its project as a page (`SessionListPipeline.projectPage`).
 // This is the page's header, the list's first row. [projects-switch] Owner 2026-11-15 ("maximizing screen real estate
-// and improving visual clarity … less visually stressful"): it is three short lines, not a block: the project's name
-// with New Chat beside it; one quiet line with its folder, the newest chat's branch and the bots that work in it; and
-// the three counts as small chips, always in the same places, a zero dimmed (Needs You, Ready, Working; a tap
+// and improving visual clarity … less visually stressful"): it is three short lines, not a block: the project's
+// name; one quiet line with its folder, the newest chat's branch and the bots that work in it; and
+// the three counts as small chips, always in the same places, a zero dimmed (Needs You, New, Working; a tap
 // scrolls to that section). No faces here:
 // the rows under it carry them (Show › Bot Faces). The chats follow in the list's own rows, by section.
 
@@ -21,7 +21,6 @@ struct ProjectPageHeader: View {
     var total: Int
     /// A count's section id (`SessionListPipeline.statePrefix` + needs / ready / working).
     var onJump: (String) -> Void
-    var onNewChat: (() -> Void)?
 
     /// The folder as people write it: a home folder as "~".
     static func shortFolder(_ path: String) -> String {
@@ -44,34 +43,15 @@ struct ProjectPageHeader: View {
     var body: some View {
         let meta = Self.meta(folder: folder, branch: branch, bots: bots)
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(name)
-                    .font(Font.hq(.title3).weight(.bold))
-                    .foregroundStyle(Color.hqLabel)
-                    .lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                if let onNewChat {
-                    Button(action: onNewChat) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus").imageScale(.small)
-                            Text("New Chat").lineLimit(1)
-                        }
-                            .font(Font.hq(.footnote).weight(.semibold))
-                            .foregroundStyle(Color.hqTintText)
-                            .padding(.horizontal, 11)
-                            .frame(minHeight: HQFont.scaled(28))
-                            .background(Capsule().fill(Color.hqFill3))
-                            .frame(minHeight: 44)                    // the touch reaches 44 pt around the 28 pt capsule
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("New Chat in \(name)")
-                    .accessibilityIdentifier("sessions.projectPage.newChat")
-                }
-            }
-            // The button's 44 pt touch reaches past this row; the row itself is as tall as the name.
-            .frame(height: HQFont.scaled(30))
+            // [sessions-ux] Owner 2026-11-10 ("There should be one go-to"): no New Chat here. The bar's Compose, a thumb
+            // away, starts the chat in this project (and says so: "New Chat in <project>"); the capsule beside the
+            // name was a second button for the same thing.
+            Text(name)
+                .font(Font.hq(.title3).weight(.bold))
+                .foregroundStyle(Color.hqLabel)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+                .frame(height: HQFont.scaled(30))
             if !meta.isEmpty {
                 Text(meta)
                     .font(Font.hq(.footnote))
@@ -83,7 +63,7 @@ struct ProjectPageHeader: View {
             // Owner 2026-11-15 (picked from four drawings): the three counts always, in the same places, a zero dimmed.
             HStack(spacing: 6) {
                 chip(needs, "Needs You", id: "needs") { Circle().fill(Color.hqOrange).frame(width: 7, height: 7) }
-                chip(ready, "Ready", id: "ready") { Circle().fill(Color.hqTint).frame(width: 7, height: 7) }
+                chip(ready, "New", id: "ready") { Circle().fill(Color.hqTint).frame(width: 7, height: 7) }
                 chip(working, "Working", id: "working") {
                     ZStack {
                         Circle().stroke(Color.hqLabel.opacity(0.25), lineWidth: 2)
@@ -95,7 +75,7 @@ struct ProjectPageHeader: View {
         }
         .padding(.leading, lead)
         .padding(.trailing, lead - 4)
-        .padding(.top, 2)
+        .padding(.top, 8)   // [sessions-ux] the name stood 7 pt under the pills, closer than any heading under it
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
     }

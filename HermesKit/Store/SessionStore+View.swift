@@ -147,7 +147,7 @@ extension SessionStore {
         SessionListPipeline.groups(SessionListInput(live: sessions, archived: archivedSessions, prefs: view, botFilter: botFilter,
                                                     projectsByProfile: projectsByProfile, projects: projectEntries(order: order, bot: botFilter),
                                                     outside: outsideRows,
-                                                    collapsedGroups: collapsedGroups, openGroups: openGroups, keepNew: keepNew,
+                                                    collapsedGroups: collapsedGroups, openGroups: shownOpenGroups, keepNew: keepNew,
                                                     expandedGroups: expandedGroups[groupScope] ?? [],
                                                     chatOrder: device.chatOrder, projectOrder: device.projectOrder,
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
@@ -246,6 +246,13 @@ extension SessionStore {
 
     /// [sessions-layout] The projects opened for the chip's bot (every other one is folded to its summary row).
     var openGroups: Set<String> { Set(device.openGroups[groupScope] ?? []) }
+
+    /// [sessions-ux] The opened groups the list draws open: with project pills (`projectRowsOpenPages`) no project,
+    /// whatever was opened before (a project page's sections keep their own).
+    var shownOpenGroups: Set<String> {
+        guard projectRowsOpenPages, view.pills == .projects else { return openGroups }
+        return openGroups.filter { !SessionListPipeline.isProject($0) }
+    }
 
     /// [sessions-layout] Every chat New for You lifts right now joins the ones kept there until the page is left.
     func holdNew() {

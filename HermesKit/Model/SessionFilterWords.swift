@@ -125,7 +125,7 @@ nonisolated enum SessionProjectState: Int, Hashable, Sendable, CaseIterable {
     var spoken: String? {
         switch self {
         case .needsYou: "Needs you"
-        case .ready: "Ready"
+        case .ready: "New"   // [sessions-ux] one word on the page for a reply not read yet
         case .working: "Working"
         case .quiet: nil
         }

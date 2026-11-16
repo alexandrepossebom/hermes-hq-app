@@ -374,11 +374,15 @@ final class SessionsTests: XCTestCase {
     /// Every launch starts from the standard theme (a test's `-HQDebugDesktopLook YES` is applied after the reset), so
     /// the Desktop Look tests never leave the stored look to the tests after them. The "Know When a Bot Replies?" offer
     /// belongs to another feature's tests: answered already in these (on a fresh install it covered the first reply).
+    /// [sessions-ux] `projectPages`: a project's row under Group By Project opens its page, as on an iPhone and an iPad.
+    /// Every other launch opens it in place (`-HQDebugProjectRowsUnfold`, the Mac's way), which is what the tests of a
+    /// project's card under Group By Project look at.
     @MainActor func launch(peek: Bool = false, fresh: Bool = false, keepView: Bool = false, drag: Bool = false,
-                          extra: [String] = []) -> XCUIApplication {
+                          projectPages: Bool = false, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-HQDebugSessionsTab", "YES", "-HQDebugHUDSeconds", "5", "-HQDebugResetTheme", "YES",
                                "-dispatch.notifications.asked", "YES"] + extra
+            + (projectPages ? [] : ["-HQDebugProjectRowsUnfold", "YES"])
             + (peek ? [] : ["-HQDebugNoSwipePeek", "YES"]) + (Self.textOutFolder.map { ["-HQDebugTextOut", $0] } ?? [])
             + (keepView ? [] : ["-HQDebugResetSessionsView", "YES"]) + (Self.dark ? ["-HQDebugAppearance", "dark"] : [])
             + (drag ? [] : ["-HQDebugNoDrag", "YES"])

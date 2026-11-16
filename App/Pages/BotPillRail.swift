@@ -28,10 +28,29 @@ struct BotPillRail<Extra: View>: View {
     private var allId: String { "\(identifier).all" }
 
     var body: some View {
+        // [sessions-ux] The switch stays put at the rail's start and the pills scroll beside it: scrolled along with
+        // them it left the screen (nothing then said which view was drawn, or switched it), and a picked pill,
+        // centred, pushed half of it off the edge.
+        HStack(spacing: 0) {
+            if let leading {
+                leading
+                    .padding(.leading, side)
+                    .padding(.top, DesktopRows.underBar)
+                    .padding(.bottom, Theme.isDesktop ? 2 : 4)
+            }
+            scroller.padding(.leading, leading == nil ? 0 : 2)
+        }
+    }
+
+    private var side: CGFloat { Theme.isDesktop ? DesktopRows.gutter : 16 }
+    /// The scrolling pills' first place (with the switch outside them there is no All pill to scroll back to).
+    private var startId: String { "\(identifier).start" }
+
+    private var scroller: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    if let leading { leading }
+                    if leading != nil { Color.clear.frame(width: 0, height: 1).padding(.trailing, -8).id(startId) }
                     if showsAll {
                         SessionPill(caption: "All", name: "All Bots", picked: allPicked, identifier: allId) {
                             onPickAll()
@@ -55,7 +74,8 @@ struct BotPillRail<Extra: View>: View {
                         .id(bot.id)
                     }
                 }
-                .padding(.horizontal, Theme.isDesktop ? DesktopRows.gutter : 16)
+                .padding(.leading, leading == nil ? side : 6)
+                .padding(.trailing, side)
                 // The pills' 44 pt touch frames hold 5 pt above and below them already.
                 // [top-bar-gap] Owner 2026-11-09: in the Desktop Look the bar is a frosted band with an edge, and the
                 // pills sat 8 pt under it ("the top bar is so close to the contents"). They get the room the Mac's
@@ -66,17 +86,20 @@ struct BotPillRail<Extra: View>: View {
             }
             .scrollIndicators(.hidden)
             .hqScrollEdgeFade(width: 20)
-            .onAppear { proxy.scrollTo(picked ?? allId, anchor: .center) }
+            .onAppear { show(picked, proxy) }
             .onChange(of: picked) { _, picked in
-                if reduceMotion {
-                    proxy.scrollTo(picked ?? allId, anchor: .center)
-                } else {
-                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(picked ?? allId, anchor: .center) }
-                }
+                if reduceMotion { show(picked, proxy) } else { withAnimation(.easeInOut(duration: 0.25)) { show(picked, proxy) } }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
         .accessibilityIdentifier("\(identifier)s")
+    }
+
+    /// The picked pill in the middle; with nothing picked, the pills from their start.
+    private func show(_ picked: String?, _ proxy: ScrollViewProxy) {
+        if let picked { proxy.scrollTo(picked, anchor: .center) }
+        else if leading != nil { proxy.scrollTo(startId, anchor: .leading) }
+        else { proxy.scrollTo(allId, anchor: .center) }
     }
 }

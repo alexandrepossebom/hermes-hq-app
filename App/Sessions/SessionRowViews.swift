@@ -537,10 +537,11 @@ struct SessionHeaderFold {
     var unit = "chat"
     var toggle: () -> Void
 
-    /// "12 chats, 3 unread": a closed group's count.
+    /// "12 chats, 3 new": a closed group's count. [sessions-ux] One word on the page for a reply not read yet: "new",
+    /// as New for You and the New pill say (a closed heading said "unread" and a project's page "Ready").
     static func countWords(total: Int, unread: Int, unit: String = "chat") -> String {
         let chats = total == 1 ? "1 \(unit)" : "\(total) \(unit)s"
-        return unread > 0 ? "\(chats), \(unread) unread" : chats
+        return unread > 0 ? "\(chats), \(unread) new" : chats
     }
 }
 
@@ -799,7 +800,6 @@ struct SessionDateHeaderView: View {
     private var captionRow: some View {
         HStack(spacing: 8) {
             if let source { PlatformMark(source: source, size: Theme.isDesktop ? 16 : 20) }
-            if let mark { ProjectStateMark(state: mark) }
             // [desktoplook2] In the look no font on the Text: one set there beats the label's (UX study #196).
             // Text.font(nil) is still a font of the Text's own (the body font), so the look's branch sets none at all.
             Group {
@@ -808,6 +808,11 @@ struct SessionDateHeaderView: View {
             .foregroundStyle(dropTarget ? Color.hqTint : ink(over && fold != nil))
             .hqDesktopLabel(color: dropTarget ? .hqTint : ink(over && fold != nil))   // [desktoplook2] EARLIER TODAY, as the desktop's group label
             .layoutPriority(1)
+            // [sessions-ux] The mark hangs in the margin, so every heading on the page starts on the rows' edge ("Ready"
+            // began 15 pt right of "This Week" under it, and "Working", whose ring is wider, 2 pt right of "Ready").
+            .overlay(alignment: .leading) {
+                if let mark { ProjectStateMark(state: mark).frame(width: 10).offset(x: -15) }
+            }
             if let badge, badge > 0 { countBadge(badge) }   // [sessions-layout] New for You's count
             if let tally {
                 Text("\(tally)")
@@ -820,8 +825,9 @@ struct SessionDateHeaderView: View {
             // [sessions-collapse] The caret straight after the name, as "Projects ⌄", ahead of a See All.
             if let fold {
                 caret(fold.collapsed)
-                if fold.collapsed, tally == nil {
-                    Text(fold.unread > 0 ? "\(fold.total) · \(fold.unread) unread" : "\(fold.total)")
+                // [sessions-ux] New for You's badge already counts it (closed it read "New for You 5 › 5 · 5 unread").
+                if fold.collapsed, tally == nil, badge == nil {
+                    Text(fold.unread > 0 ? "\(fold.total) · \(fold.unread) new" : "\(fold.total)")
                         .font(Font.hq(.subheadline))
                         .foregroundStyle(Color.hqLabel3)
                         .monospacedDigit()
@@ -953,7 +959,7 @@ struct SessionDateHeaderView: View {
         if let summary {
             // [project-cards] Who is in it and how many, then unread, a bot at work, the newest chat.
             parts.append(summary.whoWords)
-            if summary.unread > 0 { parts.append("\(summary.unread) unread") }
+            if summary.unread > 0 { parts.append("\(summary.unread) new") }
             if summary.working { parts.append("a bot is working") }
             if summary.collapsed, let latest = summary.latestTitle, !latest.isEmpty { parts.append("newest: \(latest)") }
             if !summary.time.isEmpty { parts.append(summary.time) }

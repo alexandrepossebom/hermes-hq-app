@@ -209,6 +209,11 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             snapshot.reloadSections(snapshot.sectionIdentifiers)
             dataSource.apply(snapshot, animatingDifferences: false)
         }
+        store?.projectRowsOpenPages = !DeviceWord.isMac   // [sessions-ux] the pills' project page; the Mac has no pills
+        #if DEBUG
+        // UI tests of a project opening in place under Group By Project (the Mac's way) run it on the simulator.
+        if UserDefaults.standard.bool(forKey: "HQDebugProjectRowsUnfold") { store?.projectRowsOpenPages = false }
+        #endif
         installHeader()          // [sessions-m9]
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self] _ in self?.pulledToRefresh() }, for: .valueChanged)
@@ -501,11 +506,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             let header = ProjectPageHeader(
                 name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
-                onJump: { [weak self] section in self?.scrollToPageSection(section) },
-                onNewChat: self.organizer == nil || self.store?.readOnlyGateway == true ? nil : { [weak self] in
-                    Haptics.play(.selection)
-                    self?.organizer?.newChat(inProject: key, profile: self?.pickedBot)
-                })
+                onJump: { [weak self] section in self?.scrollToPageSection(section) })
             cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
             cell.accessibilityIdentifier = "sessions.projectPage"
             cell.backgroundConfiguration = .clear()
@@ -674,6 +675,12 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// A header tapped: its group closes to the header (kept across launches for the chip's bot), or opens again.
     func toggleGroup(_ id: String) {
         guard let store else { return }
+        // [sessions-ux] Owner 2026-11-16 (things "where you would expect"): with the projects as the pills, a project's
+        // row opens its page, as its pill does. It opened in place, so the same project opened two ways on one screen.
+        if store.projectRowsOpenPages, projectLayout, !searching, let key = SessionListPipeline.projectKey(id) {
+            pickProject(key)
+            return
+        }
         // [sessions-collapse] "Projects" open has no group of its own: its caption sits over the first project.
         let collapsed: Bool
         if let group = groups.first(where: { $0.id == id }) {
@@ -2117,7 +2124,12 @@ extension SessionsViewController {
         guard state.prefs.projectFilter != picked else { return }
         Haptics.play(.selection)
         state.prefs.projectFilter = picked
-        apply(state)
+        // [sessions-ux] Into a project's page or back out the whole list changes: a quick fade from its top, not rows
+        // flying between sections under a list left scrolled where the tapped row was.
+        crossfade {
+            self.apply(state, animated: false)
+            self.collectionView.setContentOffset(CGPoint(x: 0, y: -self.collectionView.adjustedContentInset.top), animated: false)
+        }
     }
 
     /// [sessions-fresh] All: every bot, and no status chip. [project-pills] With project pills, every project too.
@@ -2213,6 +2225,9 @@ extension SessionsViewController {
         // The Filter menu's filters do not apply to search hits, so the strip waits for the query to clear (§7.4).
         let strip = searching ? nil : SessionFilterWords.stripText(state)
         if headerModel.strip != strip { headerModel.strip = strip; headerChanged = true }
+        // [sessions-ux] Compose says where its chat starts while one project is picked (it is that page's New Chat).
+        let composeIn = pickedProjects.count == 1 ? state.projects.first { pickedProjects.contains($0.key) && $0.key != SessionProjects.homeKey }?.label : nil
+        barCapsule?.composeItem?.accessibilityLabel = composeIn.map { "New Chat in \($0)" } ?? "New Chat"
         if headerChanged { view.setNeedsLayout() }
     }
 

@@ -28,7 +28,11 @@ extension SessionsTests {
         // [projects-switch] Nor is the Bots | Projects switch at the rail's start a bot pill.
         let botPills = rail.buttons.matching(NSPredicate(format: "NOT (identifier BEGINSWITH %@) AND NOT (identifier BEGINSWITH %@)",
                                                          "sessions.chip.status.", "sessions.pills."))
-        XCTAssertEqual(botPills.count, 4, "each chip is one element\n\(rail.debugDescription)")
+        // [sessions-ux] The switch (whose lit side is All) stays at the rail's start, outside the pills that scroll: the
+        // scrolling rail holds the three bots, and All is there once.
+        XCTAssertEqual(botPills.count, 3, "each bot's pill is one element\n\(rail.debugDescription)")
+        XCTAssertEqual(app.buttons.matching(identifier: "sessions.chip.all").count, 1, "All is one element")
+        XCTAssertLessThan(chips[0].frame.maxX, rail.frame.minX + 12, "the switch stands before the scrolling pills")
         app.terminate()
 
         fixture("/__fixture/mode", ["bots": 1])
@@ -228,7 +232,7 @@ extension SessionsTests {
     @MainActor func test40b_ProjectPills() throws {
         fixture("/__fixture/mode", ["working": ["s-trip"]])          // a turn at work in Reading
         defer { fixture("/__fixture/mode", ["working": [String]()]) }
-        let app = launch()
+        let app = launch(projectPages: true)
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         // [projects-switch] One tap on the rail's switch is Group By › Project (the projects are read as
         // the list loads; the switch shows once they are known).
@@ -256,10 +260,19 @@ extension SessionsTests {
         XCTAssertFalse(chip(app, "research").exists, "no bot pills")
         let pills = (0..<3).map { app.buttons["sessions.chip.project.\($0)"] }
         XCTAssertTrue(pills.allSatisfy(\.exists), "three project pills\n\(rail.debugDescription)")
-        XCTAssertEqual(pills.map(\.label), ["Website project, Ready", "Reading project, Working", "App project"],
+        XCTAssertEqual(pills.map(\.label), ["Website project, New", "Reading project, Working", "App project"],
                        "what needs you first: Website's unread reply, Reading's working chat, then App")
         XCTAssertTrue(chip(app, nil).isSelected, "All is lit")
         shot(app, "P1-project-pills")
+        // [sessions-ux] A project's row opens its page, as its pill does (it opened in place); All shows the list again.
+        let websiteRow = header(app, "Website")
+        XCTAssertTrue(websiteRow.waitForExistence(timeout: 6), "Website's row")
+        reveal(app, websiteRow)
+        websiteRow.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "the row opens the project's page")
+        XCTAssertTrue(waitUntil(6) { pills[0].isSelected && !self.chip(app, nil).isSelected }, "and lights its pill")
+        chip(app, nil).tap()
+        XCTAssertTrue(waitUntil(6) { self.chip(app, nil).isSelected && !app.cells["sessions.projectPage"].exists }, "All: the list again")
         pills[0].tap()
         XCTAssertTrue(waitUntil(6) { let o = self.order(app); return o.contains("s-budget") && !o.contains("s-garden") && !o.contains("s-trip") },
                       "only Website's chats (\(order(app)))")
@@ -271,12 +284,14 @@ extension SessionsTests {
         XCTAssertTrue(page.waitForExistence(timeout: 6), "the project page's header")
         XCTAssertTrue(app.staticTexts["Website"].exists, "the project's name")
         // The three counts, always: a zero is dimmed and takes no tap.
-        XCTAssertEqual(app.buttons["sessions.projectPage.ready"].label, "Ready, 1 chat")
+        XCTAssertEqual(app.buttons["sessions.projectPage.ready"].label, "New, 1 chat")
         XCTAssertEqual(app.buttons["sessions.projectPage.needs"].label, "Needs You, 0 chats")
         XCTAssertFalse(app.buttons["sessions.projectPage.needs"].isEnabled, "a zero takes no tap")
         XCTAssertTrue(app.staticTexts["sessions.projectPage.place"].label.contains("~/site"), "its folder")
-        XCTAssertTrue(app.buttons["sessions.projectPage.newChat"].exists, "New Chat in the project")
-        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Ready"] }, "its sections (\(headers(app)))")
+        // [sessions-ux] One go-to: no New Chat on the page; the bar's Compose starts the chat here and says so.
+        XCTAssertFalse(app.buttons["sessions.projectPage.newChat"].exists, "no second New Chat on the page")
+        XCTAssertEqual(app.buttons["sessions.compose"].label, "New Chat in Website")
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["New"] }, "its sections (\(headers(app)))")
         shot(app, "P2-project-pill-picked")
         // Reading's page: its working chat under Working.
         pills[1].tap()

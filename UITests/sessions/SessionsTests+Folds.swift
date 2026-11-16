@@ -55,7 +55,7 @@ extension SessionsTests {
         let website = header(app, "Website")
         XCTAssertTrue(website.waitForExistence(timeout: 8), "the Website header")
         XCTAssertTrue((website.value as? String)?.hasPrefix("Collapsed") == true, "\(website.value ?? "")")
-        XCTAssertTrue(((website.value as? String) ?? "").contains("8 chats, 1 unread"), "\(website.value ?? "")")
+        XCTAssertTrue(((website.value as? String) ?? "").contains("8 chats, 1 new"), "\(website.value ?? "")")
         XCTAssertFalse(row(app, "s-w1").exists, "a folded project draws no rows")
         openProject(app, "Website")
         let more = app.cells["sessions.showMore"].firstMatch

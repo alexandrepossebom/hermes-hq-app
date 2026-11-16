@@ -236,6 +236,10 @@ final class SessionStore {
     var botFilter: String?
     /// [sessions-fresh] The New or Working chip. In memory only, as the bot chip.
     var statusChip: SessionStatusChip?
+    /// [sessions-ux] Where the pills are the projects (iPhone, iPad), a project's row opens its page as its pill does,
+    /// so under Group By Project no project is drawn open in the list. The Mac, which has no pills, leaves this off:
+    /// its rows open and close in place.
+    var projectRowsOpenPages = false
     /// The reconnect probe's counters: limit-1 probes sent, full reads they saved, full reads made.
     private(set) var probeStats = SidebarProbeStats() {
         didSet { if probeStats != oldValue { onProbeStats?(probeStats) } }

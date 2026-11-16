@@ -416,6 +416,15 @@ import Testing
         page = run(rows) { $0.prefs.statusFilter = [.working] }
         #expect(shape(page["working"]) == [6, 0, 6, 0])
         #expect(SessionListPipeline.folds(SessionGroup(id: "state-week", title: "This Week", sessions: [])))
+        // [sessions-ux] A project whose chats fit one screen draws them all: nothing starts closed, nothing is cut to
+        // Show More; closed by hand a section still closes. One chat more and the long page's rules are back.
+        let few = Array(rows.prefix(5)) + rows.suffix(4) + [Self.chat("t0", ago: 20 * 60, cwd: site)]
+        #expect(few.count == SessionListPipeline.pageFitsWhole)
+        page = run(few)
+        #expect(shape(page["working"]) == [5, 0, 5, 0] && shape(page["week"]) == [2, 0, 2, 0] && shape(page["older"]) == [2, 0, 2, 0])
+        #expect(shape(run(few) { $0.collapsedGroups = ["state-week"] }["week"]) == [0, 0, 2, 1])
+        page = run(few + [Self.chat("t1", ago: 21 * 60, cwd: site)])
+        #expect(shape(page["working"]) == [3, 2, 5, 0] && shape(page["week"]) == [0, 0, 2, 1])
     }
 
     /// [project-pills] A project pill opens the project page: its header, then Needs You, Ready, Working and the quiet
@@ -438,7 +447,7 @@ import Testing
         // [project-sections] Owner 2026-11-16: the headings say the chips' words, and the quiet chats are Pinned and
         // then by when they were last at work.
         #expect(page.map(\.id) == ["page", "state-needs", "state-ready", "state-working", "state-pinned", "state-today"])
-        #expect(page.map(\.title) == ["", "Needs You", "Ready", "Working", "Pinned", "Today"])
+        #expect(page.map(\.title) == ["", "Needs You", "New", "Working", "Pinned", "Today"])
         #expect(page[1].sessions.map(\.id) == ["b"] && page[2].sessions.map(\.id) == ["c"] && page[3].sessions.map(\.id) == ["a"])
         #expect(page[4].sessions.map(\.id) == ["f"] && page[5].sessions.map(\.id) == ["e"])   // "g": research has no Site project
         #expect(page.dropFirst().map(\.total) == [1, 1, 1, 1, 1])
@@ -576,8 +585,9 @@ import Testing
         groups = run { $0.prefs.projectFilter = ["/home/hermes/site"] }
         #expect(groups.first { $0.id == SessionListPipeline.pageId }?.total == 9)
         #expect(groups.first { $0.id == "state-ready" }?.sessions.map(\.id).sorted() == ["s0", "s3", "s6"])
-        // [project-sections] Ready draws every chat; the six quiet ones are Today's, a long section (three, then Show More).
-        #expect(groups.first { $0.id == "state-today" }.map { [$0.sessions.count, $0.more, $0.total] } == [3, 3, 6])
+        // [project-sections] Ready draws every chat; the six quiet ones are Today's. [sessions-ux] Nine chats fit one
+        // screen, so all six are drawn (a long page cuts a long section to three, then Show More).
+        #expect(groups.first { $0.id == "state-today" }.map { [$0.sessions.count, $0.more, $0.total] } == [6, 0, 6])
         #expect(groups.allSatisfy { !$0.collapsed })
         // A project filter naming no listed project narrows nothing, so it opens nothing either (C-07).
         groups = run { $0.prefs.projectFilter = ["/gone"] }

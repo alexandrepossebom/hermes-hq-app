@@ -380,7 +380,9 @@ extension AppModel: SessionsServices {}
                 self?.addProjectThenChat(profile: profile, name: label, folder: key)
             }
         }
-        if let profile { start(profile) } else { chooseBot(start) }
+        // [sessions-ux] The chooser says which project the chat starts in, the project's own bots first (it read
+        // "Choose a Bot" over every bot, Hermes first, with no word of the project).
+        if let profile { start(profile) } else { chooseBot(project: (label, holders.map(\.profile)), start) }
     }
 
     /// A bot without the project: `projects.create` for it with the project's name and folder, then the new chat there.
@@ -410,10 +412,18 @@ extension AppModel: SessionsServices {}
 
     /// One bot: it is the answer. More: Choose a Bot first (Hermes first, then the Bots list's order); hidden bots left
     /// out, as the chips leave them out (Hermes is always offered).
-    func chooseBot(_ picked: @escaping (String) -> Void) {
-        let bots = services.bots.filter { !$0.hidden || $0.id == "default" }
+    /// `project`: a project's New Chat: its name (the sheet is "New Chat", its first heading "In <project>") and the
+    /// bots that have it, which are listed first; the others follow under "Other Bots".
+    func chooseBot(project: (name: String, bots: [String])? = nil, _ picked: @escaping (String) -> Void) {
+        let bots = services.bots.filter { !$0.hidden || $0.id == "default" || project?.bots.contains($0.id) == true }
         guard bots.count > 1, let host else { picked(bots.first?.id ?? "default"); return }
         let ordered = bots.filter { $0.id == "default" } + bots.filter { $0.id != "default" }
+        var groups = [ChooseBotView.Group(title: nil, bots: ordered)]
+        if let project {
+            let own = ordered.filter { project.bots.contains($0.id) }, others = ordered.filter { !project.bots.contains($0.id) }
+            groups = own.isEmpty ? [.init(title: "In \(project.name)", bots: ordered)]
+                : [.init(title: "In \(project.name)", bots: own)] + (others.isEmpty ? [] : [.init(title: "Other Bots", bots: others)])
+        }
         // The sheet itself is dismissed, not `host.presentedViewController` (which can be nil or another controller: a
         // search the page keeps in its presentation context, a sheet still arriving), and the pick is delivered once,
         // even when UIKit drops the dismissal's completion (a tap during the sheet's own animation).
@@ -425,13 +435,13 @@ extension AppModel: SessionsServices {}
             picked(id)
         }
         // [ui-sizing] The scaled root, as every hosted page: its bot names stayed 17 pt beside 75 pt faces at 150 %.
-        let picker = UIHostingController(rootView: HQScaledRoot(ChooseBotView(bots: ordered) { bot in
+        let picker = UIHostingController(rootView: HQScaledRoot(ChooseBotView(groups: groups) { bot in
             guard let sheet = box.sheet, sheet.presentingViewController != nil else { deliver(bot.id); return }
             sheet.dismiss(animated: true) { deliver(bot.id) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { deliver(bot.id) }
         }))
         picker.view.backgroundColor = HQPalette.sheetPage   // [glass] the glass shows around the rows
-        let chooser = ChatSheet.wrap(picker, title: "Choose a Bot")
+        let chooser = ChatSheet.wrap(picker, title: project == nil ? "Choose a Bot" : "New Chat")
         box.sheet = chooser
         host.present(chooser, animated: true)
     }
@@ -820,13 +830,15 @@ private final class SlowHUDBox {
 
 /// Choose a Bot: each bot's face and name (a project's New Chat with no bot picked, New Project… from the filter).
 struct ChooseBotView: View {
-    var bots: [Bot]
+    struct Group { var title: String?; var bots: [Bot] }
+    var groups: [Group]
     var pick: (Bot) -> Void
 
     var body: some View {
         List {
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
             Section {
-                ForEach(bots) { bot in
+                ForEach(group.bots) { bot in
                     Button { pick(bot) } label: {
                         // [ui-sizing 2026-11-09] A name-only row: a 32 pt face in a 44 pt row (× UI Scale), not the Bots
                         // list's 50 pt face in a 58 pt row; four bots filled the half sheet on a 375 pt phone.
@@ -840,8 +852,11 @@ struct ChooseBotView: View {
                     }
                     .accessibilityIdentifier("choose-bot-\(bot.id)")
                 }
+            } header: {
+                if let title = group.title { Text(title).accessibilityIdentifier("choose-bot-heading") }
             }
             .hqSheetRows()
+            }
         }
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .listStyle(.insetGrouped)
