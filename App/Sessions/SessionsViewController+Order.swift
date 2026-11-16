@@ -30,7 +30,7 @@ extension SessionsViewController {
         let lane = shownGroupKeys(bots: bots).filter { favorites.contains($0) == favorite }
         let index = lane.firstIndex(of: key) ?? 0
         // [project-pills] With project pills, a project (not Home) can be archived from its header too.
-        let archivable = !bots && key != SessionProjects.homeKey && !DeviceWord.isMac && store?.view.pills == .projects
+        let archivable = !bots && key != SessionProjects.homeKey && store?.view.pills == .projects
         let archived = store?.archivedProjects.contains(key) ?? false
         return SessionHeaderOrder(
             favorite: favorite,

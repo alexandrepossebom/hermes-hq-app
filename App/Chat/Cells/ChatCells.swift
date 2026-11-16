@@ -557,8 +557,6 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
     #endif
     fileprivate var blockViewsOnShow: [BlockView] { blockViews.filter { !$0.isHidden } }
     private let timeLabel = UILabel()
-    /// Where the layout put the time (`mediaView.timeOffset` moves it onto a stack's top card).
-    private var timeFrame = CGRect.zero
     private let showMore = UIControl()
     private let showMoreLabel = UILabel()
     private var copyText = ""
@@ -625,11 +623,6 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         bubble.addSubview(shape)
         bubble.addSubview(mediaView)                                                               // [attachments]
         mediaView.delegateProvider = { [weak self] in self?.delegate as? ChatMediaCellDelegate }
-        mediaView.onStackMotion = { [weak self] p in self?.timeLabel.alpha = 1 - p }   // the time over a flipping stack
-        mediaView.onTimeOffset = { [weak self] o in   // and in the corner of the stack's top card
-            guard let self else { return }
-            self.timeLabel.frame = self.timeFrame.offsetBy(dx: o.dx, dy: o.dy)
-        }
         timeLabel.adjustsFontForContentSizeCategory = false
         bubble.addSubview(timeLabel)
         showMore.addTarget(self, action: #selector(showMoreTapped), for: .touchUpInside)
@@ -710,9 +703,7 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
                 // [attachments] over a photo-only bubble the time is white in its dim capsule
                 .foregroundColor: b.timeCapsule != nil ? UIColor.white : (b.mine ? ChatPalette.meTime : ChatPalette.label2),
             ])
-            timeFrame = b.timeFrame
-            let o = b.timeCapsule != nil ? mediaView.timeOffset : .zero
-            timeLabel.frame = b.timeFrame.offsetBy(dx: o.dx, dy: o.dy)
+            timeLabel.frame = b.timeFrame
         } else {
             timeLabel.isHidden = true
         }
@@ -1220,12 +1211,11 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         return v.x < 0 && abs(v.x) > abs(v.y) * 1.5
     }
 
-    /// A code block or table that scrolls sideways keeps its own drag, and so does a photo stack (it flips).
+    /// A code block or table that scrolls sideways keeps its own drag.
     fileprivate func replyShouldReceive(_ touch: UITouch) -> Bool {
         var view = touch.view
         while let v = view, v !== contentView {
             if let scroll = v as? UIScrollView, scroll.contentSize.width > scroll.bounds.width + 1 { return false }
-            if v is PhotoStackView { return false }
             view = v.superview
         }
         return true
@@ -1582,7 +1572,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         metaLabel.frame = CGRect(x: metaX, y: 0, width: metaW, height: h)
         titleLabel.frame = CGRect(x: titleX, y: 0, width: max(0, (t.meta == nil ? chevron.frame.minX - 8 : metaX - 8) - titleX), height: h)
         spinner.frame = glyph.frame.insetBy(dx: -2, dy: -2)
-        rowButton.accessibilityLabel = t.title + (t.meta.map { ", " + $0 } ?? "")
+        rowButton.accessibilityLabel = (t.spokenTitle ?? t.title) + (t.meta.map { ", " + $0 } ?? "")
         // A run of one opens its step sheet; longer runs open in place.
         rowButton.accessibilityValue = t.single ? nil : (t.expanded ? "Expanded" : "Collapsed")
         rowButton.accessibilityHint = t.single ? "Shows the step’s details" : nil
@@ -1736,7 +1726,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         rowButton.isEnabled = group.opens
         rowButton.accessibilityTraits = group.opens ? .button : .staticText
         // "4 updates: From Hermes, Delegated 1 task, To Hermes, To Hermes", or a single line's own words.
-        rowButton.accessibilityLabel = group.count > 1 ? "\(group.count) updates: " + group.titles.joined(separator: ", ") : t.title
+        rowButton.accessibilityLabel = group.count > 1 ? "\(group.count) updates: " + group.titles.joined(separator: ", ") : (t.spokenTitle ?? t.title)
         rowButton.accessibilityValue = group.opens && !t.single ? (t.groupOpen ? "Expanded" : "Collapsed") : nil
         rowButton.accessibilityHint = !group.opens ? nil : t.single ? "Shows the step’s details"
             : group.count > 1 ? "Shows them" : "Shows the message"

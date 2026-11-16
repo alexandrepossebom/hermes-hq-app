@@ -210,6 +210,13 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
             control = segments
         }
         control.accessibilityIdentifier = "artifact.text.mode"
+        #if targetEnvironment(macCatalyst)
+        // [mac-pages] The bar stretched the switch over all the room it had: in a note's own window it ran the width
+        // of the window and cut the file's name to "trip-notes…". It is a switch's width at most; a narrow pane
+        // still squeezes it, so the name keeps its room there.
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.widthAnchor.constraint(lessThanOrEqualToConstant: (240 * HQFont.scale).rounded()).isActive = true
+        #endif
         // The control is its own capsule: without this the bar's glass drew a second ring around it.
         let item = UIBarButtonItem(customView: control)
         item.hidesSharedBackground = true
@@ -243,16 +250,73 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
             let guardian = PageLinkGuard(file: url, host: self)
             web.navigationDelegate = guardian
             linkGuard = guardian
-            web.frame = view.bounds
+            #if targetEnvironment(macCatalyst)
+            web.scrollView.contentInsetAdjustmentBehavior = .never   // [mac-pages] it sits under the bar (`placePreview`)
+            #else
             web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            #endif
             web.accessibilityIdentifier = "artifact.page"
             view.insertSubview(web, belowSubview: spinner)
+            placePreview()
             web.loadPageFile(url)
             previewWeb = web
         }
         previewWeb?.isHidden = !shown
         textView.isHidden = shown
+        #if targetEnvironment(macCatalyst)
+        placePageItems(shown)
+        #endif
     }
+
+    /// The HTML Preview in its room: the whole page elsewhere; on the Mac under the bar, at the pages' zoom
+    /// ([mac-pages], `PageZoom`: its words were 77 % of a browser's, with no way to enlarge them).
+    private func placePreview() {
+        guard let web = previewWeb else { return }
+        #if targetEnvironment(macCatalyst)
+        PageZoom.place(web, in: view.bounds.inset(by: view.safeAreaInsets))
+        #else
+        if web.frame != view.bounds { web.frame = view.bounds }
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// [mac-pages] The zoom level (its menu zooms) and Open in Window beside Share while the HTML Preview shows. The window is the page
+    /// viewer's own (`HTMLPageSheet`), which can be resized and made full screen.
+    private lazy var zoomControls = PageZoom.Controls(compact: true) { [weak self] in self?.viewIfLoaded?.setNeedsLayout() }
+    private lazy var windowItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(image: UIImage(systemName: "macwindow.on.rectangle"), primaryAction: UIAction { [weak self] _ in
+            guard let self, let url = self.htmlPreview else { return }
+            HTMLPageSheet.present(url, title: self.title, from: self)
+        })
+        item.accessibilityLabel = "Open in Window"
+        item.accessibilityIdentifier = "artifact.page.window"
+        return item
+    }()
+
+    private func placePageItems(_ shown: Bool) {
+        let mine = zoomControls.items + [windowItem]
+        var items = (navigationItem.rightBarButtonItems ?? []).filter { item in !mine.contains { $0 === item } }
+        if shown { items += [windowItem] + zoomControls.items }
+        navigationItem.rightBarButtonItems = items
+    }
+
+    /// ⌘+ ⌘− ⌘0 zoom the page while its Preview has the keys (clicked into), as in the page's own window.
+    @objc func hqTextBigger(_ sender: Any?) { PageZoom.change(by: 1) }
+    @objc func hqTextSmaller(_ sender: Any?) { PageZoom.change(by: -1) }
+    @objc func hqTextNormal(_ sender: Any?) { PageZoom.change(by: 0) }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if [KeyCommands.textBigger, KeyCommands.textSmaller, KeyCommands.textNormal].contains(action) {
+            return previewWeb?.isHidden == false
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func validate(_ command: UICommand) {
+        super.validate(command)
+        PageZoom.validate(command)
+    }
+    #endif
 
     #if targetEnvironment(macCatalyst)
     /// [macpass-chat r5] On a Mac sheet (a chat's .md or code file) the text view runs edge to edge, so the sheet's
@@ -260,20 +324,39 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
     /// that room into its own inset (5 pt line padding + 21 = 26 pt = 20 px, Done's line); a pushed page keeps 16.
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        fitTextColumn()
+    }
+
+    /// [mac-pages] A note in a window of its own (`MacFileWindow.open(page:)`) can be as wide as the screen: its
+    /// formatted text keeps a readable line, centred, instead of running edge to edge. Source and code keep the width.
+    private static let readableWidth: CGFloat = 920
+
+    private func fitTextColumn() {
         var inset = textView.textContainerInset
-        inset.left = max(16, view.safeAreaInsets.left + 11)
-        inset.right = max(16, view.safeAreaInsets.right + 11)
+        var left = max(16, view.safeAreaInsets.left + 11), right = max(16, view.safeAreaInsets.right + 11)
+        if markdown, !showsSource {
+            let side = ((view.bounds.width - Self.readableWidth) / 2).rounded()
+            left = max(left, side); right = max(right, side)
+        }
+        inset.left = left
+        inset.right = right
         if inset != textView.textContainerInset { textView.textContainerInset = inset }
     }
     #endif
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if let web = previewWeb, web.frame != view.bounds { web.frame = view.bounds }
+        placePreview()
+        #if targetEnvironment(macCatalyst)
+        fitTextColumn()
+        #endif
         tableCards.placeIfWidthChanged()   // a turn or a Mac window resize moves the text under the cards
     }
 
     private func render() {
+        #if targetEnvironment(macCatalyst)
+        view.setNeedsLayout()   // [mac-pages] Preview keeps a readable column, Source the full width (`fitTextColumn`)
+        #endif
         if htmlPreview != nil {
             showPreviewChild(!showsSource)
             if !showsSource { return }

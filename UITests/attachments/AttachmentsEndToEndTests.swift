@@ -287,13 +287,11 @@ final class AttachmentsEndToEndTests: XCTestCase {
         try account.control("/__fixture/attachments-history", ["profile": "default"])
         let app = launch()
         let table = app.tables["chat.table"]
-        // Row 5's two photos are a stack: a swipe brings the second one to the top, and a tap opens it.
-        let second = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.media.' AND identifier CONTAINS '.stack.'")).firstMatch
+        // Row 5's two photos are a grid: a tap on the second one opens the viewer on it.
+        let second = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.media.' AND identifier ENDSWITH '.1'")).firstMatch
         for _ in 0..<10 where !(second.exists && second.isHittable) { table.swipeDown(velocity: .slow); sleep(1) }
         XCTAssertTrue(second.exists, "row 5's photos")
         clearSavePassword(app)
-        second.swipeLeft()
-        XCTAssertTrue(waitUntil(timeout: 3) { (second.value as? String)?.hasPrefix("2 of 2") == true }, "the second photo on top: \(second.value ?? "")")
         second.tap()
         XCTAssertTrue(app.buttons["viewer.close"].waitForExistence(timeout: 5), "the viewer opens")
         XCTAssertTrue(app.navigationBars["2 of 2"].exists || app.staticTexts["2 of 2"].exists, "paging over the message's photos")
@@ -525,12 +523,24 @@ final class AttachmentsEndToEndTests: XCTestCase {
         }
     }
 
-    // MARK: Photo stacks (owner 2026-10-30)
+    // MARK: Photo grids (owner 2026-11-16)
 
-    /// Several photos in one message are a stack you swipe through: one element that says which photo is on top, a
-    /// swipe either way flips it and it goes round, the row keeps its height, the viewer opens on the top photo, and
-    /// closing the viewer on another photo leaves that one on top.
-    @MainActor func test19_PhotoStacksSwipeAndOpen() throws {
+    /// A photo tile in the chat whose label names `file`.
+    @MainActor private func tile(_ app: XCUIApplication, _ file: String) -> XCUIElement {
+        app.tables["chat.table"].descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'chat.media.' AND label CONTAINS %@", file)).firstMatch
+    }
+
+    /// The tile `index` places into the same message's photos as `tile`.
+    @MainActor private func sibling(_ app: XCUIApplication, of tile: XCUIElement, _ index: Int) -> XCUIElement {
+        let id = tile.identifier
+        let stem = id[..<(id.lastIndex(of: ".") ?? id.endIndex)]
+        return app.tables["chat.table"].descendants(matching: .any).matching(identifier: "\(stem).\(index)").firstMatch
+    }
+
+    /// Several photos in one message are a grid of rounded tiles, two across (up to four, then "+N"); a
+    /// tap on one opens the viewer on that photo, and the viewer pages the message's photos.
+    @MainActor func test19_PhotoGridsShowEveryPhotoAndOpen() throws {
         try account.control("/__fixture/photo-stack-history", ["profile": "default"])
         // HQN_ATTACH_LOOK=desktop-dark: the Desktop Look too, light and dark ("dl-" shots; check every look).
         let desktop = ProcessInfo.processInfo.environment["HQN_ATTACH_LOOK"] == "desktop-dark"
@@ -541,29 +551,20 @@ final class AttachmentsEndToEndTests: XCTestCase {
             if !tag.isEmpty { extra += ["-HQDebugDesktopLook", "YES"] }
             let app = launch(extra: extra, reset: mode == "light")
             let table = app.tables["chat.table"]
-            let stacks = table.descendants(matching: .any).matching(NSPredicate(format: "identifier CONTAINS '.stack.'"))
-            let pair = stacks.matching(NSPredicate(format: "label == '2 photos'")).firstMatch
-            XCTAssertTrue(pair.waitForExistence(timeout: 20), "the photo-only reply's two pictures are one stack")
+            // The photo-only reply's two pictures, side by side.
+            let wide = tile(app, "wide.png"), square = tile(app, "square.png")
+            XCTAssertTrue(wide.waitForExistence(timeout: 20) && square.waitForExistence(timeout: 5), "both pictures of the photo-only reply show")
             sleep(3)
-            shot(app, tag + "ps1-stacks-bottom")
-            func value(_ e: XCUIElement) -> String { e.value as? String ?? "" }
-            XCTAssertTrue(value(pair).hasPrefix("1 of 2"), value(pair))
-            let height = pair.frame.height
-            pair.swipeLeft()
-            XCTAssertTrue(waitUntil(timeout: 3) { value(pair).hasPrefix("2 of 2") }, "a swipe left flips to the next: \(value(pair))")
-            sleep(1)
-            shot(app, tag + "ps2-pair-flipped")
-            XCTAssertEqual(pair.frame.height, height, "the row keeps its height as it flips")
-            pair.swipeLeft()
-            XCTAssertTrue(waitUntil(timeout: 3) { value(pair).hasPrefix("1 of 2") }, "past the last it goes round: \(value(pair))")
-            pair.swipeRight()
-            XCTAssertTrue(waitUntil(timeout: 3) { value(pair).hasPrefix("2 of 2") }, "a swipe right brings the bottom one up: \(value(pair))")
-            // The viewer opens on the top photo; closing it on the other leaves that one on top.
-            pair.tap()
+            shot(app, tag + "pg1-grids-bottom")
+            XCTAssertEqual(wide.frame.minY, square.frame.minY, accuracy: 1, "in one row")
+            XCTAssertGreaterThan(square.frame.minX, wide.frame.maxX, "side by side")
+            XCTAssertGreaterThan(square.frame.maxX - wide.frame.minX, table.frame.width * 0.8, "across the chat's width")
+            // A tap on the second opens the viewer on it; a sideways swipe pages (it never closes the viewer).
+            square.tap()
             XCTAssertTrue(app.buttons["viewer.close"].waitForExistence(timeout: 5), "the viewer opens")
-            XCTAssertTrue(app.navigationBars["2 of 2"].exists || app.staticTexts["2 of 2"].exists, "on the top photo")
+            XCTAssertTrue(app.navigationBars["2 of 2"].exists || app.staticTexts["2 of 2"].exists, "on the tapped photo")
             sleep(1)
-            // A sideways swipe pages (it never closes the viewer, even from the edge).
+            shot(app, tag + "pg2-viewer")
             app.windows.firstMatch.swipeRight()
             if !waitUntil(timeout: 3, { app.navigationBars["1 of 2"].exists || app.staticTexts["1 of 2"].exists }) {
                 shot(app, "zz-19-page")
@@ -571,31 +572,28 @@ final class AttachmentsEndToEndTests: XCTestCase {
             }
             app.buttons["viewer.close"].tap()
             XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["viewer.close"].exists }, "back in the chat")
-            XCTAssertTrue(waitUntil(timeout: 3) { value(pair).hasPrefix("1 of 2") }, "the viewer's last photo is on top: \(value(pair))")
-            // The reply's three screenshots (listed as bullets) and your sets further up.
-            let listed = stacks.matching(NSPredicate(format: "value CONTAINS 'shot-1.png'")).firstMatch
-            XCTAssertTrue(listed.waitForExistence(timeout: 5), "the listed screenshots are one stack")
-            // By its identifier from here: the value names the top photo, so it changes with each flip.
-            let screenshots = stacks.matching(identifier: listed.identifier).firstMatch
-            screenshots.swipeLeft()
-            XCTAssertTrue(waitUntil(timeout: 3) { value(screenshots).hasPrefix("2 of 3") }, value(screenshots))
-            sleep(1)
-            shot(app, tag + "ps3-screenshots-flipped")
-            let four = stacks.matching(NSPredicate(format: "label == '4 photos'")).firstMatch
-            for _ in 0..<6 where !(four.exists && four.isHittable) { table.swipeDown(velocity: .slow); sleep(1) }
-            XCTAssertTrue(four.exists, "your four photos are one stack")
+            XCTAssertTrue(wide.exists && square.exists, "the grid as it was")
+            // The reply's three phone screenshots (listed as bullets): the first across the top, two under it.
+            let shots = (1...3).map { tile(app, "shot-\($0).png") }
+            XCTAssertTrue(shots.allSatisfy(\.exists), "the listed screenshots are three tiles")
+            XCTAssertEqual(shots[1].frame.minY, shots[2].frame.minY, accuracy: 1, "the second and third in one row")
+            XCTAssertGreaterThan(shots[1].frame.minY, shots[0].frame.maxY, "under the first")
+            XCTAssertGreaterThan(shots[0].frame.width, shots[1].frame.width * 1.9, "which runs across the top")
+            // Your four photos, then your three with a caption, further up.
+            let fourth = tile(app, "stack-4.png")
+            for _ in 0..<6 where !(fourth.exists && fourth.isHittable) { table.swipeDown(velocity: .slow); sleep(1) }
+            XCTAssertTrue(fourth.exists, "your four photos")
+            XCTAssertTrue((0..<4).allSatisfy { sibling(app, of: fourth, $0).exists }, "each has its tile")
             sleep(2)
-            shot(app, tag + "ps4-yours")
-            let captioned = stacks.matching(NSPredicate(format: "label == '3 photos' AND NOT (value CONTAINS 'shot-')")).firstMatch
-            XCTAssertTrue(captioned.exists, "your three photos with a caption are one stack")
-            XCTAssertTrue(message(app, "Which of these three").exists, "the caption under them")
+            shot(app, tag + "pg3-yours")
+            XCTAssertTrue(message(app, "Which of these three").exists, "the caption under your three")
             app.terminate()
         }
     }
 
-    /// Five pictures the bot made one after another are one stack you swipe through, and the answer after them is its
-    /// own bubble, formatted (owner 2026-10-31: twenty cards in a column, then "None of that message formatted").
-    @MainActor func test19b_MadePicturesStackAndTheAnswerFormats() throws {
+    /// Five pictures the bot made one after another are one grid, and the answer after them is its own bubble,
+    /// formatted (owner 2026-10-31: twenty cards in a column, then "None of that message formatted").
+    @MainActor func test19b_MadePicturesGridAndTheAnswerFormats() throws {
         try account.control("/__fixture/photo-stack-history", ["profile": "default"])
         let desktop = ProcessInfo.processInfo.environment["HQN_ATTACH_LOOK"] == "desktop-dark"
         for mode in desktop ? ["light", "dark", "dl-light", "dl-dark"] : ["light", "dark"] {
@@ -605,29 +603,25 @@ final class AttachmentsEndToEndTests: XCTestCase {
             if !tag.isEmpty { extra += ["-HQDebugDesktopLook", "YES"] }
             let app = launch(extra: extra, reset: mode == "light")
             let table = app.tables["chat.table"]
-            let stacks = table.descendants(matching: .any).matching(NSPredicate(format: "identifier CONTAINS '.stack.'"))
-            func value(_ e: XCUIElement) -> String { e.value as? String ?? "" }
-            XCTAssertTrue(stacks.firstMatch.waitForExistence(timeout: 20), "the chat opened")
-            let made = stacks.matching(NSPredicate(format: "label == '5 photos'")).firstMatch
-            for _ in 0..<10 where !(made.exists && made.isHittable) { table.swipeDown(velocity: .slow); sleep(1) }
-            XCTAssertTrue(made.exists, "the five made pictures are one stack")
-            XCTAssertTrue(value(made).hasPrefix("1 of 5"), value(made))
+            let tiles = table.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.media.'"))
+            XCTAssertTrue(tiles.firstMatch.waitForExistence(timeout: 20), "the chat opened")
+            // The made pictures sit under "One brief each." at the top of the chat: their fourth tile (it stands for the
+            // fifth too) is the one on screen there.
+            let brief = message(app, "One brief each")
+            for _ in 0..<12 where !(brief.exists && brief.isHittable) { table.swipeDown(velocity: .slow); sleep(1) }
+            let fourths = tiles.matching(NSPredicate(format: "identifier ENDSWITH '.3'")).allElementsBoundByIndex
+            let fifth = try XCTUnwrap(fourths.first { $0.isHittable && $0.frame.minY > brief.frame.minY }, "the five made pictures are one grid")
+            XCTAssertTrue((0..<4).allSatisfy { sibling(app, of: fifth, $0).exists }, "four tiles")
             sleep(2)
-            shot(app, tag + "ps5-made-pictures")
-            let madeStack = stacks.matching(identifier: made.identifier).firstMatch
-            madeStack.swipeLeft()
-            XCTAssertTrue(waitUntil(timeout: 3) { value(madeStack).hasPrefix("2 of 5") }, value(madeStack))
+            shot(app, tag + "pg5-made-pictures")
             let answer = message(app, "Five ideas, best first")
             XCTAssertTrue(answer.exists, "the answer under the pictures")
             XCTAssertFalse(answer.label.contains("**") || answer.label.contains("|---"), "drawn, not raw: \(answer.label)")
-            for _ in 0..<3 where !(answer.isHittable) { table.swipeUp(velocity: .slow); sleep(1) }
-            sleep(1)
-            shot(app, tag + "ps6-answer-formatted")
-            madeStack.tap()
+            sibling(app, of: fifth, 1).tap()
             XCTAssertTrue(app.buttons["viewer.close"].waitForExistence(timeout: 5), "the viewer opens")
-            XCTAssertTrue(app.navigationBars["2 of 5"].exists || app.staticTexts["2 of 5"].exists, "on the top picture, paging all five")
+            XCTAssertTrue(app.navigationBars["2 of 5"].exists || app.staticTexts["2 of 5"].exists, "on the tapped picture, paging all five")
             sleep(1)
-            shot(app, tag + "ps7-made-viewer")
+            shot(app, tag + "pg7-made-viewer")
             app.buttons["viewer.close"].tap()
             app.terminate()
         }

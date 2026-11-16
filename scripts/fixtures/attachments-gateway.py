@@ -24,7 +24,7 @@ Controls (no auth):
                                      fileAttach (copy|inplace|error), submitStaleOnce, downloadDelay, downloadFailures, strict
   POST /__fixture/attachments-history {"profile":"default"}: 16 history shapes (§14.2)
   POST /__fixture/agent-images-history {"profile":"default"}: bare picture paths, quoted MEDIA, a 404, your markdown
-  POST /__fixture/photo-stack-history {"profile":"default"}: several photos in one message (stacks you swipe through)
+  POST /__fixture/photo-stack-history {"profile":"default"}: several photos in one message (grids)
   POST /__fixture/spreadsheet-history {"profile":"default"}: a reply with an Excel workbook and a CSV (Mac file windows)
   POST /__fixture/plan               the performance plans plus `mediaReply` and `imageGenerate`
   GET  /__fixture/state              adds uploads, deletes, attached, attachLedger, prompts, downloads
@@ -704,10 +704,10 @@ def seed_agent_images(profile):
 
 
 def seed_photo_stacks(profile):
-    """Several photos in one message, drawn as a stack you swipe through (owner 2026-10-30): your three with a caption,
+    """Several photos in one message, drawn as a grid (owner 2026-11-16; a swipe-through pile before): your three with a caption,
     your four alone, a reply listing three phone screenshots, and a photo-only reply of two shapes; first, a reply that
     made five pictures one after another (no pixel size, like fal's) and then answered with a table (owner 2026-10-31:
-    one stack, and the words their own formatted bubble). Leaves a file in
+    one set, and the words their own formatted bubble). Leaves a file in
     the media folder alone when it is already there; HQN_STACK_PICTURES names a folder of real pictures to use in
     their place (same names: stack-1.png … shot-3.png, wide.png, square.png; never committed)."""
     media = FILES / 'media'

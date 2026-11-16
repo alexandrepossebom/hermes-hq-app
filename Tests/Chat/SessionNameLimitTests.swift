@@ -3,9 +3,9 @@ import Testing
 @testable import HermesHQNative
 
 @Suite struct SessionNameLimitTests {
-    @Test func namingBudgetIsThreeWordsAndTwentyCharacters() {
-        #expect(ShortTitle.maxWords == 3)
+    @Test func namingBudgetIsTwentyCharactersNotThreeWords() {
         #expect(ShortTitle.maxCharacters == 20)
+        #expect(ShortTitle.compact("The cost of a repair") == "The cost of a repair")
     }
 
     @Test(arguments: [
@@ -19,23 +19,24 @@ import Testing
     func fallbackAlwaysFits(message: String) {
         let title = ShortTitle.fallback(for: message)
         #expect(title.count <= 20, "\(title)")
-        #expect(ShortTitle.words(title).count <= 3, "\(title)")
         #expect(!title.isEmpty)
     }
 
-    @Test func modelHasNoExtraWordOrCharacterAllowance() {
+    @Test func modelHasNoExtraCharacterAllowance() {
         #expect(ShortTitle.accepted("Database connection pool troubleshooting", message: "Help debug my app") == nil)
         #expect(ShortTitle.accepted(String(repeating: "x", count: 21), message: "Help debug my app") == nil)
         #expect(ShortTitle.accepted("Database pool repair", message: "Help debug my app") == "Database pool repair")
     }
 
     @Test func compactUsesWholeWordsAndNormalizesModelDecoration() {
-        #expect(ShortTitle.compact("Title: \"Database connection pool troubleshooting\"") == "Database connection")
+        #expect(ShortTitle.compact("Title: \"Database connection pool troubleshooting\"") == "Database connection…")
         #expect(ShortTitle.compact("Trip to Lisbon") == "Trip to Lisbon")
         #expect(ShortTitle.compact("  Database   pool\trepair  ") == "Database pool repair")
-        #expect(ShortTitle.fallback(for: "Check database synchronization tomorrow") == "Check database")
+        #expect(ShortTitle.fallback(for: "Check database synchronization tomorrow") == "Check database…")
         #expect(ShortTitle.accepted("Database\rpool", message: "Debug the app") == nil)
-        #expect(ShortTitle.accepted("ß" + String(repeating: "a", count: 19), message: "Debug the app") == nil)
+        let exactlyTwenty = "ß" + String(repeating: "a", count: 19)
+        #expect(ShortTitle.accepted(exactlyTwenty, message: "Debug the app") == exactlyTwenty)
+        #expect(ShortTitle.accepted(exactlyTwenty + "a", message: "Debug the app") == nil)
         #expect(ShortTitle.isPlaceholder(String(repeating: "界", count: 21), firstMessage: String(repeating: "界", count: 21)))
     }
 }
@@ -51,8 +52,8 @@ import Testing
         f.session.title = "New Chat"
         f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
         event(f, "Database connection pool troubleshooting guide")
-        #expect(f.session.title == "Database connection")
-        #expect(await waitUntil { f.params("session.title").last?["title"]?.string == "Database connection" })
+        #expect(f.session.title == "Database connection…")
+        #expect(await waitUntil { f.params("session.title").last?["title"]?.string == "Database connection…" })
     }
 
     @Test func alreadyShortGatewayNameNeedsNoWrite() async {
@@ -82,13 +83,14 @@ import Testing
         f.session.title = "New Chat"
         f.session.messages = [ChatMessage(id: "u1", role: .user, parts: [.text(message)], timestamp: nil, rowId: nil)]
         f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
+        let instant = ShortTitle.fallback(for: message)
         event(f, "Please investigate the database…")
-        #expect(f.session.title == "Investigate database")
+        #expect(f.session.title == instant)
         event(f, "Database connection pool troubleshooting guide")
-        #expect(f.session.title == "Database connection")
-        #expect(await waitUntil { f.params("session.title").last?["title"]?.string == "Database connection" })
-        event(f, "Investigate database") // a late echo of the first short-name save
-        #expect(f.session.title == "Database connection")
+        #expect(f.session.title == "Database connection…")
+        #expect(await waitUntil { f.params("session.title").last?["title"]?.string == "Database connection…" })
+        event(f, instant) // a late echo of the first short-name save
+        #expect(f.session.title == "Database connection…")
     }
 
     @Test func manualRenameWinsOverAnAutomaticSaveAlreadyOnTheWire() async throws {
@@ -108,7 +110,7 @@ import Testing
         gate.release()
         #expect(try await rename.value == typed)
         #expect(f.params("session.title").last?["title"]?.string == typed)
-        event(f, "Database connection")
+        event(f, "Database connection…")
         #expect(f.session.title == typed)
     }
 
@@ -132,10 +134,10 @@ import Testing
         await f.session.automaticTitleSave?.value
         event(f, "Database connection pool troubleshooting guide")
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "Database connection")
-        #expect(f.params("session.title").last?["title"]?.string == "Database connection")
+        #expect(f.session.title == "Database connection…")
+        #expect(f.params("session.title").last?["title"]?.string == "Database connection…")
         event(f, "Repair database") // a late echo of the local save
-        #expect(f.session.title == "Database connection")
+        #expect(f.session.title == "Database connection…")
     }
 
     @Test func shortGatewayNameIsReassertedAfterOlderInFlightSave() async {

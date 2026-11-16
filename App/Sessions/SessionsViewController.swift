@@ -2123,7 +2123,7 @@ extension SessionsViewController {
     /// [sessions-fresh] All: every bot, and no status chip. [project-pills] With project pills, every project too.
     func pickAll() {
         guard let store else { return }
-        let projectPills = !DeviceWord.isMac && store.view.pills == .projects
+        let projectPills = store.view.pills == .projects
         let clearsProjects = projectPills && !store.view.projectFilter.isEmpty
         guard store.statusChip != nil || store.botFilter != nil || clearsProjects else { return }
         Haptics.play(.selection)
@@ -2188,7 +2188,7 @@ extension SessionsViewController {
         let chips = SessionChipBot.chips(from: bots)
         if headerModel.bots != chips { headerModel.bots = chips; headerChanged = true }
         if headerModel.picked != state.botFilter { headerModel.picked = state.botFilter; headerChanged = true }
-        if DeviceWord.isMac { placeBotsItem(bots, picked: state.botFilter) }
+        if DeviceWord.isMac { placeScopeItem(bots, state: state) }
         // [sessions-fresh] New and Working after All, with their counts under the bot chip.
         let counts = store.chipCounts
         if headerModel.statusChips != counts { headerModel.statusChips = counts; headerChanged = true }
@@ -2222,22 +2222,65 @@ extension SessionsViewController {
     /// fourth item (words or a glyph) made UIKit drop the title, and the bots are in Filter (`botsInFilter`).
     private static let botWordsAt: CGFloat = 400
 
-    private func placeBotsItem(_ bots: [Bot], picked: String?) {
+    /// [mac-projects] Owner 2026-11-16 (what the iPhone has that the Mac doesn't): the Mac has no pill rail, so the
+    /// Bots | Projects switch and the project pills (builds 1027, 1039, 1046) had no place on it. They are this one
+    /// pop-up: Bots or Projects on top, then that view's choices. "All Projects ⌄" lists the projects in the pills'
+    /// order (the one waiting on you first, marked as the pills are), and picking one opens its page.
+    private func placeScopeItem(_ bots: [Bot], state: SessionFilterState) {
         var items = navigationItem.rightBarButtonItems ?? []
         let shown = items.contains { $0 === botsScope.item }
-        guard bots.count > 1, botWordsShown != false else {
+        let inProjects = state.prefs.pills == .projects
+        let hasProjects = inProjects || state.projects.contains { $0.key != SessionProjects.homeKey }
+        guard bots.count > 1 || hasProjects, botWordsShown != false else {
             if shown { items.removeAll { $0 === botsScope.item }; navigationItem.rightBarButtonItems = items }
             return
         }
-        let title = picked.flatMap { id in bots.first { $0.id == id }?.name } ?? "All Bots"
-        let all = UIAction(title: "All Bots", state: picked == nil ? .on : .off) { [weak self] _ in self?.pickBot(nil) }
-        let each = bots.map { bot in
-            UIAction(title: bot.name, state: picked == bot.id ? .on : .off) { [weak self] _ in self?.pickBot(bot.id) }
+        var sections: [UIMenuElement] = []
+        if hasProjects {
+            let views: [(SessionPills, String)] = [(.bots, "Bots"), (.projects, "Projects")]
+            sections.append(UIMenu(options: [.displayInline, .singleSelection], children: views.map { view, word in
+                let action = UIAction(title: word, state: state.prefs.pills == view ? .on : .off) { [weak self] _ in self?.pickPills(view) }
+                action.accessibilityIdentifier = "sessions.pills.\(view.rawValue)"
+                return action
+            }))
         }
-        let menu = UIMenu(options: .singleSelection, children: [all, UIMenu(options: .displayInline, children: each)])
-        let signature = ([picked ?? ""] + bots.map { "\($0.id)\u{1F}\($0.name)" }).joined(separator: "\u{1E}")
-        botsScope.show(title: title, menu: menu, signature: signature)
+        let title: String
+        var signature = [inProjects ? "projects" : "bots", hasProjects ? "1" : "0"]
+        if inProjects {
+            let projects = store?.pillProjects(order: bots.map(\.id)) ?? []
+            let picked = SessionFilterWords.effectiveProjects(state)
+            let one = picked.count == 1 ? projects.first { picked.contains($0.key) } : nil
+            title = one?.label ?? "All Projects"
+            let all = UIAction(title: "All Projects", state: picked.isEmpty ? .on : .off) { [weak self] _ in self?.pickProject(nil) }
+            let each = projects.map { project in
+                UIAction(title: project.archived ? "\(project.label) (Archived)" : project.label, image: Self.scopeMark(project.state),
+                         state: picked == [project.key] ? .on : .off) { [weak self] _ in self?.pickProject(project.key) }
+            }
+            sections.append(UIMenu(options: [.displayInline, .singleSelection], children: [all] + each))
+            signature += picked.sorted() + projects.map { "\($0.key)\u{1F}\($0.label)\u{1F}\($0.state)\u{1F}\($0.archived)" }
+        } else {
+            let picked = state.botFilter
+            title = picked.flatMap { id in bots.first { $0.id == id }?.name } ?? "All Bots"
+            let all = UIAction(title: "All Bots", state: picked == nil ? .on : .off) { [weak self] _ in self?.pickBot(nil) }
+            let each = bots.map { bot in
+                UIAction(title: bot.name, state: picked == bot.id ? .on : .off) { [weak self] _ in self?.pickBot(bot.id) }
+            }
+            sections.append(UIMenu(options: [.displayInline, .singleSelection], children: [all, UIMenu(options: .displayInline, children: each)]))
+            signature += [picked ?? ""] + bots.map { "\($0.id)\u{1F}\($0.name)" }
+        }
+        botsScope.show(title: title, menu: UIMenu(children: sections), signature: signature.joined(separator: "\u{1E}"))
         if !shown { items.append(botsScope.item); navigationItem.rightBarButtonItems = items }
+    }
+
+    /// A project's mark in the pop-up, as its pill's: orange while it waits on you, blue with a reply to read, a ring
+    /// while a bot works in it; none while it is quiet.
+    private static func scopeMark(_ state: SessionProjectState) -> UIImage? {
+        switch state {
+        case .needsYou: UIImage(systemName: "circle.fill")?.withTintColor(.systemOrange, renderingMode: .alwaysOriginal)
+        case .ready: UIImage(systemName: "circle.fill")?.withTintColor(HQPalette.tint, renderingMode: .alwaysOriginal)
+        case .working: UIImage(systemName: "circle.dotted")
+        default: nil
+        }
     }
 
     /// Mark All as Read (§5.6): both unread sources of every listed chat, and (as the web does) every bot's own chat.

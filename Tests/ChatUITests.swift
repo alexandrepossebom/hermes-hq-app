@@ -289,9 +289,9 @@ struct ChatRowBuilderTests {
         #expect(bubbles[0].1.joinsBelow && !bubbles[0].1.tail && bubbles[0].1.time == nil)
         #expect(bubbles[1].1.joinsAbove && bubbles[1].1.tail && bubbles[1].1.time != nil)
         #expect(bubbles[2].1.tail && !bubbles[2].1.joinsAbove)
-        // 2 pt inside a run, 6 pt between turns.
+        // 2 pt inside a run; a change of speaker has its own gap (10 pt on the phone).
         #expect(rows.first(where: { $0.messageId == "u2" })?.gapAbove == 2)
-        #expect(rows.first(where: { $0.messageId == "a1" })?.gapAbove == 6)
+        #expect(rows.first(where: { $0.messageId == "a1" })?.gapAbove == ChatMetrics.speakerGap)
     }
 
     @Test func daySeparatorAtFirstMessageAndAfterLongGap() {

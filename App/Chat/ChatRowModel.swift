@@ -79,6 +79,13 @@ struct ChatRowModel {
         var lo = min(messages.count, max(builtFrom, min(lo, messages.count)))
         // [updates] From the start of an update group the region reaches into: its line counts what follows.
         if lo < messages.count { lo = max(builtFrom, UpdateGroups.widen(lo...lo, input: input).lowerBound) }
+        // [chat-refine] A reply's time reads up to minuteReach later messages: rebuild that many earlier ones when
+        // any of them changes, not just those in the newest minute. Missing timestamps and edits in an older minute
+        // must agree with a full build too. The bounded eight-message reach keeps this cheap.
+        if input.fewerTimes, lo < messages.count {
+            let back = max(builtFrom, lo - ChatRowBuilder.minuteReach)
+            lo = max(builtFrom, UpdateGroups.widen(back...back, input: input).lowerBound)
+        }
         let fresh = ChatRowBuilder.build(input, range: lo..<messages.count)
         var ids = Set(messages[lo...].map(\.id))
         ids.insert("waiting")
@@ -115,6 +122,11 @@ struct ChatRowModel {
         lo = max(builtFrom, wide.lowerBound)
         hi = min(messages.count - 1, wide.upperBound)
         if hi == messages.count - 1 { rebuildNewest(input, fromMessage: lo); return }
+        // [chat-refine] An edit can change whether an earlier reply's time is redundant, just as an arriving reply can.
+        if input.fewerTimes {
+            let back = max(builtFrom, lo - ChatRowBuilder.minuteReach)
+            lo = max(builtFrom, UpdateGroups.widen(back...back, input: input).lowerBound)
+        }
         let fresh = Array(ChatRowBuilder.build(input, range: lo..<(hi + 1)).reversed())
         let ids = Set(messages[lo...hi].map(\.id))
         guard let start = allRows.firstIndex(where: { ids.contains($0.messageId) }) else { return }

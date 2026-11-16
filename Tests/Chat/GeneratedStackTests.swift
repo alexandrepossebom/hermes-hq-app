@@ -1,6 +1,6 @@
 // [genstack] Owner, 2026-10-31: "Now the images aren't showing where I can swipe through them like we had." Once the
 // bridged calls paired with their pictures, the app bot's twenty icons drew as twenty cards in a column. Pictures made
-// one after another in a reply are one photo stack you swipe through (session 20260101_090000_aa0002, rows 11336-11357).
+// one after another in a reply are one set of photos, a grid since 2026-11-16 (session 20260101_090000_aa0002, rows 11336-11357).
 
 import Foundation
 import Testing

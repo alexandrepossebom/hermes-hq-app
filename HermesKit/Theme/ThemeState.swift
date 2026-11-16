@@ -61,8 +61,7 @@ nonisolated struct ThemeState: Sendable, Hashable {
     /// [mac] What 100 % is on the Mac, per look. × 1.3 and × 1.15 are Grok Bot's Mac app's sizes (owner 2026-10-27:
     /// "mimic that closely while sticking to our brand"): the Mac draws the iPad layout at 77 %, so the Desktop Look's
     /// 15 pt body came out at 11.5 pt on the screen and the iOS look's 17 at 13, and those put both on 15 pt. Then
-    /// `macBody` puts the app's body text on the Mac's own 13 pt (owner 2026-11-14); faces, rows and icons follow it.
-    /// Chat text stays on 15 (`chatText`).
+    /// `macBody` is 1: the app's body text is 15 pt, as chat text (13 pt from Mac 1002 to 1009 read too small).
     static func macBase(desktopLook: Bool) -> Double {
         #if targetEnvironment(macCatalyst)
         (desktopLook ? 1.3 : 1.15) * macBody
@@ -71,22 +70,18 @@ nonisolated struct ThemeState: Sendable, Hashable {
         #endif
     }
 
-    /// [type-body] The Mac's body text size on the screen over 15 pt (owner 2026-11-14: 13 pt body across the Mac
-    /// app, as Finder, Mail and Notes; chat messages stay 15). 13 / 15 on the Mac in every build, 1 on the iPhone and
-    /// iPad. A Debug build launched with `-HQTypeBody <points>` (10 to 20) draws that size instead, to compare:
-    /// `-HQTypeBody 15` is the look through Mac 1000. The launch's own arguments, read once a launch, never saved.
-    /// UI Scale multiplies on top. The sidebar keeps its own sizes (`SidebarType`).
+    /// [type-body] The Mac's body text size on the screen over 15 pt. 1 again (15 pt body, Grok Bot's sizes): Mac 1002
+    /// drew the app at 13 pt (owner 2026-11-14, from pictures), and in use it was too small (owner 2026-11-16: "I don't
+    /// know why we're making everything so tiny so that it's hard to see"). 1 on the iPhone and iPad. A Debug build
+    /// launched with `-HQTypeBody <points>` (10 to 20) draws that size instead, to compare: `-HQTypeBody 13` is Mac
+    /// 1002 to 1009. The launch's own arguments, read once a launch, never saved. UI Scale multiplies on top.
     static let macBody: Double = {
-        #if targetEnvironment(macCatalyst)
-        #if DEBUG
+        #if targetEnvironment(macCatalyst) && DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if let at = arguments.firstIndex(of: "-HQTypeBody"), at + 1 < arguments.count,
            let body = Double(arguments[at + 1]), (10...20).contains(body) { return body / 15 }
         #endif
-        return 13.0 / 15
-        #else
         return 1
-        #endif
     }()
 
     /// [type-body] The chat's own factor over the app's text (owner 2026-11-14: chat messages stay 15 pt while the

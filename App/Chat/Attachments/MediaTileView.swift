@@ -28,9 +28,14 @@ final class MediaTileView: UIView {
     private let backdropBlur = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
     /// Show the whole photo (aspect fit) on its blur instead of filling the frame.
     private var fits = false
-    /// A stack's card: `fits` follows the photo's own shape (its pixel size, else the decoded picture's): filled when it
-    /// is near the card's, whole on its blur when it is not (a screenshot is never cut down to a card's shape).
-    private var autoFit = false
+    /// A grid's last tile when the message has more photos than the grid shows: how many wait behind it. The photo is
+    /// dimmed under "+N"; a tap opens the viewer on it, which pages on to the rest.
+    private var more = 0
+    /// A grid's tile: a rounded card with a hairline edge, its photo filling it from the top (a tall screenshot keeps
+    /// its title in view instead of showing its middle).
+    private var card: CGFloat?
+    private var moreScrim: UIView?
+    private var moreLabel: UILabel?
     /// The size the picture was last asked for at (`maxPixel`).
     private var requestedPixel = 0
     private let spinner = UIActivityIndicatorView(style: .medium)
@@ -49,16 +54,6 @@ final class MediaTileView: UIView {
     /// A load (or the sharper copy of a smaller cached one) is under way.
     private var loadInFlight = false
     private var foregroundObserver: NSObjectProtocol?
-    /// [perf] A card deep in a photo stack, out of sight: its photo waits until the card nears the top (16 photos in one
-    /// message no longer fetch and decode 16 pictures for the three you can see). Cleared → the load starts.
-    var deferred = false {
-        didSet {
-            guard oldValue != deferred, !deferred, needsStart else { return }
-            start()
-        }
-    }
-    /// A configure that `deferred` held back.
-    private var needsStart = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -78,8 +73,8 @@ final class MediaTileView: UIView {
         addSubview(imageView)
         imageView.onImage = { [weak self] image in
             guard let self else { return }
-            if self.autoFit, let image { self.setFits(Self.differs(image.size, self.bounds.size)) }
             self.updateBackdrop(image)
+            if self.card != nil { self.setNeedsLayout() }   // the photo's place follows its shape
         }
         glyph.contentMode = .center
         glyph.tintColor = ChatPalette.label3
@@ -101,6 +96,7 @@ final class MediaTileView: UIView {
         accessibilityTraits = [.image, .button]
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
         addGestureRecognizer(tap)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: MediaTileView, _) in view.recolorCard() }
         foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil,
                                                                     queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.retryAutomatically() }
@@ -116,13 +112,15 @@ final class MediaTileView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        imageView.frame = bounds
+        imageView.frame = Self.imageFrame(card: card != nil && !fits, image: imageView.image?.size, in: bounds)
         backdrop.frame = bounds
         backdropBlur.frame = bounds
         glyph.frame = bounds
         spinner.center = CGPoint(x: bounds.midX, y: bounds.midY)
         failure.frame = bounds
         scrim.frame = bounds
+        moreScrim?.frame = bounds
+        moreLabel?.frame = bounds
         ring.frame = CGRect(x: bounds.midX - 12, y: bounds.midY - 12, width: 24, height: 24)
         shimmer.frame = bounds
     }
@@ -130,54 +128,29 @@ final class MediaTileView: UIView {
     /// The pixel size to decode at: the tile's points × screen scale.
     private var maxPixel: Int {
         let scale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
-        return Int(ceil(max(bounds.width, bounds.height) * max(2, scale)))
+        // A grid's card shows a tall screenshot at the card's width, running on past its bottom edge: sharp at that size.
+        return Int(ceil(max(bounds.width, bounds.height) * (card != nil ? 2.2 : 1) * max(2, scale)))
     }
 
-    func configure(_ item: MediaItem, frame: CGRect, fits: Bool = false, autoFit: Bool = false) {
+    func configure(_ item: MediaItem, frame: CGRect, fits: Bool = false, more: Int = 0, card: CGFloat? = nil) {
         let same = self.item?.attachment.source == item.attachment.source && self.item?.rendering == item.rendering
         self.frame = frame
-        self.autoFit = autoFit
-        var fits = fits
-        if autoFit {
-            if let w = item.attachment.pixelWidth, let h = item.attachment.pixelHeight, w > 0, h > 0 {
-                fits = Self.differs(CGSize(width: w, height: h), frame.size)
-            } else if same, let image = imageView.image {
-                fits = Self.differs(image.size, frame.size)
-            } else {
-                fits = self.fits
-            }
-        }
+        setCard(card)
         setFits(fits)
+        setMore(more)
         self.item = item
         accessibilityLabel = item.label
-        accessibilityHint = item.rendering ? nil : "Opens the photo"
+        accessibilityHint = item.rendering ? nil : more > 0 ? "Opens this photo and \(more) more" : "Opens the photo"
         layoutIfNeeded()
         observeUpload(item)
         // A card grown past what the picture was decoded for (a reply picture's shape learnt): decode it again, the
         // smaller copy showing meanwhile.
         let sharp = phase != .loaded || MediaMemoryCache.bucket(maxPixel) <= MediaMemoryCache.bucket(requestedPixel)
         if same && !suspended && sharp && (phase == .loaded || phase == .loading || phase == .rendering) { return }
-        if deferred {
-            if !same {
-                // Another photo now: nothing of the last one's shows or loads (a copy already in memory may show).
-                loadTask?.cancel()
-                loadTask = nil
-                loadInFlight = false
-                spinnerWork?.cancel()
-                spinner.stopAnimating()
-                failure.isHidden = true
-                imageView.image = item.context.flatMap { MediaLoader.shared.cachedImage(item.attachment, context: $0, maxPixel: 256) }
-                phase = .idle
-            }
-            needsStart = true
-            return
-        }
         start()
     }
 
     func prepareForReuse() {
-        needsStart = false
-        deferred = false
         loadTask?.cancel()
         loadTask = nil
         loadInFlight = false
@@ -199,11 +172,58 @@ final class MediaTileView: UIView {
         updateBackdrop(imageView.image)
     }
 
-    /// A photo of `size` would lose more than an eighth of itself filling `frame`.
-    static func differs(_ size: CGSize, _ frame: CGSize) -> Bool {
-        guard size.width > 0, size.height > 0, frame.width > 0, frame.height > 0 else { return false }
-        let a = size.width / size.height, b = frame.width / frame.height
-        return max(a / b, b / a) > 1.14
+    private func setCard(_ radius: CGFloat?) {
+        guard radius != card else { return }
+        card = radius
+        layer.cornerRadius = radius ?? 0
+        layer.cornerCurve = .continuous
+        layer.borderWidth = radius == nil ? 0 : 1 / max(1, traitCollection.displayScale)
+        recolorCard()
+        setNeedsLayout()
+    }
+
+    private func recolorCard() {
+        layer.borderColor = card == nil ? nil : ChatPalette.separator.resolvedColor(with: traitCollection).cgColor
+    }
+
+    /// Where the picture sits in a tile. A grid's card whose photo is taller than the card: the card's width, the
+    /// photo's own height, from the top (the card clips the rest). Anything else fills the tile.
+    static func imageFrame(card: Bool, image: CGSize?, in bounds: CGRect) -> CGRect {
+        guard card, let image, image.width > 0, image.height > 0, bounds.width > 0, bounds.height > 0,
+              image.height / image.width > bounds.height / bounds.width else { return bounds }
+        return CGRect(x: 0, y: 0, width: bounds.width, height: (bounds.width * image.height / image.width).rounded(.up))
+    }
+
+    /// "+N" over the dimmed photo (the views are made the first time a tile needs them).
+    private func setMore(_ count: Int) {
+        guard count != more else { return }
+        more = count
+        guard count > 0 else {
+            moreScrim?.isHidden = true
+            moreLabel?.isHidden = true
+            return
+        }
+        if moreScrim == nil {
+            let dim = UIView()
+            dim.backgroundColor = UIColor(white: 0, alpha: 0.45)
+            dim.isUserInteractionEnabled = false
+            let label = UILabel()
+            label.textColor = .white
+            label.textAlignment = .center
+            label.adjustsFontSizeToFitWidth = true
+            label.minimumScaleFactor = 0.6
+            label.baselineAdjustment = .alignCenters
+            label.isAccessibilityElement = false   // the tile's hint says it
+            insertSubview(dim, aboveSubview: imageView)
+            insertSubview(label, aboveSubview: dim)
+            moreScrim = dim
+            moreLabel = label
+        }
+        moreScrim?.isHidden = false
+        moreLabel?.isHidden = false
+        moreLabel?.font = HQFont.digits(24, weight: .medium, like: .title2, cap: 30)
+        moreLabel?.text = "+\(count)"
+        setNeedsLayout()
     }
 
     private func updateBackdrop(_ image: UIImage?) {
@@ -216,7 +236,6 @@ final class MediaTileView: UIView {
     // MARK: Loading
 
     private func start() {
-        needsStart = false
         loadTask?.cancel()
         loadInFlight = false
         suspended = false

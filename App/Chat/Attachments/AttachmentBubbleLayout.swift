@@ -32,24 +32,25 @@ nonisolated enum AttachmentBubbleLayout {
         // Photos.
         var album = CGSize.zero
         var tiles: [(item: MediaItem, frame: CGRect)] = []
-        // Two or more: a stack you swipe through (its top card, in the group). Alone it is the bubble, the card's corner
-        // the bubble's; over a caption or files it sits in the bubble's fill, `stackInset` in from its edges.
-        var stackCard: CGRect?
-        let stackInset: CGFloat = mediaOnly ? 0 : MediaLayout.stackPadY
+        // Two or more: a grid of rounded tiles across the bubble (`MediaLayout.grid`); photos past its last tile wait
+        // under its "+N". Alone it is the bubble; over a caption or files it sits in the bubble's fill, `gridInset` in.
+        var more: [MediaItem] = []
+        var tileRadius: CGFloat?
+        let gridInset: CGFloat = mediaOnly ? 0 : 6
+        // Alone, the cards keep a little air from the bubbles before and after (they have no fill to sit in).
+        let gridPadY: CGFloat = mediaOnly ? 4 : 0
         if let generated {
             album = MediaLayout.generated(generated, column: maxBubble)
             tiles = [(b.media[0], CGRect(origin: .zero, size: album))]
         } else if b.media.count >= 2 {
-            let laid = MediaLayout.stack(sizes: b.media.map { ($0.attachment.pixelWidth, $0.attachment.pixelHeight) },
-                                         maxWidth: maxBubble - 2 * stackInset)
-            let card = laid.card.offsetBy(dx: stackInset, dy: 0)
-            album = CGSize(width: laid.size.width + 2 * stackInset, height: laid.size.height)
-            stackCard = card
-            tiles = b.media.map { ($0, card) }
-        } else if !b.media.isEmpty {
-            let laid = MediaLayout.frames(sizes: b.media.map { ($0.attachment.pixelWidth, $0.attachment.pixelHeight) }, maxWidth: maxBubble)
-            album = laid.size
+            let laid = MediaLayout.grid(count: b.media.count, maxWidth: maxBubble - 2 * gridInset)
+            album = CGSize(width: laid.size.width + 2 * gridInset, height: laid.size.height + gridInset + 2 * gridPadY)
             tiles = zip(b.media, laid.frames).map { ($0, $1) }
+            more = Array(b.media.dropFirst(tiles.count))
+            tileRadius = gridRadius(inFill: !mediaOnly)
+        } else if let only = b.media.first {
+            album = MediaLayout.single(width: only.attachment.pixelWidth, height: only.attachment.pixelHeight, maxWidth: maxBubble)
+            tiles = [(only, CGRect(origin: .zero, size: album))]
         }
 
         // The caption's text, laid out once the bubble's width is known.
@@ -74,9 +75,6 @@ nonisolated enum AttachmentBubbleLayout {
                 tiles[0].frame.size.width = wide
                 bubbleW = wide
                 fits = true
-            } else if stackCard != nil, album.width < wide, max(filesNatural, textNatural) > album.width {
-                // A stack of tall screenshots: the caption gets a normal photo's width and the stack sits centred over it.
-                bubbleW = wide
             }
         } else {
             bubbleW = min(maxBubble, max(filesNatural, textNatural, 200))
@@ -85,13 +83,10 @@ nonisolated enum AttachmentBubbleLayout {
 
         var y: CGFloat = 0
         var groups: [MediaGroupLayout] = []
-        var stackX: CGFloat = 0
-        if let stackCard {
-            stackX = floor((ceil(bubbleW) - album.width) / 2)
-            // Alone, the cards have the photo bubble's corner; in a bubble's fill, a smaller one inside it.
-            let radius = mediaOnly ? ChatMetrics.bubbleRadius : max(HQShape.radius(4, .card), ChatMetrics.bubbleRadius - 4)
-            groups.append(MediaGroupLayout(frame: CGRect(x: stackX, y: 0, width: album.width, height: album.height), radius: radius,
-                                           tiles: tiles, stack: stackCard))
+        if tileRadius != nil {
+            groups.append(MediaGroupLayout(frame: CGRect(x: gridInset, y: gridInset + gridPadY, width: album.width - 2 * gridInset,
+                                                         height: album.height - gridInset - 2 * gridPadY),
+                                           radius: nil, tiles: tiles, more: more, tileRadius: tileRadius))
             y = album.height
         } else if !tiles.isEmpty {
             groups.append(MediaGroupLayout(frame: CGRect(x: 0, y: 0, width: album.width, height: album.height),
@@ -129,12 +124,10 @@ nonisolated enum AttachmentBubbleLayout {
                 // A dim capsule at the bottom-trailing corner, 6 pt in: Caption 2 white on black 45 %, 4/7 pt padding.
                 // Further in past a 12 pt corner (Theme › Bubble Corners), so the photo's curve never meets it.
                 let capH = timeSize.height + 8
-                // On a stack, the top card's corner (its own, never joined to the next bubble).
-                let corner = stackCard != nil ? ChatMetrics.bubbleRadius : ChatMetrics.timeCorner(mine: mine, joinsBelow: b.joinsBelow, tail: false)
+                // On a grid, its last tile's own corner (never joined to the next bubble).
+                let corner = tileRadius ?? ChatMetrics.timeCorner(mine: mine, joinsBelow: b.joinsBelow, tail: false)
                 let inset = 6 + ChatMetrics.timeShift(corner: corner, trailing: 6, bottom: 6, round: capH / 2)
-                let right = stackCard.map { stackX + $0.maxX } ?? bubbleW
-                let bottom = stackCard?.maxY ?? y
-                let cap = CGRect(x: right - inset - (timeSize.width + 14), y: bottom - inset - capH,
+                let cap = CGRect(x: bubbleW - inset - (timeSize.width + 14), y: y - (tileRadius != nil ? gridPadY : 0) - inset - capH,
                                  width: timeSize.width + 14, height: capH)
                 capsule = cap
                 timeFrame = CGRect(x: cap.minX + 7, y: cap.minY + 4, width: timeSize.width, height: timeSize.height)
@@ -161,6 +154,11 @@ nonisolated enum AttachmentBubbleLayout {
         return RowLayout(height: gap + bubbleH, content: .bubble(layout))
     }
 
+    /// A grid tile's corner: alone, a card's; inside a bubble's fill, a smaller one that sits within the bubble's.
+    static func gridRadius(inFill: Bool) -> CGFloat {
+        inFill ? max(HQShape.radius(4, .card), min(12, ChatMetrics.bubbleRadius - 6)) : HQShape.radius(12, .card)
+    }
+
     /// What a sent bubble with attachments lifts from the composer (row coordinates): its photos, file rows and
     /// caption together (`text`: the caption's box, if any).
     static func liftBox(_ b: BubbleLayout, text: CGRect?) -> CGRect? {
@@ -170,7 +168,6 @@ nonisolated enum AttachmentBubbleLayout {
         return box.isNull ? nil : box
     }
 
-    /// A reply part whose blocks are images only (`MEDIA:` alone, `![alt](src)` alone): drawn like a photo-only bubble.
     /// A reply names a picture without its size: the size its first load learnt (`sizes`, by `sizeKey`), once there is one.
     private static func sized(_ a: MessageAttachment, _ sizes: [String: MediaPixelSize]) -> MessageAttachment {
         guard a.pixelWidth == nil || a.pixelHeight == nil, let key = a.sizeKey, let size = sizes[key] else { return a }
@@ -180,6 +177,7 @@ nonisolated enum AttachmentBubbleLayout {
         return a
     }
 
+    /// A reply part whose blocks are images only (`MEDIA:` alone, `![alt](src)` alone): drawn like a photo-only bubble.
     static func photoOnlyReply(_ rendered: RenderedMarkdown, _ b: BubbleRow, row: ChatRow, width: CGFloat, style: ChatStyle) -> RowLayout? {
         guard !rendered.blocks.isEmpty else { return nil }
         var refs: [MediaRef] = []
@@ -191,12 +189,12 @@ nonisolated enum AttachmentBubbleLayout {
         var photo = b
         photo.media = refs.map { MediaItem(attachment: sized($0.attachment, b.mediaSizes), index: -1, context: b.mediaContext, label: $0.label) }
         photo.text = ""
-        // Albums and single photos stay within 260 pt (inside the 280 pt reply limit, spec §7.5).
+        // One photo stays within 260 pt (spec §7.5); several are a grid across the reply's width.
         return bubble(photo, row: row, width: width, style: style, keep: false)
     }
 
-    /// A `.media` block inside a reply bubble: photos as an album (≤ 280 wide, radius 12) then file rows across the
-    /// content width (spec §7.5).
+    /// A `.media` block inside a reply bubble: one photo (≤ 280 wide) or a grid of them across the words' width
+    /// (radius 12), then file rows across the content width (spec §7.5).
     /// A picture the gateway refused (`unavailable`, by path) is a file row with the reason: its name, never its path.
     static func mediaBlock(_ refs: [MediaRef], context: MediaContext?, maxText: CGFloat, mine: Bool, style: ChatStyle, reserve: CGFloat = 0,
                            unavailable: [String: String] = [:], sizes: [String: MediaPixelSize] = [:]) -> (size: CGSize, media: BlockMedia) {
@@ -206,23 +204,24 @@ nonisolated enum AttachmentBubbleLayout {
         var groups: [MediaGroupLayout] = []
         var y: CGFloat = 0
         var width: CGFloat = 0
-        if images.count >= 2 {
-            // Several pictures: a stack you swipe through, its card in line with the reply's text.
+        if !images.isEmpty {
+            // One picture by one photo's rules (≤ 280 wide); several as a grid across the reply's words.
             let items = images.map { MediaItem(attachment: sized($0.attachment, sizes), index: -1, context: context, label: $0.label) }
-            let laid = MediaLayout.stack(sizes: items.map { ($0.attachment.pixelWidth, $0.attachment.pixelHeight) },
-                                         maxWidth: min(maxText, MediaLayout.replyMax))
-            groups.append(MediaGroupLayout(frame: CGRect(origin: .zero, size: laid.size), radius: MediaLayout.replyRadius,
-                                           tiles: items.map { ($0, laid.card) }, stack: laid.card))
-            y = laid.size.height
-            width = laid.size.width
-        } else if !images.isEmpty {
-            let items = images.map { MediaItem(attachment: sized($0.attachment, sizes), index: -1, context: context, label: $0.label) }
-            let laid = MediaLayout.frames(sizes: items.map { ($0.attachment.pixelWidth, $0.attachment.pixelHeight) },
-                                          maxWidth: min(maxText, MediaLayout.replyMax))
-            groups.append(MediaGroupLayout(frame: CGRect(origin: .zero, size: laid.size), radius: MediaLayout.replyRadius,
-                                           tiles: zip(items, laid.frames).map { ($0, $1) }))
-            y = laid.size.height
-            width = laid.size.width
+            if items.count >= 2 {
+                let laid = MediaLayout.grid(count: items.count, maxWidth: maxText)
+                let shown = zip(items, laid.frames).map { ($0, $1) }
+                groups.append(MediaGroupLayout(frame: CGRect(origin: .zero, size: laid.size), radius: nil, tiles: shown,
+                                               more: Array(items.dropFirst(shown.count)), tileRadius: MediaLayout.replyRadius))
+                y = laid.size.height
+                width = laid.size.width
+            } else {
+                let size = MediaLayout.single(width: items[0].attachment.pixelWidth, height: items[0].attachment.pixelHeight,
+                                              maxWidth: min(maxText, MediaLayout.replyMax))
+                groups.append(MediaGroupLayout(frame: CGRect(origin: .zero, size: size), radius: MediaLayout.replyRadius,
+                                               tiles: [(items[0], CGRect(origin: .zero, size: size))]))
+                y = size.height
+                width = size.width
+            }
         }
         var rows: [FileRowLayout] = []
         if !others.isEmpty {

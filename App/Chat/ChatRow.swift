@@ -148,6 +148,10 @@ nonisolated struct OneLineRow {
     var thought: String?
     /// "5 steps" at the trailing end while it works or when no time is known (the title doesn't say it then).
     var meta: String? = nil
+    /// [chat-refine] What the line says when `title` doesn't fit its row ("3 steps" for "Checked how to use web search,
+    /// ran 1 command, explored big.txt"): a cut-off list of steps said less than their count. nil: the title is short
+    /// by construction ("Worked for 42s · 5 steps") and is never swapped.
+    var short: String? = nil
 }
 
 nonisolated struct ThoughtRow {
@@ -979,6 +983,7 @@ nonisolated enum ChatRowBuilder {
         var title: String
         var glyph: ChatGlyph
         var meta: String?
+        var short: String?
         let helping = helpers.filter { $0.status.isLive }
         if !helping.isEmpty {
             // [updates] Subagents at work, even after the reply has written: what they are, not a card each.
@@ -1017,13 +1022,19 @@ nonisolated enum ChatRowBuilder {
                 title = ChatRunSummary.summarize(steps, live: false)
                 // The summary can be cut short on its one line; the count sits apart, where it never is.
                 if steps.count > 1 { meta = "\(steps.count) steps" }
+                // [chat-refine] …and where the summary doesn't fit at all, the count is the line.
+                if steps.count > 1 { short = "\(steps.count) steps" }
             }
             glyph = .worked
             if !helpers.isEmpty {
                 let words = helpers.count == 1 ? "1 helper" : "\(helpers.count) helpers"
+                if short != nil { short = (short ?? "") + " · " + words }
                 if meta == nil { title += " · " + words } else { meta = (meta ?? "") + " · " + words }
                 let failed = helpers.filter { $0.status == .failed }.count
-                if failed > 0 { title += " · \(failed) failed" }
+                if failed > 0 {
+                    title += " · \(failed) failed"
+                    if short != nil { short = (short ?? "") + " · \(failed) failed" }
+                }
             }
         }
         let live = working || !helping.isEmpty
@@ -1041,11 +1052,12 @@ nonisolated enum ChatRowBuilder {
         RowHash.add(title, to: &content)
         RowHash.add(thought ?? "", to: &content)
         RowHash.add(meta ?? "", to: &content)
+        if let short { RowHash.add(short, to: &content) }   // only when set: other rows keep their layouts
         content.combine(glyph)
         content.combine(live)
         for h in helpers { content.combine(h.status) }
         var row = ToolRunRow(tools: steps, live: live, expanded: expanded)
-        row.line = OneLineRow(title: title, glyph: glyph, thought: thought, meta: meta)
+        row.line = OneLineRow(title: title, glyph: glyph, thought: thought, meta: meta, short: short)
         return ChatRow(id: id, messageId: m.id, scope: input.scope, fingerprint: content.finalize(), kind: .toolRun(row),
                        gapAbove: ChatMetrics.turnGap, variant: expanded ? 1 : 0)
     }
@@ -1167,14 +1179,13 @@ nonisolated enum ChatRowBuilder {
             let isRunEnd = !nextJoins
             // Fewer Timestamps: your bubbles carry no time; the reply under them does.
             let endsRun = isRunEnd && lastBubbleRow[message.id] == r
-            if endsRun && !(fewerTimes && bubble.mine) {
-                bubble.tail = true
-                bubble.time = message.timestamp
-            } else {
-                bubble.tail = false
-                bubble.time = nil
-            }
-            bubble.spokenTime = endsRun && fewerTimes && bubble.mine ? message.timestamp : nil
+            // [chat-refine] The tail is the run's end, whoever drew a time: Fewer Timestamps took your bubbles' tails
+            // away with their times, so the bot's had one and yours had none. And a reply's time is drawn once per
+            // minute, on the last reply of that minute (`laterReplyInTheSameMinute`).
+            bubble.tail = endsRun
+            let quiet = fewerTimes && (bubble.mine || laterReplyInTheSameMinute(messages, after: mi))
+            bubble.time = endsRun && !quiet ? message.timestamp : nil
+            bubble.spokenTime = endsRun && quiet ? message.timestamp : nil
             if let firstSender, !bubble.mine {
                 bubble.senderInset = true
                 bubble.showsSenderName = bubble.sender != nil && !bubble.joinsAbove
@@ -1184,6 +1195,8 @@ nonisolated enum ChatRowBuilder {
             }
             rows[r].kind = .bubble(bubble)
             rows[r].gapAbove = bubble.joinsAbove ? ChatMetrics.runGap : ChatMetrics.turnGap
+            // [chat-refine] Straight under the other side's bubble: the change of speaker's own gap.
+            if r > 0, case .bubble(let above) = rows[r - 1].kind, above.mine != bubble.mine { rows[r].gapAbove = ChatMetrics.speakerGap }
             var hasher = Hasher()
             hasher.combine(bubble.joinsAbove); hasher.combine(bubble.joinsBelow); hasher.combine(bubble.tail)
             hasher.combine(bubble.time); hasher.combine(bubble.pending); hasher.combine(bubble.expanded)
@@ -1217,8 +1230,40 @@ nonisolated enum ChatRowBuilder {
             default:
                 break
             }
+            // [chat-refine] A reply's centred work line ("Worked for 42s · 5 steps") keeps its 40 pt press row, whose
+            // own padding is the space round its words: with the 6 pt gaps as well it stood in a 52 pt band between
+            // bubbles 2 and 6 pt apart. No gap above it or under it.
+            if centredWorkLine(rows[r]) { rows[r].gapAbove = min(rows[r].gapAbove, 0) }
+            if centredWorkLine(rows[r - 1]), case .bubble = rows[r].kind { rows[r].gapAbove = 0 }
         }
         ActivityRows.applyBubbleJoins(&rows, messages: messages, from: contextStart)      // [activity] tool bubbles join runs
+    }
+
+    /// [chat-refine] A shut work line drawn centred on its own (`UpdateGroups.alone`).
+    private static func centredWorkLine(_ row: ChatRow) -> Bool {
+        if case .toolRun(let t) = row.kind { return t.line != nil && t.group != nil && !t.expanded }
+        return false
+    }
+
+    /// [chat-refine] How far a reply's time looks ahead for a later reply in its minute, and so how far back a rebuild
+    /// of the newest rows reaches for the replies whose time that hides (`ChatRowModel.rebuildNewest`).
+    static let minuteReach = 8
+
+    /// [chat-refine] Fewer Timestamps: whether a later reply (the bot's own words, within `minuteReach` messages) falls
+    /// in the same clock minute as `messages[index]`, so this one's time would only say that one's again. Read from the
+    /// messages alone, so a rebuilt region and a full build agree.
+    static func laterReplyInTheSameMinute(_ messages: [ChatMessage], after index: Int) -> Bool {
+        guard let time = messages[index].timestamp, messages[index].role == .assistant, messages[index].sender == nil else { return false }
+        var j = index + 1
+        while j < messages.count, j <= index + minuteReach {
+            let next = messages[j]
+            j += 1
+            guard let t = next.timestamp else { continue }
+            guard Calendar.current.isDate(t, equalTo: time, toGranularity: .minute) else { return false }
+            guard next.role == .assistant, next.sender == nil, next.error == nil, !next.interrupted else { continue }
+            if next.parts.contains(where: { if case .text(let words) = $0 { return !ChatText.trimmed(words).isEmpty } else { return false } }) { return true }
+        }
+        return false
     }
 
     // MARK: Time and day labels (run.ts)

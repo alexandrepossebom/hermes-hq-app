@@ -11,7 +11,7 @@ extension SessionsTests {
 
     @MainActor private func checkShortName(desktop: Bool) throws {
         let raw = "Database connection pool troubleshooting guide"
-        let short = "Database connection"
+        let short = "Database connection…"
         setRow("s-trip", ["title": "New Chat"])
         // The fixture reuses this stored ID; a preceding Rename test deliberately leaves manual-name provenance.
         let app = launch(fresh: true, extra: desktop ? ["-HQDebugDesktopLook", "YES"] : [])
