@@ -23,10 +23,11 @@
 //   The copy is saturated 1.7 times and replies take 1.3 times that: a light bubble has no room for it and stays
 //   pastel, but a dark one took all of it, a loud blue-violet slab. Build 1030 stopped its colour at the picture's own:
 //   then the bubble had the picture's colour and lightness and no shape at all (owner, beside Sessions on Soft Cards:
-//   "Shouldn't it be more like this? At least in dark mode"). Now a dark bubble is Soft Cards' card: the theme's page
-//   colour for a reply (your own bubble's colour for yours) with `cardShow` of the picture, soft and as the page
-//   shows it, coming through, and Soft Cards' hairline round it. Darker than the picture, calm, one colour from
-//   reply to reply, and a trace of the picture still passes as the chat scrolls. Light bubbles are as they were.
+//   "Shouldn't it be more like this? At least in dark mode"). Now a dark bubble is frosted glass over the picture:
+//   the theme's page colour lifted three quarters of the way to the solid bubble's for a reply (your own bubble's
+//   colour for yours) with `cardShow` of the picture, soft and as the page shows it, coming through, and Soft Cards'
+//   hairline round it. It lightens and takes colour where the picture does, less where the words need it. Light
+//   bubbles are as they were.
 // - The tail stays: a mask takes any outline (glass takes rounded corners only).
 // - On the Mac too: these are plain layers, which Catalyst draws as the iPhone does (it drew glass without its tint).
 
@@ -51,11 +52,24 @@ import UIKit
     /// How much the copy's colour is raised (Telegram's 1.7): a wash this soft would be grey without it.
     nonisolated static let saturation = 1.7
     /// [tinted-dark] How much of the picture comes through a dark bubble's card, and under Increase Contrast. 0.24 in
-    /// build 1033: over a photo with a bright band, the reply standing on the band went dusty mauve beside a navy one
-    /// (owner: "Are you happy with this? … I need design help"; he picked this calmer card from three drawn for him).
-    /// At 0.14 replies keep one colour down the screen and a trace of the picture still passes as the chat scrolls.
-    nonisolated static let cardShow = 0.14
+    /// build 1033 and 0.14 in 1035, each a card with almost none of the picture's colour (owner: "They don't feel
+    /// tinted in the right way to me"). He picked this from four ways drawn for him ("2 is the winner"): most of the
+    /// picture through the card, as frosted glass, so a reply lightens and takes colour where the picture does.
+    nonisolated static let cardShow = 0.6
+    /// Yours takes half as much, as a light bubble of yours takes half the colour (`ownColour`): the theme's colour
+    /// leads, and your message stays the colour that says it is yours over any part of the picture.
+    nonisolated static let ownCardShow = 0.3
     nonisolated static let contrastCardShow = 0.1
+    /// [tinted-dark] How far a reply's card is lifted from the page's colour toward the solid reply bubble's. Build
+    /// 1035 took less of the picture and so fell to the page's own near-black (owner: "These got darker…"): the
+    /// picture had been what lit the card. The four ways he chose from were drawn at three quarters.
+    nonisolated static let cardLift = 0.75
+
+    /// [tinted-dark] A reply's card: the page's colour lifted `lift` of the way to the solid reply bubble's.
+    nonisolated static func replyCard(bubble: RGBA, page: RGBA, lift: Double = cardLift) -> RGBA {
+        let ground = page.over(.white)
+        return ground.mixOklab((1 - lift) * 100, bubble.over(ground))
+    }
     /// [tinted-dark] A bubble this dark or darker (OKLab lightness of its solid colour) is drawn as a card.
     nonisolated static let darkBelow = 0.6
 
@@ -159,15 +173,19 @@ import UIKit
         if defaults.object(forKey: "HQDebugTintColour") != nil { colour *= defaults.double(forKey: "HQDebugTintColour") }
         if !increaseContrast, defaults.object(forKey: "HQDebugTintShade") != nil { shade = defaults.double(forKey: "HQDebugTintShade") }
         #endif
-        // [tinted-dark] A reply's card is the page's colour, as Soft Cards'; yours (and a reply in a bot's own colour)
-        // keeps its own.
+        // [tinted-dark] A reply's card is the page's colour lifted toward its solid bubble (`replyCard`); yours (and a
+        // reply in a bot's own colour) keeps its own.
         let fill = rgba(bubble), page = rgba(HQPalette.page)
-        var show = increaseContrast ? contrastCardShow : cardShow
+        var show = increaseContrast ? contrastCardShow : mine ? ownCardShow : cardShow
+        var lift = cardLift
         #if DEBUG
-        // `-HQDebugTintCard <part>`: another share of the picture through a dark bubble without a build.
+        // `-HQDebugTintCard <part>`: another share of the picture through a dark bubble without a build;
+        // `-HQDebugTintLift <part>`: another lift of a reply's card.
         if defaults.object(forKey: "HQDebugTintCard") != nil { show = defaults.double(forKey: "HQDebugTintCard") }
+        if defaults.object(forKey: "HQDebugTintLift") != nil { lift = defaults.double(forKey: "HQDebugTintLift") }
         #endif
-        let key = PaintKey(picture: picture, bubble: fill, ground: fill == rgba(ChatPalette.botBubble) ? page : nil, page: page,
+        let key = PaintKey(picture: picture, bubble: fill,
+                           ground: fill == rgba(ChatPalette.botBubble) ? replyCard(bubble: fill, page: page, lift: lift) : nil, page: page,
                            text: rgba(mine ? ChatPalette.meText : ChatPalette.label),
                            time: rgba(mine ? ChatPalette.meTime : ChatPalette.label2), dim: Backdrop.chats.dim,
                            colour: colour, shade: shade, target: increaseContrast ? 7 : 4.5, show: show)

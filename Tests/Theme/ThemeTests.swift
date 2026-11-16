@@ -1151,7 +1151,7 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
 
     /// [tinted-dark] Owner 2026-11-15 (a Dark Nous chat on build 1030, beside Sessions on Soft Cards): "Shouldn't it be
     /// more like this? At least in dark mode". A Dark reply over a bright pink is a card: the page's colour with
-    /// `cardShow` of the picture through it, far nearer the page than the picture, and darker than the picture.
+    /// `cardShow` of the picture through it (less where the words need it), and darker than the picture.
     @Test func aDarkBubbleIsACardOfThePagesColour() {
         let tokens = ThemeResolver.resolve(.default).tokens(dark: true)
         let pixel = RGBA(hex: 0xF0A0C0), page = tokens.page.over(.white)
@@ -1163,11 +1163,11 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(reply.oklab.0 <= whole.oklab.0 + 0.001 && reply.oklab.0 >= page.oklab.0 - 0.001, "between the page and the card at full show")
         #expect(reply.oklab.0 < pixel.oklab.0 - 0.3, "darker than the picture")
         #expect(tokens.label.over(reply).contrast(with: reply) >= 4.5)
-        // Yours keeps its own colour under the same share of the picture.
+        // Yours keeps its own colour: it takes half as much of the picture (`ownCardShow`).
         let own = tokens.meBubble.over(page)
         let mine = TintedBubbles.paint(pixels: [RGBA(hex: 0x201830)], plain: [RGBA(hex: 0x201830)], bubble: tokens.meBubble, page: tokens.page,
                                        dim: 0, text: tokens.meText, time: tokens.meTime, colour: TintedBubbles.ownColour,
-                                       shade: TintedBubbles.shade, target: 4.5)[0]
+                                       shade: TintedBubbles.shade, target: 4.5, show: TintedBubbles.ownCardShow)[0]
         if TintedBubbles.isDark(own) {
             let (_, a, b) = mine.oklab, (_, a0, b0) = own.oklab
             #expect(hypot(a - a0, b - b0) < 0.05, "your bubble keeps its colour")
@@ -1245,6 +1245,26 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         print("[tinted-bubbles] weakest words on a tinted bubble: \(String(format: "%.2f", weakest)):1")
     }
 
+    /// [tinted-dark] Owner 2026-11-15, on build 1035: "These got darker…" With less of the picture through it, a reply
+    /// fell to the page's own colour. Its card is lifted toward the solid reply bubble: lighter than the page, not
+    /// as light as the solid bubble, on every skin in Dark.
+    @Test func aDarkReplysCardIsLiftedFromThePage() {
+        for skin in SkinCatalog.all {
+            let tokens = ThemeResolver.resolve(ThemeState(skinID: skin.id)).tokens(dark: true)
+            let page = tokens.page.over(.white), solid = tokens.botBubble.over(page)
+            guard TintedBubbles.isDark(solid), abs(solid.oklab.0 - page.oklab.0) > 0.01 else { continue }
+            let card = TintedBubbles.replyCard(bubble: tokens.botBubble, page: tokens.page)
+            let low = min(page.oklab.0, solid.oklab.0), high = max(page.oklab.0, solid.oklab.0)
+            #expect(card.oklab.0 > low + 0.005 && card.oklab.0 < high - 0.005, "\(skin.id): \(card.oklab.0) between \(low) and \(high)")
+            // The words read at least as well as on the solid bubble (Solarized's own is under 4.5:1 by design).
+            let own = tokens.label.over(solid).contrast(with: solid)
+            #expect(tokens.label.over(card).contrast(with: card) >= min(4.5, own) - 0.01, "\(skin.id): words on the card")
+        }
+        // No lift is the page itself.
+        let flat = TintedBubbles.replyCard(bubble: RGBA(hex: 0x26282C), page: RGBA(hex: 0x0D1117), lift: 0)
+        #expect(abs(flat.oklab.0 - RGBA(hex: 0x0D1117).oklab.0) < 0.002)
+    }
+
     /// [tinted-dark] Every app picture, Light and Dark, every skin: a dark bubble (a one-look skin's in Light too) is a
     /// card. Each pixel lies between its card colour (the page for a reply, its own for yours) and that colour with
     /// `cardShow` of the picture through it: never more of the picture than that, so never the loud slab of 1018 (twice
@@ -1270,13 +1290,14 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
                         guard TintedBubbles.isDark(bubble.over(ground)) else { continue }
                         checked += 1
                         let card = mine ? bubble.over(ground) : ground
+                        let show = mine ? TintedBubbles.ownCardShow : TintedBubbles.cardShow
                         let colours = TintedBubbles.paint(pixels: soft.pixels, plain: soft.plain, bubble: bubble, ground: mine ? nil : tokens.page,
                                                           page: tokens.page, dim: 0.3, text: mine ? tokens.meText : tokens.label,
                                                           time: mine ? tokens.meTime : tokens.label2,
                                                           colour: mine ? TintedBubbles.ownColour : TintedBubbles.replyColour,
-                                                          shade: TintedBubbles.shade, target: 4.5)
+                                                          shade: TintedBubbles.shade, target: 4.5, show: show)
                         for (shown, pixel) in zip(colours, soft.plain) {
-                            let whole = card.alpha(1 - TintedBubbles.cardShow).over(veil.over(pixel))
+                            let whole = card.alpha(1 - show).over(veil.over(pixel))
                             let far = max(abs(whole.r - card.r), abs(whole.g - card.g), abs(whole.b - card.b))
                             let gone = max(abs(shown.r - card.r), abs(shown.g - card.g), abs(shown.b - card.b))
                             if gone > far + 0.005 || chroma(shown) > max(chroma(whole), chroma(card)) + 0.005 {
