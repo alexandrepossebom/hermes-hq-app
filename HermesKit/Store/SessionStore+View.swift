@@ -274,6 +274,18 @@ extension SessionStore {
             onChange?()
             return
         }
+        if SessionListPipeline.isPageSection(id) {
+            // [project-sections] A project page's section: some start closed (This Week, Older) and some open, so both
+            // are kept: closed by the user, and opened by the user.
+            var closed = collapsedGroups, opened = openGroups
+            if collapsed { closed.insert(id); opened.remove(id) } else { closed.remove(id); opened.insert(id) }
+            guard closed != collapsedGroups || opened != openGroups else { return }
+            device.collapsedGroups[groupScope] = closed.isEmpty ? nil : closed.sorted()
+            device.openGroups[groupScope] = opened.isEmpty ? nil : opened.sorted()
+            persistState()
+            onChange?()
+            return
+        }
         var ids = collapsedGroups
         guard collapsed ? ids.insert(id).inserted : ids.remove(id) != nil else { return }
         device.collapsedGroups[groupScope] = ids.isEmpty ? nil : ids.sorted()

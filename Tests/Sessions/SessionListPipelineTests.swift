@@ -380,9 +380,46 @@ import Testing
         #expect(SessionListPipeline.chipCounts(input)[.working] == nil)
     }
 
-    /// [project-pills] A project pill opens the project page: its header, then Needs You, Ready to Review, Working and
-    /// Earlier (a chat in the first it fits; pinned chats in their section). Not with bot pills, two projects, or a
-    /// status pill.
+    /// [project-sections] Owner 2026-11-16 (picked from three drawings): the page's quiet chats are Pinned, Today, This
+    /// Week and Older; a long section draws three then Show More (never to hide one chat; Needs You and Ready draw
+    /// all); every section closes, and This Week and Older start closed under the sections above them.
+    @Test func aProjectPagesSectionsFoldAndSplitByAge() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        let site = "/home/hermes/site", day = 86_400.0
+        var rows = (0..<6).map { Self.chat("w\($0)", ago: Double($0 + 1) * 60, status: .working, cwd: site) }
+        rows += (0..<5).map { Self.chat("r\($0)", ago: Double($0 + 10) * 60, status: .unread, cwd: site) }
+        rows += (0..<4).map { Self.chat("t\($0)", ago: Double($0 + 20) * 60, cwd: site) }
+        rows += [Self.chat("k0", ago: 2 * day, cwd: site), Self.chat("k1", ago: 6 * day, cwd: site),
+                 Self.chat("o0", ago: 7 * day, cwd: site), Self.chat("o1", ago: 90 * day, cwd: site)]
+        func run(_ live: [SessionSummary], _ edit: (inout SessionListInput) -> Void = { _ in }) -> [String: SessionGroup] {
+            let groups = Self.run(live) {
+                $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.pills = .projects
+                $0.prefs.projectFilter = [site]; edit(&$0)
+            }
+            return Dictionary(uniqueKeysWithValues: groups.map { ($0.id.replacingOccurrences(of: "state-", with: ""), $0) })
+        }
+        func shape(_ group: SessionGroup?) -> [Int] { group.map { [$0.sessions.count, $0.more, $0.total, $0.collapsed ? 1 : 0] } ?? [] }
+        var page = run(rows)
+        #expect(shape(page["ready"]) == [5, 0, 5, 0])                    // what to act on: every chat
+        #expect(shape(page["working"]) == [3, 3, 6, 0] && page["working"]?.sessions.map(\.id) == ["w0", "w1", "w2"])
+        #expect(shape(page["today"]) == [4, 0, 4, 0])                    // four: no row spent hiding one chat
+        #expect(shape(page["week"]) == [0, 0, 2, 1] && shape(page["older"]) == [0, 0, 2, 1])
+        #expect(page["page"]?.busy == 6 && page["page"]?.total == 19)
+        // Show More; a section closed; This Week opened.
+        page = run(rows) { $0.expandedGroups = ["state-working"]; $0.collapsedGroups = ["state-today"]; $0.openGroups = ["state-week"] }
+        #expect(shape(page["working"]) == [6, 0, 6, 0] && page["working"]?.expanded == true)
+        #expect(shape(page["today"]) == [0, 0, 4, 1] && page["week"]?.sessions.map(\.id) == ["k0", "k1"])
+        // The page's first section is never closed to begin with; closed by hand it is.
+        let old = [Self.chat("o0", ago: 30 * day, cwd: site)]
+        #expect(shape(run(old)["older"]) == [1, 0, 1, 0] && shape(run(old) { $0.collapsedGroups = ["state-older"] }["older"]) == [0, 0, 1, 1])
+        // A status filter shows every match.
+        page = run(rows) { $0.prefs.statusFilter = [.working] }
+        #expect(shape(page["working"]) == [6, 0, 6, 0])
+        #expect(SessionListPipeline.folds(SessionGroup(id: "state-week", title: "This Week", sessions: [])))
+    }
+
+    /// [project-pills] A project pill opens the project page: its header, then Needs You, Ready, Working and the quiet
+    /// chats (a chat in the first it fits). Not with bot pills, two projects, or a status pill.
     @Test func aProjectPillOpensTheProjectPage() {
         let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
         var both = Self.chat("b", ago: 30, status: .needsInput, cwd: "/home/hermes/site"); both.unread = true
@@ -398,10 +435,13 @@ import Testing
             }
         }
         let page = run()
-        #expect(page.map(\.id) == ["page", "state-needs", "state-ready", "state-working", "state-earlier"])
-        #expect(page.map(\.title) == ["", "Needs You", "Ready to Review", "Working", "Earlier"])
+        // [project-sections] Owner 2026-11-16: the headings say the chips' words, and the quiet chats are Pinned and
+        // then by when they were last at work.
+        #expect(page.map(\.id) == ["page", "state-needs", "state-ready", "state-working", "state-pinned", "state-today"])
+        #expect(page.map(\.title) == ["", "Needs You", "Ready", "Working", "Pinned", "Today"])
         #expect(page[1].sessions.map(\.id) == ["b"] && page[2].sessions.map(\.id) == ["c"] && page[3].sessions.map(\.id) == ["a"])
-        #expect(page[4].sessions.map(\.id) == ["e", "f"])                      // "g": research has no Site project
+        #expect(page[4].sessions.map(\.id) == ["f"] && page[5].sessions.map(\.id) == ["e"])   // "g": research has no Site project
+        #expect(page.dropFirst().map(\.total) == [1, 1, 1, 1, 1])
         let head = page[0]
         #expect(head.pageKey == "/home/hermes/site" && head.latestTitle == "Site" && head.branch == "fix/checkout")
         #expect(head.needs == 1 && head.ready == 1 && head.busy == 1 && head.total == 5 && head.profiles == ["default"])
@@ -532,11 +572,13 @@ import Testing
         #expect(groups.allSatisfy { !$0.collapsed && $0.more == 0 })
         #expect(Self.ids(groups) == ["pin", "s0", "s3", "s6"])
         // Project › Site alone: [project-pills] Group By Project opens the project's page: all nine, uncapped, the
-        // three unread ones under Ready to Review.
+        // three unread ones under Ready.
         groups = run { $0.prefs.projectFilter = ["/home/hermes/site"] }
         #expect(groups.first { $0.id == SessionListPipeline.pageId }?.total == 9)
         #expect(groups.first { $0.id == "state-ready" }?.sessions.map(\.id).sorted() == ["s0", "s3", "s6"])
-        #expect(groups.first { $0.id == "state-earlier" }?.sessions.count == 6 && groups.allSatisfy { $0.more == 0 && !$0.collapsed })
+        // [project-sections] Ready draws every chat; the six quiet ones are Today's, a long section (three, then Show More).
+        #expect(groups.first { $0.id == "state-today" }.map { [$0.sessions.count, $0.more, $0.total] } == [3, 3, 6])
+        #expect(groups.allSatisfy { !$0.collapsed })
         // A project filter naming no listed project narrows nothing, so it opens nothing either (C-07).
         groups = run { $0.prefs.projectFilter = ["/gone"] }
         #expect(groups.filter { $0.id != SessionListPipeline.newId }.allSatisfy { $0.collapsed })

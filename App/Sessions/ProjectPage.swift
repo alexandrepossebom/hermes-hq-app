@@ -124,3 +124,22 @@ struct ProjectPageHeader: View {
         .accessibilityIdentifier("sessions.projectPage.\(id)")
     }
 }
+
+/// [project-sections] A project state's mark, as the page's count chips draw it: Needs You an orange dot, Ready the
+/// tint's dot, Working the still quarter ring; nothing for quiet.
+struct ProjectStateMark: View {
+    var state: SessionProjectState
+
+    var body: some View {
+        switch state {
+        case .needsYou: Circle().fill(Color.hqOrange).frame(width: 7, height: 7)
+        case .ready: Circle().fill(Color.hqTint).frame(width: 7, height: 7)
+        case .working:
+            ZStack {
+                Circle().stroke(Color.hqLabel.opacity(0.25), lineWidth: 2)
+                Circle().trim(from: 0, to: 0.25).stroke(Color.hqLabel, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            }.frame(width: 9, height: 9)
+        case .quiet: EmptyView()
+        }
+    }
+}

@@ -233,11 +233,21 @@ extension SessionsTests {
         // [projects-switch] One tap on the rail's switch is Group By › Project (the projects are read as
         // the list loads; the switch shows once they are known).
         let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
-        XCTAssertTrue(toProjects.waitForExistence(timeout: 15), "the switch offers the projects")
+        XCTAssertTrue(toProjects.waitForExistence(timeout: 15), "the switch: both views side by side")
         XCTAssertEqual(toProjects.label, "Switch to Projects")
-        XCTAssertFalse(toBots.exists)
+        // The side of the view drawn is All: lit while nothing is picked, and a tap on it shows everything again.
+        let all = chip(app, nil)
+        XCTAssertTrue(all.label == "All Bots" && all.isSelected && !toBots.exists, "the bots' side is All (\(all.label))")
+        shot(app, "P0-switch-bots")
+        chip(app, "research").tap()
+        XCTAssertTrue(waitUntil(6) { !all.isSelected && self.chip(app, "research").isSelected }, "a bot picked: All is not lit")
+        app.scrollViews["sessions.chips"].swipeRight()     // the picked pill was centred, which can take the switch off
+        XCTAssertTrue(waitUntil(4) { all.isHittable })
+        shot(app, "P0b-switch-bot-picked")
+        all.tap()
+        XCTAssertTrue(waitUntil(6) { all.isSelected && !self.chip(app, "research").isSelected }, "its side shows every bot again")
         toProjects.tap()
-        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now it offers the bots")
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists && all.label == "All Projects" }, "now the projects' side is All")
         openFilter(app)
         XCTAssertTrue(filterWords(app, "group").contains("Project"), filterWords(app, "group"))
         closeFilter(app)
@@ -266,7 +276,7 @@ extension SessionsTests {
         XCTAssertFalse(app.buttons["sessions.projectPage.needs"].isEnabled, "a zero takes no tap")
         XCTAssertTrue(app.staticTexts["sessions.projectPage.place"].label.contains("~/site"), "its folder")
         XCTAssertTrue(app.buttons["sessions.projectPage.newChat"].exists, "New Chat in the project")
-        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Ready to Review"] }, "its sections (\(headers(app)))")
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Ready"] }, "its sections (\(headers(app)))")
         shot(app, "P2-project-pill-picked")
         // Reading's page: its working chat under Working.
         pills[1].tap()
@@ -320,8 +330,20 @@ extension SessionsTests {
         let workingChip = app.buttons["sessions.projectPage.working"]
         XCTAssertTrue(workingChip.waitForExistence(timeout: 6), "the Working count's chip")
         XCTAssertEqual(workingChip.label, "Working, 1 chat")
-        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Working", "Earlier"] }, "\(headers(app))")
+        // [project-sections] Working first, then the quiet chats by age (a closed section says its count in its name).
+        let quiet = ["Pinned", "Today", "This Week", "Older"]
+        func names() -> [String] { self.headers(app).map { $0.components(separatedBy: ", ").first ?? $0 } }
+        XCTAssertTrue(waitUntil(6) { names().first == "Working" && names().count > 1 && names().dropFirst().allSatisfy(quiet.contains) },
+                      "\(headers(app))")
         shot(app, "P5b-project-page-chips")
+        // A section closes to its heading and count, and its chip opens it again.
+        let workingHeader = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'Working'")).firstMatch
+        XCTAssertTrue(row(app, "s-garden").exists)
+        workingHeader.tap()
+        XCTAssertTrue(waitUntil(6) { !self.row(app, "s-garden").exists && self.headers(app).first == "Working, 1 chat" }, "closed (\(headers(app)))")
+        shot(app, "P5c-project-page-section-closed")
+        workingChip.tap()
+        XCTAssertTrue(waitUntil(6) { self.row(app, "s-garden").exists && self.headers(app).first == "Working" }, "its chip opens it (\(headers(app)))")
         appPill.tap()
         fixture("/__fixture/mode", ["working": ["s-trip"]])
         XCTAssertTrue(waitUntil(20) { !appPill.label.contains("Working") }, "App is quiet again")
@@ -343,5 +365,41 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(4) { toBots.isHittable })
         toBots.tap()
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").exists && rail.label == "Bots" }, "the bot pills again")
+    }
+    /// [project-sections] Owner 2026-11-16 (picked from three drawings): a project page's quiet chats are Pinned, Today,
+    /// This Week and Older; each heading has its count; a long section draws three then Show More; This Week and
+    /// Older start closed under the sections above them and open with a tap.
+    @MainActor func test40c_ProjectPageSections() throws {
+        let now = Date().timeIntervalSince1970
+        for index in 0..<6 { setRow("s-day-\(index)", ["title": "Today \(index)", "last_active": now - Double(index + 3) * 600]) }
+        for index in 0..<2 { setRow("s-week-\(index)", ["title": "Week \(index)", "last_active": now - Double(index + 2) * 86_400]) }
+        for index in 0..<2 { setRow("s-old-\(index)", ["title": "Old \(index)", "last_active": now - Double(index + 20) * 86_400]) }
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        let toProjects = app.buttons["sessions.pills.projects"]
+        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
+        toProjects.tap()
+        let appPill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(appPill.waitForExistence(timeout: 10))
+        appPill.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6))
+        func names() -> [String] { self.headers(app) }
+        XCTAssertTrue(waitUntil(8) { names().suffix(2) == ["This Week, 2 chats", "Older, 2 chats"] && names().contains("Today") },
+                      "Today open, This Week and Older closed (\(names()))")
+        let today = order(app).filter { $0.hasPrefix("s-day-") || $0 == "s-garden" }
+        XCTAssertEqual(today.count, 3, "a long section draws three (\(order(app)))")
+        XCTAssertFalse(row(app, "s-week-0").exists)
+        shot(app, "P8-page-sections")
+        // Show More draws the rest of Today.
+        let more = app.cells["sessions.showMore"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 4), "Show More under Today")
+        more.tap()
+        XCTAssertTrue(waitUntil(6) { self.order(app).filter { $0.hasPrefix("s-day-") }.count == 6 }, "all of Today (\(order(app)))")
+        // This Week opens with a tap on its heading.
+        let week = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'This Week'")).firstMatch
+        if !week.isHittable { app.swipeUp() }
+        week.tap()
+        XCTAssertTrue(waitUntil(6) { self.row(app, "s-week-0").exists && names().contains("This Week") }, "This Week open (\(names()))")
+        shot(app, "P9-page-sections-open")
     }
 }

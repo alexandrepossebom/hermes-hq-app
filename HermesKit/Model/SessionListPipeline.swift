@@ -371,8 +371,8 @@ nonisolated enum SessionListPipeline {
 
     /// [project-pills] Owner 2026-11-15: a project pill opens the project as a page of its own: a header (its name,
     /// folder, branch and bots; how many chats need the owner, are ready to review, are at work; New Chat in it), then
-    /// its chats by what they wait on: Needs You, Ready to Review, Working, then Earlier. A chat is in the first of
-    /// these it fits (`SessionProjectState`, its rank). Pinned chats sit in their section like any other.
+    /// its chats by what they wait on: Needs You, Ready, Working, then the quiet ones (Pinned, Today, This Week, Older).
+    /// A chat is in the first of these it fits (`SessionProjectState`, its rank).
     static func projectPage(_ key: String, rows: [SessionSummary], input: SessionListInput) -> [SessionGroup] {
         var buckets: [SessionProjectState: [SessionSummary]] = [:]
         for session in rows {
@@ -393,14 +393,61 @@ nonisolated enum SessionListPipeline {
         page.busy = buckets[.working]?.count ?? 0
         page.total = rows.count
         var out = [page]
-        let titles: [(SessionProjectState, String, String)] = [(.needsYou, "needs", "Needs You"), (.ready, "ready", "Ready to Review"),
-                                                                (.working, "working", "Working"), (.quiet, "earlier", "Earlier")]
-        for (state, id, title) in titles {
-            guard let chats = buckets[state], !chats.isEmpty else { continue }
-            let sorted = state == .quiet ? sort(chats, by: input.prefs.sortBy == .manual ? .updated : input.prefs.sortBy) : sort(chats, by: .updated)
-            out.append(SessionGroup(id: statePrefix + id, title: title, sessions: sorted))
+        // [project-sections] Owner 2026-11-16 (picked from three drawings): the quiet chats are Pinned, then by when
+        // they were last at work (Today, This Week, Older) rather than one long "Earlier"; a heading says the chip's
+        // word ("Ready"), with its mark and count; every section folds, and a long one draws its first
+        // `pageFirstRows` then "Show More". Needs You and Ready always draw every chat (they are what to act on).
+        let quiet = buckets[.quiet] ?? []
+        var aged: [String: [SessionSummary]] = [:]
+        for session in quiet where !session.pinned { aged[pageAge(session, input), default: []].append(session) }
+        let byPref = input.prefs.sortBy == .manual ? SessionSortBy.updated : input.prefs.sortBy
+        let sections: [(id: String, title: String, chats: [SessionSummary], sort: SessionSortBy, capped: Bool)] = [
+            ("needs", "Needs You", buckets[.needsYou] ?? [], .updated, false), ("ready", "Ready", buckets[.ready] ?? [], .updated, false),
+            ("working", "Working", buckets[.working] ?? [], .updated, true), ("pinned", "Pinned", quiet.filter(\.pinned), byPref, true),
+            ("today", "Today", aged["today"] ?? [], byPref, true), ("week", "This Week", aged["week"] ?? [], byPref, true),
+            ("older", "Older", aged["older"] ?? [], byPref, true)]
+        // A status filter shows every match (a closed section would hide what the filter was set to find).
+        let filtered = !input.prefs.statusFilter.isEmpty
+        for section in sections where !section.chats.isEmpty {
+            var group = SessionGroup(id: statePrefix + section.id, title: section.title, sessions: sort(section.chats, by: section.sort))
+            group.total = group.sessions.count
+            group.unread = group.sessions.reduce(0) { $0 + ($1.unread ? 1 : 0) }
+            if !filtered {
+                // This Week and Older start closed under the sections above them (never as the page's first).
+                let startsClosed = pageStartsClosed.contains(group.id) && out.count > 1
+                if input.collapsedGroups.contains(group.id) || (startsClosed && !input.openGroups.contains(group.id)) {
+                    group.collapsed = true
+                    group.sessions = []
+                } else if section.capped, group.sessions.count > pageFirstRows + 1 {
+                    if input.expandedGroups.contains(group.id) {
+                        group.expanded = true
+                    } else {
+                        group.more = group.sessions.count - pageFirstRows
+                        group.sessions = Array(group.sessions.prefix(pageFirstRows))
+                    }
+                }
+            }
+            out.append(group)
         }
         return out
+    }
+
+    /// [project-sections] The project page: the chats a long section draws before "Show More" (one more than this is
+    /// drawn whole: no row is spent hiding a single chat), and the sections that start closed.
+    static let pageFirstRows = 3
+    static let pageStartsClosed: Set<String> = [statePrefix + "week", statePrefix + "older"]
+
+    /// A section of the project page ("state-working").
+    static func isPageSection(_ groupId: String) -> Bool { groupId.hasPrefix(statePrefix) }
+
+    /// [project-sections] Which of Today, This Week (the six days before) and Older a quiet chat is in, by the day it
+    /// was last at work (a day runs from 4 AM, as the date groups').
+    static func pageAge(_ session: SessionSummary, _ input: SessionListInput) -> String {
+        guard let date = session.lastActive ?? session.startedAt, date.timeIntervalSince1970 > 0 else { return "older" }
+        let day = SessionGrouping.nominalDayStart(date, calendar: input.calendar)
+        let today = SessionGrouping.nominalDayStart(input.now, calendar: input.calendar)
+        let days = input.calendar.dateComponents([.day], from: day, to: today).day ?? 0
+        return days <= 0 ? "today" : days < 7 ? "week" : "older"
     }
 
     /// A titled group can fold to its header; a project draws its newest `projectFirstRows` until opened. `total` is
@@ -411,6 +458,7 @@ nonisolated enum SessionListPipeline {
         let filtered = !input.prefs.statusFilter.isEmpty || !input.prefs.projectFilter.intersection(input.projects.map(\.key)).isEmpty
         return groups.map { group in
             guard group.source == nil, !group.title.isEmpty else { return group }
+            guard !isPageSection(group.id) else { return group }     // [project-sections] folded by `projectPage`
             var group = group
             group.total = group.sessions.count
             group.unread = group.sessions.reduce(0) { $0 + ($1.unread ? 1 : 0) }
@@ -491,7 +539,7 @@ nonisolated enum SessionListPipeline {
     static func folds(_ group: SessionGroup) -> Bool {
         guard group.source == nil, !group.title.isEmpty, group.id != otherAppsId else { return false }
         return group.id == newId || group.id == "pinned" || group.id == recentId || group.id == projectsId
-            || group.id.hasPrefix("status-") || group.id.hasPrefix(projectPrefix) || group.id.hasPrefix(botPrefix)
+            || isPageSection(group.id) || group.id.hasPrefix("status-") || group.id.hasPrefix(projectPrefix) || group.id.hasPrefix(botPrefix)
     }
 
     /// A project's group (Group By Project), Home's too.

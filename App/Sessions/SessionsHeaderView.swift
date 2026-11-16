@@ -203,38 +203,70 @@ struct SessionsHeaderView: View {
         if model.pills == .projects { projectRail } else { botRail }
     }
 
-    /// [projects-switch] The switch at the rail's start: one round button showing the other pills (a folder while the
-    /// bots are drawn, two people while the projects are). One glyph, not two in a capsule: the capsule was 76 pt wide
-    /// and pushed a third bot off an iPhone's screen. It scrolls away with the pills.
-    @ViewBuilder private var pillsSwitch: some View {
+    /// [projects-switch] The switch at the rail's start: the two views side by side in one capsule (owner 2026-11-15
+    /// on 1039's single round button: "needs to be more clear that it's a toggle between two views"). The robot is
+    /// the tab bar's Bots glyph and the folder the project pills' own (owner: "They need to match what we use in the
+    /// menu"). The side of the view drawn is also All (owner picked this of four drawings, so the switch costs the
+    /// rail no width): the tint while nothing is picked, as All was; dark while a pill is, and a tap on it shows
+    /// everything again. It scrolls away with the pills.
+    @ViewBuilder private func pillsSwitch(allPicked: Bool) -> some View {
         if model.showsSwitch {
-            let to: SessionPills = model.pills == .projects ? .bots : .projects
-            let side: CGFloat = Theme.isDesktop ? HQFont.scaled(28) : HQFont.scaled(34)
-            Button {
-                model.onSwitch(to)
-            } label: {
-                Image(systemName: to == .projects ? "folder" : "person.2")
-                    .font(Font.hqSystem(size: HQFont.scaled(14), weight: .medium))
-                    .foregroundStyle(Color.hqLabel)
-                    .frame(width: side, height: side)
-                    .background {
-                        if Theme.isDesktop { RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3) }
+            let side: CGFloat = Theme.isDesktop ? HQFont.scaled(24) : HQFont.scaled(30)
+            let half = side + 8
+            // Each side's touch reaches this far past the capsule (into the rail's margin, and the gap before the
+            // next pill), so it is 44 pt wide as every pill's is.
+            let reach = max(0, 44 - half - 2)
+            let views: [SessionPills] = [.bots, .projects]
+            // The drawing: glyphs in the glass (the glass takes its content, as every pill's does).
+            HStack(spacing: 0) {
+                ForEach(views, id: \.self) { view in
+                    let here = model.pills == view
+                    Group {
+                        if view == .bots {
+                            Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(14), line: 0.1)).renderingMode(.template)
+                        } else {
+                            Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
+                        }
                     }
-                    .hqPickGlass(false, in: Circle(), prominent: true)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                    .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqPage)
+                    .frame(width: half, height: side)
+                    .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel) } }
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(to == .projects ? "Switch to Projects" : "Switch to Bots")
-            .accessibilityIdentifier("sessions.pills.\(to.rawValue)")
-            .id("pills-switch")
+            .padding(2)
+            .background {
+                if Theme.isDesktop { RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3) }
+            }
+            .hqPickGlass(false, in: Capsule(), prominent: true)
+            .accessibilityHidden(true)
+            .frame(height: 44)
+            // The touch: one clear button over each side.
+            .overlay {
+                HStack(spacing: 0) {
+                    ForEach(views, id: \.self) { view in
+                        let here = model.pills == view
+                        Button {
+                            if here { model.onPickAll() } else { model.onSwitch(view) }
+                        } label: {
+                            Color.clear.frame(width: half + 2 + reach, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(here ? (view == .projects ? "All Projects" : "All Bots")
+                                                 : (view == .projects ? "Switch to Projects" : "Switch to Bots"))
+                        .accessibilityAddTraits(here && allPicked ? .isSelected : [])
+                        .accessibilityIdentifier(here ? "sessions.chip.all" : "sessions.pills.\(view.rawValue)")
+                    }
+                }
+                .fixedSize()
+            }
+            .id("sessions.chip.all")
         }
     }
 
     private var botRail: some View {
         BotPillRail(bots: model.bots, picked: model.picked, allPicked: model.picked == nil && model.status == nil,
-                    identifier: "sessions.chip", leading: AnyView(pillsSwitch),
-                    showsAll: !model.bots.isEmpty || !model.shownStatus.isEmpty, onPick: model.onPick, onPickAll: model.onPickAll) {
+                    identifier: "sessions.chip", leading: AnyView(pillsSwitch(allPicked: model.picked == nil && model.status == nil)),
+                    showsAll: !model.showsSwitch, onPick: model.onPick, onPickAll: model.onPickAll) {
             // [sessions-fresh] New and Working, then a rule before the bots.
             statusPills
             // [projects-switch] With the switch the status pills are a mark and a count, told apart from the faces
@@ -268,7 +300,9 @@ struct SessionsHeaderView: View {
     private var projectRail: some View {
         BotPillRail(bots: [], picked: model.pickedProjectId,
                     allPicked: model.pickedProjects.isEmpty && model.status == nil && !model.botPicked,
-                    identifier: "sessions.chip", label: "Projects", leading: AnyView(pillsSwitch), onPick: { _ in },
+                    identifier: "sessions.chip", label: "Projects",
+                    leading: AnyView(pillsSwitch(allPicked: model.pickedProjects.isEmpty && model.status == nil && !model.botPicked)),
+                    showsAll: !model.showsSwitch, onPick: { _ in },
                     onPickAll: model.onPickAll) {
             statusPills
             if !model.shownStatus.isEmpty, !model.shownProjects.isEmpty { railRule }

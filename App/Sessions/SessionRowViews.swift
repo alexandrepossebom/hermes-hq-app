@@ -600,6 +600,10 @@ struct SessionDateHeaderView: View {
     var summary: SessionProjectSummary? = nil
     /// [sessions-layout] New for You: how many chats it holds, in a tinted capsule after the title.
     var badge: Int? = nil
+    /// [project-sections] A project page's section: its state's mark before the name (Needs You, Ready, Working; none
+    /// for a quiet one) and how many chats it holds after it, open or closed.
+    var mark: SessionProjectState? = nil
+    var tally: Int? = nil
     /// [sessions-layout] The first project's header: "Projects" over its summary row (with Edit, Reorder Projects…),
     /// so the folded projects read as their own section under Pinned.
     var caption: String? = nil
@@ -795,6 +799,7 @@ struct SessionDateHeaderView: View {
     private var captionRow: some View {
         HStack(spacing: 8) {
             if let source { PlatformMark(source: source, size: Theme.isDesktop ? 16 : 20) }
+            if let mark { ProjectStateMark(state: mark) }
             // [desktoplook2] In the look no font on the Text: one set there beats the label's (UX study #196).
             // Text.font(nil) is still a font of the Text's own (the body font), so the look's branch sets none at all.
             Group {
@@ -804,11 +809,18 @@ struct SessionDateHeaderView: View {
             .hqDesktopLabel(color: dropTarget ? .hqTint : ink(over && fold != nil))   // [desktoplook2] EARLIER TODAY, as the desktop's group label
             .layoutPriority(1)
             if let badge, badge > 0 { countBadge(badge) }   // [sessions-layout] New for You's count
+            if let tally {
+                Text("\(tally)")
+                    .font(Font.hq(.subheadline))
+                    .foregroundStyle(Color.hqLabel3)
+                    .monospacedDigit()
+                    .accessibilityIdentifier("sessions.header.tally")
+            }
             star
             // [sessions-collapse] The caret straight after the name, as "Projects ⌄", ahead of a See All.
             if let fold {
                 caret(fold.collapsed)
-                if fold.collapsed {
+                if fold.collapsed, tally == nil {
                     Text(fold.unread > 0 ? "\(fold.total) · \(fold.unread) unread" : "\(fold.total)")
                         .font(Font.hq(.subheadline))
                         .foregroundStyle(Color.hqLabel3)
@@ -936,6 +948,8 @@ struct SessionDateHeaderView: View {
     /// Then: Collapsed or Expanded, and [sessions-layout] a project's count, newest chat and time, or New for You's count.
     private var spokenValue: String {
         var parts = fold.map { [$0.collapsed ? "Collapsed" : "Expanded"] } ?? []
+        // [project-sections] An open section says its count here (a closed one's is in its name, as every group's).
+        if let tally, fold?.collapsed != true { parts.append(tally == 1 ? "1 chat" : "\(tally) chats") }
         if let summary {
             // [project-cards] Who is in it and how many, then unread, a bot at work, the newest chat.
             parts.append(summary.whoWords)

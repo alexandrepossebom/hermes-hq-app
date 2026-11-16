@@ -636,8 +636,13 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             SessionDateHeaderView.rowShift(collapsed: $0.collapsed, afterCard: $0.afterCard, caption: firstProject)
         }
         headerCardPads[ObjectIdentifier(header)] = summary.map { ProjectCardHeader.topPad(open: !$0.collapsed) }
+        // [project-sections] A project page's section: its state's mark and its count.
+        let pageSection = !searching && SessionListPipeline.isPageSection(id)
+        let marks: [String: SessionProjectState] = ["needs": .needsYou, "ready": .ready, "working": .working]
         let view = SessionDateHeaderView(title: title, onNewChat: onNewChat, onRename: onRename, onDelete: onDelete, fold: fold,
                                          order: order, dropTarget: dropTarget, summary: summary, badge: badge,
+                                         mark: pageSection ? marks[String(id.dropFirst(SessionListPipeline.statePrefix.count))] : nil,
+                                         tally: pageSection ? group.total : nil,
                                          caption: firstProject ? SessionListPipeline.projectsTitle : nil, onEditCaption: onEdit,
                                          onFoldCaption: onFoldCaption, seeAll: seeAll,
                                          first: section == 0, motion: motion)
@@ -1798,6 +1803,15 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
 
     /// [project-pills] A count on the project page's header: its section to the top.
     func scrollToPageSection(_ id: String) {
+        // [project-sections] A count's chip opens its section when it was closed, then goes to it.
+        if groups.first(where: { $0.id == id })?.collapsed == true {
+            toggleGroup(id)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.groups.first(where: { $0.id == id })?.collapsed == false else { return }
+                self.scrollToPageSection(id)
+            }
+            return
+        }
         guard let section = groups.firstIndex(where: { $0.id == id }),
               collectionView.numberOfSections > section, collectionView.numberOfItems(inSection: section) > 0 else { return }
         Haptics.play(.selection)
