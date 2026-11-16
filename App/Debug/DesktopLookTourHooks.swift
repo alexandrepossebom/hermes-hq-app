@@ -195,6 +195,9 @@ enum DesktopLookTourHooks {
             after(0.8) {
                 guard let nav = root.selectedViewController as? UINavigationController else { return }
                 nav.pushViewController(PasswordsPageController(router: SettingsRouter(services: services, navigation: nav)), animated: false)
+                // [1password-allow] `-HQDebugTourItem allow`: the Allow in 1Password page over it.
+                guard UserDefaults.standard.string(forKey: "HQDebugTourItem") == "allow" else { return }
+                after(2.0) { nav.pushViewController(OnePasswordAllowView.controller { _, _ in }, animated: false) }
             }
         case "connectors":   // [connectors-ux] More › Connectors; `-HQDebugTourItem <name>` then opens that connector or app
             root.select(.more)
@@ -397,12 +400,21 @@ enum DesktopLookTourHooks {
                 case "talkinfo": TalkIntroSheet.present(.info, name: "Hermes", from: chat)
                 case "promptsheet":
                     // Not the account's store: nothing is answered, and the sheet goes with the app.
-                    let prompt = ValuePrompt(id: "tour-sudo", kind: .sudo,
-                                             params: ["command": .string("sudo launchctl kickstart -k system/com.hermes.gateway")])
+                    // [1password-allow] `-HQDebugTourItem onepassword`: the 1Password unlock sheet (Allow in 1Password
+                    // leads when the gateway's add-on can ask); `onepassword-allow` then opens the page behind it.
+                    let item = UserDefaults.standard.string(forKey: "HQDebugTourItem") ?? ""
+                    let prompt = item.hasPrefix("onepassword")
+                        ? ValuePrompt(id: "tour-unlock", kind: .vaultUnlock,
+                                      params: ["backend": .string("onepassword"), "display_name": .string("1Password")])
+                        : ValuePrompt(id: "tour-sudo", kind: .sudo,
+                                      params: ["command": .string("sudo launchctl kickstart -k system/com.hermes.gateway")])
                     let made = PromptSheetController.make(prompt, botName: "Hermes")
                     tourKeep = made.sheet
                     chat.present(made.navigation, animated: true)
                     halfHeightNoKeyboard(chat)
+                    if item == "onepassword-allow" {
+                        after(2.0) { made.navigation.pushViewController(OnePasswordAllowView.controller { _, _ in }, animated: false) }
+                    }
                 case "prompteditor":
                     menus.presentPrompts()
                     after(1.2) {

@@ -208,6 +208,58 @@ def default_mcp():
 
 
 S = None
+# [1password-allow] hermes-hq-push 0.9.59's Allow in 1Password (--onepassword ok|deny|hold): a 1Password row under
+# Password Managers, and the add-on's routes. ok: two looks of "waiting", then the vaults, then done. deny: the person
+# said no in 1Password. hold: 1Password is never answered (for a picture of the waiting page).
+ONEPASSWORD = None
+OP_ROUTE = '/api/plugins/hermes-hq-push/vault/onepassword'
+OP = {'jobs': {}, 'connected': False, 'vaults': []}
+OP_VAULTS = [{'id': 'fixturevaulthermes00000001', 'name': 'Hermes', 'items': 6},
+             {'id': 'fixturevaultwork0000000002', 'name': 'Work', 'items': 41},
+             {'id': 'fixturevaultfamily00000003', 'name': 'Family', 'items': 18}]
+
+
+def onepassword_route(method, path, body):
+    """The add-on's answers (onepassword_allow.py). Caller holds LOCK. None = not one of its routes."""
+    if ONEPASSWORD is None or not (path == OP_ROUTE or path.startswith(OP_ROUTE + '/')):
+        return None
+    source = next((x for x in S['vault']['sources'] if x['name'] == 'onepassword'), None)
+    rest = path[len(OP_ROUTE):]
+    if rest == '' and method == 'GET':
+        return 200, {'ok': True, 'supported': True, 'connected': OP['connected'], 'ours': OP['connected'],
+                     'vaults': OP['vaults'], 'name': 'Hermes HQ studio', 'bots': 3 if OP['connected'] else 0}
+    if rest == '' and method == 'DELETE':
+        OP.update(connected=False, vaults=[])
+        if source: source['unlocked'] = False
+        return 200, {'ok': True, 'removed': 3}
+    if rest == '/allow' and method == 'POST':
+        key = secrets.token_urlsafe(9)
+        OP['jobs'][key] = {'job': key, 'state': 'waiting', 'looks': 0}
+        return 200, {'job': key, 'state': 'waiting'}
+    m = re.match(r'^/allow/([A-Za-z0-9_-]+)$', rest)
+    job = OP['jobs'].get(m.group(1)) if m else None
+    if job is None:
+        return 404, {'ok': False, 'detail': 'That request is gone. Start again.', 'code': 'gone'}
+    if method == 'POST':
+        if job['state'] != 'choose':
+            return 409, {'ok': False, 'detail': 'That request isn’t waiting for a vault.', 'code': 'busy'}
+        names = [v['name'] for v in OP_VAULTS if v['id'] in (body.get('vaults') or [])]
+        if body.get('create'): names.append('Hermes')
+        if not names:
+            return 400, {'ok': False, 'detail': 'Pick a vault.', 'code': 'no-vault'}
+        job.update(state='making', looks=0, names=names)
+        return 200, {'job': job['job'], 'state': 'making'}
+    job['looks'] += 1
+    if job['state'] == 'waiting' and ONEPASSWORD != 'hold' and job['looks'] >= 2:
+        if ONEPASSWORD == 'deny':
+            job.update(state='failed', detail='1Password wasn’t allowed. Try again, then click Allow in 1Password.', code='denied')
+        else:
+            job.update(state='choose', vaults=OP_VAULTS, account='my.1password.example')
+    elif job['state'] == 'making' and job['looks'] >= 1:
+        job.update(state='done', saved=3, vaults=[{'id': n, 'name': n} for n in job['names']])
+        OP.update(connected=True, vaults=job['names'])
+        if source: source['unlocked'] = True
+    return 200, {k: job[k] for k in ('job', 'state', 'vaults', 'detail', 'code', 'saved', 'account') if k in job}
 
 
 def runtime_id(stored):
@@ -887,6 +939,9 @@ def handler(gateway):
             if self.rest_failure('GET', path):
                 return
             with LOCK:
+                answer = onepassword_route('GET', path, {})
+                if answer is not None:
+                    return self.reply(*answer)
                 if path == '/api/profiles/sessions':
                     p = S['profiles'].get(profile)
                     if p is None:
@@ -991,6 +1046,9 @@ def handler(gateway):
                 return
             body = self.body()
             with LOCK:
+                answer = onepassword_route('POST', path, body if isinstance(body, dict) else {})
+                if answer is not None:
+                    return self.reply(*answer)
                 if path == '/api/plugins/hermes-hq-push/logs':
                     lines = body.get('lines') if isinstance(body.get('lines'), list) else []
                     kinds = []
@@ -1165,6 +1223,11 @@ def handler(gateway):
         def do_DELETE(self):
             parsed = urlparse(self.path)
             path = parsed.path
+            if ONEPASSWORD is not None and path == OP_ROUTE:
+                if not self.authed(path):
+                    return
+                with LOCK:
+                    return self.reply(*onepassword_route('DELETE', path, {}))
             # [provider-add] Sign out of a provider (Hermes' DELETE /api/providers/oauth/{id}): 400 when Hermes can't.
             m = re.match(r'^/api/providers/oauth/([^/]+)$', path)
             if m:
@@ -1312,7 +1375,7 @@ def handler(gateway):
 
 
 def main():
-    global LABEL, S, OWN_PROFILE_CONFIGS
+    global LABEL, S, OWN_PROFILE_CONFIGS, ONEPASSWORD
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=9738)
     parser.add_argument('--credentials', required=True)
@@ -1321,12 +1384,18 @@ def main():
     parser.add_argument('--hermes-cookies', action='store_true', help="Hermes' hermes_session_at/rt session, renewed on any API read")
     parser.add_argument('--access-ttl', type=int, default=12 * 60 * 60)
     parser.add_argument('--own-profile-configs', action='store_true', help="each bot's /api/config?profile= is its own")
+    parser.add_argument('--onepassword', choices=['ok', 'deny', 'hold'], default=None,
+                        help="1Password under Password Managers, and the add-on's Allow in 1Password routes")
     args = parser.parse_args()
     LABEL = args.label
     OWN_PROFILE_CONFIGS = args.own_profile_configs
     voice.LABEL = args.label
     voice.ACCEPT_PROMPTS = True
     S = seed()
+    ONEPASSWORD = args.onepassword
+    if ONEPASSWORD is not None:
+        S['vault']['sources'].append({'name': 'onepassword', 'display_name': '1Password', 'enabled': True, 'needs_unlock': True,
+                                      'unlocked': False, 'installed': True})
     username, password = 'settings-fixture', secrets.token_urlsafe(24)
     if args.keep_credentials and pathlib.Path(args.credentials).exists():
         kept = json.loads(pathlib.Path(args.credentials).read_text())

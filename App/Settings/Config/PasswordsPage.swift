@@ -21,6 +21,15 @@ nonisolated enum PasswordsLayout {
 
     private static let order = ["login", "payment", "address"]
 
+    /// [1password-allow] The line under a password manager; 1Password's says how it's allowed where the add-on can
+    /// ask its app (`onePassword`), else what its switch and lock say.
+    static func sourceLine(_ source: VaultSource, onePassword: OnePasswordAllowWire.Status?) -> String {
+        guard let onePassword, source.installed, source.enabled else { return VaultSource.subtitle(source) }
+        if onePassword.connected { return OnePasswordAllowWire.connectedLine(onePassword) }
+        return source.unlocked ? "On: unlocked for now. Allow it in 1Password and bots aren’t asked again."
+                               : "On, but locked: allow it in 1Password so bots can fill logins."
+    }
+
     static func title(_ kind: String) -> String {
         switch kind {
         case "login": "Logins"
@@ -105,6 +114,8 @@ struct PasswordsPageView: View {
     /// A password manager's switch while its save is out: where the person put it.
     @State private var settingSource: [String: Bool] = [:]
     @State private var masterPassword = ""
+    /// [1password-allow] Whether 1Password can be allowed in its own app on Hermes's computer, and whether it is.
+    @State private var onePassword = OnePasswordAllowModel.known
     /// [mac-audit] The row under the pointer: its delete button shows.
     @State private var hovered: VaultItem.ID?
     /// This device's Composio key, read when the page shows (the last four characters only).
@@ -131,7 +142,8 @@ struct PasswordsPageView: View {
         .saveFailureFeedback(model.failure)
         .task { await model.load() }
         .task { await keys.load() }
-        .refreshable { await model.load(); await keys.load() }
+        .task { onePassword = await OnePasswordAllowModel.status() }
+        .refreshable { await model.load(); await keys.load(); onePassword = await OnePasswordAllowModel.status() }
         .onAppear { composio = ComposioKeychain().status() }
         .alert("Unlock \(unlocking?.name ?? "")", isPresented: Binding(get: { unlocking != nil }, set: { if !$0 { unlocking = nil; masterPassword = "" } })) {
             SecureField("Master Password", text: $masterPassword)
@@ -244,8 +256,11 @@ struct PasswordsPageView: View {
                         // click took, for up to 30 s: it now moves at once and says so until the gateway answers (and
                         // goes back if the save fails, with the failure card above).
                         let pending = settingSource[source.id]
+                        // [1password-allow] 1Password is allowed in its own app, once, where the add-on can ask it.
+                        let allow = source.id == OnePasswordAllowWire.backend && onePassword.supported
                         SwitchRow(title: source.name,
-                                  subtitle: pending.map { $0 ? "Turning on…" : "Turning off…" } ?? VaultSource.subtitle(source),
+                                  subtitle: pending.map { $0 ? "Turning on…" : "Turning off…" }
+                                      ?? PasswordsLayout.sourceLine(source, onePassword: allow ? onePassword : nil),
                                   isOn: Binding(get: { pending ?? source.enabled }, set: { on in
                                       settingSource[source.id] = on
                                       Task {
@@ -254,7 +269,24 @@ struct PasswordsPageView: View {
                                       }
                                   }),
                                   disabled: !source.installed || pending != nil)
-                        if source.enabled, source.installed {
+                        if source.enabled, source.installed, allow {
+                            if onePassword.connected {
+                                if onePassword.ours {
+                                    Button("Disconnect…") { confirmDisconnect() }
+                                        .buttonStyle(.borderless)
+                                        .accessibilityIdentifier("onepassword.disconnect")
+                                }
+                            } else {
+                                HStack(spacing: 16) {
+                                    Button("Allow in 1Password…") { openAllow(source) }
+                                        .accessibilityIdentifier("onepassword.allow-row")
+                                    if source.unlocked {
+                                        Button("Lock") { Task { if await model.lock(source) { Haptics.play(.success) } } }
+                                    }
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        } else if source.enabled, source.installed {
                             Button(source.unlocked ? "Lock" : "Unlock…") {
                                 if source.unlocked { Task { if await model.lock(source) { Haptics.play(.success) } } } else { unlocking = source }
                             }
@@ -266,7 +298,9 @@ struct PasswordsPageView: View {
             } header: { HQSectionLabel {
                 Text("Password Managers")
             } } footer: { HQSectionFooter {
-                Text("Let bots fill logins from a password manager on \(HostWord.phrase). Its master password is sent once to unlock it and never kept.")
+                Text(onePassword.supported
+                     ? "Let bots fill logins from a password manager on \(HostWord.phrase). 1Password is allowed in its own app there, once, with no master password."
+                     : "Let bots fill logins from a password manager on \(HostWord.phrase). Its master password is sent once to unlock it and never kept.")
             } }
         }
     }
@@ -316,6 +350,33 @@ struct PasswordsPageView: View {
         } } footer: { HQSectionFooter {
             Text("Kept in this \(DeviceWord.name)’s Keychain. The password you sign in with isn’t kept, only the sign-in it gives back.")
         } }
+    }
+
+    // MARK: [1password-allow]
+
+    private func openAllow(_ source: VaultSource) {
+        router.push("Allow in 1Password", OnePasswordAllowView(done: { [weak router] _, _ in
+            router?.navigation?.popViewController(animated: true)
+            Task {
+                onePassword = await OnePasswordAllowModel.status()
+                await model.load()
+            }
+        }, useMasterPassword: { [weak router] in
+            router?.navigation?.popViewController(animated: true)
+            unlocking = source
+        }))
+    }
+
+    private func confirmDisconnect() {
+        TextPrompt.confirm(title: "Disconnect 1Password?",
+                           message: "Your bots stop filling logins from 1Password. To cancel the key itself, remove the “Hermes HQ” service account at 1Password.com › Developer.",
+                           action: "Disconnect", from: router.presenter) {
+            Task {
+                if await OnePasswordAllowModel.disconnect() { Haptics.play(.success) } else { Haptics.play(.error) }
+                onePassword = await OnePasswordAllowModel.status()
+                await model.load()
+            }
+        }
     }
 
     private func confirmRemove(_ item: VaultItem) {
