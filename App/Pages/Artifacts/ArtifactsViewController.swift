@@ -2014,7 +2014,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 // Owner 2026-11-01 on the first cut, one sentence: "Idk how to use this page". The way to the things
                 // to pin, as well as how.
                 // [dashboard] New Tile first (the easy button, owner 2026-11-03), then the way to things already made.
-                var button = UIButton.Configuration.hqMacPush(or: .filled(), capsule: true)
+                var button = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)
                 button.title = services == nil ? "Open Artifacts" : "New Tile"
                 config.button = button
                 config.buttonProperties.primaryAction = UIAction { [weak self] _ in

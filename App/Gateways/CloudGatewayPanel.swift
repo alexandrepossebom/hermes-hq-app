@@ -168,6 +168,7 @@ struct CloudGatewayPanel: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color.hqTint)
+            .hqInkLabel()   // [paper-ink]
             .disabled(model.phase == .signingIn)
             .accessibilityIdentifier("gateway.cloud.sign-in")
             NousOtherAccountLink(id: "gateway.cloud.other-account", action: model.useOtherAccount)

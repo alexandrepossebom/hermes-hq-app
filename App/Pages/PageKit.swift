@@ -327,7 +327,7 @@ enum PageStates {
         config.image = UIImage(systemName: "exclamationmark.triangle")
         config.text = title
         config.secondaryText = reason
-        var button = UIButton.Configuration.hqMacPush(or: .filled(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
+        var button = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
         button.title = "Try Again"
         config.button = button
         config.buttonProperties.primaryAction = UIAction { _ in retry() }

@@ -2168,7 +2168,7 @@ final class PanelRow: UIButton {
         valueWords.textColor = ChatPalette.label2
         chevrons?.tintColor = ChatPalette.label2
         chevrons?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(font: ModelPanelView.font(.footnote, .semibold))
-        toggle?.onTintColor = ChatPalette.tint
+        toggle?.onTintColor = Theme.inkSwitch ?? ChatPalette.tint   // [paper-ink]
         alpha = isEnabled ? 1 : 0.45
     }
 

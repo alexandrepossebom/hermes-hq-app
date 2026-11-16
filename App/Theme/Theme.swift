@@ -51,6 +51,17 @@ final class Theme {
     /// which draws its own glyphs). A DEBUG build draws the other with `-HQDebugInkIcons tiles`, to compare.
     enum InkIcons { case tiles, plain }
 
+    /// [paper-ink] A switch that is on, in an ink skin (Paper): the ink in light; in dark a warm mid grey, since iOS's white
+    /// thumb vanished on the ivory ink (2026-11-16 audit, Connectors). nil: every other skin keeps its own.
+    static var inkSwitch: UIColor? {
+        guard inkIcons != nil else { return nil }
+        return UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0x9C / 255, green: 0x9B / 255, blue: 0x93 / 255, alpha: 1)
+                : HQPalette.tintText.resolvedColor(with: traits)
+        }
+    }
+
     /// [paper-ink] A swipe action's or status colour that is only a hue (iOS's indigo, blue): in an ink skin (Paper) the
     /// theme's graphite instead, a warm grey white reads on in both modes (7:1). Red and orange keep their meaning.
     static func inkSwipe(_ colour: UIColor) -> UIColor {

@@ -814,7 +814,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         if store.needsAddOn {
             var state = PageStates.empty(symbol: "puzzlepiece.extension", title: "Update the Add-on",
                                          text: "Tasks needs \(AddOnUpdate.pushName) 0.9.32 or later on \(HostWord.phrase).")   // Mac polish #139
-            var button = UIButton.Configuration.hqMacPush(or: .filled(), capsule: true)
+            var button = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)
             button.title = updateAsked ? "Updating…" : "Update Add-on"
             state.button = button
             state.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.updateAddOn() }

@@ -223,14 +223,20 @@ extension View {
     @ViewBuilder func hqProminentButtonStyle() -> some View {
         // [mac] Stress test 2026-10-28 #55 (round 6): the Mac's default push button (accent, rounded) in both looks.
         if DeviceWord.isMac { self.buttonStyle(MacPushButtonStyle(kind: .prominent)) }
-        else if Theme.isDesktop { self.buttonStyle(DesktopProminentButtonStyle()) } else { self.buttonStyle(.borderedProminent) }
+        else if Theme.isDesktop { self.buttonStyle(DesktopProminentButtonStyle()) } else { self.buttonStyle(.borderedProminent).hqInkLabel() }
     }
 
     /// `.buttonStyle(.glassProminent)` with the look off; the desktop's accent button with it on.
     @ViewBuilder func hqGlassProminentButtonStyle() -> some View {
         // [mac] Stress test 2026-10-28 #55 (round 6): the Mac's default push button (accent, rounded) in both looks.
         if DeviceWord.isMac { self.buttonStyle(MacPushButtonStyle(kind: .prominent)) }
-        else if Theme.isDesktop { self.buttonStyle(DesktopProminentButtonStyle()) } else { self.buttonStyle(.glassProminent) }
+        else if Theme.isDesktop { self.buttonStyle(DesktopProminentButtonStyle()) } else { self.buttonStyle(.glassProminent).hqInkLabel() }
+    }
+
+    /// [paper-ink] A prominent button's words in an ink skin (Paper): the accent's own ink, since iOS writes them white
+    /// and Paper's accent is ivory in dark (2026-11-16 audit: New Chat's Start Chat vanished). Elsewhere unchanged.
+    @ViewBuilder func hqInkLabel() -> some View {
+        if Theme.inkIcons != nil { self.foregroundStyle(Color.hqOnTint) } else { self }
     }
 
     /// [mac] Stress test 2026-10-28 #55 (round 6): an empty state's or a failure's action (New Task…, Try Again, Show
@@ -348,9 +354,21 @@ extension UIButton.Configuration {
         return config
     }
 
+    /// [paper-ink] iOS's filled button, its words in the accent's own ink in an ink skin (Paper: ivory in dark, where
+    /// iOS's white vanished, 2026-11-16 audit: Tiles' New Tile). Elsewhere exactly `.filled()`.
+    @MainActor static func hqFilled() -> UIButton.Configuration {
+        var config = UIButton.Configuration.filled()
+        if Theme.inkIcons != nil { config.baseForegroundColor = HQPalette.onTint }
+        return config
+    }
+
     /// `.prominentGlass()` with the look off; the desktop's accent button with it on.
     @MainActor static func hqProminentGlass() -> UIButton.Configuration {
-        guard Theme.isDesktop else { return .prominentGlass() }
+        guard Theme.isDesktop else {
+            var glass = UIButton.Configuration.prominentGlass()
+            if Theme.inkIcons != nil { glass.baseForegroundColor = HQPalette.onTint }   // [paper-ink]
+            return glass
+        }
         var config = UIButton.Configuration.filled()
         config.baseBackgroundColor = HQPalette.tint
         config.baseForegroundColor = HQPalette.onTint

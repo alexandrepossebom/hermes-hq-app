@@ -623,6 +623,7 @@ private struct GroupedPageModifier: ViewModifier {
                 .scrollContentBackground(.hidden)
                 .listSectionSpacing(.compact)
                 .tint(Self.inkTint)
+                .hqInkSwitches()   // [paper-ink]
         } else if glassSheet {
             // [glass] In a sheet on Liquid Glass: no page, so the glass shows around the rows (each Section keeps its
             // rows' cards solid with `hqSheetRows`). [glass-design] Each section's cards get their thin edge.
@@ -631,6 +632,7 @@ private struct GroupedPageModifier: ViewModifier {
                 .background(GlassListProbe())
                 .listSectionSpacing(.compact)
                 .tint(Self.inkTint)
+                .hqInkSwitches()   // [paper-ink]
         } else {
             // [compact] iOS's compact gap between sections (owner 2026-10-17: things too tall); a header still
             // draws above its section.
@@ -657,12 +659,20 @@ private struct GroupedPageModifier: ViewModifier {
                 // [backdrop-cards] On Soft Cards a little more room between sections, so each plate keeps its own.
                 .listSectionSpacing(backdrop && Backdrop.app.cards ? .custom(BackdropPlates.sectionSpacing) : .compact)
                 .tint(Self.inkTint)
+                .hqInkSwitches()   // [paper-ink]
         }
     }
 
     /// [paper-icons] A skin with ink icons draws its switches and controls in its ink too, not iOS's green; every other
     /// skin keeps what it had (nil: inherited).
     private static var inkTint: Color? { Theme.inkIcons != nil ? Color.hqTintText : nil }
+}
+
+extension View {
+    /// [paper-ink] Switches in an ink skin: `Theme.inkSwitch` (other controls keep the ink). Elsewhere unchanged.
+    @ViewBuilder func hqInkSwitches() -> some View {
+        if let ink = Theme.inkSwitch { self.toggleStyle(SwitchToggleStyle(tint: Color(uiColor: ink))) } else { self }
+    }
 }
 
 /// [glass] A Section's rows on a glass sheet: solid cards (iOS draws them see-through on glass, and what is behind the

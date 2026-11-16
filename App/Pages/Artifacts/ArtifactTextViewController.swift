@@ -171,7 +171,7 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
         config.image = UIImage(systemName: "doc.questionmark")
         config.text = failureTitle ?? "Couldn’t Open This File"
         config.secondaryText = ArtifactFiles.failureText(error, image: false)
-        var retry = UIButton.Configuration.hqMacPush(or: .filled(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
+        var retry = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)   // [mac] Stress test 2026-10-28 #55 (round 6)
         retry.title = "Try Again"
         config.button = retry
         config.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.reload() }
