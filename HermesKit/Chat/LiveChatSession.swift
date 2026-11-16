@@ -141,6 +141,10 @@ final class LiveChatSession: ChatSessionModel {
     var title: String
     /// The app's own short title was tried for this chat (`ShortTitle`); once per open.
     var shortTitleTried = false
+    /// The naming model, and how long the gateway's own naming gets first. Tests replace both.
+    var titleModel: ShortTitle.Model = ShortTitle.onDevice
+    var shortTitleDelay: Duration = .seconds(5)
+    var shortTitleTask: Task<Void, Never>?
     /// The unshortened automatic name: a gateway's later model name may improve its first-word placeholder.
     var automaticTitleSource: String?
     var automaticTitleIsLocal = false

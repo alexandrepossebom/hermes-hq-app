@@ -3,110 +3,182 @@ import Foundation
 import FoundationModels
 #endif
 
-/// A chat's short name when the gateway left only its opening words (owner 2026-11-07: "I just added another…" on the
-/// iPhone bar). Hermes names a chat twice: the first words of the opening message at once, then a model's 3–7 word title.
-/// That second step can fail (no usable key for the title model, an older gateway, a gateway without it), so the app
-/// makes its own after the first reply: Apple's on-device model where the device has one, else a word rule. Works with
-/// any gateway.
+/// A chat's short name when the gateway left only its opening words. Prefer a model's summary; without one, retain
+/// a readable opening phrase rather than stitching keywords together. Works without a remote naming service.
 nonisolated enum ShortTitle {
     /// Names that mean "no title yet".
     static let genericTitles: Set<String> = ["", "new chat", "untitled", "untitled chat", "new session", "new conversation", "chat"]
     /// Longest name the app writes: about what the iPhone bar shows beside its back and ⋯ buttons.
-    static let maxWords = 3
     static let maxCharacters = 20
 
-    /// True when `title` is no real name: empty or generic, or the opening message's own first words (the gateway's
-    /// instant title, cut with "…", or a long message used whole).
+    /// Empty/generic names and visibly cut or overlong opening excerpts are provisional. A fitting, unmarked
+    /// phrase can be a real name even when it shares the message's opening words; do not replace it on that guess.
     static func isPlaceholder(_ title: String, firstMessage: String) -> Bool {
-        let shown = normalized(title)
+        let cleaned = cleanName(title)
+        let shown = normalized(cleaned)
         if genericTitles.contains(shown) { return true }
-        let message = normalized(firstMessage)
-        guard !message.isEmpty, message.hasPrefix(shown) else { return false }
-        let cut = title.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("…") || title.hasSuffix("...")
-        return cut || message.count > shown.count || words(shown).count > maxWords || shown.count > maxCharacters
+        let cut = cutMarker(in: cleaned) != nil
+        let message = normalized(cleanName(firstMessage))
+        // A marked excerpt must stay provisional while the opening page has not loaded yet.
+        if message.isEmpty { return cut }
+        // A gateway excerpt can stop before its opening quotation is closed.
+        guard message.hasPrefix(shown) || normalized(firstMessage).hasPrefix(normalized(title)) else { return false }
+        return cut || words(cleaned).joined(separator: " ").count > maxCharacters
     }
 
-    /// A short title for `message`: the on-device model's when it gives a usable one, else `fallback(for:)`.
-    static func make(from message: String) async -> String {
+    /// A naming model: the opening message and, when there is one, a longer composed title to restate. Nil when
+    /// unavailable. `onDevice` in the app; tests supply their own.
+    typealias Model = @Sendable (_ message: String, _ longTitle: String?) async -> String?
+
+    /// Only a usable model name, never the opening fallback: nil when the model is unavailable or its answer isn't
+    /// a name. `longTitle` is a composed name too long for the header, given so the model can restate it.
+    static func modelName(for message: String, longTitle: String? = nil, using model: Model = onDevice) async -> String? {
         let text = String(ChatText.trimmed(message).prefix(1000))
-        if let made = await onDevice(text), let usable = accepted(made, message: text) { return usable }
-        return fallback(for: text)
+        guard let made = await model(text, longTitle) else { return nil }
+        return accepted(made, message: text).map { restoringCase($0, from: text) }
     }
 
-    /// The model's answer when it reads as a name: a few words, not the message's own opening, not a reply.
+    /// The on-device model answers in lowercase ("ios app crash"). Give an all-lowercase word the message's spelling
+    /// where it has one ("iOS", "CV", ".NET", "Wi-Fi"; a capital that only starts a sentence doesn't count, and a
+    /// shouted message lends none: it has no lowercase letters across three or more words, or most of its words over
+    /// four letters are all caps, so short acronyms like "AWS IAM" don't count. A shouted message's acronyms are
+    /// lost too ("FIX MY CV NOW" gives "Cv fix"); its case says nothing), then start the name with a capital when its
+    /// first word is still all lowercase. A word the model already cased is kept. Only for model names: a gateway's
+    /// name keeps its own case. Word matching can't tell "us" from "US"; that clash is accepted.
+    static func restoringCase(_ name: String, from message: String) -> String {
+        var spelled: [String: String] = [:]
+        var sentenceStart = true
+        let long = words(message).map(bare).filter { $0.filter(\.isLetter).count > 4 }
+        let allCaps = words(message).count >= 3 && !message.contains(where: \.isLowercase)
+        let shouted = allCaps || !long.isEmpty && long.filter { $0 == $0.uppercased() }.count * 2 > long.count
+        for word in shouted ? [] : words(message) {
+            let core = bare(word)
+            let onlyStartsSentence = sentenceStart && core == core.prefix(1).uppercased() + core.dropFirst().lowercased()
+            if !core.isEmpty, core != core.lowercased(), !onlyStartsSentence, spelled[core.lowercased()] == nil {
+                spelled[core.lowercased()] = core
+            }
+            sentenceStart = word.last.map { ".!?".contains($0) } ?? false
+        }
+        var out = words(name).map { word -> String in
+            let core = bare(word)
+            guard core == core.lowercased(), let spelling = spelled[core], let range = word.range(of: core) else { return word }
+            return word.replacingCharacters(in: range, with: spelling)
+        }
+        if let first = out.first, first == first.lowercased(), let letter = first.first, letter.isLetter,
+           String(letter).uppercased().count == 1 {
+            out[0] = String(letter).uppercased() + first.dropFirst()
+        }
+        return out.joined(separator: " ")
+    }
+
+    /// A clean, single-line, non-placeholder model name within the header budget.
     static func accepted(_ raw: String, message: String) -> String? {
         let cleaned = cleanName(raw)
-        guard !cleaned.contains(where: \.isNewline) else { return nil }
-        let title = capitalizedFirst(words(cleaned).joined(separator: " "))
-        guard !title.isEmpty, words(title).count <= maxWords, title.count <= maxCharacters,
-              !isPlaceholder(title, firstMessage: message) else { return nil }
+        guard cutMarker(in: cleaned) == nil, !cleaned.contains(where: \.isNewline) else { return nil }
+        let title = words(cleaned).joined(separator: " ")
+        guard !title.isEmpty, title.count <= maxCharacters,
+              !isPlaceholder(raw, firstMessage: message) else { return nil }
         return title
     }
 
-    /// Gateway names use the same budget as local ones. Keep an already-short name intact; otherwise drop filler
-    /// and keep whole topic words. This is the stored name, not a display-only ellipsis.
+    /// A gateway has already composed this name. Keep its wording, including connecting words; an overlong name
+    /// gets a visibly cut whole-word prefix, not a guessed complete phrase. This is the stored name.
     static func compact(_ raw: String) -> String {
-        accepted(raw, message: "") ?? fallback(for: cleanName(raw))
+        let cleaned = cleanName(raw)
+        if let marker = cutMarker(in: cleaned) {
+            let body = String(cleaned[..<marker.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return body.isEmpty ? "New Chat" : boundedPhrase(body + "…")
+        }
+        return accepted(raw, message: "") ?? boundedPhrase(cleaned)
+    }
+
+    private static func cutMarker(in name: String) -> Range<String.Index>? {
+        name.range(of: #"(?:…|\.{3})[\s\"'“”‘’`*.。!?:;,]*$"#, options: .regularExpression)
     }
 
     private static func cleanName(_ raw: String) -> String {
         var title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title.lowercased().hasPrefix("title:") { title = String(title.dropFirst(6)) }
-        return title.trimmingCharacters(in: CharacterSet(charactersIn: " \"'“”‘’`*.。!?:;\n"))
+        let wrappers: [Character: Character] = ["\"": "\"", "'": "'", "“": "”", "‘": "’", "`": "`", "*": "*"]
+        // Remove formatting, not spelling: iOS, .NET, Yahoo! and *.swift keep their case and symbols.
+        // Paired wrappers can have sentence punctuation outside them, including a period after a quote.
+        while true {
+            if title.lowercased().hasPrefix("title:") {
+                title = String(title.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+                continue
+            }
+            guard let first = title.first, let closing = wrappers[first] else { break }
+            var candidate = title
+            while let last = candidate.last, ".,。!?:;".contains(last) {
+                candidate.removeLast()
+                candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard candidate.count > 1, candidate.last == closing else { break }
+            title = String(candidate.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return title
     }
 
-    // MARK: Word rule (no model)
+    // MARK: Whole phrases (no model)
 
-    /// Words that carry no topic: pronouns, helpers, politeness, articles, prepositions.
-    static let filler: Set<String> = [
-        "i", "i'm", "im", "i've", "ive", "i'd", "id", "i'll", "me", "my", "mine", "we", "we're", "our", "us", "you", "your",
-        "it", "its", "it's", "this", "that", "these", "those", "there", "here", "they", "them", "he", "she", "his", "her",
-        "a", "an", "the", "some", "any", "another", "other", "just", "also", "really", "actually", "basically", "now",
-        "please", "pls", "plz", "thanks", "thank", "hey", "hi", "hello", "ok", "okay", "so", "well", "um", "uh",
-        "can", "could", "would", "will", "should", "shall", "may", "might", "must", "do", "does", "did", "is", "are",
-        "was", "were", "be", "been", "am", "have", "has", "had", "want", "wanted", "need", "needed", "like", "help",
-        "let's", "lets", "let", "go", "ahead", "try", "to", "of", "in", "on", "at", "for", "with", "from", "by", "into",
-        "about", "and", "or", "but", "if", "then", "than", "as", "up", "out", "what", "how", "why", "when", "where",
-        "which", "who", "whether", "get", "got", "make", "sure", "know", "think", "one", "new",
-    ]
-
-    /// The message's topic words, filler dropped, at most `maxWords` and `maxCharacters`.
+    /// A fitting opening remains whole. Without a naming model, use a readable excerpt, visibly marked as an
+    /// unfinished name. Keeping the opening intact also lets isPlaceholder recognize it when a better name arrives.
+    /// Do not depend on lexical tagging here: some supported environments return only OtherWord tags.
     static func fallback(for message: String) -> String {
-        let firstLine = message.split(whereSeparator: \.isNewline).first.map(String.init) ?? message
-        let all = words(firstLine).map(bare).filter { !$0.isEmpty }
-        let topic = all.filter { !filler.contains($0.lowercased()) }
+        // Flatten the whole opening, not just its first line: otherwise a short first line hides a cut.
+        boundedPhrase(message)
+    }
+
+    /// Bound at word boundaries, keeping case, internal grammar and punctuation. Only a token
+    /// that cannot fit by itself is cut on Character boundaries (also covers writing systems without spaces).
+    private static func boundedPhrase(_ text: String) -> String {
+        let all = words(cleanName(text))
+        let whole = all.joined(separator: " ")
+        if whole.count <= maxCharacters { return whole.isEmpty ? "New Chat" : whole }
+        let limit = maxCharacters - 1
         var picked: [String] = []
-        // All filler ("Hi there!"): the first words as typed, under the very same limits.
-        for word in (topic.isEmpty ? all : topic).prefix(maxWords) {
-            let clean = picked.isEmpty ? capitalizedFirst(word) : word
-            let next = (picked + [clean]).joined(separator: " ")
-            if next.count > maxCharacters {
-                // A single long token (including languages without spaces) still needs a bounded name. String's
-                // Character prefix keeps composed characters whole, and capitalization happens before the bound.
-                if picked.isEmpty { picked.append(String(clean.prefix(maxCharacters))) }
+        for word in all {
+            let next = (picked + [word]).joined(separator: " ")
+            if next.count > limit {
+                if picked.isEmpty { picked.append(String(word.prefix(limit))) }
                 break
             }
-            picked.append(clean)
+            picked.append(word)
         }
         let title = picked.joined(separator: " ")
-        return title.isEmpty ? "New Chat" : title
+        return title.isEmpty ? "New Chat" : title + "…"
     }
 
     // MARK: On-device model
 
     static let instructions = """
         You name chat sessions so they can be found again in a short list on a phone. Given the user's opening message, \
-        reply with only a title of 1 to \(maxWords) words, at most \(maxCharacters) characters including spaces, in sentence case, in the message's language. Name \
-        what the user wants done. Keep names, product names and numbers exact. No quotes, no ending punctuation. Never \
-        answer the message.
+        reply with only a natural, specific title of at most \(maxCharacters) characters including spaces, in sentence case, \
+        in the message's language. Summarize what the user wants done, not just their first words. Write a coherent \
+        phrase, not a list of keywords. Keep short connecting words when they make the title read naturally; there \
+        is no three-word limit. If a phrase is too long, choose a shorter complete phrase instead of deleting its \
+        grammar. Keep names, acronyms, product spelling and numbers exact. No added quotes or sentence punctuation. \
+        Never answer the message.
         """
 
-    private static func onDevice(_ message: String) async -> String? {
+    #if canImport(FoundationModels)
+    /// Guided generation: the model fills a title field instead of writing free text, so a chatty answer
+    /// ("Sure, I can help!") is not what comes back as the name.
+    @Generable nonisolated struct GeneratedTitle {
+        @Guide(description: "The chat's title only. Never a reply, greeting or answer to the user.")
+        var title: String
+    }
+    #endif
+
+    static func onDevice(_ message: String, longTitle: String?) async -> String? {
         #if canImport(FoundationModels)
         guard SystemLanguageModel.default.availability == .available else { return nil }
         let session = LanguageModelSession(instructions: instructions)
-        let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: 24)
-        return try? await session.respond(to: "Opening message:\n\(message)", options: options).content
+        let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: 48)
+        var prompt = "Opening message:\n\(message)"
+        if let longTitle {
+            prompt += "\n\nThis title is too long for the list. Say the same thing in fewer characters:\n\(longTitle)"
+        }
+        return try? await session.respond(to: prompt, generating: GeneratedTitle.self, options: options).content.title
         #else
         return nil
         #endif
@@ -115,20 +187,17 @@ nonisolated enum ShortTitle {
     // MARK: Text helpers
 
     static func normalized(_ text: String) -> String {
-        var s = words(text.lowercased()).joined(separator: " ")
+        let folded = text.folding(options: .caseInsensitive, locale: Locale(identifier: "en_US_POSIX"))
+        var s = words(folded).joined(separator: " ")
         while let last = s.last, "….,;:!?-—".contains(last) || last == " " { s.removeLast() }
         return s
     }
 
     static func words(_ text: String) -> [String] { text.split(whereSeparator: { $0.isWhitespace }).map(String.init) }
 
-    /// A word without the punctuation around it ("room." → "room", "(bonus" → "bonus"); inner marks stay ("bonus/play").
+    /// A word without the punctuation around it ("Wi-Fi." → "Wi-Fi", ".NET" → "NET"); inner marks stay.
     static func bare(_ word: String) -> String {
         word.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.symbols).subtracting(CharacterSet(charactersIn: "#+")))
     }
 
-    static func capitalizedFirst(_ text: String) -> String {
-        guard let first = text.first else { return text }
-        return first.uppercased() + text.dropFirst()
-    }
 }
