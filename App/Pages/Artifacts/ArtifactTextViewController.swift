@@ -210,6 +210,13 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
             control = segments
         }
         control.accessibilityIdentifier = "artifact.text.mode"
+        #if targetEnvironment(macCatalyst)
+        // [mac-pages] The bar stretched the switch over all the room it had: in a note's own window it ran the width
+        // of the window and cut the file's name to "trip-notes…". It is a switch's width at most; a narrow pane
+        // still squeezes it, so the name keeps its room there.
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.widthAnchor.constraint(lessThanOrEqualToConstant: (240 * HQFont.scale).rounded()).isActive = true
+        #endif
         // The control is its own capsule: without this the bar's glass drew a second ring around it.
         let item = UIBarButtonItem(customView: control)
         item.hidesSharedBackground = true

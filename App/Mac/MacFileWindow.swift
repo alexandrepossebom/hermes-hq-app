@@ -238,11 +238,18 @@ import UIKit
                 try? FileManager.default.removeItem(at: copy)
                 try? FileManager.default.copyItem(at: source, to: copy)
                 if !FileManager.default.fileExists(atPath: copy.path) {   // out of the app's reach: a stand-in of that name
+                    let line = "The drive is about four hours with one stop, so leaving by nine puts us there for a late lunch and leaves the afternoon free. "
                     let text = source.pathExtension == "csv" ? "Month,Rent,Food,Travel\nJan,1200,410,90\nFeb,1200,385,140\nMar,1200,402,60\nApr,1200,398,210\n"
+                        : source.pathExtension == "md" ? "# Trip notes\n\nLeave **Friday** 9:00.\n\n\(line)\(line)\(line)\n\n- Bring the charger\n- Back Sunday evening\n"
                         : "Trip notes\n\nLeave Friday 9:00.\nBring the charger.\nBack Sunday evening.\n"
                     try? text.write(to: copy, atomically: true, encoding: .utf8)
                 }
-                open(FileManager.default.fileExists(atPath: copy.path) ? copy : source)
+                // [mac-pages] A note opens as a chat opens it: formatted, in a window of its own.
+                if MarkdownFileSheet.opens(copy), let host = MainTabController.current {
+                    MarkdownFileSheet.present(copy, from: host)
+                } else {
+                    open(FileManager.default.fileExists(atPath: copy.path) ? copy : source)
+                }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
