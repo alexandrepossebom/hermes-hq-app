@@ -19,17 +19,19 @@ final class ChatRefineUITests: XCTestCase {
                                                         "Checked how to use web search", "ran 1 command")).firstMatch
         XCTAssertTrue(compact.waitForExistence(timeout: 35), "the short line keeps the full spoken summary")
         // Sign-in, opening the chat and fresh-history replacement can move/reconfigure this bottom-anchored row.
-        // Existence alone isn't readiness to tap: require its final position to remain hittable for a settling window.
+        // Existence alone isn't readiness to tap. Reading `isHittable` directly records a failure ("activation point
+        // invalid") while the row is still fading in, so wait for it through a predicate expectation instead, then
+        // for its frame to stay put on screen for a settling window.
+        let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: compact)
+        XCTAssertEqual(XCTWaiter().wait(for: [hittable], timeout: 15), .completed, "the disclosure becomes tappable")
         var previous = CGRect.null
         var stableSince = Date()
         let deadline = Date().addingTimeInterval(10)
         var settled = false
         while Date() < deadline {
-            // Ask about hittability only once the frame is on screen: XCUIElement.isHittable fails the test outright
-            // ("activation point invalid") for an element that exists but hasn't been laid out yet.
             let frame = compact.frame
             let onScreen = !frame.isEmpty && app.windows.firstMatch.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
-            if frame != previous || !onScreen || !compact.isHittable { previous = frame; stableSince = Date() }
+            if frame != previous || !onScreen { previous = frame; stableSince = Date() }
             if Date().timeIntervalSince(stableSince) >= 0.8 { settled = true; break }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
