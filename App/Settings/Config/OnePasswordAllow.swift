@@ -237,7 +237,7 @@ struct OnePasswordAllowView: View {
             Text(title).foregroundStyle(Color.hqLabel).lineLimit(1)
             Spacer(minLength: 8)
             if let detail { Text(detail).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).lineLimit(1) }
-            Image(systemName: "checkmark").font(.body.weight(.semibold)).opacity(on ? 1 : 0).accessibilityHidden(true)
+            Image(systemName: "checkmark").font(Font.hq(.body).weight(.semibold)).opacity(on ? 1 : 0).accessibilityHidden(true)
         }
         .hqMacFormRowHeight()
         .contentShape(Rectangle())
