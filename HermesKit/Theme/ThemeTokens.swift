@@ -261,9 +261,15 @@ nonisolated enum ThemeResolver {
         return t
     }
 
+    /// [bubble-ink] How far a picked or bot colour is deepened for its white words: a little past 4.5:1, so a mid colour
+    /// (sky, green, slate, orange, measured 4.52 on screen) is not on the line once drawn, and Glass and Tinted, which let
+    /// some of the picture through, start with room (owner 2026-11-17: "The bot colors and text colors must always work
+    /// well to be legible", then "Yes" to darkening them a touch).
+    static let messageInk = 4.7
+
     /// [message-colour] Your messages in the colour picked on Chat Bubbles, over what the skin gave them. A named
     /// colour has its own light and dark shade; any other goes through the rule a skin's accent does (`ios`: brightened
-    /// then deepened in dark). Either is deepened until white reads on it at 4.5:1, with black text only where it is
+    /// then deepened in dark). Either is deepened until white reads on it (`messageInk`), with black text only where it is
     /// too light for white. Graphite is the page's own grey with the page's text: a quiet pill, a step from the
     /// reply's bubble.
     static func paintMessage(_ t: inout ThemeTokens, _ colour: MessageColour, dark: Bool) {
@@ -311,7 +317,7 @@ nonisolated enum ThemeResolver {
         var bubble = start
         if RGBA.white.contrast(with: bubble) >= 3 {
             var keep = 100.0
-            while keep > 60, RGBA.white.contrast(with: bubble) < 4.5 {
+            while keep > 60, RGBA.white.contrast(with: bubble) < messageInk {
                 keep -= 2
                 bubble = start.mix(keep, .black)
             }

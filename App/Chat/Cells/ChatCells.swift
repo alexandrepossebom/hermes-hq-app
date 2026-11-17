@@ -385,8 +385,11 @@ final class BubbleShapeView: UIView {
         let contrast = traitCollection.accessibilityContrast == .high || HQAccessibility.overrides.contrast
         let isDark = traitCollection.userInterfaceStyle == .dark
         let ownTint = ThemeTable.withSet(generation: traitCollection[ThemeGenerationTrait.self]) { $0.tokens(dark: isDark).ownLook?.replyGlassTint }
+        // [bubble-ink] Your words keep 4.5:1 over whatever shows through: the chat's picture, or the page.
         let tint = GlassBubbles.tint(fill.resolvedColor(with: traitCollection), mine: mine, increaseContrast: contrast,
-                                     replyTint: ownTint.map { CGFloat($0) })
+                                     replyTint: ownTint.map { CGFloat($0) },
+                                     ink: (mine ? ChatPalette.meText : ChatPalette.label).resolvedColor(with: traitCollection),
+                                     page: HQPalette.page.resolvedColor(with: traitCollection), overPicture: Backdrop.chats.shows)
         if tint != glassTint || view.effect == nil {
             glassTint = tint
             let effect = UIGlassEffect(style: .regular)
@@ -2761,9 +2764,28 @@ nonisolated enum GlassBubbles {
     static var applies: Bool { offered && ThemeTable.glassBubbles && !HQAccessibility.reduceTransparency }
 
     /// `replyTint`: a skin's own share for replies (`SkinOwnLook.replyGlassTint`) instead of `replyTint`.
-    static func tint(_ colour: UIColor, mine: Bool, increaseContrast: Bool, replyTint ownReply: CGFloat? = nil) -> UIColor {
+    /// [bubble-ink] `ink`: the words drawn on your message. Its colour is moved away from them (`ThemeMath.seeThrough`)
+    /// until they read at 4.5:1 (7:1 under Increase Contrast, as far as it goes) over whatever can show through: on a
+    /// Chat Background any part of a picture, so both white and black; on the plain page, the page. A slate, sky-blue or
+    /// green message over a light photo measured 3.5:1 on screen, as the arithmetic says. A reply is left as it is: at
+    /// its lighter share the glass's own frosting carries it (5.1:1 at worst on screen, where the arithmetic said 3.6).
+    /// nil `ink`: the colour as it is.
+    static func tint(_ colour: UIColor, mine: Bool, increaseContrast: Bool, replyTint ownReply: CGFloat? = nil,
+                     ink: UIColor? = nil, page: UIColor? = nil, overPicture: Bool = false) -> UIColor {
         let alpha = increaseContrast ? contrastTint : mine ? ownTint : ownReply ?? replyTint
-        return colour.withAlphaComponent(colour.cgColor.alpha * alpha)
+        let share = colour.cgColor.alpha * alpha
+        guard mine, let ink else { return colour.withAlphaComponent(share) }
+        let ground = page.map(rgba) ?? .white
+        let behind: [RGBA] = overPicture ? [.white, .black] : [ground]
+        let fill = ThemeMath.seeThrough(rgba(colour), alpha: Double(share), ink: rgba(ink), behind: behind,
+                                        ratio: increaseContrast ? 7 : 4.5)
+        return fill.alpha(Double(share)).uiColor
+    }
+
+    private static func rgba(_ colour: UIColor) -> RGBA {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        colour.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return RGBA(unit: Double(r), Double(g), Double(b), Double(a))
     }
 
     /// The outline's corners in screen terms (`BubbleShape`): glass has no tail, so all four are Theme › Bubble Corners.

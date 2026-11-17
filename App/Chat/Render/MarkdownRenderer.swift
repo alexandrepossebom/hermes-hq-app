@@ -112,11 +112,20 @@ nonisolated struct MarkdownTheme: @unchecked Sendable, Hashable {
                                    link: ChatPalette.tintText, underlineLinks: false,
                                    inlineCodeFill: ChatPalette.inlineCodeFill, variant: 0)
     // Inline code's box in your bubble is your text's own ink at 18 % (white over the tint; dark on a skin whose own
-    // bubble is light with dark words, where a fixed white box couldn't be seen).
+    // bubble is light with dark words, where a fixed white box couldn't be seen). [bubble-ink] Where that would leave the
+    // code's words under 4.5:1 (a white box under white words: the default blue's code was 4.25:1), it is a shade the
+    // other way instead (`ThemeMath.inlineCodeBox`).
     static let me = MarkdownTheme(text: ChatPalette.meText, secondary: ChatPalette.meTime, marker: ChatPalette.meTime,
                                   link: ChatPalette.meText, underlineLinks: true,
                                   inlineCodeFill: UIColor { @Sendable traits in
-                                      ChatPalette.meText.resolvedColor(with: traits).withAlphaComponent(0.18)
+                                      func rgba(_ colour: UIColor) -> RGBA {
+                                          var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                                          colour.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a)
+                                          return RGBA(unit: Double(r), Double(g), Double(b), Double(a))
+                                      }
+                                      let page = rgba(HQPalette.page)
+                                      let bubble = rgba(ChatPalette.meBubble).over(page.over(.white))
+                                      return ThemeMath.inlineCodeBox(ink: rgba(ChatPalette.meText), bubble: bubble).uiColor
                                   }, variant: 1)
 
     /// [paper-links] Links are underlined where they ask for it (your bubble) and wherever the skin's accent can't be

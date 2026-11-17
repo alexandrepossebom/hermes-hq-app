@@ -677,14 +677,22 @@ struct BubbleCornersPreview: View {
         // Glass takes rounded corners only: no tail, its corner as round as the rest. A card too.
         let outline = BubbleOutline(radius: radius, mine: mine, joinsAbove: joinsAbove, joinsBelow: joinsBelow, tail: tail && !glassy && !cardy)
         let colour = mine ? Color.hqMeBubble : Color.hqBotBubble
-        let alpha = contrast == .increased ? GlassBubbles.contrastTint : mine ? GlassBubbles.ownTint : GlassBubbles.replyTint
+        // [bubble-ink] The glass's colour as a chat's bubble takes it (`GlassBubbles.tint`): moved from its words until
+        // they read over the background behind it.
+        let increased = contrast == .increased, overPicture = ground != nil
+        let glassColour = Color(uiColor: UIColor { traits in
+            GlassBubbles.tint((mine ? ChatPalette.meBubble : ChatPalette.botBubble).resolvedColor(with: traits), mine: mine,
+                              increaseContrast: increased,
+                              ink: (mine ? ChatPalette.meText : ChatPalette.label).resolvedColor(with: traits),
+                              page: HQPalette.page.resolvedColor(with: traits), overPicture: overPicture)
+        })
         return Text(text)
             .font(Font.hq(.body))
             .foregroundStyle(mine ? Color.hqMeText : Color.hqLabel)
             .padding(.horizontal, ChatMetrics.bubblePadH)
             .padding(.vertical, ChatMetrics.bubblePadV)
             .background { if cardy { SoftCardBackground(bubbleRadius: radius) } else { tinted(mine: mine, in: outline) } }
-            .hqChatBubble(glassy ? colour.opacity(Double(alpha)) : nil, solid: cardy || tint(mine: mine) != nil ? .clear : colour, in: outline)
+            .hqChatBubble(glassy ? glassColour : nil, solid: cardy || tint(mine: mine) != nil ? .clear : colour, in: outline)
             // As wide as the chat lets each side go (`TextLayout.maxBubbleWidth`): a reply the row, yours a short column.
             .frame(maxWidth: mine ? ChatMetrics.userMaxWidth : ChatMetrics.replyMaxWidth, alignment: mine ? .trailing : .leading)
             // Room for the tail, which hangs outside the bubble.

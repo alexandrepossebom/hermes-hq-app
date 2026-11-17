@@ -1561,6 +1561,128 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
     }
 }
 
+/// [bubble-ink] Owner 2026-11-17: "The bot colors and text colors must always work well to be legible." Every message
+/// colour (the named ones, every bot face's, odd custom ones) on every skin, light and dark: the words read at 4.5:1 on a
+/// Glass bubble whatever part of a picture shows through it, and on the box behind inline code in any style.
+@Suite struct BubbleInkTests {
+    static let colours: [MessageColour] = MessageColour.Preset.allCases.map(MessageColour.preset)
+        + HeadTones.tones.values.map { MessageColour.custom($0.accent) }
+        + [0x0A0A0A, 0xFFFFFF, 0x000000, 0xFFE100, 0x7FFFD4, 0x101040, 0x808080, 0x6B7688, 0x4A93FF, 0xFF66AD]
+            .map(MessageColour.custom)
+
+    /// The tokens for each skin and colour, light and dark (the iOS look: the Desktop Look keeps its own boxes).
+    static func everyBubble(_ body: (String, ThemeTokens) -> Void) {
+        for skin in SkinCatalog.all {
+            for colour in colours {
+                var state = ThemeState(skinID: skin.id)
+                state.messageColour = colour
+                let set = ThemeResolver.resolve(state)
+                for (mode, tokens) in [("light", set.light), ("dark", set.dark)] { body("\(skin.id) \(colour) \(mode)", tokens) }
+            }
+        }
+    }
+
+    static func reads(_ ink: RGBA, on ground: RGBA) -> Double { ink.over(ground).contrast(with: ground) }
+
+    @Test func glassKeepsYourWordsReadableOverAnyPicture() {
+        Self.everyBubble { name, t in
+            for (alpha, ratio) in [(Double(GlassBubbles.ownTint), 4.5), (Double(GlassBubbles.contrastTint), 7.0)] {
+                let fill = ThemeMath.seeThrough(t.meBubble.over(t.page.over(.white)), alpha: alpha, ink: t.meText,
+                                                behind: [.white, .black], ratio: ratio)
+                // Increase Contrast aims at 7:1; a skin whose words are a soft ink may not get there. Either way the
+                // words read as well as any glass colour could make them: the plain white or black at that share.
+                let floor = ratio == 7 ? 4.5 : ratio
+                for under in [RGBA.white, .black, RGBA(hex: 0x808080), t.page.over(.white)] {
+                    let ground = fill.alpha(alpha).over(under)
+                    let best = [RGBA.white, .black].map { Self.reads(t.meText, on: $0.alpha(alpha).over(under)) }.max() ?? 0
+                    #expect(Self.reads(t.meText, on: ground) >= min(floor, best) - 0.01, "\(name) over \(under.hexString) at \(alpha)")
+                }
+            }
+        }
+    }
+
+    /// A reply's glass is the bubble's colour at its share, as before: the glass's own frosting carries it (measured
+    /// 5.1:1 at worst on screen).
+    @MainActor @Test func repliesAreLeftAsTheyWere() {
+        let grey = UIColor(white: 0.15, alpha: 1)
+        #expect(GlassBubbles.tint(grey, mine: false, increaseContrast: false, ink: .white, page: .black, overPicture: true)
+            == grey.withAlphaComponent(GlassBubbles.replyTint))
+    }
+
+    /// A colour that already reads over what shows through is left exactly as it is.
+    @Test func aColourThatReadsIsLeftAlone() {
+        // Dark, on the plain page (black): the blue is as it was.
+        let dark = ThemeResolver.resolve(.default).dark
+        let blue = dark.meBubble.over(dark.page.over(.white))
+        #expect(ThemeMath.seeThrough(blue, alpha: 0.85, ink: dark.meText, behind: [dark.page.over(.white)]) == blue)
+        let black = RGBA(hex: 0x0A0A0A)
+        #expect(ThemeMath.seeThrough(black, alpha: 0.85, ink: .white, behind: [.white, .black]) == black, "a black bubble reads anywhere")
+        // Light words go darker, dark words lighter.
+        let sky = RGBA(hex: 0x3B76CC)
+        #expect(ThemeMath.seeThrough(sky, alpha: 0.85, ink: .white, behind: [.white]).luminance < sky.luminance)
+        let grey = RGBA(hex: 0x808080)   // black words at 5.3:1, 4.1:1 at 85 % over black
+        #expect(ThemeMath.seeThrough(grey, alpha: 0.85, ink: .black, behind: [.black]).luminance > grey.luminance)
+    }
+
+    /// Inline code's box: your words still read on it, on the solid bubble and on a Glass one over any picture.
+    @Test func inlineCodeReadsInEveryBubble() {
+        Self.everyBubble { name, t in
+            let solid = t.meBubble.over(t.page.over(.white))
+            let box = ThemeMath.inlineCodeBox(ink: t.meText, bubble: solid)
+            #expect(Self.reads(t.meText, on: box.over(solid)) >= 4.5, "\(name) solid")
+            let glass = ThemeMath.seeThrough(solid, alpha: Double(GlassBubbles.ownTint), ink: t.meText, behind: [.white, .black])
+            for under in [RGBA.white, .black] {
+                let ground = glass.alpha(Double(GlassBubbles.ownTint)).over(under)
+                #expect(Self.reads(t.meText, on: box.over(ground)) >= 4.49, "\(name) glass over \(under.hexString)")
+            }
+        }
+    }
+
+    /// The default blue's code box was white under white words (4.25:1): it is a shade now. A black bubble keeps its
+    /// white box (a shade would vanish into it).
+    @Test func theBoxGoesTheOtherWayOnlyWhereItMust() {
+        let standard = ThemeResolver.resolve(.default).light
+        let blue = standard.meBubble.over(standard.page)
+        #expect(ThemeMath.inlineCodeBox(ink: .white, bubble: blue) == RGBA.black.alpha(0.18))
+        #expect(ThemeMath.inlineCodeBox(ink: .white, bubble: RGBA(hex: 0x0A0A0A)) == RGBA.white.alpha(0.18))
+    }
+
+    /// A picked or bot colour is deepened a little past 4.5:1 (`ThemeResolver.messageInk`), so a mid colour is not on the
+    /// line; one that already reads better is left as it is.
+    @Test func midColoursHaveRoomPastTheLine() {
+        for hex: UInt32 in [0x4A93FF, 0x6B7688, 0x2DBE60, 0xFF7057, 0x9479FF, 0xEF3B36] {
+            var state = ThemeState.default
+            state.messageColour = .custom(hex)
+            let set = ThemeResolver.resolve(state)
+            for t in [set.light, set.dark] where t.meText == .white {
+                #expect(Self.reads(.white, on: t.meBubble) >= ThemeResolver.messageInk, "#\(String(hex, radix: 16))")
+            }
+        }
+        var blue = ThemeState.default
+        blue.messageColour = .preset(.blue)
+        #expect(ThemeResolver.resolve(blue).light.meBubble == RGBA(hex: 0x0053FD), "the app's blue (5.7:1) is untouched")
+    }
+
+    /// Tinted takes the picture only as far as the words keep a little past 4.5:1 on a light picture.
+    @Test func tintedKeepsRoomOverALightPicture() {
+        let t = ThemeResolver.resolve(.default).light
+        let pixels = [RGBA.white, RGBA(hex: 0xF0F0F0), RGBA(hex: 0xFFFFE0)]
+        let shown = TintedBubbles.paint(pixels: pixels, bubble: t.meBubble, page: t.page, dim: 0, text: t.meText,
+                                        time: t.meTime, colour: TintedBubbles.ownColour, shade: TintedBubbles.shade,
+                                        target: TintedBubbles.wordsTarget)
+        for pixel in shown { #expect(Self.reads(t.meText, on: pixel) >= TintedBubbles.wordsTarget - 0.01) }
+    }
+
+    /// No ink: the glass's colour is the bubble's at its share, as before.
+    @MainActor @Test func glassWithoutInkIsAsBefore() {
+        let colour = UIColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)
+        let plain = GlassBubbles.tint(colour, mine: true, increaseContrast: false)
+        #expect(plain == colour.withAlphaComponent(GlassBubbles.ownTint))
+        let moved = GlassBubbles.tint(colour, mine: true, increaseContrast: false, ink: .white, page: .white, overPicture: true)
+        #expect(moved.cgColor.alpha == GlassBubbles.ownTint && moved != plain)
+    }
+}
+
 /// [bot-colour] A bot's own message colour: its pick, its face, or what Chat Bubbles says; painted through a trait on
 /// its chat.
 @Suite struct BotMessageColourTests {

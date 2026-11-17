@@ -149,6 +149,44 @@ nonisolated enum ThemeMath {
         return keep == 100 ? source : source.mixOklab(Double(keep), text)
     }
 
+    /// [bubble-ink] A see-through bubble's colour: `fill`, drawn at `alpha` over whatever shows through it (each of
+    /// `behind`), moved away from its words' `ink` (darker under light words, lighter under dark ones) until the words
+    /// read at `ratio` over every one. Returned opaque; the caller draws it at `alpha` as before. A solid bubble already
+    /// reads (`ThemeResolver.paintMessage`), but glass lets a share of the chat's picture through: a bright photo under
+    /// a sky-blue bubble took its white words to 3.5:1 (owner 2026-11-17: "The bot colors and text colors must always
+    /// work well to be legible").
+    static func seeThrough(_ fill: RGBA, alpha: Double, ink: RGBA, behind: [RGBA], ratio: Double = 4.5) -> RGBA {
+        let solid = fill.alpha(1)
+        func reads(_ colour: RGBA) -> Bool {
+            behind.allSatisfy { under in
+                let ground = colour.alpha(alpha).over(under.over(.white))
+                return ink.over(ground).contrast(with: ground) >= ratio
+            }
+        }
+        if reads(solid) { return solid }
+        let away: RGBA = ink.over(solid).luminance >= solid.luminance ? .black : .white
+        for keep in stride(from: 98.0, through: 0, by: -2) {
+            let moved = solid.mix(keep, away)
+            if reads(moved) { return moved }
+        }
+        return away
+    }
+
+    /// [bubble-ink] The box behind inline code in your bubble: your words' own ink at `share` (a white box on a black
+    /// bubble) where the words still read on it at `ratio`, else the other way at the same share (a shade under white
+    /// words, a light box under dark ones), which can only raise the words' contrast. A white box under white words took
+    /// the default blue's code to 4.25:1 and a sky-blue bubble's to 3.3:1. `ratio` is 7, not 4.5, so the box still
+    /// reads where Glass or Tinted lets some of the picture through the bubble (each keeps the words at 4.5:1 on the
+    /// bubble, not on the box).
+    static func inlineCodeBox(ink: RGBA, bubble: RGBA, share: Double = 0.18, ratio: Double = 7) -> RGBA {
+        let solid = bubble.alpha(1)
+        let own = ink.alpha(share)
+        let ground = own.over(solid)
+        if ink.over(ground).contrast(with: ground) >= ratio { return own }
+        let away: RGBA = ink.over(solid).luminance >= solid.luminance ? .black : .white
+        return away.alpha(share)
+    }
+
     /// Finer than the web's 10 % steps, for values the web never had to fix (the iOS look's tint text on other skins):
     /// mixes toward `text` until `ratio` holds, and falls back to `text` itself.
     static func readable(_ source: RGBA, text: RGBA, on page: RGBA, ratio: Double = 4.5) -> RGBA {

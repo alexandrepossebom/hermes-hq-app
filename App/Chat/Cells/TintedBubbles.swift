@@ -189,7 +189,7 @@ import UIKit
                            ground: fill == rgba(ChatPalette.botBubble) ? replyCard(bubble: fill, page: page, lift: lift) : nil, page: page,
                            text: rgba(mine ? ChatPalette.meText : ChatPalette.label),
                            time: rgba(mine ? ChatPalette.meTime : ChatPalette.label2), dim: Backdrop.chats.dim,
-                           colour: colour, shade: shade, target: increaseContrast ? 7 : 4.5, show: show)
+                           colour: colour, shade: shade, target: increaseContrast ? 7 : wordsTarget, show: show)
         if let hit = painted[key] { return hit }
         let colours = paint(pixels: soft.pixels, plain: soft.plain, bubble: key.bubble, ground: key.ground, page: key.page,
                             dim: Double(key.dim) / 100, text: key.text, time: key.time, colour: key.colour, shade: key.shade,
@@ -199,6 +199,12 @@ import UIKit
         painted[key] = made
         return made
     }
+
+    /// [bubble-ink] The words' goal over the picture: a little past 4.5:1. At 4.5 the picture was taken right up to the
+    /// line, and a bubble measured 4.47 to 4.49 on screen once drawn in whole pixel values (owner 2026-11-17: "The bot
+    /// colors and text colors must always work well to be legible"). A bubble whose own colour reads less (a skin's soft
+    /// reply) still keeps its own, as before.
+    nonisolated static let wordsTarget = 4.6
 
     /// How much of the solid bubble's contrast a tinted one keeps at least.
     nonisolated static let keep = 0.75
