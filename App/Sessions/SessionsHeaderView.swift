@@ -208,10 +208,9 @@ struct SessionsHeaderView: View {
     /// the tab bar's Bots glyph and the folder the project pills' own (owner: "They need to match what we use in the
     /// menu"). The side of the view drawn is also All (owner picked this of four drawings): the tint while nothing is
     /// picked, as All was; dark while a pill is, and a tap on it shows everything again.
-    /// [sessions-ux] Owner 2026-11-16 ("it needs to be very clear what you're working on"): the switch stays at the
-    /// rail's start while the pills scroll (`BotPillRail.leading`); scrolled along with them it left the screen. It
-    /// stays the two glyphs alone (owner, on a drawing with the side's name beside its glyph: "I don't want the
-    /// bots/projects toggle to be fixed unless we have it only be the icons").
+    /// The two glyphs alone (owner 2026-11-16, on a drawing with the side's name beside its glyph: "I don't want the
+    /// bots/projects toggle to be fixed unless we have it only be the icons"). [switch-scrolls] Owner 2026-11-17: it
+    /// scrolls with the pills, as the row's first item ("I want for this to scroll with everything else in this row").
     @ViewBuilder private func pillsSwitch(allPicked: Bool) -> some View {
         if model.showsSwitch {
             let side: CGFloat = Theme.isDesktop ? HQFont.scaled(24) : HQFont.scaled(30)

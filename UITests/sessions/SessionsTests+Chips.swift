@@ -28,11 +28,10 @@ extension SessionsTests {
         // [projects-switch] Nor is the Bots | Projects switch at the rail's start a bot pill.
         let botPills = rail.buttons.matching(NSPredicate(format: "NOT (identifier BEGINSWITH %@) AND NOT (identifier BEGINSWITH %@)",
                                                          "sessions.chip.status.", "sessions.pills."))
-        // [sessions-ux] The switch (whose lit side is All) stays at the rail's start, outside the pills that scroll: the
-        // scrolling rail holds the three bots, and All is there once.
-        XCTAssertEqual(botPills.count, 3, "each bot's pill is one element\n\(rail.debugDescription)")
+        // [switch-scrolls] The switch (whose lit side is All) is the rail's first item and scrolls with the pills: the
+        // rail holds All and the three bots, each once.
+        XCTAssertEqual(botPills.count, 4, "each chip is one element\n\(rail.debugDescription)")
         XCTAssertEqual(app.buttons.matching(identifier: "sessions.chip.all").count, 1, "All is one element")
-        XCTAssertLessThan(chips[0].frame.maxX, rail.frame.minX + 12, "the switch stands before the scrolling pills")
         app.terminate()
 
         fixture("/__fixture/mode", ["bots": 1])
