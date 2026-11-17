@@ -340,17 +340,21 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
         guard isViewLoaded, PromptSheetCopy.offersMove(prompt) else { return }
         if let moveButton { moveButton.isHidden = !on; return }
         guard on else { return }
-        var look = UIButton.Configuration.plain()
-        look.title = "Move It in 1Password Instead…"
-        look.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var out = incoming
-            out.font = HQFont.preferred(.subheadline)
-            return out
-        }
+        // Owner 2026-11-16, on the first cut (plain words under Don't Save): "The move it button doesn't look like a
+        // button." It is the sheets' own action capsule now, the same shape as Don't Save beside it in grey.
+        var look = UIButton.Configuration.hqSheetAction()
+        look.title = "Move It in 1Password"
+        look.image = UIImage(systemName: "arrow.right.arrow.left")
+        look.imagePadding = 6
+        look.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(scale: .small)
         let button = UIButton(configuration: look, primaryAction: UIAction { [weak self] _ in self?.openMove() })
         button.accessibilityIdentifier = "prompt.move-1password"
-        stack.setCustomSpacing(4, after: stack.arrangedSubviews.last ?? stack)
-        stack.addArrangedSubview(button)
+        if !DeviceWord.isMac { button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
+        let row = UIStackView(arrangedSubviews: [button])
+        row.axis = .vertical
+        row.alignment = .center
+        stack.setCustomSpacing(10, after: stack.arrangedSubviews.last ?? stack)
+        stack.addArrangedSubview(row)
         moveButton = button
     }
 
