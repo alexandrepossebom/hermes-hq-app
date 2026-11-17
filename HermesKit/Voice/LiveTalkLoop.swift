@@ -51,6 +51,8 @@ nonisolated enum LiveTalkEffect: Sendable, Equatable {
     case speak(delegationId: String?, text: String)
     case think(delegationId: String?, text: String)
     case instruct(String)
+    /// The hello the voice opens with (`VoiceHello.prompt`): asked for once, when the session is ready.
+    case greet(String)
     case setMuted(Bool)
     case closeSession
     case haptic(TalkHaptic)
@@ -66,6 +68,9 @@ nonisolated struct LiveTalkState: Sendable, Equatable {
     var wholeAnswers: Bool { engine == .grokLive }
     /// The session was given some of the chat (`LiveVoiceWire.history`): the voice is told that is only its latest part.
     var seeded = false
+    /// What the voice is asked to open with (`VoiceHello.prompt`); nil says nothing first (a conversation that fell
+    /// back and came again, tests).
+    var hello: String?
     var transcript: [LiveTranscriptFragment] = []
     var assistantSpeaking = false
     /// The delegation Hermes is answering; late replies for an older one are not spoken.
@@ -285,6 +290,10 @@ nonisolated enum LiveTalkLoop {
             effects.append(.instruct(LiveVoiceWire.quietWhileWorking))
             if live.seeded { effects.append(.instruct(LiveVoiceWire.chatNote)) }
             if state.muted { effects.append(.setMuted(true)) }
+            if let hello = live.hello {
+                live.hello = nil
+                effects.append(.greet(hello))
+            }
             refreshStatus()
 
         case .sessionFailed(let title, let message, let detail):
