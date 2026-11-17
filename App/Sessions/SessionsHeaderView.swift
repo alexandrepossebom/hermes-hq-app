@@ -210,9 +210,9 @@ struct SessionsHeaderView: View {
     /// [switch-toggles] Owner 2026-11-17: "Why can't the toggle toggle when you click it anywhere?" A tap anywhere on it
     /// flips the view. The side drawn had also been All (a tap on it cleared a picked pill and otherwise did nothing,
     /// so the switch seemed to ignore the tap); the lit pill clears itself with a tap, as it always has.
-    /// The two glyphs alone (owner 2026-11-16, on a drawing with the side's name beside its glyph: "I don't want the
-    /// bots/projects toggle to be fixed unless we have it only be the icons"). [switch-scrolls] Owner 2026-11-17: it
-    /// scrolls with the pills, as the row's first item ("I want for this to scroll with everything else in this row").
+    /// [switch-scrolls] Owner 2026-11-17: it scrolls with the pills, as the row's first item ("I want for this to scroll
+    /// with everything else in this row"; on 2026-11-16 he had turned down a fixed switch with words). [switch-words]
+    /// Then: each side carries its name beside its glyph (`switchSide`).
     @ViewBuilder private func pillsSwitch(allPicked: Bool) -> some View {
         if model.showsSwitch {
             let side: CGFloat = Theme.isDesktop ? HQFont.scaled(24) : HQFont.scaled(30)
@@ -264,16 +264,23 @@ struct SessionsHeaderView: View {
         }
     }
 
-    /// One side of the switch: its glyph.
+    /// One side of the switch: its glyph and its name. [switch-words] Owner 2026-11-17: "I want the bots/projects
+    /// toggle to show the words of each with the icons" (both sides named, now that the switch scrolls with the row).
     private func switchSide(_ view: SessionPills, here: Bool, half: CGFloat, side: CGFloat) -> some View {
-        Group {
+        HStack(spacing: 5) {
             if view == .bots {
                 Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(14), line: 0.1)).renderingMode(.template)
             } else {
                 Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
             }
+            Text(view == .bots ? "Bots" : "Projects")
+                .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
+                .lineLimit(1)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .fixedSize()
         }
-        .frame(width: half, height: side)
+        .padding(.horizontal, 11)
+        .frame(minWidth: half, minHeight: side, maxHeight: side)
     }
 
     private var botRail: some View {

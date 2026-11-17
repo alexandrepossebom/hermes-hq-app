@@ -54,7 +54,7 @@ extension SessionsTests {
         XCTAssertTrue(strip(app).waitForExistence(timeout: 4), "the menu still filters")
         strip(app).tap()
         // The New Project alert, with words typed.
-        chip(app, "default").tap()
+        tapChip(app, "default")
         openFilter(app)
         tapFilter(app, "project", "project.new")
         let alert = app.alerts["New Project"]
@@ -103,9 +103,9 @@ extension SessionsTests {
         strip(app).tap()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 6), "the filter clears on the cached rows")
         XCTAssertTrue(labelOf(row(app, "s-garden")).hasPrefix("Garden plan. "), "the cached title (\(labelOf(row(app, "s-garden"))))")
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(5) { let now = self.order(app); return now.contains("s-trip") && !now.contains("s-garden") }, "a chip filters the cached rows (\(order(app)))")
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(5) { self.row(app, "s-garden").exists }, "the lit chip shows every bot again")
         XCTAssertTrue(labelOf(row(app, "s-garden")).hasPrefix("Garden plan. "), "still the cached title while the gateway is away")
         fixture("/__fixture/mode", ["down": 0])

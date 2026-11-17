@@ -62,7 +62,7 @@ extension SessionsTests {
         let rpcBefore = rpcLog().count
         let restBefore = ((try? account.control("/__fixture/state")) ?? [:])["rest"] as? [[String: Any]] ?? []
         let deepBefore = sidebarReads().deep
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-trip", "s-recipes"] }, "only Research's chats (\(order(app)))")
         XCTAssertTrue(chip(app, "research").isSelected, "its chip lights")
         XCTAssertFalse(nothingPicked(app))
@@ -91,13 +91,13 @@ extension SessionsTests {
         XCTAssertEqual(order(app), ["s-trip", "s-recipes"])
 
         // C3: the lit chip again shows every bot; so does another bot's lit chip.
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.order(app).count == 5 }, "the lit chip shows every bot again (\(order(app)))")
         XCTAssertTrue(nothingPicked(app))
-        chip(app, "deploys").tap()
+        tapChip(app, "deploys")
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-release"] }, "\(order(app))")
         shot(app, "C3-chip-deploys")
-        chip(app, "deploys").tap()
+        tapChip(app, "deploys")
         XCTAssertTrue(waitUntil(6) { self.order(app).count == 5 }, "every bot again (\(order(app)))")
         XCTAssertTrue(nothingPicked(app) && !chip(app, "deploys").isSelected)
     }
@@ -139,7 +139,7 @@ extension SessionsTests {
     @MainActor func test43_RelaunchOnAllAndComposeUsesTheChip() throws {
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-trip", "s-recipes"] })
         app.buttons["sessions.compose"].tap()
         let pill = app.buttons["new-chat-bot-research"]
@@ -153,7 +153,7 @@ extension SessionsTests {
         shot(app, "C6-compose-with-chip")
         backToList(app)
         XCTAssertTrue(chip(app, "research").isSelected)
-        chip(app, "research").tap()
+        tapChip(app, "research")
         app.buttons["sessions.compose"].tap()
         XCTAssertTrue(app.buttons["new-chat-bot-research"].waitForExistence(timeout: 5), "under All: the same sheet")
         shot(app, "C6-compose-under-all")
@@ -162,7 +162,7 @@ extension SessionsTests {
         // C5: the pick is not kept across launches.
         let picked = launch(keepView: true)
         XCTAssertTrue(row(picked, "s-garden").waitForExistence(timeout: 15))
-        chip(picked, "deploys").tap()
+        tapChip(picked, "deploys")
         XCTAssertTrue(waitUntil(6) { self.order(picked) == ["s-release"] })
         picked.terminate()
         let again = launch(keepView: true)
@@ -180,10 +180,10 @@ extension SessionsTests {
         let botChats = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-20261009_090000_bc'"))
         XCTAssertEqual(botChats.count, 0, "no bot chat row in the list")
         XCTAssertFalse(app.staticTexts["Bot Chat"].exists)
-        chip(app, "default").tap()
+        tapChip(app, "default")
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget", "s-garden"] }, "unread first, in New for You (\(order(app)))")
         XCTAssertEqual(botChats.count, 0, "nor under its chip")
-        chip(app, "default").tap()
+        tapChip(app, "default")
         openFilter(app)
         tapFilter(app, "show", "runs")
         closeFilter(app)
@@ -210,7 +210,7 @@ extension SessionsTests {
     @MainActor func test45_SearchHonoursTheChipAndHidesTheStrip() throws {
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        chip(app, "research").tap()
+        tapChip(app, "research")
         openFilter(app)
         tapFilter(app, "status", "status.idle")
         closeFilter(app)
@@ -244,7 +244,7 @@ extension SessionsTests {
         XCTAssertEqual(toProjects.value as? String, "Bots")
         XCTAssertTrue(nothingPicked(app) && !toBots.exists && !app.buttons["sessions.chip.all"].exists, "one switch, no All")
         shot(app, "P0-switch-bots")
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { !self.nothingPicked(app) && self.chip(app, "research").isSelected }, "a bot picked")
         app.scrollViews["sessions.chips"].swipeRight()     // the picked pill was centred, which can take the switch off
         XCTAssertTrue(waitUntil(4) { toProjects.isHittable })
@@ -274,7 +274,7 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { !self.chip(app, "research").exists || self.chip(app, "default").exists }, "the bot pills again")
         // [project-page-return] With a bot picked: its project's page shows the whole project, the switch is in view
         // (the rail scrolled only as far as the project's pill needed), and the way back brings the bot back.
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
         let reading = header(app, "Reading")
         XCTAssertTrue(reading.waitForExistence(timeout: 6), "Research's project, Reading")
@@ -288,7 +288,7 @@ extension SessionsTests {
         toBots.tap()
         XCTAssertTrue(waitUntil(6) { toProjects.exists && self.chip(app, "research").isSelected }, "back: Research picked again")
         XCTAssertTrue(waitUntil(6) { self.order(app).allSatisfy { ["s-trip", "s-recipes"].contains($0) } }, "Research's chats (\(order(app)))")
-        chip(app, "research").tap()
+        tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) })
         toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now the projects")
@@ -311,9 +311,9 @@ extension SessionsTests {
         websiteRow.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "the row opens the project's page")
         XCTAssertTrue(waitUntil(6) { pills[0].isSelected && !self.nothingPicked(app) }, "and lights its pill")
-        pills[0].tap()
+        onScreen(app, pills[0]).tap()
         XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) && !app.cells["sessions.projectPage"].exists }, "the lit pill: the list again")
-        pills[0].tap()
+        onScreen(app, pills[0]).tap()
         XCTAssertTrue(waitUntil(6) { let o = self.order(app); return o.contains("s-budget") && !o.contains("s-garden") && !o.contains("s-trip") },
                       "only Website's chats (\(order(app)))")
         XCTAssertTrue(pills[0].isSelected, "its pill lights")
@@ -334,15 +334,15 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { self.headers(app) == ["New"] }, "its sections (\(headers(app)))")
         shot(app, "P2-project-pill-picked")
         // Reading's page: its working chat under Working.
-        pills[1].tap()
+        onScreen(app, pills[1]).tap()
         XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Working"] && self.order(app) == ["s-trip"] }, "Reading's page (\(headers(app)), \(order(app)))")
         shot(app, "P2b-project-page-working")
-        pills[1].tap()
+        onScreen(app, pills[1]).tap()
         XCTAssertTrue(waitUntil(6) { !page.exists && self.headers(app).contains("Website") }, "every project again (\(headers(app)))")
-        pills[0].tap()
+        onScreen(app, pills[0]).tap()
         XCTAssertTrue(page.waitForExistence(timeout: 6))
         // The lit pill goes back to every project, as a lit bot pill does.
-        pills[0].tap()
+        onScreen(app, pills[0]).tap()
         XCTAssertTrue(waitUntil(6) { !page.exists && self.headers(app).contains("Website") }, "every project again (\(headers(app)))")
         XCTAssertFalse(pills[0].isSelected)
         XCTAssertTrue(waitUntil(4) { self.nothingPicked(app) }, "nothing is picked again")
@@ -354,7 +354,7 @@ extension SessionsTests {
         app.buttons["sessions.chip.status.working"].tap()
         XCTAssertTrue(waitUntil(6) { pills[2].exists }, "every project again")
         // Hold a pill: Archive Project. It leaves the pills and its chat the list; Show › Archived brings both back.
-        pills[1].press(forDuration: 1.0)
+        onScreen(app, pills[1]).press(forDuration: 1.0)
         let archive = app.buttons["sessions.chip.project.archive"]
         XCTAssertTrue(archive.waitForExistence(timeout: 5), "Archive Project in the pill's menu")
         archive.tap()
@@ -369,7 +369,7 @@ extension SessionsTests {
         rail.swipeLeft()
         XCTAssertTrue(waitUntil(4) { pills[2].isHittable })
         shot(app, "P5-archived-shown")
-        pills[2].press(forDuration: 1.0)
+        onScreen(app, pills[2]).press(forDuration: 1.0)
         XCTAssertTrue(archive.waitForExistence(timeout: 5))
         XCTAssertEqual(archive.label, "Unarchive Project")
         archive.tap()
@@ -381,7 +381,7 @@ extension SessionsTests {
         fixture("/__fixture/mode", ["working": ["s-trip", "s-garden"]])          // a turn at work in App too
         let appPill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(waitUntil(20) { appPill.exists && appPill.label.contains("Working") }, "App is at work (\(appPill.exists ? appPill.label : "no pill"))")
-        appPill.tap()
+        onScreen(app, appPill).tap()
         let workingChip = app.buttons["sessions.projectPage.working"]
         XCTAssertTrue(workingChip.waitForExistence(timeout: 6), "the Working count's chip")
         XCTAssertEqual(workingChip.label, "Working, 1 chat")
@@ -399,7 +399,7 @@ extension SessionsTests {
         shot(app, "P5c-project-page-section-closed")
         workingChip.tap()
         XCTAssertTrue(waitUntil(6) { self.row(app, "s-garden").exists && self.headers(app).first == "Working" }, "its chip opens it (\(headers(app)))")
-        appPill.tap()
+        onScreen(app, appPill).tap()
         fixture("/__fixture/mode", ["working": ["s-trip"]])
         XCTAssertTrue(waitUntil(20) { !appPill.label.contains("Working") }, "App is quiet again")
         // [projects-switch] Show › Bot Faces off: the rows and the page draw no faces.
@@ -408,10 +408,10 @@ extension SessionsTests {
         closeFilter(app)
         shot(app, "P6-faces-off-all")
         rail.swipeRight()
-        pills[0].tap()
+        onScreen(app, pills[0]).tap()
         XCTAssertTrue(page.waitForExistence(timeout: 6))
         shot(app, "P7-faces-off-page")
-        pills[0].tap()
+        onScreen(app, pills[0]).tap()
         openFilter(app)
         tapFilter(app, "show", "faces")
         closeFilter(app)
@@ -436,7 +436,7 @@ extension SessionsTests {
         toProjects.tap()
         let appPill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(appPill.waitForExistence(timeout: 10))
-        appPill.tap()
+        onScreen(app, appPill).tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6))
         func names() -> [String] { self.headers(app) }
         XCTAssertTrue(waitUntil(8) { names().suffix(2) == ["This Week, 2 chats", "Older, 2 chats"] && names().contains("Today") },

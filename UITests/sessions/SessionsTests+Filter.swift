@@ -571,7 +571,7 @@ extension SessionsTests {
         openFilter(app)
         tapFilter(app, "status", "status.unread")
         closeFilter(app)
-        chip(app, "default").tap()
+        tapChip(app, "default")
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget"] }, "\(order(app))")
         openFilter(app)
         XCTAssertTrue(filterItem(app, "clear").exists, "a filter is on: Clear Filters")
@@ -676,7 +676,7 @@ extension SessionsTests {
         openFilter(app)
         tapFilter(app, "status", "status.unread")
         closeFilter(app)
-        chip(app, "research").tap()
+        tapChip(app, "research")
         let token = strip(app)
         XCTAssertTrue(token.waitForExistence(timeout: 4))
         let rail = app.descendants(matching: .any)["sessions.chips"]
@@ -734,7 +734,7 @@ extension SessionsTests {
         // A chip whose bot has no chats.
         setRow("s-release", ["archived": true], event: true)
         XCTAssertTrue(waitUntil(15) { !self.row(app, "s-release").exists })
-        chip(app, "deploys").tap()
+        tapChip(app, "deploys")
         XCTAssertTrue(app.staticTexts["Deploys Has No Chats Yet"].waitForExistence(timeout: 5), "a chip alone can leave nothing")
         XCTAssertTrue(app.buttons["sessions.empty.compose"].exists, "and offers a new chat with that bot")
         shot(app, "B4-no-match-chip")
@@ -751,7 +751,7 @@ extension SessionsTests {
     @MainActor func test32_NewProjectFromTheFilter() throws {
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        chip(app, "default").tap()
+        tapChip(app, "default")
         fixture("/__fixture/fail", ["rpc": "projects.create", "message": "That folder is not on this computer.", "count": 1])
         openFilter(app)
         tapFilter(app, "project", "project.new")

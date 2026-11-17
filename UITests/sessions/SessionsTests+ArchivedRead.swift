@@ -16,7 +16,7 @@ extension SessionsTests {
         openFilter(app)
         tapFilter(app, "show", "archived")
         closeFilter(app)
-        chip(app, "deploys").tap()                    // brings the old chat up from under the tab bar
+        tapChip(app, "deploys")                    // brings the old chat up from under the tab bar
         let old = row(app, "s-old")
         XCTAssertTrue(old.waitForExistence(timeout: 8), "the archived chat is listed")
         XCTAssertTrue(waitUntil(6) { self.labelOf(old).contains("Unread") }, "it is unread (\(labelOf(old)))")

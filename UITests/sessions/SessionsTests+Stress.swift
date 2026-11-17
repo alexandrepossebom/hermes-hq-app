@@ -135,7 +135,7 @@ extension SessionsTests {
         tapFilter(app, "status", "status.unread")
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget"] }, "the filter answers from the cache (\(order(app)))")
         closeFilter(app)
-        chip(app, "default").tap()
+        tapChip(app, "default")
         XCTAssertTrue(chip(app, "default").isSelected)
         XCTAssertFalse(row(app, "s-late").exists, "still nothing from the network")
         shot(app, "S-late-page-before")
@@ -269,7 +269,7 @@ extension SessionsTests {
         closeFilter(app)
         strip(app).tap()
         XCTAssertTrue(waitUntil(6) { self.order(app).count >= 5 })
-        chip(app, "default").tap()
+        tapChip(app, "default")
         openFilter(app)
         tapFilter(app, "project", "project.new")
         let alert = app.alerts["New Project"]

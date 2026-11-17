@@ -220,7 +220,7 @@ extension SessionsTests {
         let rail = app.scrollViews["sessions.chips"]
         if chip(app, "deploys").frame.maxX > app.frame.width { rail.swipeLeft() }
         XCTAssertLessThanOrEqual(chip(app, "deploys").frame.maxX, app.frame.width, "the rail scrolls to its last chip")
-        chip(app, "deploys").tap()
+        tapChip(app, "deploys")
         XCTAssertTrue(waitUntil(4) { self.chip(app, "deploys").isSelected }, "Deploys is picked")
         XCTAssertTrue(app.staticTexts["No Matching Chats"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["sessions.empty.clear"].isHittable)

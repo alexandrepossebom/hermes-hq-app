@@ -354,7 +354,7 @@ final class SessionsTests: XCTestCase {
         XCTAssertFalse(strip(app).exists, "Archived is not a filter: no strip")
         shot(app, "filter-archived")
         // Dated with the rest, the old chat sits under the tab bar: its bot's chip brings it up to swipe.
-        chip(app, "deploys").tap()
+        tapChip(app, "deploys")
         XCTAssertTrue(waitUntil(6) { self.order(app).contains("s-old") && self.order(app).count == 2 }, "\(order(app))")
         shot(app, "filter-archived-marked")
         swipe(old, left: true)

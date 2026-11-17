@@ -241,6 +241,30 @@ extension SessionsTests {
 
     @MainActor func strip(_ app: XCUIApplication) -> XCUIElement { app.buttons["sessions.filter-strip"] }
 
+    /// [switch-words] A bot's pill brought on screen, as a finger does: the rail is dragged toward it while it is under
+    /// either edge (the switch with its words pushes the third bot past an iPhone's edge).
+    @MainActor @discardableResult
+    func onScreen(_ app: XCUIApplication, _ pill: XCUIElement) -> XCUIElement {
+        let rail = app.scrollViews["sessions.chips"]
+        let width = app.frame.width
+        for _ in 0..<8 {
+            guard pill.exists, rail.exists else { break }
+            let frame = pill.frame
+            if frame.minX >= 4 && frame.maxX <= width - 24 { break }
+            let toLeft = frame.maxX > width - 24
+            rail.coordinate(withNormalizedOffset: CGVector(dx: toLeft ? 0.7 : 0.3, dy: 0.5))
+                .press(forDuration: 0.05, thenDragTo: rail.coordinate(withNormalizedOffset: CGVector(dx: toLeft ? 0.35 : 0.65, dy: 0.5)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        return pill
+    }
+
+    /// Taps a bot's pill, dragging the rail to it first when it is off the screen.
+    @MainActor func tapChip(_ app: XCUIApplication, _ profile: String) {
+        onScreen(app, chip(app, profile)).tap()
+    }
+
     /// [switch-toggles] The Bots | Projects switch: one button, a tap anywhere on it flips the view.
     @MainActor func pillSwitch(_ app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.pills.'")).firstMatch

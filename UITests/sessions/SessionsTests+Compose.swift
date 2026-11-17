@@ -182,7 +182,7 @@ extension SessionsTests {
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         XCTAssertTrue(waitUntil(10) { self.rpc("projects.tree").contains { $0["profile"] as? String == "default" } }, "projects read with the list")
-        chip(app, "research").tap()
+        tapChip(app, "research")
         app.buttons["sessions.compose"].tap()
         let pill = app.buttons["new-chat-bot-research"]
         XCTAssertTrue(pill.waitForExistence(timeout: 5), "New Chat")
@@ -200,7 +200,7 @@ extension SessionsTests {
     @MainActor func testC3d_ComposeWithAPillAndTheSwitchOffStartsAtOnce() throws {
         let app = launch(extra: ["-hqn.newChatAsksProject", "NO"])
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        chip(app, "research").tap()
+        tapChip(app, "research")
         app.buttons["sessions.compose"].tap()
         XCTAssertTrue(waitUntil(8) { self.rpc("session.create").contains { $0["profile"] as? String == "research" } },
                       "a new Research chat, straight away")
@@ -214,7 +214,7 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         setRow("s-release", ["archived": true], event: true)
         XCTAssertTrue(waitUntil(15) { !self.row(app, "s-release").exists })
-        chip(app, "deploys").tap()
+        tapChip(app, "deploys")
         let new = app.buttons["sessions.empty.compose"]
         XCTAssertTrue(new.waitForExistence(timeout: 5), "New Chat on the page")
         shot(app, "empty-bot")
@@ -260,7 +260,7 @@ extension SessionsTests {
     @MainActor func testC5_NameChatFromTheEmptyChat() throws {
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        chip(app, "research").tap()
+        tapChip(app, "research")
         app.buttons["sessions.compose"].tap()
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 8), "the new chat")
         let name = app.buttons["chat.intro.name"]
@@ -293,7 +293,7 @@ extension SessionsTests {
     @MainActor func testC5b_NameChatInDesktopLook() throws {
         let app = launch(extra: ["-HQDebugDesktopLook", "YES"])
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        chip(app, "research").tap()
+        tapChip(app, "research")
         app.buttons["sessions.compose"].tap()
         let name = app.buttons["chat.intro.name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10), "an unnamed chat offers Name Chat")
