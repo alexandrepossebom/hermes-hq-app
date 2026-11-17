@@ -581,7 +581,8 @@ private struct PickGlass<S: InsettableShape>: ViewModifier {
             }
         } else {
             // In the dark the glass lifts the tint, and white words on a chosen chip read 3.3:1; a third darker, 7.5:1.
-            let ink = prominent && scheme == .dark ? Color.hqTint.mix(with: .black, by: 0.3) : Color.hqTint
+            // [paper-glass] Not in an ink skin: Paper's dark accent is ivory under dark words, and darkened it went a muddy grey.
+            let ink = prominent && scheme == .dark && Theme.inkIcons == nil ? Color.hqTint.mix(with: .black, by: 0.3) : Color.hqTint
             let tint: Color? = selected ? (prominent ? ink : Color.hqTint.opacity(0.16)) : nil
             // The ring rides on the content, under the glass's own layer: an overlay after it vanished in a container.
             content.overlay(shape.strokeBorder(Color.hqTint, lineWidth: selected && !prominent ? 2 : 0))

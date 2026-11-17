@@ -18,10 +18,6 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// What the Other Apps row last drew (a change reconfigures it).
     private var otherAppsSign = ""
     private var groupBeforeProjects: SessionGroupBy = .date   // [projects-switch] what Bots goes back to
-    /// [project-page-return] A project's page opened from the Bots side: the bot that was picked there and where the
-    /// list was scrolled, for the switch's Bots side to bring back. Spent on the way back; dropped when the switch is
-    /// turned to Projects by hand.
-    private var projectPageReturn: (bot: String?, offset: CGFloat)?
     private var pageSign = ""            // [project-pills] the project page's header, as last drawn
     /// The Other Apps page while it is in the stack (its rows' actions and reloads go through this list).
     private weak var otherAppsPage: OtherAppsViewController?
@@ -2124,29 +2120,7 @@ extension SessionsViewController {
         if pills == .projects { groupBeforeProjects = state.prefs.groupBy }
         let group: SessionGroupBy = pills == .projects ? .project : (groupBeforeProjects == .project ? .date : groupBeforeProjects)
         SessionFilterApply.apply(.group(group), to: &state, homeBot: homeBot)
-        // [project-page-return] Back from a project's page opened on the Bots side: the bot picked there again (while it
-        // is still on the rail), and the list where it was.
-        let back = pills == .bots ? projectPageReturn : nil
-        projectPageReturn = nil
-        guard let back else { apply(state); return }
-        if let bot = back.bot, chipBots.contains(where: { $0.id == bot }) { state.botFilter = bot }
-        func restore() {
-            collectionView.layoutIfNeeded()
-            let inset = collectionView.adjustedContentInset
-            let most = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
-            collectionView.setContentOffset(CGPoint(x: 0, y: min(max(back.offset, -inset.top), most)), animated: false)
-        }
-        crossfade {
-            self.apply(state, animated: false)
-            restore()
-        }
-        // The rail's swap from the project pills to the bots' changes the header's height a pass later, which moves the
-        // list's insets (and with them the place): the place is set again once that has settled.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.filterStateNow()?.prefs.pills == .bots else { return }
-            restore()
-            AppLog.trace("sessions", "project page: back to \(back.offset), list at \(self.collectionView.contentOffset.y)")
-        }
+        apply(state)
     }
 
     /// [project-pills] A project pill: that project's chats alone (Filter › Project with it alone); nil: every project.
@@ -2157,9 +2131,6 @@ extension SessionsViewController {
         Haptics.play(.selection)
         if state.prefs.pills != .projects {
             groupBeforeProjects = state.prefs.groupBy
-            // [project-page-return] What the switch's Bots side brings back. The page shows the whole project, every
-            // bot's chats in it (owner: the project's own page is where to see all of it); the bot returns on the way back.
-            projectPageReturn = (state.botFilter, collectionView.contentOffset.y)
             SessionFilterApply.apply(.group(.project), to: &state, homeBot: homeBot)
         }
         state.prefs.projectFilter = [key]

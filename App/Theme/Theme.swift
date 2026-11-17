@@ -80,13 +80,22 @@ final class Theme {
         #if DEBUG
         if let pick = UserDefaults.standard.string(forKey: "HQDebugPaperPills").flatMap(PaperPills.init(rawValue:)) { return pick }
         #endif
-        return .soft   // owner 2026-11-16: option 4, Claude's soft grey pill
+        // Owner 2026-11-17 ("The pills do [need to be glass]… TOO much like paper and not like a Claude mimic"): glass, as
+        // Claude's own app. The flat styles stay for comparison in a DEBUG build.
+        return .glass
     }
-    /// [paper-solid] Paper on the iPhone and iPad draws no Liquid Glass of its own (owner 2026-11-16, "Okay" to solid
-    /// Paper chrome): plain bar glyphs and Back, solid sheets, a solid tab bar and text box. Never in the Desktop Look
-    /// (which has its own) or on the Mac (its own plain items already).
+    /// [paper-solid] Paper without Liquid Glass of its own: plain bar glyphs and Back, solid sheets, a solid tab bar and
+    /// text box. Off: build 1051 shipped it and the owner rejected it the next morning (2026-11-17: "We ruined the paper
+    /// theme… The text input needs to be glass. The pills do, too… TOO much like paper and not like a Claude mimic").
+    /// Claude's own app keeps iOS's glass chrome, so Paper does too. A DEBUG build still shows it with
+    /// `-HQDebugPaperSolid YES`, to compare.
     static var solidChrome: Bool {
-        !isDesktop && !DeviceWord.isMac && ThemeTable.current.light.ownLook?.flatPills == true
+        #if DEBUG
+        guard UserDefaults.standard.bool(forKey: "HQDebugPaperSolid") else { return false }
+        return !isDesktop && !DeviceWord.isMac && ThemeTable.current.light.ownLook?.flatPills == true
+        #else
+        return false
+        #endif
     }
     /// The pills are drawn flat, not on glass.
     static var flatPills: Bool { paperPills.map { $0 != .glass } ?? false }

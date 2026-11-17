@@ -53,13 +53,8 @@ extension DesktopLookEndToEndTests {
             Thread.sleep(forTimeInterval: 0.8)
             shot(app, "paper-\(tag)-settings")
 
-            // [paper-solid] Paper's own solid bar on the iPhone, the system's for every other theme; Bots is on either.
-            let paperBar = app.otherElements["paper-tab-bar"]
-            if skin == "paper" {
-                XCTAssertTrue(paperBar.waitForExistence(timeout: 5), "Paper's solid tab bar is up")
-            } else {
-                XCTAssertTrue(waitUntil(timeout: 5) { !paperBar.exists }, "the system tab bar is back")
-            }
+            // [paper-glass] Paper keeps iOS's glass tab bar, as every theme (owner 2026-11-17): never the solid stand-in.
+            XCTAssertFalse(app.otherElements["paper-tab-bar"].exists, "the system's glass tab bar, not a solid one")
             let bots = app.tabButton(id: "tab-bots", label: "Bots")
             XCTAssertTrue(bots.waitForExistence(timeout: 5))
             bots.tap()

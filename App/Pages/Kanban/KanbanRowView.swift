@@ -195,7 +195,8 @@ struct KanbanChipView: View {
 
     var body: some View {
         let alert = status == "blocked" && count > 0 && !selected
-        let solid = selected && Theme.flatPills   // [paper-pills] the picked chip is the solid accent or the soft pill
+        // [paper-pills] the picked chip is the solid accent or the soft pill; [paper-glass] in an ink skin the solid ink
+        let solid = selected && (Theme.flatPills || Theme.inkIcons != nil)
         let textColor: Color = solid ? Theme.pickedPillInk : selected ? .hqTintText : alert ? .hqRed : count == 0 ? .hqLabel2 : .hqLabel
         HStack(spacing: 6) {
             Circle().fill(KanbanTone.color(status)).frame(width: 8, height: 8)
@@ -237,7 +238,8 @@ private struct KanbanChipShape: ViewModifier {
                 .contentShape(Capsule())
         } else {
             content
-                .background(Capsule().fill(selected ? Color.hqTint.opacity(0.16) : Color.hqFill3))
+                // [paper-glass] An ink skin's picked chip is the solid ink: its 16 % wash vanished on Paper's ink.
+                .background(Capsule().fill(selected ? (Theme.inkIcons != nil ? Color.hqTint : Color.hqTint.opacity(0.16)) : Color.hqFill3))
                 .contentShape(Capsule())
         }
     }

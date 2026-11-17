@@ -69,28 +69,17 @@ struct BotPillRail<Extra: View>: View {
             }
             .scrollIndicators(.hidden)
             .hqScrollEdgeFade(width: 20)
-            .onAppear { show(leading == nil ? picked : nil, proxy) }   // [project-page-return] Sessions: from the switch
+            .onAppear { proxy.scrollTo(picked ?? allId, anchor: .center) }
             .onChange(of: picked) { _, picked in
                 if reduceMotion {
-                    show(picked, proxy)
+                    proxy.scrollTo(picked ?? allId, anchor: .center)
                 } else {
-                    withAnimation(.easeInOut(duration: HQMotion.pane)) { show(picked, proxy) }
+                    withAnimation(.easeInOut(duration: HQMotion.pane)) { proxy.scrollTo(picked ?? allId, anchor: .center) }
                 }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
         .accessibilityIdentifier("\(identifier)s")
-    }
-
-    /// The picked pill in view; nothing picked, the row's start.
-    /// [project-page-return] Owner 2026-11-17 ("How easy is it to go back?"): Sessions' rail starts with the Bots |
-    /// Projects switch, and centring the picked pill pushed the switch off the screen (a project's page opened from the
-    /// Bots side had it 500 pt off). There the row first shows from its start, switch in view (a project's page names its
-    /// project, a bot's list its bot), and a pick scrolls only as far as the pill needs (a pill half under the edge comes
-    /// whole). Tasks' rail still centres.
-    private func show(_ picked: String?, _ proxy: ScrollViewProxy) {
-        if let picked { proxy.scrollTo(picked, anchor: leading == nil ? .center : nil) }
-        else { proxy.scrollTo(allId, anchor: .center) }
     }
 }
