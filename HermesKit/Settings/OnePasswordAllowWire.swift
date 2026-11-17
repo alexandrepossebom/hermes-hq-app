@@ -91,23 +91,6 @@ nonisolated enum OnePasswordAllowWire {
         }
     }
 
-    /// The vault where logins a key can read may go when they come out of Private (the add-on makes it).
-    static let mainVault = "Main"
-
-    /// The Private vault in a job's answer: its name and how many logins it holds (1Password lets no key read it;
-    /// its logins can be moved to `mainVault` on the person's say).
-    static func privateVault(_ body: [String: Any]?) -> (name: String, logins: Int)? {
-        guard let found = body?["private"] as? [String: Any], let logins = (found["logins"] as? NSNumber)?.intValue, logins > 0 else { return nil }
-        return ((found["name"] as? String) ?? "Private", logins)
-    }
-
-    /// Logins that wouldn't move, in a finished job's answer.
-    static func unmoved(_ body: [String: Any]?) -> Int { (body?["unmoved"] as? NSNumber)?.intValue ?? 0 }
-
-    static func privateDetail(_ logins: Int) -> String { "\(logins == 1 ? "1 login" : "\(logins) logins") → \(mainVault)" }
-
-    static func movingLine(moved: Int, total: Int) -> String { "Moving logins to \(mainVault)… \(moved) of \(total)" }
-
     /// Why it didn't work, from a job or a refused call.
     static func failure(_ body: [String: Any]?) -> String {
         let said = (body?["detail"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

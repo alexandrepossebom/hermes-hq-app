@@ -201,7 +201,7 @@ struct OnePasswordAllowTests {
         #expect(Wire.status(["supported": true, "password": true]).password && !Wire.status(["supported": true]).password)
     }
 
-    @Test func thePrivateVaultsLoginsMoveToMainOnATick() async {
+    @Test func privateIsLeftAloneAndChangingVaultsKeepsTheOnesInUse() async {
         let addOn = AddOn()
         let route = Wire.route + "/allow"
         addOn.answers["POST \(route)"] = [(200, ["job": "m1", "state": "waiting"])]
@@ -212,25 +212,14 @@ struct OnePasswordAllowTests {
         model.pause = .milliseconds(1)
         model.start()
         await settle(model) { if case .choose = $0 { true } else { false } }
-        #expect(model.privateVault?.name == "Private" && model.privateVault?.logins == 212 && !model.movePrivate)   // never ticked for you
-        #expect(Wire.privateDetail(212) == "212 logins → Main" && Wire.privateDetail(1) == "1 login → Main")
-
         model.picked = []
-        #expect(!model.canGive)
-        model.movePrivate = true
-        #expect(model.canGive)   // Private alone is enough
+        #expect(!model.canGive)   // the Private vault is no choice: nothing in it is moved
+        model.picked = ["v-hermes"]
         addOn.answers["POST \(route)/m1"] = [(200, ["job": "m1", "state": "making"])]
-        addOn.answers["GET \(route)/m1"] = [(200, ["job": "m1", "state": "moving", "moved": 30, "unmoved": 1, "total": 212]),
-                                             (200, ["job": "m1", "state": "making"]),
-                                             (200, ["job": "m1", "state": "done", "saved": 3, "unmoved": 1,
-                                                    "vaults": [["id": "v-main", "name": "Main"]]])]
+        addOn.answers["GET \(route)/m1"] = [(200, ["job": "m1", "state": "done", "saved": 3, "vaults": [["id": "v-hermes", "name": "Hermes"]]])]
         model.give()
         await settle(model) { if case .done = $0 { true } else { false } }
-        #expect(model.phase == .done(bots: 3, vaults: ["Main"]) && model.unmoved == 1)
-        #expect(addOn.calls.first { $0.method == "POST" && $0.path.hasSuffix("/m1") }?.body?["move_private"] as? Bool == true)
-        #expect(Wire.job(["job": "j", "state": "moving", "moved": 30, "unmoved": 1, "total": 212])?.job == .moving(moved: 31, total: 212))
-        #expect(Wire.movingLine(moved: 31, total: 212) == "Moving logins to Main… 31 of 212")
-        #expect(Wire.privateVault(["private": ["name": "Private", "logins": 0]]) == nil)
+        #expect(addOn.calls.first { $0.method == "POST" && $0.path.hasSuffix("/m1") }?.body?["move_private"] == nil)
         let both = [Wire.Vault(id: "h", name: "Hermes", items: 1), Wire.Vault(id: "w", name: "Work", items: 1)]
         #expect(Wire.firstPick(both, connected: ["Work"]) == ["w"] && Wire.firstPick(both, connected: []) == ["h"])
         OnePasswordAllowModel.known = Wire.Status()

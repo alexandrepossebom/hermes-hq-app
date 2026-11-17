@@ -74,7 +74,9 @@ nonisolated struct PromptSheetCopy: Sendable, Equatable {
             }
             return PromptSheetCopy(
                 title: "Save Your \(site ?? "Site") Login?",
-                text: "\(botStart) reached a sign-in page at \(origin) and has no login for it. Enter it once here; it is encrypted on \(HostWord.phrase) and filled into the page without \(bot) ever seeing the password.",
+                // [1password-allow] Owner 2026-11-16: a login the bots' key can't read (the Private vault) is given
+                // "one password at a time when the agent needed one": here, from the phone's own password manager.
+                text: "\(botStart) reached a sign-in page at \(origin) and has no login for it. " + (DeviceWord.isMac ? "Enter it once here" : "Tap the key above the keyboard to fill it from 1Password or Passwords, once") + "; it is encrypted on \(HostWord.phrase) and filled into the page without \(bot) ever seeing the password.",
                 command: nil, commandMissing: nil, fields: [.username, .password], primary: "Save and Sign In", decline: "Don’t Save",
                 chip: site.map { "Save login for \($0)?" } ?? "Save login?")
         case .vaultCode:

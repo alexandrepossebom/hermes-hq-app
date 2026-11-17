@@ -273,7 +273,7 @@ struct PasswordsPageView: View {
                             if onePassword.connected {
                                 if onePassword.ours {
                                     HStack(spacing: 16) {
-                                        // The vaults the key reads, and the Private vault's logins (moved to Main).
+                                        // The vaults the key reads.
                                         Button("Change Vaults…") { openAllow(source) }
                                             .accessibilityIdentifier("onepassword.change")
                                         Button("Disconnect…") { confirmDisconnect() }

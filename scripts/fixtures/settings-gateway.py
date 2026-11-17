@@ -254,7 +254,7 @@ def onepassword_route(method, path, body):
         if ONEPASSWORD == 'deny':
             job.update(state='failed', detail='1Password wasn’t allowed. Try again, then click Allow in 1Password.', code='denied')
         else:
-            job.update(state='choose', vaults=OP_VAULTS, account='my.1password.example', private={'name': 'Private', 'logins': 212})
+            job.update(state='choose', vaults=OP_VAULTS, account='my.1password.example')
     elif job['state'] == 'making' and job['looks'] >= 1:
         job.update(state='done', saved=3, vaults=[{'id': n, 'name': n} for n in job['names']])
         OP.update(connected=True, vaults=job['names'])
