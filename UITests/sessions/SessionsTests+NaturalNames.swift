@@ -20,7 +20,7 @@ extension SessionsTests {
     @MainActor private func checkNaturalName(desktop: Bool, opening: Bool) throws {
         let message = "Look at the spacing of form fields and review their alignment."
         let raw = opening ? "Look at the spacing of form…" : "The cost of a repair"
-        var expected = opening ? "Look at the spacing…" : raw
+        var expected = opening ? "Look at the spacing of form fields and…" : raw
         setRow("s-trip", ["title": "New Chat", "messages": [
             ["role": "user", "content": message, "id": 1],
             ["role": "assistant", "content": "The labels and inputs are ready for review.", "id": 2],

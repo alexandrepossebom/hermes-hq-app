@@ -183,10 +183,6 @@ struct PinTileView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tilted = false
 
-    /// [tile-soft] Owner 2026-11-17 (another app's home page: "I like the art direction"): a tile is a soft card with
-    /// big round corners (it was 18), as the kit's Soft look draws its page.
-    static var radius: CGFloat { HQShape.radius(26, .card) }
-
     /// The handle's box in the tile's bottom-right corner (the page starts a resize from a touch inside it).
     static let handleBox: CGFloat = 44
 
@@ -198,7 +194,7 @@ struct PinTileView: View {
     static var nameHeight: CGFloat { ceil(nameFont.lineHeight) + 5 }
 
     var body: some View {
-        let radius = Self.radius
+        let radius = HQShape.radius(18, .card)
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         VStack(spacing: 5) {
             Rectangle()

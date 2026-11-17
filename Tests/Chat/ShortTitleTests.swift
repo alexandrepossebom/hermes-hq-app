@@ -19,12 +19,12 @@ import Testing
     }
 
     @Test func offlineExcerptKeepsWordOrder() {
-        #expect(ShortTitle.fallback(for: hue) == "I just added…")
+        #expect(ShortTitle.fallback(for: hue) == "I just added another Philips hue…")
         #expect(ShortTitle.fallback(for: "Can you please check why the Postgres pool keeps running out?")
-                == "Can you please…")
+                == "Can you please check why the Postgres…")
         #expect(ShortTitle.fallback(for: "hi there!") == "hi there!")
         let long = ShortTitle.fallback(for: "Refactor HermesKit/Chat/LiveChatSession+Events.swift onComplete settlement")
-        #expect(long.count <= ShortTitle.maxCharacters)
+        #expect(long.count <= ShortTitle.excerptCharacters)
     }
 
     @Test func modelAnswersMustLookLikeNames() {

@@ -1,17 +1,19 @@
 import XCTest
 
 extension SessionsTests {
-    @MainActor func testNameLimit_GatewayTitleIsShortAndSurvivesReopen() throws {
-        try checkShortName(desktop: false)
+    @MainActor func testNameLimit_LongGatewayTitleIsKeptWholeAndSurvivesReopen() throws {
+        try checkWholeName(desktop: false)
     }
 
-    @MainActor func testNameLimit_DesktopTitleIsShortAndSurvivesReopen() throws {
-        try checkShortName(desktop: true)
+    @MainActor func testNameLimit_DesktopLongGatewayTitleIsKeptWholeAndSurvivesReopen() throws {
+        try checkWholeName(desktop: true)
     }
 
-    @MainActor private func checkShortName(desktop: Bool) throws {
-        let raw = "Database connection pool troubleshooting guide"
-        let short = "Database connection…"
+    /// Session names have no character budget: a long gateway name is shown whole (the screen truncates it) and is
+    /// never rewritten as a shorter stored name.
+    @MainActor private func checkWholeName(desktop: Bool) throws {
+        let raw = "Database connection pool troubleshooting guide for the staging cluster"
+        let short = raw
         setRow("s-trip", ["title": "New Chat"])
         // The fixture reuses this stored ID; a preceding Rename test deliberately leaves manual-name provenance.
         let app = launch(fresh: true, extra: desktop ? ["-HQDebugDesktopLook", "YES"] : [])
@@ -22,8 +24,8 @@ extension SessionsTests {
         setRow("s-trip", ["title": raw])
         fixture("/__fixture/emit", ["type": "session.title", "session_id": "s-trip", "payload": ["title": raw]])
         XCTAssertTrue(waitUntil(8) { title.label.hasPrefix(short + ",") || title.label == short }, title.label)
-        XCTAssertTrue(waitUntil(8) { self.rpc("session.title").contains { $0["title"] as? String == short } },
-                      "the short name is stored, not merely clipped for display")
+        XCTAssertFalse(waitUntil(3) { !self.rpc("session.title").isEmpty },
+                       "the gateway's own name is kept as stored, not rewritten shorter (\(rpc("session.title")))")
         shot(app, "name-limit-\(desktop ? "desktop" : "ios")")
         backToList(app)
         XCTAssertTrue(waitUntil(8) { self.labelOf(self.row(app, "s-trip")).hasPrefix(short) })

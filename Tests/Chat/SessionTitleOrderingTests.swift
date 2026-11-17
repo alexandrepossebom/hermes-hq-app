@@ -19,7 +19,7 @@ import Testing
             saved.withLock { $0 = typed }
             return try JSONSerialization.data(withJSONObject: ["title": typed])
         }
-        f.session.receiveAutomaticTitle("Database connection pool troubleshooting guide")
+        f.session.receiveAutomaticTitle("Title: Database connection pool troubleshooting guide")
         #expect(await waitUntil { f.params("session.title").count == 1 })
         let store = SessionStore(client: f.client, account: f.session.account,
                                  cacheDirectory: BotsTest.tempDirectory(), autoStart: false)
@@ -50,15 +50,15 @@ import Testing
         f.client.onRest { _, _ in throw HTTPError(status: 503, body: "unavailable") }
         let edit = Task { try? await f.session.rename(to: "My manual name") }
         #expect(await waitUntil { f.params("session.title").count == 1 })
-        f.session.receiveAutomaticTitle("Database connection pool troubleshooting guide")
+        f.session.receiveAutomaticTitle("Title: Database connection pool troubleshooting guide")
         gate.release()
         _ = await edit.value
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "Database connection…")
-        #expect(f.params("session.title").last?["title"]?.string == "Database connection…")
+        #expect(f.session.title == "Database connection pool troubleshooting guide")
+        #expect(f.params("session.title").last?["title"]?.string == "Database connection pool troubleshooting guide")
     }
 
-    @Test func lateGatewayNameIsBudgetedAfterReopeningLocalFallback() async {
+    @Test func lateGatewayNameReplacesReopenedLocalFallback() async {
         let f = MenusFixtureChat()
         f.session.title = "New Chat"
         f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
@@ -68,10 +68,10 @@ import Testing
                                        storedSessionId: f.session.storedSessionId, title: "Repair database", head: nil,
                                        cache: makeTempCache(), resolveSessionId: nil, frameMode: .manual)
         reopened.runtimeSessionId = f.rid1
-        reopened.receiveAutomaticTitle("Database connection pool troubleshooting guide")
+        reopened.receiveAutomaticTitle("Title: Database connection pool troubleshooting guide")
         await reopened.automaticTitleSave?.value
-        #expect(reopened.title == "Database connection…")
-        #expect(f.params("session.title").last?["title"]?.string == "Database connection…")
+        #expect(reopened.title == "Database connection pool troubleshooting guide")
+        #expect(f.params("session.title").last?["title"]?.string == "Database connection pool troubleshooting guide")
     }
 
     @Test(arguments: [false, true]) func lateSaveEchoDoesNotReplaceBufferedGatewayImprovement(reopened: Bool) async {
@@ -93,13 +93,13 @@ import Testing
         receiver.connection = .ready
         let edit = Task { try? await receiver.rename(to: "My manual name") }
         #expect(await waitUntil { receiver.title == "My manual name" })
-        receiver.receiveAutomaticTitle("Database connection pool troubleshooting guide")
+        receiver.receiveAutomaticTitle("Title: Database connection pool troubleshooting guide")
         receiver.receiveAutomaticTitle("Repair database") // the older save's late echo, possibly from another screen
         gate.release()
         _ = await edit.value
         await receiver.automaticTitleSave?.value
-        #expect(receiver.title == "Database connection…")
-        #expect(f.params("session.title").last?["title"]?.string == "Database connection…")
+        #expect(receiver.title == "Database connection pool troubleshooting guide")
+        #expect(f.params("session.title").last?["title"]?.string == "Database connection pool troubleshooting guide")
     }
 
     @Test func failedListRenameKeepsBufferedNameOnBothSurfaces() async {
@@ -123,11 +123,11 @@ import Testing
         #expect(await waitUntil { f.params("session.title").count == 1 })
         let edit = Task { try? await store.rename(row, to: "My manual name") }
         #expect(await waitUntil { f.session.title == "My manual name" })
-        f.session.receiveAutomaticTitle("Database connection pool troubleshooting guide")
+        f.session.receiveAutomaticTitle("Title: Database connection pool troubleshooting guide")
         gate.release()
         _ = await edit.value
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "Database connection…")
+        #expect(f.session.title == "Database connection pool troubleshooting guide")
         #expect(store.storedRow(row)?.title == f.session.title)
     }
 

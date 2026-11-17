@@ -190,12 +190,6 @@ enum DesktopLookTourHooks {
                     list.delegate?.collectionView?(list, didSelectItemAt: path)
                 }
             }
-        case "tiles":   // [tile-soft] More › Tiles with tiles pinned
-            Task { @MainActor in
-                for _ in 0..<40 where root.pages?.more == nil { try? await Task.sleep(for: .seconds(0.5)) }
-                try? await Task.sleep(for: .seconds(1))
-                await root.pages?.debugTiles(root: root)
-            }
         case "passwords":   // [passwords-page] More › Passwords
             root.select(.more)
             after(0.8) {

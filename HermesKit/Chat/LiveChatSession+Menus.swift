@@ -197,7 +197,7 @@ extension LiveChatSession: ChatSessionActions {
         return messages.first(where: { $0.role == .user })?.plainText
     }
 
-    /// Only automatic names are budgeted. Existing named chats and explicit Rename / /title choices stay intact.
+    /// Only automatic names are adjusted. Existing named chats and explicit Rename / /title choices stay intact.
     func receiveAutomaticTitle(_ raw: String, alreadyStored: Bool = true) {
         guard !isBotChat else { return }
         // Filter save echoes before buffering: an older echo must not displace a pending model improvement.
@@ -210,8 +210,8 @@ extension LiveChatSession: ChatSessionActions {
         guard !titleManuallySet, needsShortTitle || automaticTitleIsLocal || awaitingModel else { return }
         let first = firstUserText ?? ""
         let opening = ShortTitle.isPlaceholder(raw, firstMessage: first)
-        // An opening excerpt is no improvement on an existing bounded name, even if its older save was skipped.
-        guard !opening || title.count > ShortTitle.maxCharacters ||
+        // An opening excerpt is no improvement on an existing name, even if its older save was skipped.
+        guard !opening || title.count > ShortTitle.excerptCharacters ||
                 ShortTitle.genericTitles.contains(ShortTitle.normalized(title)) else { return }
         automaticTitleSource = raw
         automaticTitleIsLocal = !alreadyStored
@@ -241,7 +241,7 @@ extension LiveChatSession: ChatSessionActions {
         !isBotChat && !titleManuallySet && ShortTitle.isPlaceholder(automaticTitleSource ?? title, firstMessage: firstUserText ?? "")
     }
 
-    /// A gateway's composed name that was cut to fit ("My account has been…"), still open to a better automatic name:
+    /// A gateway's composed name that was cut ("My account has been…"), still open to a better automatic name:
     /// the longest form of it this chat knows. Not an opening excerpt (those go through `needsShortTitle`).
     private var cutComposedName: String? {
         guard !isBotChat, !titleManuallySet, !needsShortTitle, title.hasSuffix("…"),
@@ -252,8 +252,8 @@ extension LiveChatSession: ChatSessionActions {
     }
 
     /// After a reply, an opening-word name gets an on-device title when possible, and so does a gateway name that
-    /// was cut to fit. Give the gateway's own naming model a moment first; both paths write through the same strict
-    /// budget. A cut gateway name is only ever replaced by a model's name, never by the opening excerpt.
+    /// was cut. Give the gateway's own naming model a moment first; both paths write through the same
+    /// rules. A cut gateway name is only ever replaced by a model's name, never by the opening excerpt.
     func shortenTitleIfNeeded() {
         guard !shortTitleTried, needsShortTitle || cutComposedName != nil,
               let first = firstUserText, !ChatText.trimmed(first).isEmpty else { return }

@@ -211,17 +211,9 @@ final class ArtifactPins {
 
     static var showsList: Bool { view == .list }
 
-    #if targetEnvironment(macCatalyst)
-    static let namesByDefault = true
-    #else
-    static let namesByDefault = false
-    #endif
-
-    /// [dashboard] Grid's tiles can have their names under them (Show Names).
+    /// [dashboard] Grid's tiles have their names under them unless turned off (the tiles alone, a dashboard of charts).
     static var showsNames: Bool {
-        // [tile-soft] Off until asked for: a tile says its own name inside it (the kit's heading; a file's name on its
-        // tile). The Mac keeps them on, as its Tiles page was.
-        get { UserDefaults.standard.object(forKey: namesKey) as? Bool ?? Self.namesByDefault }
+        get { UserDefaults.standard.object(forKey: namesKey) as? Bool ?? true }
         set {
             guard newValue != showsNames else { return }
             UserDefaults.standard.set(newValue, forKey: namesKey)

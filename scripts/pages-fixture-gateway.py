@@ -1123,15 +1123,6 @@ def seed_sessions():
         {'role': 'assistant', 'content': 'Open [the page](#media:%2Fhome%2Fhermes%2Fsite%2Findex.html)'},
         {'role': 'assistant', 'content': f'MEDIA:{HOME}/app/Sources/App.swift'},
     ], base - 900)
-    # HQN_FIXTURE_TILES=<folder>: every .html in it is a page a bot handed over (Dashboard tiles made with the add-on's
-    # kit, for pictures of the Tiles page), newest first by name.
-    tiles_folder = os.environ.get('HQN_FIXTURE_TILES')
-    if tiles_folder:
-        FILES.mkdir(parents=True, exist_ok=True)
-        pages = sorted(pathlib.Path(tiles_folder).glob('*.html'))
-        for page in pages: (FILES / page.name).write_text(page.read_text())
-        add_session('s-tiles', 'default', 'My dashboard tiles', [{'role': 'user', 'content': 'Make my tiles.'}] + [
-            {'role': 'assistant', 'content': f'MEDIA:{HOME}/tiles/{page.name}'} for page in pages], base - 60)
     add_session('s-release', 'deploys', 'Ship the 2.4 release notes', [
         {'role': 'user', 'content': 'Ship the 2.4 release notes.'},
         tool('write_file', {'path': f'{HOME}/app/release-notes.md'}),

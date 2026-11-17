@@ -8,8 +8,10 @@ import FoundationModels
 nonisolated enum ShortTitle {
     /// Names that mean "no title yet".
     static let genericTitles: Set<String> = ["", "new chat", "untitled", "untitled chat", "new session", "new conversation", "chat"]
-    /// Longest name the app writes: about what the iPhone bar shows beside its back and ⋯ buttons.
-    static let maxCharacters = 20
+    /// Session names have no length budget: a gateway's or a model's name is kept whole, and the screen truncates
+    /// it to fit. Only the provisional opening-words excerpt is bounded, so a long first message is never stored as a
+    /// name, and an opening used whole past this length still counts as provisional.
+    static let excerptCharacters = 40
 
     /// Empty/generic names and visibly cut or overlong opening excerpts are provisional. A fitting, unmarked
     /// phrase can be a real name even when it shares the message's opening words; do not replace it on that guess.
@@ -23,7 +25,7 @@ nonisolated enum ShortTitle {
         if message.isEmpty { return cut }
         // A gateway excerpt can stop before its opening quotation is closed.
         guard message.hasPrefix(shown) || normalized(firstMessage).hasPrefix(normalized(title)) else { return false }
-        return cut || words(cleaned).joined(separator: " ").count > maxCharacters
+        return cut || words(cleaned).joined(separator: " ").count > excerptCharacters
     }
 
     /// A naming model: the opening message and, when there is one, a longer composed title to restate. Nil when
@@ -71,25 +73,29 @@ nonisolated enum ShortTitle {
         return out.joined(separator: " ")
     }
 
-    /// A clean, single-line, non-placeholder model name within the header budget.
+    /// More words than this is an answer, not a name: the gateway's own title generator rejects the same shape.
+    static let maxModelWords = 12
+
+    /// A clean, single-line, non-placeholder model name. No character budget; only an answer-shaped reply is refused.
     static func accepted(_ raw: String, message: String) -> String? {
         let cleaned = cleanName(raw)
         guard cutMarker(in: cleaned) == nil, !cleaned.contains(where: \.isNewline) else { return nil }
         let title = words(cleaned).joined(separator: " ")
-        guard !title.isEmpty, title.count <= maxCharacters,
+        guard !title.isEmpty, words(cleaned).count <= maxModelWords,
               !isPlaceholder(raw, firstMessage: message) else { return nil }
         return title
     }
 
-    /// A gateway has already composed this name. Keep its wording, including connecting words; an overlong name
-    /// gets a visibly cut whole-word prefix, not a guessed complete phrase. This is the stored name.
+    /// A gateway has already composed this name. Keep its wording whole, at any length; a name the gateway itself
+    /// cut keeps one visible ellipsis. This is the stored name.
     static func compact(_ raw: String) -> String {
         let cleaned = cleanName(raw)
         if let marker = cutMarker(in: cleaned) {
             let body = String(cleaned[..<marker.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            return body.isEmpty ? "New Chat" : boundedPhrase(body + "…")
+            return body.isEmpty ? "New Chat" : words(body).joined(separator: " ") + "…"
         }
-        return accepted(raw, message: "") ?? boundedPhrase(cleaned)
+        let whole = words(cleaned).joined(separator: " ")
+        return whole.isEmpty ? "New Chat" : whole
     }
 
     private static func cutMarker(in name: String) -> Range<String.Index>? {
@@ -133,8 +139,8 @@ nonisolated enum ShortTitle {
     private static func boundedPhrase(_ text: String) -> String {
         let all = words(cleanName(text))
         let whole = all.joined(separator: " ")
-        if whole.count <= maxCharacters { return whole.isEmpty ? "New Chat" : whole }
-        let limit = maxCharacters - 1
+        if whole.count <= excerptCharacters { return whole.isEmpty ? "New Chat" : whole }
+        let limit = excerptCharacters - 1
         var picked: [String] = []
         for word in all {
             let next = (picked + [word]).joined(separator: " ")
@@ -152,12 +158,10 @@ nonisolated enum ShortTitle {
 
     static let instructions = """
         You name chat sessions so they can be found again in a short list on a phone. Given the user's opening message, \
-        reply with only a natural, specific title of at most \(maxCharacters) characters including spaces, in sentence case, \
-        in the message's language. Summarize what the user wants done, not just their first words. Write a coherent \
-        phrase, not a list of keywords. Keep short connecting words when they make the title read naturally; there \
-        is no three-word limit. If a phrase is too long, choose a shorter complete phrase instead of deleting its \
-        grammar. Keep names, acronyms, product spelling and numbers exact. No added quotes or sentence punctuation. \
-        Never answer the message.
+        reply with only a natural, specific title, in sentence case, in the message's language. Summarize what the \
+        user wants done, not just their first words. Write a coherent phrase, not a list of keywords. Keep short \
+        connecting words when they make the title read naturally. Keep names, acronyms, product spelling and numbers \
+        exact. No added quotes or sentence punctuation. Never answer the message.
         """
 
     #if canImport(FoundationModels)
@@ -176,7 +180,7 @@ nonisolated enum ShortTitle {
         let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: 48)
         var prompt = "Opening message:\n\(message)"
         if let longTitle {
-            prompt += "\n\nThis title is too long for the list. Say the same thing in fewer characters:\n\(longTitle)"
+            prompt += "\n\nThis title was cut off. Write a complete title that says the same thing:\n\(longTitle)"
         }
         return try? await session.respond(to: prompt, generating: GeneratedTitle.self, options: options).content.title
         #else

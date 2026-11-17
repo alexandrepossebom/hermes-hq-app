@@ -11,7 +11,6 @@ import Testing
 
     @Test(arguments: naturalNames)
     func fittingModelNamesKeepTheirGrammar(title: String) {
-        #expect(title.count <= ShortTitle.maxCharacters)
         #expect(ShortTitle.accepted(title, message: "An unrelated opening request") == title)
     }
 
@@ -30,17 +29,19 @@ import Testing
         "Look at the spacing of form fields and review their alignment.",
         "Can you please check why the Postgres pool keeps running out?",
         "I just added another Acme ceiling light in the spare room. Set it up.",
-        "Plan a day at the beach for my friends",
+        "Plan a day at the beach for my friends and family",
         "Please check why the local cache is not updating",
         "Compare tea and coffee before choosing a drink",
     ])
     func offlineExcerptsPreserveGrammarAndRemainEligibleForNaming(message: String) {
         let title = ShortTitle.fallback(for: message)
-        #expect(title.count <= ShortTitle.maxCharacters)
+        #expect(title.count <= ShortTitle.excerptCharacters)
         #expect(title.hasSuffix("…"))
         #expect(ShortTitle.normalized(message).hasPrefix(ShortTitle.normalized(title)))
         #expect(ShortTitle.isPlaceholder(title, firstMessage: message))
-        #expect(ShortTitle.fallback(for: "Look at the spacing of form fields") == "Look at the spacing…")
+        #expect(ShortTitle.fallback(for: "Look at the spacing of form fields") == "Look at the spacing of form fields")
+        #expect(ShortTitle.fallback(for: "Look at the spacing of form fields and review their alignment.")
+                == "Look at the spacing of form fields and…")
     }
 
     /// The on-device model answers in lowercase. Its name takes each word's spelling from the message and starts
@@ -74,11 +75,14 @@ import Testing
         #expect(name == "iOS app crash")
     }
 
-    @Test func gatewayCompactionDoesNotRemoveInternalGrammar() {
-        #expect(ShortTitle.compact("How to write a CV and build a portfolio") == "How to write a CV…")
-        #expect(ShortTitle.compact("App permissions and privacy controls") == "App permissions and…")
-        #expect(ShortTitle.compact("My account has been locked again") == "My account has been…")
-        #expect(ShortTitle.compact("The man I have been lately") == "The man I have been…")
+    @Test func gatewayNamesAreKeptWholeAtAnyLength() {
+        #expect(ShortTitle.compact("How to write a CV and build a portfolio") == "How to write a CV and build a portfolio")
+        #expect(ShortTitle.compact("App permissions and privacy controls") == "App permissions and privacy controls")
+        #expect(ShortTitle.compact("My account has been locked again") == "My account has been locked again")
+        #expect(ShortTitle.compact("The man I have been lately") == "The man I have been lately")
+        let long = "Migrating the Postgres connection pool to PgBouncer for the staging and production clusters"
+        #expect(ShortTitle.compact(long) == long)
+        #expect(ShortTitle.compact("How to write a CV and build a portfolio...") == "How to write a CV and build a portfolio…")
         #expect(ShortTitle.compact("\"Title: ‘Title: How to write a CV’\"") == "How to write a CV")
         #expect(ShortTitle.compact("Title: **iOS settings**.") == "iOS settings")
         #expect(ShortTitle.compact("\".NET setup\".") == ".NET setup")
@@ -111,7 +115,6 @@ import Testing
         let compact = ShortTitle.compact(title)
         #expect(compact == "Please investigate…")
         #expect(ShortTitle.isPlaceholder(compact, firstMessage: ""))
-        #expect(compact.count <= ShortTitle.maxCharacters)
     }
 
     @Test(arguments: [
@@ -119,7 +122,7 @@ import Testing
         "“Please check the spacing around these form labels”",
         "Title: Please check the spacing around these form labels",
         "\"Title: Please check the spacing around these form labels\"",
-        "ß" + String(repeating: "a", count: 30),
+        "ß" + String(repeating: "a", count: 50),
     ])
     func cleanedExcerptsAreStillRecognizable(message: String) {
         let title = ShortTitle.fallback(for: message)
@@ -130,13 +133,13 @@ import Testing
 @Suite(.serialized) @MainActor struct NaturalTitleFlowTests {
     nonisolated static let lockedOut = "Why can I no longer sign into this account?"
 
-    /// A chat whose gateway name was too long and was saved cut: "My account has been…".
+    /// A chat whose gateway name arrived cut by the gateway ("..."), saved with one ellipsis: "My account has been locked again…".
     private func cutGatewayChat() async -> MenusFixtureChat {
         let f = MenusFixtureChat()
         f.session.title = "New Chat"
         f.session.messages = [ChatMessage(id: "u1", role: .user, parts: [.text(Self.lockedOut)], timestamp: nil, rowId: nil)]
         f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
-        f.session.receiveAutomaticTitle("My account has been locked again")
+        f.session.receiveAutomaticTitle("My account has been locked again...")
         await f.session.automaticTitleSave?.value
         return f
     }
@@ -168,13 +171,13 @@ import Testing
         #expect(r.title == "Account locked")
         #expect(f.params("session.title").last?["title"] == "Account locked")
         // The model is asked to restate the composed name (the full one when this instance received it).
-        #expect(asked.withLock { $0 } == [reopen ? "My account has been…" : "My account has been locked again"])
-        r.receiveAutomaticTitle("My account has been…") // a late echo of the cut save
+        #expect(asked.withLock { $0 } == [reopen ? "My account has been locked again…" : "My account has been locked again..."])
+        r.receiveAutomaticTitle("My account has been locked again…") // a late echo of the cut save
         #expect(r.title == "Account locked")
     }
 
-    /// The usual live order: the turn ends while the chat is still "New Chat", and the gateway's long name arrives
-    /// during the wait. The cut name it leaves must still get the model's name.
+    /// The usual live order: the turn ends while the chat is still "New Chat", and the gateway's cut name arrives
+    /// during the wait. That cut name must still get the model's name.
     @Test func cutGatewayNameArrivingDuringTheWaitGetsTheModelName() async {
         let f = MenusFixtureChat()
         f.session.title = "New Chat"
@@ -185,17 +188,17 @@ import Testing
         f.session.shortTitleDelay = .milliseconds(200)
         f.session.titleModel = { _, long in asked.withLock { $0.append(long) }; await gate.wait(); return "Account locked" }
         f.session.shortenTitleIfNeeded()
-        f.session.receiveAutomaticTitle("My account has been locked again")
+        f.session.receiveAutomaticTitle("My account has been locked again...")
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "My account has been…")
+        #expect(f.session.title == "My account has been locked again…")
         gate.release()
         await f.session.shortTitleTask?.value
         await f.session.automaticTitleSave?.value
         #expect(f.session.title == "Account locked")
-        #expect(asked.withLock { $0 } == ["My account has been locked again"])
+        #expect(asked.withLock { $0 } == ["My account has been locked again..."])
     }
 
-    /// The gateway's long name can also land while the model is still answering for the opening words.
+    /// The gateway's cut name can also land while the model is still answering for the opening words.
     @Test func cutGatewayNameArrivingDuringTheModelCallStillGetsItsName() async {
         let f = MenusFixtureChat()
         f.session.title = "New Chat"
@@ -207,9 +210,9 @@ import Testing
         f.session.titleModel = { _, _ in calls.withLock { $0 += 1 }; await gate.wait(); return "Account locked" }
         f.session.shortenTitleIfNeeded()
         #expect(await waitUntil { calls.withLock { $0 } == 1 })
-        f.session.receiveAutomaticTitle("My account has been locked again")
+        f.session.receiveAutomaticTitle("My account has been locked again...")
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "My account has been…")
+        #expect(f.session.title == "My account has been locked again…")
         gate.release()
         await f.session.shortTitleTask?.value
         await f.session.automaticTitleSave?.value
@@ -217,7 +220,8 @@ import Testing
         #expect(calls.withLock { $0 } == 1)
     }
 
-    @Test(arguments: [nil, "A title far too long to fit the bar", "Please check…", "New Chat", "Why can I no longer…"])
+    @Test(arguments: [nil, "Sure, I can help you get back into your locked account right away today", "Please check…",
+                      "New Chat", "Why can I no longer…"])
     func cutGatewayNameIsKeptWhenTheModelGivesNoUsableName(answer: String?) async {
         let f = await cutGatewayChat()
         let writes = f.params("session.title").count
@@ -226,7 +230,7 @@ import Testing
         r.shortenTitleIfNeeded()
         await r.shortTitleTask?.value
         await r.automaticTitleSave?.value
-        #expect(r.title == "My account has been…", "no model, or no usable name: never the opening excerpt")
+        #expect(r.title == "My account has been locked again…", "no model, or no usable name: never the opening excerpt")
         #expect(f.params("session.title").count == writes)
     }
 
@@ -272,10 +276,10 @@ import Testing
         f.session.messages = [ChatMessage(id: "u1", role: .user,
             parts: [.text("Why can I no longer sign into this account?")], timestamp: nil, rowId: nil)]
         f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
-        f.session.receiveAutomaticTitle("My account has been locked again")
+        f.session.receiveAutomaticTitle("My account has been locked again...")
         await f.session.automaticTitleSave?.value
-        #expect(f.session.title == "My account has been…")
-        #expect(f.params("session.title").last?["title"] == "My account has been…")
+        #expect(f.session.title == "My account has been locked again…")
+        #expect(f.params("session.title").last?["title"] == "My account has been locked again…")
         let receiver = reopen ? LiveChatSession(client: f.client, account: f.session.account, profile: f.session.profile,
             storedSessionId: f.session.storedSessionId, title: f.session.title, head: nil,
             cache: makeTempCache(), resolveSessionId: nil, frameMode: .manual) : f.session
@@ -286,11 +290,11 @@ import Testing
         receiver.titleModel = { _, _ in nil }
         receiver.shortenTitleIfNeeded()
         await receiver.shortTitleTask?.value
-        #expect(receiver.title == "My account has been…")
+        #expect(receiver.title == "My account has been locked again…")
         for hasOlder in [false, true] {
             receiver.hasOlder = hasOlder
             receiver.receiveAutomaticTitle(ShortTitle.fallback(for: "Why can I no longer sign into this account?"))
-            #expect(receiver.title == "My account has been…", "an older opening excerpt must not displace a composed name")
+            #expect(receiver.title == "My account has been locked again…", "an older opening excerpt must not displace a composed name")
         }
         receiver.receiveAutomaticTitle("Account locked") // the gateway already stored this better, fitting name
         await receiver.automaticTitleSave?.value
@@ -334,7 +338,7 @@ import Testing
         f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
         f.session.receive(GatewayEvent(type: "session.title", sessionId: f.rid1, seq: nil,
                                        payload: ["title": "Look at the spacing of form…"]))
-        #expect(f.session.title == "Look at the spacing…")
+        #expect(f.session.title == "Look at the spacing of form fields and…")
         f.session.receive(GatewayEvent(type: "session.title", sessionId: f.rid1, seq: nil,
                                        payload: ["title": "Form layout review"]))
         await f.session.automaticTitleSave?.value
