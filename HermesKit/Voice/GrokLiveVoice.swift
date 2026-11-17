@@ -31,6 +31,18 @@ import Foundation
     private var stages = GrokLiveStages()
     private var observers: [NSObjectProtocol] = []
     private var restarting = false
+    /// The hello waits for the audio to be up and settled, and the microphone is held while it is said. Owner, build
+    /// 1058: "it didn't say anything first" — three starts, and each time xAI sent the hello's words and audio back at
+    /// 0.8-2.5 s. The engine was still starting (pieces that came before it had a player were dropped) and stops and
+    /// starts itself for the loudspeaker within the same second; and the microphone opened at the same moment, before
+    /// echo cancellation had settled, so the hello's own sound could count as the person talking over it.
+    private var pendingHello: String?
+    private var audioSettled = false
+    private var helloHold: (until: TimeInterval, done: Bool)?
+    /// After the engine is up, this long for its own restart (the loudspeaker switch) before the hello is asked for.
+    static let helloSettle: TimeInterval = 0.7
+    /// The microphone opens this long after the hello was asked for, said or not.
+    static let helloHoldLimit: TimeInterval = 8
 
     /// The voice counts as speaking while audio is queued, and this long after.
     static let speakingHangover: TimeInterval = 0.3
@@ -86,6 +98,11 @@ import Foundation
         }
         guard !finished else { throw CancellationError() }
         startLevels()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.helloSettle))
+            self?.audioSettled = true
+            self?.sayHelloIfReady()
+        }
         AppLog.note("voice", "grok-live start steps: session \(issuedMs) ms, socket \(openMs - issuedMs) ms, "
             + "audio \(AppLog.ms(since: began) - openMs) ms, microphone \(audio.inputDescription)")
         // The speaker switch right after the start can stop the engine before (or without) a notification.
@@ -240,6 +257,7 @@ import Foundation
             // Before the session is set up nothing works: carry on with the standard engine.
             if !calls.ready { onDropped?(message); return }
         }
+        if event == .responseDone, helloHold != nil { helloHold?.done = true }
         perform(calls.receive(event, ms: Int(AppLog.ms(since: began))))
     }
 
@@ -254,6 +272,7 @@ import Foundation
                 lastPlaying = CACurrentMediaTime()
                 setSpeaking(true)
             case .flushPlayback:
+                stages.flushes += 1
                 audio?.flush()
                 speakerLevel = 0
                 setSpeaking(false)
@@ -266,6 +285,14 @@ import Foundation
         onMicLevel?(level)
         guard !muted else { return }
         guard calls.ready else { stages.held += 1; return }
+        if let hold = helloHold {
+            // The hello is being asked for or said: nothing of the room goes up until it is over.
+            let now = CACurrentMediaTime()
+            let said = hold.done && audio?.isPlaying != true && now - lastPlaying > Self.speakingHangover
+            guard said || now > hold.until else { stages.heldForHello += 1; return }
+            helloHold = nil
+            AppLog.note("voice", "grok-live hello \(said ? "over" : "not finished in time"): microphone open at \(AppLog.ms(since: began)) ms, \(stages.heldForHello) pieces held")
+        }
         if stages.sent == 0 { AppLog.note("voice", "grok-live first microphone audio sent at \(AppLog.ms(since: began)) ms") }
         stages.sent += 1
         send(GrokLiveWire.append(pcm))
@@ -287,12 +314,33 @@ import Foundation
     func speak(delegationId: String?, text: String) { perform(calls.speak(delegationId: delegationId, text: text)) }
     func think(delegationId: String?, text: String) { perform(calls.think(delegationId: delegationId, text: text)) }
     func instruct(_ text: String) { perform(calls.instruct(text)) }
-    /// Grok: a response asked for with the hello as its instructions.
-    func greet(_ prompt: String) { perform(calls.instruct(prompt)) }
+    /// Grok: a response asked for with the hello as its instructions, once the audio can play it (`sayHelloIfReady`).
+    /// The microphone is held from now until the hello is over.
+    func greet(_ prompt: String) {
+        pendingHello = prompt
+        helloHold = (CACurrentMediaTime() + Self.helloSettle + Self.helloHoldLimit, false)
+        sayHelloIfReady()
+    }
+
+    private func sayHelloIfReady() {
+        guard !finished, audioSettled, calls.ready, let prompt = pendingHello else { return }
+        if restarting {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                self?.sayHelloIfReady()
+            }
+            return
+        }
+        pendingHello = nil
+        helloHold = (CACurrentMediaTime() + Self.helloHoldLimit, false)
+        AppLog.note("voice", "grok-live hello asked for at \(AppLog.ms(since: began)) ms")
+        perform(calls.instruct(prompt))
+    }
 
     func close() async {
         guard !finished else { return }
         AppLog.trace("voice", "grok-live transport stopped")
+        stages.unplayed = audio?.unplayed ?? 0
         AppLog.note("voice", "grok-live summary: \(stages.summary(ready: calls.ready))")
         finished = true
         observers.forEach(NotificationCenter.default.removeObserver)
@@ -419,8 +467,12 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
     }
 
     /// Queues one piece of the voice (PCM16 mono 24 kHz little-endian); answers its level.
+    /// Pieces of the voice that came while there was no player to take them.
+    var unplayed: Int { lock.withLock { dropped } }
+    private var dropped = 0
+
     func play(_ pcm: Data) -> Double {
-        guard let player else { return 0 }
+        guard let player else { lock.withLock { dropped += 1 }; return 0 }
         let count = pcm.count / 2
         guard count > 0, let buffer = AVAudioPCMBuffer(pcmFormat: voiceFormat, frameCapacity: AVAudioFrameCount(count)),
               let out = buffer.floatChannelData?[0] else { return 0 }

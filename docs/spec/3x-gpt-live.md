@@ -91,7 +91,12 @@ A pure reducer beside `TalkLoop`, sharing `TalkLoopState` so the dock, the pill 
   "how can I help"). GPT-Live, as OpenAI's guide greets before the caller speaks: the request ends the seed as a
   `developer` message and is sent once more as `session.commentary.append` (no delegation) on `session.started`; the
   vendor says the model may still stay silent. Grok: `response.create` with the request as its instructions on
-  `session.updated`. The standard engine says nothing first. Not yet heard on a real session.
+  `session.updated`. The standard engine says nothing first. Build 1058 on the owner's phone (Grok): asked three
+  times, xAI sent the words and audio each time, nothing was heard. The engine was still starting and restarting
+  itself for the loudspeaker when the audio came, and the microphone opened in the same moment. So Grok's hello is
+  asked for 0.7 s after the engine is up (and not during a restart), and no microphone audio is sent from the request
+  until the hello's response is done and played out (at most 8 s). The summary line counts cut-offs, voice pieces
+  with no player and microphone pieces held.
 - Progress notes are rare: the newest tool's title goes to the voice 20 s into a turn at the earliest, then at most every
   45 s, phrased so the voice need not say it.
 - A turn the voice did not ask for (a bot's message, a finished background job, a schedule) is treated as one: its reply

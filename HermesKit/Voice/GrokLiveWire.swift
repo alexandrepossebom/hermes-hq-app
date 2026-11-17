@@ -318,6 +318,11 @@ nonisolated struct GrokLiveStages: Sendable, Equatable {
     /// Microphone pieces sent to xAI, and those dropped because the setup was not confirmed yet.
     var sent = 0
     var held = 0
+    /// Times the voice was cut off (the person spoke over it, or xAI heard something as that), pieces of the voice
+    /// that had no player to take them, and microphone pieces kept back while the hello was said.
+    var flushes = 0
+    var unplayed = 0
+    var heldForHello = 0
     var firstAudioMs: Int?
     var audioChunks = 0
     var firstHeardMs: Int?
@@ -363,5 +368,7 @@ nonisolated struct GrokLiveStages: Sendable, Equatable {
         return "setup confirmed \(ready ? at(confirmedMs) : "no"), mic pieces sent \(sent) (held before setup \(held)), "
             + "voice audio back \(audioChunks) (first \(at(firstAudioMs))), words heard first \(at(firstHeardMs)), "
             + "reply words first \(at(firstReplyWordsMs)), tool calls \(toolCalls) (first \(at(firstToolMs))), errors \(errors)"
+            + (flushes > 0 ? ", voice cut off \(flushes)" : "") + (unplayed > 0 ? ", voice pieces with no player \(unplayed)" : "")
+            + (heldForHello > 0 ? ", mic pieces held for the hello \(heldForHello)" : "")
     }
 }
