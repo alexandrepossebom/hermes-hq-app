@@ -85,13 +85,6 @@ A pure reducer beside `TalkLoop`, sharing `TalkLoopState` so the dock, the pill 
   narration (owner, build 407: too much filler). A seeded session is also told that what it was given is only the
   chat's latest part, that the backend has the whole chat and its memory, and to delegate anything earlier instead of
   asking the person to explain it or guessing (`LiveVoiceWire.chatNote`).
-- The voice says hello first (owner, 2026-11-16: "some warm intro that needs to not be the same thing every time").
-  Nothing is scripted: the voice model writes its own line from `VoiceHello.prompt` (one short warm sentence, the
-  person's day and time of day, one of five leanings picked at random and never the last one used, no name, no stock
-  "how can I help"). GPT-Live, as OpenAI's guide greets before the caller speaks: the request ends the seed as a
-  `developer` message and is sent once more as `session.commentary.append` (no delegation) on `session.started`; the
-  vendor says the model may still stay silent. Grok: `response.create` with the request as its instructions on
-  `session.updated`. The standard engine says nothing first. Not yet heard on a real session.
 - Progress notes are rare: the newest tool's title goes to the voice 20 s into a turn at the earliest, then at most every
   45 s, phrased so the voice need not say it.
 - A turn the voice did not ask for (a bot's message, a finished background job, a schedule) is treated as one: its reply

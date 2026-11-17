@@ -355,7 +355,8 @@ struct PasswordsPageView: View {
     // MARK: [1password-allow]
 
     private func openAllow(_ source: VaultSource) {
-        router.push("Allow in 1Password", OnePasswordAllowView(done: { [weak router] _, _ in
+        let asking = OnePasswordAllowModel(byPassword: !DeviceWord.isMac && onePassword.password)   // away from the computer
+        router.push("Allow in 1Password", OnePasswordAllowView(model: asking, done: { [weak router] _, _ in
             router?.navigation?.popViewController(animated: true)
             Task {
                 onePassword = await OnePasswordAllowModel.status()

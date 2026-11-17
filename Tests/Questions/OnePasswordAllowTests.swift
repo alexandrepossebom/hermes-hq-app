@@ -177,14 +177,28 @@ struct OnePasswordAllowTests {
         #expect(Wire.allowed.unicodeScalars.first?.value == 0x1D)   // never something a person types
     }
 
-    @Test func onAPhoneThePageStartsOnTheChoiceAndAsksNothingYet() async {
+    @Test func awayFromTheComputerThePasswordIsSentOnceAndAWrongOneComesBackToTheBox() async {
         let addOn = AddOn()
-        let model = OnePasswordAllowModel(choosing: true)
+        let route = Wire.route + "/allow"
+        let model = OnePasswordAllowModel(byPassword: true)
         model.call = addOn.call
+        model.pause = .milliseconds(1)
         model.resume()
-        #expect(model.phase == .pick && addOn.calls.isEmpty)   // the computer's 1Password isn't asked until chosen
-        #expect(Wire.status(["supported": true, "phone": true]).phone && !Wire.status(["supported": true]).phone)
-        #expect(Wire.fillOnPhone != Wire.allowed && Wire.fillOnPhone.unicodeScalars.first?.value == 0x1D)
+        #expect(model.phase == .signIn(nil) && addOn.calls.isEmpty)   // nothing is asked of the computer
+
+        addOn.answers["POST \(route)"] = [(200, ["job": "p1", "state": "waiting"])]
+        addOn.answers["GET \(route)/p1"] = [(200, ["job": "p1", "state": "failed", "detail": "1Password didn’t take that password. Try again.", "code": "password"])]
+        model.start(password: "not-it")
+        await settle(model) { if case .signIn(.some) = $0 { true } else { false } }
+        #expect(model.phase == .signIn("1Password didn’t take that password. Try again."))
+        #expect(addOn.calls.first { $0.method == "POST" }?.body?["password"] as? String == "not-it")
+
+        addOn.answers["POST \(route)"] = [(200, ["job": "p2", "state": "waiting"])]
+        addOn.answers["GET \(route)/p2"] = [(200, ["job": "p2", "state": "choose", "vaults": vaults])]
+        model.start(password: "correct horse")
+        await settle(model) { if case .choose = $0 { true } else { false } }
+        if case .choose(let found) = model.phase { #expect(found.count == 2) } else { Issue.record("not at the vaults") }
+        #expect(Wire.status(["supported": true, "password": true]).password && !Wire.status(["supported": true]).password)
     }
 
     @Test func aTuckedPagePicksTheSameRequestUp() async {

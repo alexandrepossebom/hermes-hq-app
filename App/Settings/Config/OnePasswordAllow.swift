@@ -11,7 +11,7 @@ import UIKit
 
 @MainActor @Observable final class OnePasswordAllowModel {
     enum Phase: Equatable {
-        case pick                                     // on a phone: 1Password here, or on the computer
+        case signIn(String?)                          // away from the computer: the 1Password password, once (why it failed)
         case asking                                   // sending the request
         case waiting                                  // the 1Password app shows Allow on Hermes's computer
         case choose([OnePasswordAllowWire.Vault])
@@ -22,8 +22,13 @@ import UIKit
 
     private(set) var phase: Phase = .asking
 
-    /// `choosing`: start on the phone's choice instead of asking the computer's 1Password at once.
-    init(choosing: Bool = false) { if choosing { phase = .pick } }
+    /// `byPassword`: start on the 1Password password (nobody is at Hermes's computer to click Allow) instead of
+    /// asking that computer's 1Password app.
+    init(byPassword: Bool = false) {
+        self.byPassword = byPassword
+        if byPassword { phase = .signIn(nil) }
+    }
+    let byPassword: Bool
     var picked: Set<String> = []
     var makeNew = false
 
@@ -60,14 +65,16 @@ import UIKit
 
     var canGive: Bool { !picked.isEmpty || makeNew }
 
-    /// Ask 1Password (again, after a failure).
-    func start() {
+    /// Ask 1Password (again, after a failure). `password`: sign in with it on Hermes's computer, once; it is sent
+    /// and dropped, never kept here.
+    func start(password: String? = nil) {
         run?.cancel()
         phase = .asking
         job = nil
+        let body: [String: Any] = password.map { ["password": $0] } ?? [:]
         run = Task { [weak self] in
             guard let self, let call = self.call else { self?.phase = .failed("Hermes’s add-on didn’t answer.", code: "failed"); return }
-            let started = await call(OnePasswordAllowWire.route + "/allow", "POST", [:])
+            let started = await call(OnePasswordAllowWire.route + "/allow", "POST", body)
             guard !Task.isCancelled else { return }
             guard started.status == 200, let first = OnePasswordAllowWire.job(started.body) else {
                 AppLog.note("vault", "1Password allow didn't start (\(started.status))")
@@ -102,6 +109,13 @@ import UIKit
         }
     }
 
+    /// Back to the password box after a failure.
+    func again() {
+        run?.cancel()
+        run = nil
+        phase = .signIn(nil)
+    }
+
     func stop() {
         run?.cancel()
         run = nil
@@ -111,12 +125,12 @@ import UIKit
     func resume() {
         guard run == nil else { return }
         switch phase {
-        case .asking: start()
+        case .asking: if byPassword { phase = .signIn(nil) } else { start() }
         case .waiting:
             run = Task { [weak self] in await self?.follow(until: { if case .waiting = $0 { false } else { true } }) }
         case .making:
             run = Task { [weak self] in await self?.follow(until: { if case .making = $0 { false } else { true } }) }
-        case .pick, .choose, .done, .failed: break
+        case .signIn, .choose, .done, .failed: break
         }
     }
 
@@ -157,7 +171,8 @@ import UIKit
             phase = .done(bots: bots, vaults: vaults)
         case .failed(let why, let code):
             AppLog.note("vault", "1Password allow failed: \(code)")
-            phase = .failed(why, code: code)
+            // A wrong password goes back to the box, with why.
+            phase = byPassword && code == "password" ? .signIn(why) : .failed(why, code: code)
         }
     }
 }
@@ -168,15 +183,15 @@ struct OnePasswordAllowView: View {
     let done: (_ bots: Int, _ vaults: [String]) -> Void
     /// Offered when 1Password couldn't be asked; nil where a master password field is already in reach.
     var useMasterPassword: (() -> Void)?
-    /// On a phone, from a bot's unlock card: the person fills the login from 1Password on this device instead.
-    var fillOnThisDevice: (() -> Void)?
+    @State private var password = ""
+    @FocusState private var typing: Bool
 
     var body: some View {
         List { Group {
             switch model.phase {
-            case .pick: pick
-            case .asking: LoadingSection(text: "Asking 1Password…")
-            case .waiting: waiting
+            case .signIn(let why): signIn(why)
+            case .asking: LoadingSection(text: model.byPassword ? "Signing in to 1Password…" : "Asking 1Password…")
+            case .waiting: if model.byPassword { LoadingSection(text: "Signing in to 1Password…") } else { waiting }
             case .choose(let vaults): choose(vaults)
             case .making: LoadingSection(text: "Saving a key for your bots…")
             case .done(let bots, let vaults): finished(bots: bots, vaults: vaults)
@@ -197,40 +212,41 @@ struct OnePasswordAllowView: View {
         .accessibilityIdentifier("onepassword.allow")
     }
 
-    /// Owner 2026-11-16, on the phone with the sheet waiting for a click on the computer: "it needs to open up in
-    /// the 1Password app on my phone because that's where I am. I'm not on my computer." 1Password's own Allow only
-    /// shows on the computer, so on a phone the sheet leads with the phone's 1Password: the bot asks for the login,
-    /// and 1Password here fills it with Face ID.
-    private var pick: some View {
+    /// Owner 2026-11-16: "It can't go to the computer. No one is ever on their computer." 1Password's own Allow only
+    /// shows on that computer, so away from it the one-time step is the 1Password password, which 1Password on this
+    /// device fills (the key above the keyboard, Face ID). 1Password's tool on Hermes's computer signs in with it,
+    /// makes the bots' key, and the password is dropped. Nobody touches the computer.
+    @ViewBuilder private func signIn(_ why: String?) -> some View {
         Section {
-            Button {
-                Haptics.play(.selection)
-                fillOnThisDevice?()
-            } label: {
-                choice("Fill From 1Password on This \(DeviceWord.name)",
-                       "The login sheet opens next. Tap the key above the keyboard, pick the login in 1Password, and it’s saved for this site.")
+            SecureField("1Password Password", text: $password)
+                .textContentType(.password)
+                .focused($typing)
+                .submitLabel(.continue)
+                .onSubmit(sendPassword)
+                .accessibilityIdentifier("onepassword.password")
+            if let why {
+                Text(why).font(Font.hq(.subheadline)).foregroundStyle(Color.hqRed).accessibilityIdentifier("onepassword.password-error")
             }
-            .accessibilityIdentifier("onepassword.on-device")
-            Button {
-                Haptics.play(.selection)
-                model.start()
-            } label: {
-                choice("Allow on the Computer Instead",
-                       "One click in 1Password on \(HostWord.phrase), once. Your bots then use every login in the vaults you pick.")
-            }
-            .accessibilityIdentifier("onepassword.on-computer")
-        } footer: { HQSectionFooter {
-            Text("No master password either way.")
+        } header: { HQSectionLabel {
+            Text("Sign In to 1Password, Once")
+        } } footer: { HQSectionFooter {
+            Text("Tap the key above the keyboard to fill it from 1Password. It’s used once on \(HostWord.phrase) to give your bots a read-only key, then dropped. After this, nothing is asked again.")
         } }
+        Section {
+            Button("Continue", action: sendPassword)
+                .font(Font.hq(.body).weight(.semibold))
+                .disabled(password.isEmpty)
+                .accessibilityIdentifier("onepassword.continue")
+        }
+        .onAppear { typing = true }
     }
 
-    private func choice(_ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(Font.hq(.body).weight(.semibold)).foregroundStyle(Color.hqLabel)
-            Text(detail).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
+    private func sendPassword() {
+        guard !password.isEmpty else { return }
+        let sent = password
+        password = ""
+        typing = false
+        model.start(password: sent)
     }
 
     private var waiting: some View {
@@ -310,7 +326,7 @@ struct OnePasswordAllowView: View {
     @ViewBuilder private func failed(_ why: String) -> some View {
         Section {
             Text(why).foregroundStyle(Color.hqLabel).accessibilityIdentifier("onepassword.failure")
-            Button("Try Again") { model.start() }.accessibilityIdentifier("onepassword.retry")
+            Button("Try Again") { if model.byPassword { model.again() } else { model.start() } }.accessibilityIdentifier("onepassword.retry")
             if let useMasterPassword {
                 Button("Use Master Password Instead…") { useMasterPassword() }.accessibilityIdentifier("onepassword.master")
             }
@@ -324,10 +340,8 @@ extension OnePasswordAllowView {
     /// The page as a controller, for a UIKit navigation stack (the unlock sheet's).
     @MainActor static func controller(model: OnePasswordAllowModel = OnePasswordAllowModel(),
                                       done: @escaping (_ bots: Int, _ vaults: [String]) -> Void,
-                                      useMasterPassword: (() -> Void)? = nil,
-                                      fillOnThisDevice: (() -> Void)? = nil) -> UIViewController {
-        let host = UIHostingController(rootView: OnePasswordAllowView(model: model, done: done, useMasterPassword: useMasterPassword,
-                                                                      fillOnThisDevice: fillOnThisDevice))
+                                      useMasterPassword: (() -> Void)? = nil) -> UIViewController {
+        let host = UIHostingController(rootView: OnePasswordAllowView(model: model, done: done, useMasterPassword: useMasterPassword))
         host.title = "Allow in 1Password"
         host.view.backgroundColor = .clear
         return host

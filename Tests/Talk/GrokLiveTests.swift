@@ -330,7 +330,6 @@ struct GrokLiveControllerTests {
         talk.holdsLeases = false
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
-        talk.helloPrompt = { nil }
         return (talk, box)
     }
 
@@ -346,22 +345,6 @@ struct GrokLiveControllerTests {
         FixtureTalkCapture.script = TalkFixtureStep.parse("hold")
         FixtureTalkCapture.permission = "granted"
         FixtureTalkCapture.startDelay = 0.02
-    }
-
-    /// Grok says hello first: a response asked for with the hello as its instructions, once the session is ready.
-    @Test func grokIsAskedToSayHelloFirst() async throws {
-        let (talk, _) = make()
-        talk.helloPrompt = { "Say hello now." }
-        let chat = FakeTalkChat()
-        talk.setFront(chat, onScreen: true)
-        talk.start(in: chat, name: "Ivy")
-        #expect(await waitUntil { talk.view?.phase == .listening })
-        #expect(await waitUntil { FixtureGrokLiveVoice.sent.compactMap(json).contains { $0["response"]?["instructions"]?.string == "Say hello now." } })
-        let hellos = FixtureGrokLiveVoice.sent.compactMap(json).filter { $0["response"]?["instructions"]?.string == "Say hello now." }
-        #expect(hellos.count == 1 && hellos.first?["type"]?.string == "response.create")
-        talk.end()
-        #expect(await waitUntil { !talk.isLive })
-        await talk.resetForTests()
     }
 
     @Test func aCallIsDelegatedToTheChatAndAnsweredWithTheReply() async throws {

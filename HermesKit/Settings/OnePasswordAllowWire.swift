@@ -38,6 +38,9 @@ nonisolated enum OnePasswordAllowWire {
         var supported = false
         /// The add-on takes `fillOnPhone` on the unlock card.
         var phone = false
+        /// 1Password's tool on Hermes's computer can sign in with the account password alone (sent once from here):
+        /// the whole thing works with nobody at that computer.
+        var password = false
         /// This bot has a key (ours or one somebody set by hand).
         var connected = false
         /// The key is the one this feature made: its vaults are known and Disconnect removes it.
@@ -57,7 +60,7 @@ nonisolated enum OnePasswordAllowWire {
     static func status(_ body: [String: Any]?) -> Status {
         guard let body else { return Status() }
         func flag(_ key: String) -> Bool { (body[key] as? NSNumber)?.boolValue == true }
-        return Status(supported: flag("supported"), phone: flag("phone"), connected: flag("connected"), ours: flag("ours"),
+        return Status(supported: flag("supported"), phone: flag("phone"), password: flag("password"), connected: flag("connected"), ours: flag("ours"),
                       vaults: (body["vaults"] as? [Any] ?? []).compactMap { $0 as? String },
                       bots: (body["bots"] as? NSNumber)?.intValue ?? 0)
     }

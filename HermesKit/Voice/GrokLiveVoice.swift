@@ -287,8 +287,6 @@ import Foundation
     func speak(delegationId: String?, text: String) { perform(calls.speak(delegationId: delegationId, text: text)) }
     func think(delegationId: String?, text: String) { perform(calls.think(delegationId: delegationId, text: text)) }
     func instruct(_ text: String) { perform(calls.instruct(text)) }
-    /// Grok: a response asked for with the hello as its instructions.
-    func greet(_ prompt: String) { perform(calls.instruct(prompt)) }
 
     func close() async {
         guard !finished else { return }
@@ -501,8 +499,6 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
     func speak(delegationId: String?, text: String) { perform(calls.speak(delegationId: delegationId, text: text)) }
     func think(delegationId: String?, text: String) { perform(calls.think(delegationId: delegationId, text: text)) }
     func instruct(_ text: String) { perform(calls.instruct(text)) }
-    /// Grok: a response asked for with the hello as its instructions.
-    func greet(_ prompt: String) { perform(calls.instruct(prompt)) }
 
     func close() async { closed = true }
 
