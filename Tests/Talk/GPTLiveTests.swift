@@ -230,6 +230,35 @@ struct GPTLiveLoopTests {
         #expect(LiveVoiceWire.quietWhileWorking.count <= LiveVoiceWire.appendCharLimit)
     }
 
+    /// The hello is asked for once, when the session is ready.
+    @Test func theHelloIsAskedForOnceTheSessionIsReady() {
+        var loop = Loop()
+        loop.live.hello = "Say hello now."
+        #expect(loop.send(.start).isEmpty)
+        #expect(loop.send(.sessionReady) == [.instruct(LiveVoiceWire.quietWhileWorking), .greet("Say hello now.")])
+        #expect(loop.live.hello == nil)
+    }
+
+    @Test func theHelloRequestChangesFromOneStartToTheNext() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.locale = Locale(identifier: "en_US")
+        let monday = Date(timeIntervalSince1970: 20_752 * 86_400)   // a midnight
+        let day = calendar.weekdaySymbols[calendar.component(.weekday, from: monday) - 1]
+        #expect(VoiceHello.moment(monday.addingTimeInterval(9 * 3_600), calendar: calendar) == "\(day) morning")
+        #expect(VoiceHello.moment(monday.addingTimeInterval(14 * 3_600), calendar: calendar) == "\(day) afternoon")
+        #expect(VoiceHello.moment(monday.addingTimeInterval(19 * 3_600), calendar: calendar) == "\(day) evening")
+        #expect(VoiceHello.moment(monday.addingTimeInterval(23 * 3_600), calendar: calendar) == "late at night on \(day)")
+        // The same leaning is never handed out twice running, whatever the dice say.
+        let first = VoiceHello.nextLeaning(random: { _ in 2 })
+        let second = VoiceHello.nextLeaning(random: { _ in 2 })
+        #expect(first != second)
+        let prompts = Set(VoiceHello.leanings.indices.map { VoiceHello.prompt(now: monday, calendar: calendar, leaning: $0) })
+        #expect(prompts.count == VoiceHello.leanings.count)
+        // One commentary append: under OpenAI's cap.
+        #expect(prompts.allSatisfy { $0.count <= LiveVoiceWire.appendCharLimit })
+    }
+
     @Test func theRequestIsEverythingSaidSinceTheLastOne() {
         var loop = Loop()
         let started = loop.send(.start) + loop.send(.sessionReady)
@@ -466,7 +495,31 @@ struct GPTLiveControllerTests {
         talk.holdsLeases = false
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
+        talk.helloPrompt = { nil }
         return (talk, box)
+    }
+
+    /// The voice says hello first: the request ends the seed as a developer message and goes once more as commentary
+    /// when the session starts, with no delegation.
+    @Test func theVoiceIsAskedToSayHelloFirst() async throws {
+        let (talk, box) = make()
+        talk.helloPrompt = { "Say hello now." }
+        let chat = FakeTalkChat()
+        chat.history = [(false, "Earlier question"), (true, "Earlier answer")]
+        talk.setFront(chat, onScreen: true)
+        talk.start(in: chat, name: "Ivy")
+        #expect(await waitUntil { talk.view?.phase == .listening })
+        let seed = try #require(box.history?.array)
+        #expect(seed.count == 3)
+        #expect(seed.last?["role"]?.string == "developer")
+        #expect(seed.last?["content"]?[0]?["type"]?.string == "input_text")
+        #expect(seed.last?["content"]?[0]?["text"]?.string == "Say hello now.")
+        let hellos = sent("session.commentary.append").filter { $0["content"]?.string == "Say hello now." }
+        #expect(hellos.count == 1)
+        #expect(hellos.first?["delegation_id"] == .null)
+        talk.end()
+        #expect(await waitUntil { !talk.isLive })
+        await talk.resetForTests()
     }
 
     /// An empty chat has nothing to refer back to: no note.

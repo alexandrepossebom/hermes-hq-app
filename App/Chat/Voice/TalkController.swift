@@ -97,6 +97,8 @@ import UIKit
     /// [live words] What hears a take as it's said (nil: nothing can; the gateway transcribes).
     var makeWords: @MainActor (@escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)? = { LiveWords.listen(onText: $0) }
     // [gpt-live] What tests and the debug hooks swap.
+    /// What a live voice is asked to open with; nil starts silent.
+    var helloPrompt: @MainActor () -> String? = { VoiceHello.prompt() }
     var makeLiveTransport: @MainActor () -> any LiveVoiceTransport = { WebRTCLiveVoice() }
     // [grok-live] (docs/spec/3x-grok-live.md)
     var makeGrokTransport: @MainActor () -> any LiveVoiceTransport = { GrokLiveVoice() }
@@ -1007,6 +1009,8 @@ extension TalkController {
         let chat = conversation.chat
         conversation.engine = engine
         conversation.liveState = LiveTalkState(engine: engine)
+        let hello = helloPrompt()
+        conversation.liveState.hello = hello
         conversation.liveSince = Date()
         conversation.capture = LiveInertCapture()
         if conversation.leased {
@@ -1027,7 +1031,10 @@ extension TalkController {
             let wide = LiveVoiceWire.history(turns)
             conversation?.liveState.seeded = wide.array?.isEmpty == false
             AppLog.trace("talk", "voice seed \(AppLog.tag(chat.memoScope)): \(wide.array?.count ?? 0) of \(turns.count) turns")
-            return (wide, LiveVoiceWire.history(turns, budget: LiveVoiceWire.narrowSeed))
+            // GPT-Live speaks first when its seed ends with the request (`VoiceHello.seedItem`); Grok is asked directly.
+            let ask = engine == .gptLive ? hello.map { [VoiceHello.seedItem($0)] } ?? [] : []
+            let narrow = LiveVoiceWire.history(turns, budget: LiveVoiceWire.narrowSeed)
+            return (.array((wide.array ?? []) + ask), .array((narrow.array ?? []) + ask))
         }
         let exchange = exchangeLive, openGrok = openGrokSession
         do {
@@ -1166,6 +1173,9 @@ extension TalkController {
                 transport?.think(delegationId: id, text: text)
             case .instruct(let text):
                 transport?.instruct(text)
+            case .greet(let prompt):
+                AppLog.trace("talk", "\(conversation.engine.rawValue) asked to say hello")
+                transport?.greet(prompt)
             case .setMuted(let muted):
                 transport?.setMuted(muted)
             case .closeSession:

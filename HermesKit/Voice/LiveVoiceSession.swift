@@ -39,6 +39,8 @@ nonisolated enum LiveVoiceError: Error, Equatable, Sendable {
     func speak(delegationId: String?, text: String)
     func think(delegationId: String?, text: String)
     func instruct(_ text: String)
+    /// Asks the voice to say hello first (`VoiceHello.prompt`).
+    func greet(_ prompt: String)
 }
 
 extension LiveVoiceTransport {
@@ -53,6 +55,11 @@ extension LiveVoiceTransport {
 
     func instruct(_ text: String) {
         if let event = LiveVoiceWire.instructions(text) { send(event) }
+    }
+
+    /// GPT-Live: the request as commentary with no delegation, as OpenAI's guide greets before the caller speaks.
+    func greet(_ prompt: String) {
+        LiveVoiceWire.commentary(delegationId: nil, prompt).forEach { send($0) }
     }
 }
 
