@@ -910,6 +910,26 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         ]
     }
 
+    /// [voice record] `-HQDemoVoiceRecord`: a typed exchange, then what a live voice chat left in the chat.
+    static func voiceRecordThread(now: Date = Date()) -> [ChatMessage] {
+        func at(_ minutesAgo: Double) -> Date { now.addingTimeInterval(-minutesAgo * 60) }
+        let said: [VoiceChatRecord.Turn] = [
+            .init(user: false, text: "Hi, I'm here. What do you need?"),
+            .init(user: true, text: "What's on my calendar tomorrow?"),
+            .init(user: false, text: "Two things: lunch with the design team at noon, and the dentist at three."),
+            .init(user: true, text: "Move the dentist to Friday morning if they have a slot."),
+            .init(user: false, text: "Done. The dentist is now Friday at ten, and I sent you the confirmation."),
+            .init(user: true, text: "Great, thanks. That's everything."),
+        ]
+        return [
+            ChatMessage(id: "vr-u1", role: .user, parts: [.text("Anything I should know before tomorrow?")], timestamp: at(30), rowId: nil),
+            ChatMessage(id: "vr-a1", role: .assistant, parts: [.text("Nothing urgent. Your inbox is clear and tomorrow has two events.")], timestamp: at(29), rowId: nil),
+            ChatMessage(id: "vr-u2", role: .user, parts: [.text("Move the dentist to Friday morning if they have a slot.")], timestamp: at(8), rowId: nil),
+            ChatMessage(id: "vr-a2", role: .assistant, parts: [.text("Done. The dentist is now **Friday at 10:00**. The confirmation is in your inbox.")], timestamp: at(7), rowId: nil),
+            ChatMessage(id: "vr-u3", role: .user, parts: [.text(VoiceChatRecord.message(said, seconds: 252) ?? "")], timestamp: at(5), rowId: nil),
+        ]
+    }
+
     /// [photo-grid] `-HQDemoPhotos <folder>`: one message per set of pictures (`ChatDemo.photoSets`).
     static func photosThread(now: Date = Date()) -> [ChatMessage] {
         let sets = ChatDemo.photoSets
@@ -1009,6 +1029,7 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         if ChatDemo.flag("-HQDemoBotExchange") { return botExchangeThread(now: Date().addingTimeInterval(-35 * 60)) + botExchangeFollowUp() }
         if ChatDemo.flag("-HQDemoRestated") { return restatedThread() }
         if let page = ChatDemo.argument("-HQDemoPage") { return pageThread(page) }
+        if ChatDemo.flag("-HQDemoVoiceRecord") { return voiceRecordThread() }
         if ChatDemo.argument("-HQDemoPhotos") != nil { return photosThread() }
         var rng = SeededRNG(seed: 42)
         var out: [ChatMessage] = []

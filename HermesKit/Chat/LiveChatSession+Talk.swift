@@ -71,6 +71,14 @@ extension LiveChatSession: ChatVoiceTurns {
         return SpokenReply(messageId: message.id, text: text, pending: message.isStreaming)
     }
 
+    /// [voice record] The conversation's words, for the chat and the bot. Queued, never typed into a running reply:
+    /// its note asks for no answer, and steered into the reply to a real request it would have silenced that reply.
+    func sendVoiceRecord(_ text: String) {
+        guard !chatGone, !ChatText.trimmed(text).isEmpty else { return }
+        flushDeltas()
+        enqueueHidden(text, display: nil)
+    }
+
     // [gpt-live] (docs/spec/3x-gpt-live.md §4)
 
     func sendDelegated(_ text: String, voiceContext: String) {
@@ -126,6 +134,8 @@ extension LiveChatSession: ChatVoiceTurns {
                     if case .text(let text) = part { return text }
                     return nil
                 }.joined(separator: "\n")
+                // [voice record] An earlier voice chat's words, without the note that is for the bot alone.
+                if let record = VoiceChatRecord.parse(words) { return (false, "(Said in an earlier voice chat) " + record.words) }
                 return words.isEmpty ? nil : (false, words)
             case .assistant:
                 let words = SpeechText.sanitizeForSpeech(LiveChatSession.spoken(message).text)

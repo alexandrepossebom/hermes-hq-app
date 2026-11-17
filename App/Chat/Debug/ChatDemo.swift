@@ -32,6 +32,7 @@ import UIKit
 /// - `-HQDemoSkippedQuestion` [questions] a question that went unanswered, then the reply waiting on it (Answer Now);
 ///   `-HQDemoAnswerNow` taps Answer Now, `-HQDemoAnswerSend <text>` sends that answer
 /// - `-HQDemoLinks` [mac-audit] short plain replies and two bare links (one page without a title)
+/// - `-HQDemoVoiceRecord` [voice record] a chat that ends with a live voice chat's line (`-HQDemoVoiceRecordOpen` opens it)
 /// - `-HQDemoPhotos <folder>` [photo-grid] messages made from the pictures in <folder> on this Mac: `<set>-<n>.png`
 ///   files are one message per set, in name order; a set whose name starts with "me" is yours, any other the bot's,
 ///   and `<set>.txt` beside them is its words (2026-11-16)
@@ -243,6 +244,7 @@ final class ChatDemoListViewController: UITableViewController {
         if ChatDemo.flag("-HQDemoExpandTools") {
             chat.debugExpandNewestTools()
         }
+        if ChatDemo.flag("-HQDemoVoiceRecordOpen") { chat.debugOpenVoiceRecords() }   // [voice record]
         if ChatDemo.flag("-HQDemoOpenGroups") {   // [updates]
             chat.debugOpenGroups(member: ChatDemo.argument("-HQDemoOpenMember").flatMap(Int.init))
         }

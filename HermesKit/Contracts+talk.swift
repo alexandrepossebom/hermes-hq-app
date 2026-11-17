@@ -40,6 +40,8 @@ protocol ChatVoiceTurns: AnyObject {
     func answerQuestion(_ id: String, spoken: String)
     var onDelegationRefused: (() -> Void)? { get set }
     func spokenReplies(since: Date) -> [SpokenReply]
+    // [voice record] default below
+    func sendVoiceRecord(_ text: String)
 }
 
 // [gpt-live] What a GPT-Live conversation asks of the chat beyond the standard engine (docs/spec/3x-gpt-live.md §4).
@@ -61,6 +63,9 @@ extension ChatVoiceTurns {
     /// The chat's finished assistant replies dated `since` or later, oldest first (never one still streaming, stopped
     /// or failed): what a GPT-Live conversation passes on when nothing else did.
     func spokenReplies(since: Date) -> [SpokenReply] { [] }
+    /// What was said in a live voice conversation that just ended (`VoiceChatRecord.message`): one message, after
+    /// whatever the chat is doing now. It never stops or steers a running reply.
+    func sendVoiceRecord(_ text: String) {}
     /// Called when a delegation's send was refused before the turn ran.
     var onDelegationRefused: (() -> Void)? {
         get { nil }

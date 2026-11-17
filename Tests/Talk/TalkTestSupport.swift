@@ -54,6 +54,9 @@ import Foundation
         answered.append((id, spoken))
         openQuestion = nil
     }
+    /// [voice record] What a finished live conversation sent for the chat to keep.
+    private(set) var records: [String] = []
+    func sendVoiceRecord(_ text: String) { records.append(text) }
     /// The finished replies `spokenReplies(since:)` returns, whatever the date.
     var recent: [SpokenReply] = []
     func spokenReplies(since: Date) -> [SpokenReply] { recent }

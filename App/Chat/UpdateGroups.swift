@@ -303,7 +303,8 @@ nonisolated enum UpdateGroups {
     /// A /btw answer that opened as it landed (SideTasks.swift) is what was asked for: it stands as a run of its own,
     /// open, between the runs on either side, until it is folded; then it joins them.
     static func standsAlone(_ row: ChatRow) -> Bool {
-        if case .backgroundResult(let b) = row.kind { return b.aside && b.expanded && b.group == nil }
+        // [voice record] A voice chat's line is the person's own conversation, never one of a run of updates.
+        if case .backgroundResult(let b) = row.kind { return b.voice || (b.aside && b.expanded && b.group == nil) }
         return false
     }
 
@@ -783,5 +784,5 @@ nonisolated enum UpdateGroups {
 
 nonisolated extension BackgroundResultRow {
     /// The line's glyph when it has no face.
-    var glyph: ChatGlyph { cron ? .clock : delivery ? .message : aside ? .aside : note ? .note : process ? .terminal : .subagent }
+    var glyph: ChatGlyph { voice ? .voice : cron ? .clock : delivery ? .message : aside ? .aside : note ? .note : process ? .terminal : .subagent }
 }

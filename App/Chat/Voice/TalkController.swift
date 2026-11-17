@@ -54,6 +54,9 @@ import UIKit
         var lastTool: String?
         /// When GPT-Live took this conversation: replies dated earlier are the seed's, never passed on.
         var liveSince = Date()
+        /// [voice record] Everything said with the live voice, both speakers (`VoiceChatRecord`): sent to the chat when
+        /// the conversation ends. It outlives a fall back to the standard engine, whose turns are messages already.
+        var record: [VoiceChatRecord.Turn] = []
         /// The standard engine's warm-up leases are held (given back when GPT-Live takes over).
         var leased = false
         // [live words] (docs/spec/3x-live-words.md)
@@ -735,6 +738,13 @@ import UIKit
             VoiceGateway.lease(client: chat.voiceClient, kind: .tts, lease: .conversation, active: false, profile: chat.profile.isEmpty ? nil : chat.profile)
             VoiceGateway.lease(client: chat.voiceClient, kind: .stt, lease: .conversation, active: false, profile: chat.profile.isEmpty ? nil : chat.profile)
         }
+        // [voice record] The live voice's conversation goes into the chat, for the person and the bot (nothing for a
+        // chat that went away, or when the person said nothing).
+        if reason != .gone, let record = VoiceChatRecord.message(conversation.record, seconds: length, stopPhrases: conversation.state.stopPhrases) {
+            AppLog.trace("talk", "voice record sent \(AppLog.tag(scope: scope)): \(conversation.record.count) turns, \(record.count) chars")
+            chat.sendVoiceRecord(record)
+        }
+        conversation.record = []
         conversation.heard.values.forEach { $0.cancel() }   // [live words]
         conversation.heard = [:]
         clearWords(conversation)
@@ -1148,6 +1158,7 @@ extension TalkController {
             case .started: self.sendLive(.sessionReady)
             case .transcript(let fragment):
                 self.liveWords(fragment, in: conversation)   // [live words]
+                VoiceChatRecord.add(fragment, to: &conversation.record)   // [voice record]
                 self.sendLive(.transcript(fragment))
             case .delegation(let id): self.sendLive(.delegation(id: id))
             case .askAgent(let id, let request): self.sendLive(.askAgent(id: id, request: request))   // [grok-live]

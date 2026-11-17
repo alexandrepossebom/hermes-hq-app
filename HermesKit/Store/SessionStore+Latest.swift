@@ -38,6 +38,7 @@ nonisolated enum SessionLatestRules {
             if role == "user", let restated = TimelineNotes.restatedRequest(raw) { raw = restated.before }
             if role == "user", raw.contains("(Task id "), let asked = TodoWords.askShown(raw) { raw = asked }   // [tasks]
             let text = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            if role == "user", VoiceChatRecord.isRecord(raw) { continue }   // [voice record] its line is not a message to preview
             if text.isEmpty || (role == "assistant" && Hydration.isSilentWords(text)) { continue }
             return text.count > 200 ? String(text.prefix(200)) : text
         }

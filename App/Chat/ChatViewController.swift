@@ -4771,6 +4771,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
     }
 
+    /// [voice record] Opens every voice chat line (screenshots).
+    func debugOpenVoiceRecords() {
+        for row in model.allRows where row.id.hasSuffix("|vc") { expanded.insert(row.id) }
+        activityRebuildAll()
+    }
+
     /// Opens the tool rows of the newest message that has them (screenshots).
     func debugExpandNewestTools() {
         var lowest: String?

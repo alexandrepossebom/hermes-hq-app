@@ -16,6 +16,8 @@ nonisolated enum ChatGlyph: Sendable, Hashable {
     case worked
     /// [updates] A note in an update group ("Model changed to …"): a circled i.
     case note
+    /// [voice record] A live voice chat's words (a waveform).
+    case voice
 
     /// SVG path data in a 24-unit box (stroked, round caps and joins).
     var svg: [String] {
@@ -32,6 +34,7 @@ nonisolated enum ChatGlyph: Sendable, Hashable {
                              "M10 8.6a2 2 0 1 1 2.9 1.8c-.6.3-.9.8-.9 1.4v.4", "M12 14.4v.1"]
         case .error: return ["M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0z", "M12 7v6m0 3v1"]
         case .worked: return ["M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0z", "m8 12.5 2.8 2.8 5.2-5.6"]
+        case .voice: return ["M4 10v4M8 7v10M12 4v16M16 8v8M20 10.5v3"]
         case .note: return ["M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0z", "M12 11v5", "M12 7.9v.1"]
         }
     }

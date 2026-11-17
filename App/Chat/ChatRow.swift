@@ -180,6 +180,8 @@ nonisolated struct BackgroundResultRow {
     var face: ChatSender? = nil
     /// [botdm] This chat's bot wrote to `face` ("To Hermes"), rather than the other bot writing here ("From Hermes").
     var sentTo = false
+    /// [voice record] What was said in a live voice chat (a waveform); `result` is the exchange.
+    var voice = false
     /// [updates] The centred line that stands for a run of these (UpdateGroups.swift); nil for a row of its own.
     var group: UpdatesGroup? = nil
 }
@@ -610,6 +612,21 @@ nonisolated enum ChatRowBuilder {
                 h.combine(expanded)
                 var row = BackgroundResultRow(title: title, result: BackgroundResults.readable(text), process: false, expanded: expanded)
                 row.cron = true
+                rows.append(ChatRow(id: id, messageId: m.id, scope: input.scope, fingerprint: h.finalize(),
+                                    kind: .backgroundResult(row), gapAbove: ChatMetrics.turnGap, variant: expanded ? 1 : 0))
+                return
+            }
+            if attachments.isEmpty, let record = VoiceChatRecord.parse(text) {
+                // [voice record] A live voice chat's words (`VoiceChatRecord`): one line, "Voice Chat · 4:12", that opens
+                // on what was said. Its note for the bot is never shown.
+                let id = "\(m.id)|vc"
+                let expanded = input.expanded.contains(id)
+                var h = Hasher()
+                RowHash.add(record.title, to: &h)
+                RowHash.add(record.words, to: &h)
+                h.combine(expanded)
+                var row = BackgroundResultRow(title: record.title, result: record.words, process: false, expanded: expanded)
+                row.voice = true
                 rows.append(ChatRow(id: id, messageId: m.id, scope: input.scope, fingerprint: h.finalize(),
                                     kind: .backgroundResult(row), gapAbove: ChatMetrics.turnGap, variant: expanded ? 1 : 0))
                 return

@@ -130,6 +130,26 @@ A pure reducer beside `TalkLoop`, sharing `TalkLoopState` so the dock, the pill 
   the standard engine (a fresh loop, its own microphone and leases). Only a denied or missing microphone stops it,
   since the standard engine needs the microphone too.
 
+### 4.1 The conversation's words are kept with the chat (`VoiceChatRecord`, owner 2026-11-17)
+
+The live voice's words and the person's were held in memory only: the bot learned what was delegated (and the last
+five minutes with it, model input only), and nobody could read the conversation back. Owner: "the bot should have the
+transcript. I mean you were literally talking to the bot."
+
+- The controller gathers every transcript fragment of the live session, both speakers, in `Conversation.record`
+  (not in the loop's bounded `transcript`). It outlives a fall back to the standard engine.
+- When the conversation ends (any ending but a chat that went away), and the person said something other than the
+  stop phrase, the chat is sent one message (`ChatVoiceTurns.sendVoiceRecord`): the line
+  `[Voice chat transcript · m:ss]`, a bracketed note for the bot, a blank line, then `User: …` / `Voice assistant: …`
+  lines. The newest 24,000 characters are kept. The gateway has no way to add words to a chat without a turn, so it
+  is an ordinary turn: the note asks the bot not to act and to reply `NO_REPLY`, which the chat already hides.
+- It is queued behind whatever the chat is doing (`enqueueHidden`): never typed into a running reply, which its
+  "do not answer" note would have silenced.
+- The chat draws the message as one line, "Voice Chat · 4:12" with a waveform, that opens on the words ("You: …",
+  "Voice: …"); the note is never shown. It is a row of its own, never folded into a run of updates. The Bots row's
+  preview passes over it, and the next live session's seed gets its words without the note.
+- Cost: one short bot turn per live voice chat. The standard engine needs none of this: its turns are messages.
+
 ## 5. Transport (`WebRTCLiveVoice`)
 
 - WebRTC is `stasel/WebRTC` 154.0.0 (binary framework: iOS, simulator, Mac Catalyst).
