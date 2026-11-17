@@ -201,3 +201,31 @@ struct ChatWalkTests {
         #expect(ChatWalk.target(order: ["c", "a", "b"], current: "a", forward: false) == "c")
     }
 }
+
+/// [Mac AAA 2026-11-17] Owner's call Q1: which key presses, typed with nothing focused, go into the open chat's box.
+struct TypeToChatTests {
+    @Test func lettersFiguresAndPunctuationAreTyping() {
+        #expect(TypeToChat.takes(keyCode: 4, characters: "h", command: false, control: false))
+        #expect(TypeToChat.takes(keyCode: 4, characters: "H", command: false, control: false), "Shift is typing")
+        #expect(TypeToChat.takes(keyCode: 18, characters: "1", command: false, control: false))
+        #expect(TypeToChat.takes(keyCode: 44, characters: "/", command: false, control: false), "/ opens the commands there")
+        #expect(TypeToChat.takes(keyCode: 14, characters: "e", command: false, control: false), "⌥E: an accent's dead key (Option is typing)")
+    }
+
+    @Test func theWindowsOwnKeysAndShortcutsKeepTheirMeaning() {
+        for code: UInt16 in [36, 76, 48, 49, 51, 117, 53, 123, 124, 125, 126, 115, 119, 116, 121] {
+            #expect(!TypeToChat.takes(keyCode: code, characters: "x", command: false, control: false), "key \(code)")
+        }
+        #expect(!TypeToChat.takes(keyCode: 49, characters: " ", command: false, control: false), "Space")
+        #expect(!TypeToChat.takes(keyCode: 40, characters: "k", command: true, control: false), "⌘K")
+        #expect(!TypeToChat.takes(keyCode: 3, characters: "f", command: false, control: true), "⌃F")
+        #expect(!TypeToChat.takes(keyCode: 122, characters: "\u{F704}", command: false, control: false), "F1")
+        #expect(!TypeToChat.takes(keyCode: 0, characters: "\u{1B}", command: false, control: false), "a control character")
+        #expect(!TypeToChat.takes(keyCode: 0, characters: nil, command: false, control: false))
+    }
+
+    @Test func emojiAndSymbolsOpensOnTheBox() {
+        #expect(TypeToChat.takes(keyCode: 49, characters: " ", command: true, control: true), "⌃⌘Space")
+        #expect(!TypeToChat.takes(keyCode: 40, characters: "k", command: true, control: true), "another ⌃⌘ key")
+    }
+}

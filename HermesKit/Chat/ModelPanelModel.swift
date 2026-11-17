@@ -227,6 +227,55 @@ nonisolated extension ModelPanelModel {
     /// Under the list while any row shows a price: what the two figures are.
     static let rowFactLegend = "Prices are in / out per 1M tokens."
 
+    // MARK: The Mac's model selector (owner 2026-11-17, design B)
+
+    /// One part of the Mac selector's facts line ("**1M** context · **18%** used · Included · **62%** left"): `figure` in
+    /// semibold, `words` after it, both from the card's fact of that `title` (which says which page the part opens).
+    nonisolated struct FactPart: Sendable, Equatable {
+        var title: String
+        var figure: String
+        var words: String
+        var spoken: String
+    }
+
+    /// [Mac model selector] The card's facts as one quiet line of parts, in the card's order, each read the way a
+    /// sentence would say it: the window "1M context", the share "18% used", the price ("Included", "$5 / $25 per 1M"),
+    /// what is left ("62% left", "Rate limited, back in 2h"), else "Available" or "Offline".
+    static func factParts(_ facts: [ModelPanelState.Fact]) -> [FactPart] {
+        facts.map { fact in
+            switch fact.title {
+            case ModelPanelState.Fact.contextTitle:
+                return FactPart(title: fact.title, figure: fact.value, words: " context", spoken: "\(fact.value) context window")
+            case "Context used":
+                return FactPart(title: fact.title, figure: fact.value, words: " used", spoken: "\(fact.value) of the context used")
+            case "Price":
+                guard let spoken = fact.spoken, spoken.hasSuffix(" per 1M") else {
+                    return FactPart(title: fact.title, figure: "", words: fact.value, spoken: "Price: \(fact.value)")
+                }
+                let price = String(spoken.dropLast(" per 1M".count))
+                return FactPart(title: fact.title, figure: "", words: shortPrice(price) + " per 1M", spoken: spoken)
+            case "Plan":
+                let spoken = fact.spoken ?? fact.value
+                if fact.value.hasSuffix(" left"), let space = fact.value.firstIndex(of: " ") {
+                    return FactPart(title: fact.title, figure: String(fact.value[..<space]), words: String(fact.value[space...]), spoken: spoken)
+                }
+                guard fact.caption != "Plan" else { return FactPart(title: fact.title, figure: "", words: fact.value, spoken: spoken) }
+                let caption = fact.caption.prefix(1).lowercased() + fact.caption.dropFirst()
+                return FactPart(title: fact.title, figure: "", words: "\(fact.value), \(caption)", spoken: spoken)
+            default:
+                return FactPart(title: fact.title, figure: "", words: fact.value, spoken: fact.spoken ?? fact.value)
+            }
+        }
+    }
+
+    /// [Mac model selector] The line under the selector's search field: what a pick changes, and the link to where the
+    /// bot's own default lives ("Otto’s default", nil when the chat has no bot to name), the card's `switchScope` in
+    /// two short pieces.
+    static func macScope(bot: String?) -> (scope: String, link: String?) {
+        guard let bot = bot?.trimmingCharacters(in: .whitespacesAndNewlines), !bot.isEmpty else { return ("For this chat only", nil) }
+        return ("For this chat only", "\(bot)’s default")
+    }
+
     /// "Weekly · 62% left" reads "62% left" over "Weekly"; "Rate limited · back in 2 h" reads "Rate limited" over
     /// "Back in 2 h"; anything else whole over "Plan".
     static func planFact(_ limit: String) -> ModelPanelState.Fact {

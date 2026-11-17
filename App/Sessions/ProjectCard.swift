@@ -1075,7 +1075,7 @@ struct ProjectNewChatRow: View {
     }
 }
 
-/// Show More inside a card: a hollow node on the line, then "Show More (X)" or "Show Less".
+/// Show More inside a card: a hollow node on the line, then "Show X More" or "Show Less".
 struct ProjectShowMoreRow: View {
     var column = ProjectCard.column   // [card-gutters] drawn again when the column changes
     var more: Int
@@ -1088,7 +1088,7 @@ struct ProjectShowMoreRow: View {
                 .strokeBorder(Color(uiColor: ProjectCard.line), lineWidth: 2)
                 .frame(width: 10, height: 10)
                 .frame(width: ProjectCard.column)
-            Text(more > 0 ? "Show More (\(more))" : "Show Less")
+            Text(more > 0 ? "Show \(more) More" : "Show Less")   // Owner 2026-11-17 (Mac calls Q12): was "Show More (X)"
                 .font(Font.hq(desk ? .footnote : .subheadline).weight(.medium))
                 .foregroundStyle(Color.hqTintText)
             Spacer(minLength: 0)

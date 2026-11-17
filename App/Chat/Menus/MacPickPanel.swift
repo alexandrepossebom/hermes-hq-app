@@ -13,6 +13,20 @@
 #if targetEnvironment(macCatalyst)
 import UIKit
 
+/// [Mac model selector] A view the panel lays out in a fixed place (under its field, or at its foot): its height for
+/// the panel's width.
+@MainActor protocol MacPickPanelPiece: UIView {
+    func pieceHeight(width: CGFloat) -> CGFloat
+}
+
+/// [Mac model selector] A foot that takes part in Tab: how many stops it has, the focus mark on one of them, and the
+/// keys a stop answers while it has the keyboard (true when it took the key).
+@MainActor protocol MacPickPanelFoot: MacPickPanelPiece {
+    var focusStops: Int { get }
+    func showFocus(_ stop: Int?)
+    func press(_ key: MacPickPanel.FootKey, at stop: Int) -> Bool
+}
+
 @MainActor final class MacPickPanel: UIViewController, UITableViewDataSource, UITableViewDelegate {
     struct Row: Hashable {
         /// Unique in the whole list (a row in Favorites and in its own section share it: the mark follows the section).
@@ -50,6 +64,9 @@ import UIKit
         case message(symbol: String?, title: String, text: String?, actions: [UIAction])
     }
 
+    /// [Mac model selector] The keys a foot's stop can take.
+    enum FootKey { case left, right, space, enter }
+
     // The driver's hooks.
     var onQuery: ((String) -> Void)?
     /// A click or Return on an enabled row. The panel has closed by the time it runs.
@@ -60,8 +77,16 @@ import UIKit
     var onFoldAll: ((Bool) -> Void)?
     /// The panel closed without a pick (Esc, a click outside). Runs after it is gone.
     var onCancel: (() -> Void)?
+    /// [Mac model selector] The panel has gone, whichever way.
+    var onGone: (() -> Void)?
     /// Keeps the driver alive as long as the panel is up.
     var driver: AnyObject?
+    /// [Mac model selector] Owner 2026-11-17 ("Stay open"): a pick runs `onPick` and the panel stays up (the driver
+    /// shows the rows again with the new tick); Esc, a click outside or the driver closes it.
+    var staysOpenOnPick = false
+    /// [Mac model selector] A small pointer under the panel's foot at the anchor's middle (the iOS look; the Desktop
+    /// Look's flat surface has none, as its other pop-overs).
+    var pointsAtAnchor = false
 
     private let placeholder: String
     private weak var anchor: UIView?
@@ -80,6 +105,16 @@ import UIKit
     private let table = UITableView(frame: .zero, style: .grouped)
     private let stateView = UIStackView()
     private var accessory: UIButton?
+    /// [Mac model selector] Under the field (Models' "For this chat only"), and the foot under the list with its rule.
+    private var subheader: MacPickPanelPiece?
+    private var footer: MacPickPanelFoot?
+    private let footRule = UIView()
+    private let tail = MacPanelTail()
+    /// Where Tab has the keyboard: the field, the list, or one of the foot's stops.
+    private enum FocusStop: Equatable { case field, list, foot(Int) }
+    private var focusStop = FocusStop.field
+    /// The list's focus mark while Tab has put the keyboard on it.
+    private let listRing = UIView()
 
     private var content: Content = .loading
     private var sections: [Section] = []
@@ -154,6 +189,29 @@ import UIKit
         if isViewLoaded { view.setNeedsLayout() }
     }
 
+    /// [Mac model selector] A line under the field (and its note), above the list's rule.
+    func setSubheader(_ view: MacPickPanelPiece?) {
+        subheader?.removeFromSuperview()
+        subheader = view
+        if isViewLoaded, let view { panel.addSubview(view); view.setNeedsLayout() }
+        if isViewLoaded { self.view.setNeedsLayout() }
+    }
+
+    /// [Mac model selector] A foot under the list, always in view: the list's cap drops by its height.
+    func setFooter(_ view: MacPickPanelFoot?) {
+        footer?.removeFromSuperview()
+        footer = view
+        if isViewLoaded, let view { panel.addSubview(view) }
+        if isViewLoaded { self.view.setNeedsLayout() }
+    }
+
+    /// The foot's height changed (a model with no thinking levels, or a fact more): the panel fits it at once.
+    func footChanged() {
+        guard isViewLoaded else { return }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
     var query: String { field.text ?? "" }
 
     func setQuery(_ text: String) { field.text = text }
@@ -208,6 +266,16 @@ import UIKit
         note.accessibilityIdentifier = "models.scope"
         panel.addSubview(note)
         panel.addSubview(rule)
+        if let subheader { panel.addSubview(subheader) }
+        if let footer { panel.addSubview(footer) }
+        panel.addSubview(footRule)
+        tail.isUserInteractionEnabled = false
+        tail.isHidden = true
+        view.insertSubview(tail, belowSubview: panel)
+        listRing.isUserInteractionEnabled = false
+        listRing.isHidden = true
+        listRing.layer.cornerCurve = .continuous
+        field.addAction(UIAction { [weak self] _ in self?.fieldTookFocus() }, for: .editingDidBegin)
 
         table.dataSource = self
         table.delegate = self
@@ -216,6 +284,9 @@ import UIKit
         table.sectionHeaderTopPadding = 0
         table.sectionFooterHeight = 0
         table.estimatedSectionFooterHeight = 0
+        // [Mac model selector] Headings measured, not estimated: an estimate let rows out of sight sit 18–50 pt from where
+        // they draw, so a row scrolled into view landed just under the list's foot once the headings above it were laid out.
+        table.estimatedSectionHeaderHeight = 0
         table.tableHeaderView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: CGFloat.leastNonzeroMagnitude))
         table.tableFooterView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: CGFloat.leastNonzeroMagnitude))
         table.estimatedRowHeight = Self.rowHeight
@@ -227,6 +298,7 @@ import UIKit
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:)))
         table.addGestureRecognizer(hover)
         panel.addSubview(table)
+        panel.addSubview(listRing)
 
         stateView.axis = .vertical
         stateView.alignment = .center
@@ -252,6 +324,8 @@ import UIKit
         super.viewDidDisappear(animated)
         guard isBeingDismissed || presentingViewController == nil else { return }   // not for a sheet over it (Show Details)
         if Self.shown === self { Self.shown = nil }
+        onGone?()
+        onGone = nil
         driver = nil   // the driver and its panel hold each other until the panel goes
     }
 
@@ -297,6 +371,11 @@ import UIKit
         field.tintColor = ChatPalette.caret
         note.textColor = HQPalette.label2
         rule.backgroundColor = desktop ? ChatPalette.strokeSecondary : HQPalette.separator
+        footRule.backgroundColor = rule.backgroundColor
+        listRing.layer.borderColor = HQPalette.tint.resolvedColor(with: traitCollection).withAlphaComponent(desktop ? 1 : 0.6).cgColor
+        listRing.layer.borderWidth = HQShape.line(desktop ? 2 : 1.5)
+        listRing.layer.cornerRadius = desktop ? DesktopRows.radius : MacSelection.radius + 2
+        tail.fill = desktop ? ChatPalette.elevated : ChatPalette.popupVeil
         accessory?.tintColor = HQPalette.label2
         ring()
     }
@@ -326,10 +405,9 @@ import UIKit
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutPanel()
-        if centreMarkOnLayout, let marked, view.window != nil {
-            centreMarkOnLayout = false
-            table.layoutIfNeeded()
-            table.scrollToRow(at: marked, at: .middle, animated: false)
+        if let key = revealOnLayout, view.window != nil {
+            revealOnLayout = nil
+            reveal(key)
         }
     }
 
@@ -379,6 +457,12 @@ import UIKit
             note.frame = CGRect(x: textX, y: y, width: w - textX - inset, height: ceil(size.height))
             y += ceil(size.height)
         }
+        if let subheader {
+            let h = subheader.pieceHeight(width: w)
+            y += 4
+            subheader.frame = CGRect(x: 0, y: y, width: w, height: h)
+            y += h - 2
+        }
         y += pad
         rule.frame = CGRect(x: 0, y: y, width: w, height: HQShape.pixel(traitCollection.displayScale))
         let listTop = y
@@ -395,7 +479,10 @@ import UIKit
         let roomBelow = bounds.maxY - edges.maxY - gap - pad * 2
         let above = roomAbove >= roomBelow
         let room = max(160, above ? roomAbove : roomBelow)
-        let maxList = min(Self.maxListHeight, room - listTop)
+        // [Mac model selector] The foot is always in view: the list gives up its height (about ten rows at most).
+        let footH = footer.map { $0.pieceHeight(width: w) } ?? 0
+        let cap = footer != nil ? (Self.rowHeight * 10).rounded() : Self.maxListHeight
+        let maxList = max(Self.rowHeight * 2, min(cap, room - listTop - footH))
 
         var listH: CGFloat
         switch content {
@@ -447,7 +534,14 @@ import UIKit
         let foot = Self.foot
         table.frame = CGRect(x: inset, y: listTop + 4, width: w - 2 * inset, height: max(0, listH - 4 - foot))
         table.isScrollEnabled = table.contentSize.height > table.bounds.height + 1 || listH >= maxList
-        let h = listTop + listH
+        let h = listTop + listH + footH
+        if let footer {
+            footRule.isHidden = false
+            footRule.frame = CGRect(x: 0, y: listTop + listH, width: w, height: HQShape.pixel(traitCollection.displayScale))
+            footer.frame = CGRect(x: 0, y: listTop + listH, width: w, height: footH)
+        } else {
+            footRule.isHidden = true
+        }
         // [Mac UI check 2026-11-13] V22: a button in the window's trailing half (the box's model pill) has the panel's
         // trailing edge at its own, so the panel hangs off it rather than off the far side of the box.
         var x = anchorFrame.midX > bounds.midX ? anchorFrame.maxX + pad - w : anchorFrame.minX - pad
@@ -457,7 +551,21 @@ import UIKit
         glassBack.frame = panel.bounds
         panel.layer.shadowPath = UIBezierPath(roundedRect: panel.bounds, cornerRadius: panel.layer.cornerRadius).cgPath
         emptyNote?.frame = table.bounds
+        listRing.frame = table.frame.insetBy(dx: -3, dy: -3)
+        // [Mac model selector] The pointer: in the gap under the panel, at the anchor's middle (kept off the corners).
+        let points = pointsAtAnchor && above && !isDesktop && anchor?.window != nil
+        tail.isHidden = !points
+        if points {
+            let side = Self.tailWidth
+            let corner = Self.glassRadius + side / 2
+            let mid = min(max(anchorFrame.midX, panel.frame.minX + corner), panel.frame.maxX - corner)
+            tail.frame = CGRect(x: (mid - side / 2).rounded(), y: panel.frame.maxY - 1, width: side, height: min(Self.tailHeight, gap) + 1)
+        }
     }
+
+    /// [Mac model selector] The pointer under the panel: 18 pt wide, as deep as the gap allows (8 pt clear of the box).
+    private static let tailWidth: CGFloat = 18
+    private static let tailHeight: CGFloat = 7
 
     /// The list's tallest: 12 rows or so, then it scrolls.
     private static var maxListHeight: CGFloat { (rowHeight * 12.5).rounded() }
@@ -475,6 +583,8 @@ import UIKit
         // the mark: it was dropped, so ↓ started over from the top.
         if let markedKey, let path = path(of: markedKey.1, in: markedKey.0) ?? firstPath(of: markedKey.1) { marked = path }
         if markFirst { marked = firstEnabled() }
+        if !query.isEmpty || key != nil || markFirst { stickyReveal = nil }
+        if let sticky = stickyReveal, !scrolledByHand { revealOnLayout = sticky }
         guard isViewLoaded else { return }
         apply()
         if let key, let before, let path = path(of: key.key, in: key.section) {
@@ -491,20 +601,64 @@ import UIKit
     /// from a menu, not from a key or a click on a row that would move, so the panel fits what it then shows.
     func fitNextRows() { tallestList = 0 }
 
-    /// Marks a row and brings it into view (Models: the current model as the panel opens).
+    /// Marks a row and brings it into view (Models: the current model as the panel opens, and again once a pick lands).
+    /// [Mac model selector] Orchestrator 2026-11-17: the least scroll that shows it (none when it is in view with the
+    /// list at its top), never while a search is typed or after the person scrolled the list in this visit.
     func mark(key: String, scroll: Bool = true) {
-        // The last match: a model in Favorites is also in its provider's section, which the mark prefers.
-        let matches = sections.indices.compactMap { s in sections[s].rows.firstIndex { $0.key == key }.map { IndexPath(row: $0, section: s) } }
-        guard let path = matches.last else { return }
-        marked = path
-        centreMarkOnLayout = scroll
+        guard sections.contains(where: { $0.rows.contains { $0.key == key } }) else { return }
+        guard scroll, query.isEmpty, !scrolledByHand else {
+            // The last match: a model in Favorites is also in its provider's section, which the mark prefers.
+            let matches = sections.indices.compactMap { s in sections[s].rows.firstIndex { $0.key == key }.map { IndexPath(row: $0, section: s) } }
+            if let path = matches.last { setMark(path) }
+            return
+        }
+        revealOnLayout = key
+        stickyReveal = key
         guard isViewLoaded else { return }
-        table.reloadData()
         view.setNeedsLayout()
     }
 
-    /// The next layout puts the marked row in the middle of the list (the panel's size is known only then).
-    private var centreMarkOnLayout = false
+    /// The ticked row stays revealed through the rows that arrive after it (the catalog's answer, Recent growing after a
+    /// switch) until the person scrolls, types, or moves the mark themselves.
+    private var stickyReveal: String?
+
+    /// The person scrolled the list (wheel, trackpad or scroller) in this visit: the panel no longer moves it for them.
+    private var scrolledByHand = false
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrolledByHand = true; stickyReveal = nil }
+
+    /// [Mac model selector] The row with `key` that needs the least scroll is marked and shown: with the list at its top
+    /// when it is in view there; else the list's top edge lands on a whole row, a section's heading where one still keeps
+    /// the row in view, so the list never starts on a row whose heading sits one row out of sight.
+    private func reveal(_ key: String) {
+        table.layoutIfNeeded()
+        let height = table.bounds.height
+        guard height > 0 else { return }
+        let paths = sections.indices.flatMap { s in sections[s].rows.indices.compactMap { r in sections[s].rows[r].key == key ? IndexPath(row: r, section: s) : nil } }
+        guard !paths.isEmpty else { return }
+        // The least each needs: 0 when it is whole with the list at its top.
+        let needs = paths.map { path -> (IndexPath, CGFloat, CGRect) in
+            let rect = table.rectForRow(at: path)
+            return (path, max(0, rect.maxY - height), rect)
+        }
+        guard let best = needs.min(by: { $0.1 < $1.1 }) else { return }
+        setMark(best.0)
+        let maxOffset = max(0, table.contentSize.height - height)
+        guard best.1 > 0.5 else { table.contentOffset.y = 0; return }
+        var headings: [CGFloat] = [], rows: [CGFloat] = []
+        for s in 0..<table.numberOfSections {
+            if !sections[s].title.isEmpty { headings.append(table.rectForHeader(inSection: s).minY) }
+            for r in 0..<table.numberOfRows(inSection: s) { rows.append(table.rectForRow(at: IndexPath(row: r, section: s)).minY) }
+        }
+        // Edges that keep the row whole: at or past the least, and not past the row's own top.
+        let fits = { (edge: CGFloat) in edge >= best.1 - 0.5 && edge <= best.2.minY + 0.5 }
+        let edge = headings.filter(fits).min() ?? rows.filter(fits).min() ?? best.1
+        table.contentOffset.y = min(maxOffset, edge)
+        AppLog.trace("mac", "pick panel: reveal \(best.0) at \(Int(edge)) (least \(Int(best.1)), row \(best.2), list \(table.frame) content \(table.contentSize.height))")
+    }
+
+    /// The next layout reveals this row's key (the panel's size is known only then).
+    private var revealOnLayout: String?
 
     private var emptyNote: UILabel?
     /// The list's tallest height so far (see `layoutPanel`).
@@ -668,7 +822,7 @@ import UIKit
         switch recognizer.state {
         case .began, .changed:
             let path = table.indexPathForRow(at: recognizer.location(in: table))
-            if let path, row(at: path)?.enabled == true, path != marked { setMark(path) }
+            if let path, row(at: path)?.enabled == true, path != marked { setMark(path); stickyReveal = nil }
         default: break
         }
     }
@@ -685,11 +839,29 @@ import UIKit
     // MARK: Keys
 
     override var keyCommands: [UIKeyCommand]? {
-        let commands = [
+        var commands = [
             UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(moveUp)),
             UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(moveDown)),
-            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(close)),
+            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(close as () -> Void)),
         ]
+        // [Mac model selector] Tab walks the field, the list and the foot's stops (only with a foot: the other panels'
+        // Tab is the system's); off the field, Return picks the marked row, and a foot's stop takes ← → Space Return.
+        if footer != nil {
+            commands.append(UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(tabForward)))
+            commands.append(UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(tabBack)))
+            switch focusStop {
+            case .field: break
+            case .list:
+                commands.append(UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(returnOnList)))
+            case .foot:
+                commands += [
+                    UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(footLeft)),
+                    UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(footRight)),
+                    UIKeyCommand(input: " ", modifierFlags: [], action: #selector(footSpace)),
+                    UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(footEnter)),
+                ]
+            }
+        }
         commands.forEach { $0.wantsPriorityOverSystemBehavior = true }   // before the field's own caret moves
         // [favorite-commands] ⌘D stars or unstars the marked row, as Safari's Add Bookmark.
         if let marked, let row = row(at: marked), let starred = row.starred {
@@ -720,11 +892,74 @@ import UIKit
         }
     }
 
+    // MARK: [Mac model selector] Tab
+
+    private var stops: [FocusStop] {
+        guard case .rows = content else { return [.field] + (0..<(footer?.focusStops ?? 0)).map(FocusStop.foot) }
+        return [.field, .list] + (0..<(footer?.focusStops ?? 0)).map(FocusStop.foot)
+    }
+
+    @objc private func tabForward() { stepFocus(1) }
+    @objc private func tabBack() { stepFocus(-1) }
+
+    private func stepFocus(_ by: Int) {
+        let all = stops
+        if case .foot(let i) = focusStop, i >= (footer?.focusStops ?? 0) { focusStop = .list }   // a stop that went away
+        let at = all.firstIndex(of: focusStop) ?? 0
+        setFocus(all[(at + by + all.count) % all.count])
+    }
+
+    /// Puts the keyboard on `stop` and its mark on show: the caret in the field, or the panel itself taking the keys
+    /// (the list's ring, or the foot's mark on its control).
+    private func setFocus(_ stop: FocusStop) {
+        focusStop = stop
+        if stop == .field {
+            if !fieldBox.isHidden { field.becomeFirstResponder() }
+        } else {
+            becomeFirstResponder()
+            if stop == .list, marked == nil { move(by: 1) }
+        }
+        listRing.isHidden = stop != .list
+        if case .foot(let i) = stop { footer?.showFocus(i) } else { footer?.showFocus(nil) }
+        AppLog.trace("mac", "pick panel: focus \(stop)")
+    }
+
+    private func fieldTookFocus() {
+        guard focusStop != .field else { return }
+        focusStop = .field
+        listRing.isHidden = true
+        footer?.showFocus(nil)
+    }
+
+    @objc private func returnOnList() { pickMarked() }
+    @objc private func footLeft() { footKey(.left) }
+    @objc private func footRight() { footKey(.right) }
+    @objc private func footSpace() { footKey(.space) }
+    @objc private func footEnter() { footKey(.enter) }
+
+    private func footKey(_ key: FootKey) {
+        guard case .foot(let i) = focusStop else { return }
+        _ = footer?.press(key, at: i)
+    }
+
+    /// Off the field, a letter typed goes back to the search field with it (type to filter, wherever Tab has gone).
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if footer != nil, !field.isFirstResponder, !fieldBox.isHidden, let key = presses.first?.key,
+           key.modifierFlags.intersection([.command, .control, .alternate]).isEmpty,
+           let typed = key.characters.first, typed.isLetter || typed.isNumber {
+            setFocus(.field)
+            field.insertText(key.characters)
+            return
+        }
+        super.pressesBegan(presses, with: event)
+    }
+
     @objc private func moveUp() { move(by: -1) }
     @objc private func moveDown() { move(by: 1) }
 
     /// ↓ from nothing marks the first row, ↑ the last; disabled rows are stepped over.
     func move(by step: Int) {
+        stickyReveal = nil
         let rows = flat.filter { row(at: $0)?.enabled == true }
         guard !rows.isEmpty else { return }
         let next: IndexPath
@@ -739,6 +974,15 @@ import UIKit
 
     func pickMarked() {
         guard let marked, let row = row(at: marked), row.enabled, !picked else { return }
+        if staysOpenOnPick {   // [Mac model selector] the tick moves; the panel stays, typing still goes to its field
+            onPick?(row)
+            // Return in the field ends its editing after this runs: the caret goes back once it has.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.focusStop == .field, !self.fieldBox.isHidden else { return }
+                self.field.becomeFirstResponder()
+            }
+            return
+        }
         picked = true
         let pick = onPick
         let keep = driver   // its pick runs after the panel has gone
@@ -753,6 +997,15 @@ import UIKit
         hqHidePanel { cancel?(); _ = keep }
     }
 
+    /// [Mac model selector] Closes, then opens a page in its place (a fact's page, Bot Info): the page brings the keys
+    /// back when it closes, so the field is not given them first.
+    func close(then next: @escaping () -> Void) {
+        guard !isBeingDismissed, !closing else { return }
+        closing = true
+        let keep = driver
+        hqHidePanel { next(); _ = keep }
+    }
+
     @objc private func tappedOutside(_ recognizer: UITapGestureRecognizer) {
         if !panel.bounds.contains(recognizer.location(in: panel)) { close() }
     }
@@ -760,7 +1013,72 @@ import UIKit
     #if DEBUG
     var debugPanelFrame: CGRect { panel.frame }
     var debugMarked: IndexPath? { marked }
+    /// The list's offset and the rows wholly or partly in view, with their titles ("✓" ticked).
+    var debugVisible: String {
+        let rows = (table.indexPathsForVisibleRows ?? []).compactMap { p in row(at: p).map { "\($0.title)\($0.checked ? "✓" : "")" } }
+        return "offset \(Int(table.contentOffset.y)) height \(Int(table.bounds.height)) rows \(rows)"
+    }
+    /// [Mac model selector] Tours: Tab's place ("field", "list", "foot 0"…) and a step of it, as the key would.
+    var debugFocus: String {
+        switch focusStop { case .field: "field"; case .list: "list"; case .foot(let i): "foot \(i)" }
+    }
+    func debugTab(_ by: Int = 1) { stepFocus(by) }
+    func debugFootKey(_ key: FootKey) { footKey(key) }
     #endif
+}
+
+/// [Mac model selector] The panel's pointer: a small triangle in the panel's own surface, its tip at the anchor.
+final class MacPanelTail: UIView {
+    var fill: UIColor = .clear { didSet { setNeedsDisplay() } }
+    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        contentMode = .redraw
+        blur.isUserInteractionEnabled = false
+        addSubview(blur)
+        blur.mask = TailMask()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        blur.frame = bounds
+        blur.mask?.frame = bounds
+        blur.mask?.setNeedsDisplay()
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        fill.resolvedColor(with: traitCollection).setFill()
+        TailMask.path(in: bounds).fill()
+    }
+
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        setNeedsDisplay()
+    }
+
+    private final class TailMask: UIView {
+        override init(frame: CGRect) { super.init(frame: frame); isOpaque = false; backgroundColor = .clear; contentMode = .redraw }
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+        override func draw(_ rect: CGRect) { UIColor.black.setFill(); TailMask.path(in: bounds).fill() }
+
+        /// Down from the panel's foot (its top row overlaps the panel by a point, so no seam shows), a soft tip.
+        static func path(in bounds: CGRect) -> UIBezierPath {
+            let path = UIBezierPath()
+            let tip = CGPoint(x: bounds.midX, y: bounds.maxY)
+            path.move(to: CGPoint(x: bounds.minX, y: bounds.minY))
+            path.addLine(to: CGPoint(x: bounds.maxX, y: bounds.minY))
+            path.addLine(to: CGPoint(x: tip.x + 1.5, y: tip.y - 1.2))
+            path.addQuadCurve(to: CGPoint(x: tip.x - 1.5, y: tip.y - 1.2), controlPoint: tip)
+            path.close()
+            return path
+        }
+    }
 }
 
 /// A pop-over row: [✓] title  detail ……… [★]. One line; the mark is a rounded box in the accent (the window's selection,

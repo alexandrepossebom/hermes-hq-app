@@ -364,7 +364,8 @@ struct ProvidersPageView: View {
         .saveFailureFeedback(model.failure)
         .task { await model.load() }
         .refreshable { await model.load() }
-        // [provider-add] Owner 2026-11-04 ("more easily add them"): + opens Add Provider, at the top of the page.
+        // [provider-add] Owner 2026-11-04 ("more easily add them"): + opens Add Provider, at the top of the page
+        // (iPhone and iPad; the Mac has the list's row only, owner 2026-11-17).
         .onChange(of: rows.map(\.id)) { _, ids in picked.formIntersection(ids) }
         .toolbar {
             if !model.readOnly, selecting {
@@ -388,16 +389,19 @@ struct ProvidersPageView: View {
                     }
                     .sharedBackgroundVisibility(Theme.isDesktop || DeviceWord.isMac ? .hidden : .automatic)
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    let _ = Theme.touch()
-                    Button(action: openAdd) { Image(systemName: "plus") }
-                        .accessibilityLabel(ProviderAdd.title)
-                        .accessibilityIdentifier("providers.add")
+                // [Mac AAA 2026-11-17] Q17, owner: on the Mac the list's own "Add Provider…" row is the one way to add
+                // (one go-to); the bar's + goes. The iPhone and iPad keep it.
+                if !DeviceWord.isMac {
+                    ToolbarItem(placement: .primaryAction) {
+                        let _ = Theme.touch()
+                        Button(action: openAdd) { Image(systemName: "plus") }
+                            .accessibilityLabel(ProviderAdd.title)
+                            .accessibilityIdentifier("providers.add")
+                    }
+                    // The Desktop Look's bar items are plain glyphs (the shared glass circle behind a SwiftUI item showed,
+                    // beside a flat Back; StarMapPage's filter had the same).
+                    .sharedBackgroundVisibility(Theme.isDesktop ? .hidden : .automatic)
                 }
-                // The Desktop Look's bar items are plain glyphs (the shared glass circle behind a SwiftUI item showed,
-                // beside a flat Back; StarMapPage's filter had the same). [mac] Mac polish #67: the Mac's iOS look's too
-                // (`DesktopBars.macPlain`), which SwiftUI's own setting here outranked.
-                .sharedBackgroundVisibility(Theme.isDesktop || DeviceWord.isMac ? .hidden : .automatic)
             }
         }
         .onAppear {

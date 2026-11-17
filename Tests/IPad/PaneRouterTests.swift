@@ -361,6 +361,40 @@ import UIKit
         for title in titles + view.map(\.title) { #expect(!title.lowercased().contains("dispatch")) }
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// [Mac AAA 2026-11-17] The owner's calls Q7–Q10: Stop Reply beside Send at the top of Chat; Show Inspector under
+    /// Hide Sidebar in View; Delete Chat… (⌘⌫) in Chat only; the Terminal's tab keys as the Window menu's items.
+    @Test func theMacsMenusHoldEachItemInItsOnePlace() throws {
+        func commands(_ elements: [UIMenuElement]) -> [UICommand] {
+            elements.flatMap { element -> [UICommand] in
+                if let menu = element as? UIMenu { return commands(menu.children) }
+                return (element as? UICommand).map { [$0] } ?? []
+            }
+        }
+        let file = commands(KeyCommands.fileItems()), view = commands(KeyCommands.viewItems()), chat = commands(ChatMenuBar.menu().children)
+        #expect(!file.contains { $0.action == KeyCommands.deleteChat }, "Q9: not in File")
+        let delete = chat.compactMap { $0 as? UIKeyCommand }.filter { $0.action == KeyCommands.deleteChat }
+        #expect(delete.count == 1 && delete.first?.input == UIKeyCommand.inputDelete && delete.first?.modifierFlags == .command)
+        #expect(!chat.contains { $0.propertyList as? String == ChatMenuItemID.delete.rawValue }, "one Delete Chat…")
+        #expect(Array(chat.prefix(4).map(\.title)) == ["Go to Message Field", "Send", "Stop Reply", "Message Actions"], "Q7")
+        let stop = try #require(chat[2] as? UIKeyCommand)
+        #expect(stop.action == KeyCommands.escape && stop.input == UIKeyCommand.inputEscape && stop.modifierFlags.isEmpty)
+        #expect(stop.repeatBehavior == .nonRepeatable)
+        #expect(!view.contains { $0.action == KeyCommands.escape }, "Q7: no longer in View")
+        #expect(Array(view.prefix(2).map(\.title)) == ["Hide Sidebar", "Show Inspector"], "Q8")
+        let inspector = try #require(view[1] as? UIKeyCommand)
+        #expect(inspector.action == ChatMenuBar.chatRow && inspector.input == "i" && inspector.modifierFlags == .command)
+        #expect(!chat.contains { $0.propertyList as? String == ChatMenuItemID.info.rawValue }, "Q8: no longer in Chat")
+        let window = KeyCommands.windowItems()
+        #expect(window.map(\.title) == ["New Tab", "Show Previous Tab", "Show Next Tab"], "Q10")
+        #expect(window.map(\.input) == ["t", "[", "]"])
+        #expect(window.map(\.modifierFlags) == [.command, [.command, .shift], [.command, .shift]])
+        for command in file + view + chat + window {
+            if let action = command.action { #expect(AppDelegate.instancesRespond(to: action), "\(command.title)") }
+        }
+    }
+    #endif
+
     /// Stress round 1: on the phone layout Command-N from the Bots tab created the session and pushed the chat on
     /// the hidden Sessions stack, so it was never seen. Sessions comes to the front, at its list, with the chat.
     @Test func aChatOpenedWhileAnotherTabShowsBringsSessionsToTheFrontInThePhoneLayout() async throws {

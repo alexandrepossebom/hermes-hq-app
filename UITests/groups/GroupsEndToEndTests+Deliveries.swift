@@ -82,14 +82,14 @@ extension GroupsEndToEndTests {
         XCTAssertTrue(loose.waitForExistence(timeout: 4), "and come back")
 
         // Group By › None: one list by activity, no section names.
-        openMenu(app, app.buttons["bots.filter"], showing: "Show Hidden Bots (1)")
+        openMenu(app, app.buttons["bots.filter"], showing: "Show 1 Hidden Bot")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Group By'")).firstMatch.tap()   // "Group By, Sections"
         tapMenu(app, "None")
         XCTAssertTrue(waitUntil(timeout: 4) { !work.exists && !unassigned.exists }, "no section names")
         XCTAssertTrue(app.cells["bot-row-ivy"].exists, "the bots are all there")
         reveal(app, roomRow(app))
         shot(app, "bots-group-by-none")
-        openMenu(app, app.buttons["bots.filter"], showing: "Show Hidden Bots (1)")
+        openMenu(app, app.buttons["bots.filter"], showing: "Show 1 Hidden Bot")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Group By'")).firstMatch.tap()   // "Group By, Sections"
         tapMenu(app, "Sections")
         XCTAssertTrue(work.waitForExistence(timeout: 4), "Sections again")

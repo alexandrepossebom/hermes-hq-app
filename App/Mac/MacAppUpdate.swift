@@ -839,31 +839,17 @@ final class MacAppUpdateController: UIHostingController<HQScaledRoot<MacAppUpdat
 struct MacAppUpdateView: View {
     @Bindable var update: MacAppUpdate
 
+    // [Mac calls 2026-11-17] Drawn from MacUpdateSheetKit.swift, the pieces Update Hermes and Update Add-on use on the
+    // Mac too (owner's call Q20: one look for updates).
     var body: some View {
-        let _ = Theme.touch()
-        VStack(alignment: .leading, spacing: 0) {
+        MacUpdateSheet(showsMiddle: update.showsSteps || update.showsNotes) {
             header
-                .padding(.horizontal, 24)
-                .padding(.top, 22)
-                .padding(.bottom, 16)
-            if update.showsSteps || update.showsNotes {
-                VStack(alignment: .leading, spacing: 14) {
-                    if update.showsSteps { steps }
-                    if update.showsNotes { whatsNew }
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
-                .transition(.hqMotion(.opacity))
-            }
-            // [Mac AAA 2026-11-16] On whole screen pixels: `Divider()` fell between pixels at the Mac's 77 % and blurred.
-            MacUpdateHairline()
+        } middle: {
+            if update.showsSteps { steps }
+            if update.showsNotes { whatsNew }
+        } buttons: {
             buttons
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
         }
-        .frame(width: 540)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(Color.hqGroupedPage.ignoresSafeArea())
         .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: update.phase)
         .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: update.steps)
         .accessibilityIdentifier("mac-update")
@@ -872,7 +858,7 @@ struct MacAppUpdateView: View {
     // MARK: Header: the icon, what's happening, the versions
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
+        MacUpdateHeader(headline: update.headline, headlineID: "mac-update.headline") {
             ZStack(alignment: .bottomTrailing) {
                 WornAppIcon(side: 64)
                 if let symbol = update.symbol {
@@ -891,157 +877,103 @@ struct MacAppUpdateView: View {
                         .offset(x: 6, y: 6)
                 }
             }
-            .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(update.headline)
-                    .font(Font.hq(.title3).weight(.hqBold))
-                    .foregroundStyle(Color.hqLabel)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("mac-update.headline")
-                if let versions = update.versions {
-                    Text(versions)
-                        .font(Font.hq(.subheadline).weight(.medium).monospacedDigit())
-                        .foregroundStyle(Color.hqLabel)
-                        .accessibilityLabel(versions.replacingOccurrences(of: "→", with: "to"))
-                        .accessibilityIdentifier("mac-update.versions")
-                }
-                if let line = update.line {
-                    Text(line)
-                        .font(Font.hq(.subheadline))
-                        .foregroundStyle(Color.hqLabel2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("mac-update.line")
-                }
-                if update.phase == .working || update.phase == .ready || update.phase == .restarting {
-                    ProgressView(value: update.overall)
-                        .progressViewStyle(.linear)
-                        .tint(Color.hqTint)
-                        .padding(.top, 6)
-                        .accessibilityLabel("Update progress")
-                        .accessibilityValue("\(Int(update.overall * 100)) percent")
-                }
+        } lines: {
+            if let versions = update.versions { MacUpdateVersions(text: versions, id: "mac-update.versions") }
+            if let line = update.line { MacUpdateLine(text: line, id: "mac-update.line") }
+            if update.phase == .working || update.phase == .ready || update.phase == .restarting {
+                ProgressView(value: update.overall)
+                    .progressViewStyle(.linear)
+                    .tint(Color.hqTint)
+                    .padding(.top, 6)
+                    .accessibilityLabel("Update progress")
+                    .accessibilityValue("\(Int(update.overall * 100)) percent")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .contentTransition(.opacity)
     }
 
     // MARK: The steps
 
-    // [Mac AAA 2026-11-16] The cards take the look's corner (`HQShape.radius`): the Desktop Look's 4 pt, not 10 pt
-    // beside its square-cornered buttons and sheets.
     private var steps: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(update.steps.enumerated()), id: \.element.id) { index, step in
-                if index > 0 { MacUpdateHairline().padding(.leading, 44) }
-                MacAppUpdateStepRow(step: step)
-            }
+        MacUpdateStepsCard(items: update.steps, id: "mac-update.steps") { step, below in
+            MacUpdateStepRow(mark: Self.mark(step.state), title: MacAppUpdate.title(step.id),
+                             detail: step.detail ?? (step.state == .waiting ? MacAppUpdate.plan(step.id) : nil),
+                             below: below, idPrefix: "mac-update", stepID: step.id.rawValue)
         }
-        .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).fill(Color.hqGroupedCard))
-        .overlay(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)))
-        .accessibilityIdentifier("mac-update.steps")
+    }
+
+    private static func mark(_ state: MacAppUpdateStepState) -> MacUpdateMark {
+        switch state {
+        case .done: .done
+        case .active: .active
+        case .waiting: .waiting
+        case .failed: .failed
+        }
     }
 
     // MARK: What's New
 
     private var whatsNew: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(update.phase == .updated ? "What’s New in This Version" : "What’s New")
-                .font(Font.hq(.footnote).weight(.semibold))
-                .foregroundStyle(Color.hqLabel2)
-            let list = VStack(alignment: .leading, spacing: 7) {
-                if let intro = update.notes.intro {
-                    Text(intro).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                ForEach(Array(update.notes.items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("•").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel3).accessibilityHidden(true)
-                        Text(item).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Group {
-                // A long list scrolls in a fixed box; a short one is drawn whole.
-                if update.notes.items.count > 6 {
-                    ScrollView { list }.frame(height: 260)
-                } else {
-                    list
-                }
-            }
-            .background(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).fill(Color.hqGroupedCard))
-            .overlay(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)))
-        }
-        .accessibilityIdentifier("mac-update.whats-new")
+        MacUpdateNotes(title: update.phase == .updated ? "What’s New in This Version" : "What’s New",
+                       intro: update.notes.intro, items: update.notes.items, id: "mac-update.whats-new")
     }
 
     // MARK: Buttons: the Mac's order, the default action last on the right
 
     @ViewBuilder
     private var buttons: some View {
-        HStack(spacing: 10) {
-            switch update.phase {
-            case .idle, .checking:
-                Spacer()
-                push("Cancel", id: "mac-update.cancel") { update.cancel() }
-            case .found:
-                if !update.critical && !update.staged {
-                    push("Skip This Version", id: "mac-update.skip") { update.skip() }
-                }
-                Spacer()
-                push("Later", id: "mac-update.later") { update.later() }
-                push(update.staged ? "Restart to Update" : update.isInfoOnly ? "Learn More" : "Update Now", id: "mac-update.go", prominent: true) {
-                    update.updateNow()
-                }
-            case .working:
-                push("Cancel", id: "mac-update.cancel") { update.cancel() }
-                Spacer()
-                push("Hide", id: "mac-update.hide", prominent: true) { update.done() }
-            case .ready:
-                countdownWords
-                Spacer()
-                push("Later", id: "mac-update.later") { update.restartLater() }
-                push("Restart Now", id: "mac-update.restart", prominent: true) { update.restartNow() }
-            case .restarting:
-                Spacer()
-                if update.stuck {
-                    push("Try Again", id: "mac-update.retry-quit", prominent: true) { update.tryQuitAgain() }
-                } else {
-                    Text("Back in a few seconds")
-                        .font(Font.hq(.footnote))
-                        .foregroundStyle(Color.hqLabel2)
-                        .padding(.vertical, 4)
-                }
-            case .failed:
-                if update.details != nil {
-                    push("Copy Details", id: "mac-update.copy") { update.copyDetails() }
-                }
-                Spacer()
-                if update.wantsWebsite {
-                    push("Open Website", id: "mac-update.website") { update.openWebsite() }
-                }
-                push("Done", id: "mac-update.done") { update.done() }
-                push("Try Again", id: "mac-update.retry", prominent: true) { update.tryAgain() }
-            case .didntFinish:
-                push("Open Website", id: "mac-update.website") { update.openWebsite() }
-                Spacer()
-                push("Done", id: "mac-update.done") { update.done() }
-                push("Try Again", id: "mac-update.retry", prominent: true) { update.tryAgain() }
-            case .upToDate, .updated, .onQuit:
-                Spacer()
-                push("Done", id: "mac-update.done", prominent: true) { update.done() }
+        switch update.phase {
+        case .idle, .checking:
+            Spacer()
+            push("Cancel", id: "mac-update.cancel") { update.cancel() }
+        case .found:
+            if !update.critical && !update.staged {
+                push("Skip This Version", id: "mac-update.skip") { update.skip() }
             }
+            Spacer()
+            push("Later", id: "mac-update.later") { update.later() }
+            push(update.staged ? "Restart to Update" : update.isInfoOnly ? "Learn More" : "Update Now", id: "mac-update.go", prominent: true) {
+                update.updateNow()
+            }
+        case .working:
+            push("Cancel", id: "mac-update.cancel") { update.cancel() }
+            Spacer()
+            push("Hide", id: "mac-update.hide", prominent: true) { update.done() }
+        case .ready:
+            countdownWords
+            Spacer()
+            push("Later", id: "mac-update.later") { update.restartLater() }
+            push("Restart Now", id: "mac-update.restart", prominent: true) { update.restartNow() }
+        case .restarting:
+            Spacer()
+            if update.stuck {
+                push("Try Again", id: "mac-update.retry-quit", prominent: true) { update.tryQuitAgain() }
+            } else {
+                MacUpdateFootnote { Text("Back in a few seconds") }
+                    .padding(.vertical, 4)
+            }
+        case .failed:
+            if update.details != nil {
+                push("Copy Details", id: "mac-update.copy") { update.copyDetails() }
+            }
+            Spacer()
+            if update.wantsWebsite {
+                push("Open Website", id: "mac-update.website") { update.openWebsite() }
+            }
+            push("Done", id: "mac-update.done") { update.done() }
+            push("Try Again", id: "mac-update.retry", prominent: true) { update.tryAgain() }
+        case .didntFinish:
+            push("Open Website", id: "mac-update.website") { update.openWebsite() }
+            Spacer()
+            push("Done", id: "mac-update.done") { update.done() }
+            push("Try Again", id: "mac-update.retry", prominent: true) { update.tryAgain() }
+        case .upToDate, .updated, .onQuit:
+            Spacer()
+            push("Done", id: "mac-update.done", prominent: true) { update.done() }
         }
-        .controlSize(.large)
     }
 
     private var countdownWords: some View {
-        Group {
+        MacUpdateFootnote {
             if let left = update.countdown {
                 Text("Restarting in \(left) s")
                     .monospacedDigit()
@@ -1051,75 +983,11 @@ struct MacAppUpdateView: View {
                 Text("Restart when you’re ready")
             }
         }
-        .font(Font.hq(.footnote))
-        .foregroundStyle(Color.hqLabel2)
         .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.pane)), value: update.countdown)
     }
 
-    /// [macpass-sidebar] A button title never wraps: with four buttons (Copy Details, Open Website, Done, Try Again on
-    /// "The Update Wasn't Signed Right") SwiftUI squeezed Copy Details onto two lines; the row has room for all four
-    /// at their natural width, so each title keeps its one line.
     private func push(_ title: String, id: String, prominent: Bool = false, perform: @escaping () -> Void) -> some View {
-        Group {
-            if prominent {
-                Button(action: perform) { Text(title).lineLimit(1).fixedSize().frame(minWidth: 72) }
-                    .hqProminentButtonStyle()
-                    .keyboardShortcut(.defaultAction)
-            } else {
-                Button(action: perform) { Text(title).lineLimit(1).fixedSize().frame(minWidth: 60) }
-                    .hqBorderedButtonStyle()
-            }
-        }
-        .accessibilityIdentifier(id)
-    }
-}
-
-private struct MacAppUpdateStepRow: View {
-    var step: MacAppUpdate.Step
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            ZStack {
-                switch step.state {
-                case .done:
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.hqGreen)
-                        .transition(.hqMotion(.scale.combined(with: .opacity)))
-                case .active:
-                    ProgressView().controlSize(.small)
-                case .waiting:
-                    Image(systemName: "circle").foregroundStyle(Color.hqLabel3)
-                case .failed:
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(Color.hqRed)
-                }
-            }
-            .font(Font.hq(.body))
-            .frame(width: 20, height: 20)
-            Text(MacAppUpdate.title(step.id))
-                .font(Font.hq(.body).weight(step.state == .active ? .semibold : .regular))
-                .foregroundStyle(step.state == .waiting ? Color.hqLabel2 : Color.hqLabel)
-            Spacer(minLength: 12)
-            if let detail = step.detail ?? (step.state == .waiting ? MacAppUpdate.plan(step.id) : nil) {
-                Text(detail)
-                    .font(Font.hq(.footnote).monospacedDigit())
-                    .foregroundStyle(step.state == .failed ? Color.hqRed : Color.hqLabel2)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("mac-update.detail.\(step.id.rawValue)")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: step.state)
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(step.state == .done ? "Done" : step.state == .active ? "In progress" : step.state == .failed ? "Failed" : "Waiting")
-        .accessibilityIdentifier("mac-update.step.\(step.id.rawValue)")
-    }
-}
-
-/// [Mac AAA 2026-11-16] The update window's rules: the stroke colour on whole screen pixels (`HQShape.hairline`), as
-/// `SettingsHairline` draws Settings' (SwiftUI's `Divider()` drew a soft 0.77 px line here).
-private struct MacUpdateHairline: View {
-    var body: some View {
-        HQHairline(color: .hqStroke)
+        MacUpdateButton(title: title, id: id, prominent: prominent, perform: perform)
     }
 }
 #endif

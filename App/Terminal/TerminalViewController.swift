@@ -100,6 +100,9 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
         title = "Terminal"
         navigationItem.largeTitleDisplayMode = .never
         hidesBottomBarWhenPushed = false
+        #if targetEnvironment(macCatalyst)
+        Self.live.add(self)
+        #endif
     }
 
     @MainActor required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -317,6 +320,9 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if targetEnvironment(macCatalyst)
+        UIMenuSystem.main.setNeedsRebuild()   // [Mac AAA 2026-11-17] owner's call Q10: the Window menu lists the tab items
+        #endif
         installBarItemTips()   // [Mac UI check 2026-11-13] the bar's icon buttons name themselves under the pointer
         if !started {
             started = true
@@ -338,6 +344,9 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        #if targetEnvironment(macCatalyst)
+        UIMenuSystem.main.setNeedsRebuild()   // [Mac AAA 2026-11-17] owner's call Q10: and no longer
+        #endif
         // Popped or closed: the sockets close, the shells stay on the computer for 15 minutes.
         if isMovingFromParent || isBeingDismissed || navigationController?.isBeingDismissed == true { hangUp() }
     }
@@ -1233,7 +1242,9 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
     override var canBecomeFirstResponder: Bool { state == .consent }
 
     override var keyCommands: [UIKeyCommand]? {
-        guard state == .consent else { return (super.keyCommands ?? []) + tabCommands }
+        // [Mac AAA 2026-11-17] Owner's call Q10: the tab keys are the Window menu's items now (`KeyCommands.windowItems`),
+        // as in Apple's Terminal, so they are not offered here as hidden keys too.
+        guard state == .consent else { return super.keyCommands }
         let on = UIKeyCommand(title: "Turn On", action: #selector(turnOn), input: "\r", modifierFlags: [])
         on.wantsPriorityOverSystemBehavior = true
         return (super.keyCommands ?? []) + [on]
@@ -1261,6 +1272,37 @@ final class TerminalViewController: UIViewController, TerminalViewDelegate {
     @objc private func bigger() { textSize(+1) }
     @objc private func smaller() { textSize(-1) }
     @objc private func defaultSize() { textSize(0) }
+    #endif
+
+    #if targetEnvironment(macCatalyst)
+    /// [Mac AAA 2026-11-17] Owner's call Q10: the Terminals alive now, for the Window menu's tab items.
+    private static let live = NSHashTable<TerminalViewController>.weakObjects()
+
+    /// The Terminal in front: on show in the window that has the keyboard, with nothing over it.
+    static var front: TerminalViewController? {
+        live.allObjects.first { page in
+            guard let window = page.viewIfLoaded?.window, window.hqIsAppKitKey, page.presentedViewController == nil,
+                  !page.view.isHidden else { return false }
+            // A sheet over the window (Bot Info's own Terminal is one) covers the pages under it.
+            guard let root = window.rootViewController, let top = KeyCommands.presented(root) else { return true }
+            return page.view.isDescendant(of: top.view)
+        }
+    }
+
+    /// A Terminal is on screen: the Window menu lists its tab items (`KeyCommands.build`).
+    static var onShow: Bool { live.allObjects.contains { $0.viewIfLoaded?.window != nil } }
+
+    /// What the Window menu's items can do now (`AppDelegate.validate`).
+    var canAddTab: Bool { shellsOpen && tabs.count < TerminalSettings.maxTabs }
+    var canCycleTabs: Bool { shellsOpen && tabs.count > 1 }
+
+    func menuNewTab() { if canAddTab { newTab() } }
+    func menuCycle(_ step: Int) { if canCycleTabs { cycle(step) } }
+
+    #if DEBUG
+    /// The probe's read: how many tabs and which is in front.
+    var debugTabs: String { "\(tabs.count) tabs, tab \(current + 1) in front, shells \(shellsOpen ? "open" : "not open")" }
+    #endif
     #endif
 
     /// ⌘T a new tab, ⇧⌘] and ⇧⌘[ the next and previous, as in Terminal.app.

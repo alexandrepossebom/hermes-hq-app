@@ -58,6 +58,14 @@ import UIKit
         s == .soft ? "soft" : s == .hard ? "hard" : s == .automatic ? "automatic" : String(describing: s)
     }
 
+    /// [Mac glass 2026-11-17] The effect's settings that decide what it takes from what is under it.
+    private static func effectDetail(_ effect: UIVisualEffect?) -> String {
+        if let glass = effect as? UIGlassEffect {
+            return "interactive \(glass.isInteractive) tint \(glass.tintColor.map { String(describing: $0) } ?? "none")"
+        }
+        return effect.map { String(describing: $0).prefix(120).description } ?? "none"
+    }
+
     private static func sweep() {
         var lines: [String] = []
         for scene in UIApplication.shared.connectedScenes {
@@ -71,15 +79,31 @@ import UIKit
         h.seekToEndOfFile()
         h.write((lines.joined(separator: "\n") + "\n").data(using: .utf8)!)
         try? h.close()
+        #if targetEnvironment(macCatalyst)
+        // [Mac glass 2026-11-17] With a photo tour's receiver (`-HQDebugMacShotsPost`), the census so far goes with
+        // the pictures (as `<tour>-glass-census.jsonl`), since the app's tmp folder can't be read from a script.
+        if let name = UserDefaults.standard.string(forKey: "HQDebugMacShots"), !name.isEmpty {
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-glass-census.jsonl")
+            try? FileManager.default.removeItem(at: copy)
+            try? FileManager.default.copyItem(at: url, to: copy)
+            MacShots.post(copy)
+        }
+        #endif
     }
 
     private static func record(_ kind: String, _ view: UIView, window: UIWindow, top: String, extra: [String: Any], into lines: inout [String]) {
-        let f = view.convert(view.bounds, to: window)
+        let raw = view.convert(view.bounds, to: window)
+        // [Mac glass 2026-11-17] A view with an infinite or null frame crashed `Int(_:)` (a census run on the Mac).
+        let f = raw.isNull || raw.isInfinite || !raw.minX.isFinite || !raw.minY.isFinite || !raw.width.isFinite || !raw.height.isFinite
+            ? CGRect(x: -99999, y: -99999, width: 0, height: 0) : raw
         let cls = NSStringFromClass(type(of: view))
         let ch = chain(view)
         let vis = visible(view)
         let key = "\(kind)|\(cls)|\(ch.prefix(6).joined(separator: ","))|\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width)),\(Int(f.height))|\(vis)|\(extra["effect"] ?? "")|\(top)"
-        guard kind == "edge" || seen.insert(key).inserted else { return }   // edges: every sweep, to see them go
+        // Edges: each change of shown/hidden is a new line, to see them come and go (not every sweep: the file is
+        // posted after each one).
+        let edgeState = kind == "edge" ? "|\(extra["topOn"] ?? "")\(extra["bottomOn"] ?? "")" : ""
+        guard seen.insert(key + edgeState).inserted else { return }
         var o: [String: Any] = ["kind": kind, "class": cls, "chain": ch, "frame": [Int(f.minX), Int(f.minY), Int(f.width), Int(f.height)],
                                 "id": view.accessibilityIdentifier ?? "", "visible": vis, "top": top, "owner": owner(view),
                                 "window": NSStringFromClass(type(of: window)), "desktop": Theme.isDesktop,
@@ -98,7 +122,7 @@ import UIKit
             else if let e = fx.effect { kind = "effect:" + NSStringFromClass(type(of: e)) }
             if let kind {
                 record("vev", fx, window: window, top: top,
-                       extra: ["effect": kind, "isOurs": ThemeChrome.isOurs(fx),
+                       extra: ["effect": kind, "detail": effectDetail(fx.effect), "isOurs": ThemeChrome.isOurs(fx),
                                "bundleMain": Bundle(for: type(of: fx)) == .main, "stashed": objc_getAssociatedObject(fx, ThemeChrome.stashKey) != nil, "hook": ThemeChrome.hookInstalled,
                                "corners": String(describing: fx.cornerConfiguration).prefix(80).description], into: &lines)
             }

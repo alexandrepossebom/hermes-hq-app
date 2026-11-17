@@ -78,6 +78,40 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     private var drawnScale: CGFloat = 1
     /// [pins] The count the Pinned page's header says ("3 Pinned").
     private var pinnedHeaderCount = -1
+    /// Owner 2026-11-17 (Mac calls Q13): on the Mac the Tiles page has no row under the bar ("5 Items … + ⊞"): its New
+    /// Tile + and its View As switch are bar items, as Jobs' and Tasks' + are, and Edit Tiles' Done takes their place.
+    private var tilesInBar: Bool { DeviceWord.isMac && pinnedOnly }
+    private lazy var newTileItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(image: UIImage(systemName: "plus"), primaryAction: UIAction { [weak self] _ in self?.newTile() })
+        item.accessibilityLabel = "New Tile"
+        item.accessibilityIdentifier = "tile.new"
+        DesktopBars.markThin(item)
+        return item
+    }()
+    private lazy var tilesViewItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(image: UIImage(systemName: PinActions.viewSymbol), menu: tilesViewMenu(openAll: false))
+        item.accessibilityLabel = "View As"
+        item.accessibilityIdentifier = "pins.view"
+        DesktopBars.markThin(item)
+        return item
+    }()
+    private lazy var tilesDoneItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(title: "Done", primaryAction: UIAction { [weak self] _ in self?.setEditingTiles(false) })
+        item.style = .prominent
+        item.accessibilityIdentifier = "pins.done"
+        return item
+    }()
+
+    /// The Tiles page's own bar items on the Mac (`tilesInBar`): + and View As, Done while editing, none while the empty
+    /// state's New Tile is the one thing to do (they come with the first tile, as Jobs' + does).
+    private func tilesBarItems() -> [UIBarButtonItem] {
+        guard tilesInBar, services != nil else { return [] }
+        if editingTiles { return [tilesDoneItem] }
+        if listShowsState, query.pgTrim.isEmpty { return [] }
+        let symbol = PinActions.viewSymbol
+        if tilesViewItem.image != UIImage(systemName: symbol) { tilesViewItem.image = UIImage(systemName: symbol) }
+        return [newTileItem, tilesViewItem]
+    }
     private(set) var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
     private var notices: PageNoticeHost!
@@ -382,6 +416,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         }
         if on { Haptics.play(.soft) } else { PagesHaptics.selection() }
         AppLog.trace("pages", "edit tiles \(on ? "on" : "off")")
+        if tilesInBar { updateBarItems(extra: tilesBarItems()) }   // Mac calls Q13: Done in the bar
         var snapshot = dataSource.snapshot()
         guard snapshot.sectionIdentifiers.contains(.pinned) else { return }
         snapshot.reconfigureItems(snapshot.itemIdentifiers(inSection: .pinned))
@@ -471,7 +506,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 } else if ArtifactPins.view != .cards {
                     // The grid's names stand under its tiles, on the page: a card behind it too (it keeps its own width).
                     // Under the grid's names, as much as over "6 Items" (they bring 6 pt; a list's last row its own).
-                    BackdropCards.card(pinned, on: BackdropCards.on(self), header: true, keepWidth: ArtifactPins.view == .grid,
+                    BackdropCards.card(pinned, on: BackdropCards.on(self), header: !self.tilesInBar, keepWidth: ArtifactPins.view == .grid,
                                        extraBottom: ArtifactPins.view == .grid ? 11 : 0)
                 }
                 return pinned
@@ -704,8 +739,9 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                                                                              heightDimension: .absolute(picture + textHeight + 12)),
                                                            repeatingSubitem: item, count: columns)
             let section = NSCollectionLayoutSection(group: group)
-            section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 16, trailing: 10)
-            section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+            section.contentInsets = NSDirectionalEdgeInsets(top: tilesInBar ? Self.tilesTop : 0, leading: 10, bottom: 16, trailing: 10)
+            // Mac calls Q13: no header row on the Mac's Tiles page (its + and View As are in the bar).
+            section.boundarySupplementaryItems = tilesInBar ? [] : [NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(36)),
                 elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)]
             section.supplementaryContentInsetsReference = .none
@@ -749,8 +785,9 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             frames.map { NSCollectionLayoutGroupCustomItem(frame: $0) }
         }
         let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: inset, bottom: 16, trailing: inset)
-        section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+        section.contentInsets = NSDirectionalEdgeInsets(top: tilesInBar ? Self.tilesTop : 2, leading: inset, bottom: 16, trailing: inset)
+        // Mac calls Q13: no header row on the Mac's Tiles page (its + and View As are in the bar).
+        section.boundarySupplementaryItems = tilesInBar ? [] : [NSCollectionLayoutBoundarySupplementaryItem(
             layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .estimated(36)),
             elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)]
         section.supplementaryContentInsetsReference = .none
@@ -758,6 +795,9 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     }
 
     nonisolated static let gridInset: CGFloat = 20
+    /// Mac calls Q13: the room over the Mac's Tiles under the bar, with no header row there (as Artifacts' first heading
+    /// stands under its bar).
+    nonisolated static let tilesTop: CGFloat = 8
     nonisolated static let gridSpacing: CGFloat = 12
 
     /// [dashboard] The shape of a pin's picture where it shows (its page is drawn in that shape): its Grid tile, a card's
@@ -815,11 +855,13 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             }
             return s
         }
-        config.headerMode = .supplementary
+        config.headerMode = tilesInBar ? .none : .supplementary   // Mac calls Q13
         config.headerTopPadding = 0
         config.leadingSwipeActionsConfigurationProvider = { [weak self] path in self?.pinSwipe(at: path) }
         config.trailingSwipeActionsConfigurationProvider = { [weak self] path in self?.removeSwipe(at: path) }
-        return NSCollectionLayoutSection.list(using: config, layoutEnvironment: environment)
+        let section = NSCollectionLayoutSection.list(using: config, layoutEnvironment: environment)
+        if tilesInBar { section.contentInsets.top = Self.tilesTop }
+        return section
     }
 
     /// [pins] Grid ⇄ Cards ⇄ List (or Grid's names): the pinned section's layout and its items change.
@@ -1016,7 +1058,9 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             // The Tiles page's count ("6 Items") is not a heading and keeps its words.
             let count: Bool
             if case .pinned? = self.dataSource.sectionIdentifier(for: path.section) { count = self.pinnedOnly } else { count = false }
-            if Theme.isDesktop, !count {
+            if let section = self.dataSource.sectionIdentifier(for: path.section), let head = self.countedHead(section) {
+                content.attributedText = head
+            } else if Theme.isDesktop, !count {
                 content.attributedText = NSAttributedString(string: (content.text ?? "").uppercased(), attributes: DesktopLayout.labelAttributes())
             }
             header.contentConfiguration = content.hqMacSectionHeader()   // [mac] Stress test 2026-10-28 #52
@@ -1282,7 +1326,15 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         let button = UIButton(configuration: config)
         button.frame = CGRect(x: 0, y: 0, width: 44, height: 36)
         button.showsMenuAsPrimaryAction = true
-        button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] done in
+        button.menu = tilesViewMenu(openAll: openAll)
+        button.accessibilityIdentifier = "pins.view"
+        button.accessibilityLabel = "View As"
+        return button
+    }
+
+    /// View As's menu (the header's button, or the Mac's bar item): the views, Edit Tiles, New Page….
+    private func tilesViewMenu(openAll: Bool) -> UIMenu {
+        UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] done in
             var children = PinActions.viewMenu(openAll: openAll ? { self?.openPinnedPage() } : nil,
                                                editTiles: { self?.setEditingTiles(true) }).children
             // [dashboard] New Page: the way to a second page while there is one (the names show from two).
@@ -1293,9 +1345,6 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             }
             done(children)
         }])
-        button.accessibilityIdentifier = "pins.view"
-        button.accessibilityLabel = "View As"
-        return button
     }
 
     // MARK: Dashboard pages
@@ -1853,7 +1902,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             paneListIsEmpty = shown.isEmpty
             NotificationCenter.default.post(name: DetailPlaceholderViewController.listStateChanged, object: self)
         }
-        updateBarItems()
+        updateBarItems(extra: tilesBarItems())
         if collectionView.refreshControl?.isRefreshing == true { collectionView.refreshControl?.endRefreshing() }
     }
 
@@ -1976,6 +2025,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         lastOpeningRow = openingRow
         tilesRounded = filter == nil || isGrid
         dataSource.apply(snapshot, animatingDifferences: animated && !HQMotion.reduced)
+        refreshCountedHeads()
         restoreMark()
         relayGridIfChanged()
         // UX study #89: the empty or can't-load state is a cell here; the iPad placeholder beside hears when it comes or goes.
@@ -2153,9 +2203,46 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     }
 
     private func countText(shown: Int, total: Int) -> String? {
-        guard total > 0 else { return nil }
+        // Owner 2026-11-17 (Mac calls Q5): no count line under the list on the Mac ("14 items"); the headings count
+        // (`countedHead`). The iPhone and iPad keep theirs.
+        guard total > 0, !DeviceWord.isMac else { return nil }
         let noun = total == 1 ? "item" : "items"
         return query.isEmpty ? "\(total) \(noun)" : "\(shown) of \(total) \(noun)"
+    }
+
+    /// Owner 2026-11-17 (Mac calls Q5): with the count line under the list gone, the Mac's Images and day headings
+    /// say how many they hold, as Jobs' do ("Today 10": the name, then the count in the heads' count ink; the Desktop
+    /// Look's "TODAY · 10"). Nil for any other heading, and on the iPhone and iPad.
+    private func countedHead(_ section: Section) -> NSAttributedString? {
+        guard DeviceWord.isMac, !pinnedOnly else { return nil }
+        let name: String, count: Int
+        switch section {
+        case .images: name = "Images"; count = visibleImages.count
+        case .day(let day): name = day; count = dataSource.snapshot().numberOfItems(inSection: section)
+        default: return nil
+        }
+        guard count > 0 else { return nil }
+        if Theme.isDesktop {
+            return NSAttributedString(string: "\(name) · \(count)".uppercased(), attributes: DesktopLayout.labelAttributes())
+        }
+        let head = NSMutableAttributedString(string: name, attributes: [.font: MacType.sectionHeader, .foregroundColor: HQPalette.label2])
+        head.append(NSAttributedString(string: " \(count)", attributes: [.font: HQFont.preferred(.subheadline),
+                                                                         .foregroundColor: HQPalette.headCount()]))
+        return head
+    }
+
+    /// The headings' counts follow the list: a snapshot never reconfigures its headers.
+    private func refreshCountedHeads() {
+        guard DeviceWord.isMac, !pinnedOnly else { return }
+        for path in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: UICollectionView.elementKindSectionHeader) {
+            guard let header = collectionView.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: path)
+                    as? UICollectionViewListCell,
+                  let section = dataSource.sectionIdentifier(for: path.section), let head = countedHead(section),
+                  var content = header.contentConfiguration as? UIListContentConfiguration,
+                  content.attributedText != head else { continue }
+            content.attributedText = head
+            header.contentConfiguration = content
+        }
     }
 
     private func pulled() {

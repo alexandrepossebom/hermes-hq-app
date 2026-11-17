@@ -172,7 +172,9 @@ struct JobSectionHeaderView: View {
             default:
                 EmptyView()
             }
-            JobsHeaderWords(title: section.rawValue, count: count)
+            // Owner 2026-11-17 (Mac calls Q12): folded, Completed says no count of its own; "Show 1 Completed" under it
+            // does (it read "Completed 1", then "Show 1 Completed").
+            JobsHeaderWords(title: section.rawValue, count: section == .completed && !open ? nil : count)
             Spacer(minLength: 8)
             if section == .completed, open, let toggle {
                 // A 44 pt target inside the header's own padding (UX study #169), so the header keeps its height.
@@ -422,10 +424,21 @@ enum ScopeMenu {
 /// label's own, so the look drew large tracked capitals).
 struct JobsHeaderWords: View {
     var title: String
-    var count: Int
+    /// Nil: the name alone (folded Completed).
+    var count: Int?
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
+        if let count {
+            words(count)
+        } else if Theme.isDesktop {
+            Text(title).hqDesktopLabel()
+        } else {
+            Text(title).font(Font.hq(.subheadline).weight(.semibold)).foregroundStyle(Color.hqLabel2)
+        }
+    }
+
+    @ViewBuilder private func words(_ count: Int) -> some View {
         if Theme.isDesktop {
             Text("\(title) · \(count)")
                 .monospacedDigit()

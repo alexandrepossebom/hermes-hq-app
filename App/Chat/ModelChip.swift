@@ -73,8 +73,12 @@ final class ModelChip: UIControl {
         addInteraction(UILargeContentViewerInteraction())
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         // [mac] Feel list B: the bubble is wider than the app's hover reaches (72 pt); its own capsule, lit.
-        PointerEffects.surface(self, capsule: true, above: fill)
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (chip: ModelChip, _) in chip.relabel() }
+        // [Mac AAA 2026-11-17] Q21: a pill, so the Desktop Look's 4 pt box (`MacHover.Shape.pill`).
+        PointerEffects.surface(self, pill: true, above: fill)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (chip: ModelChip, _) in
+            chip.relabel()
+            chip.setNeedsLayout()   // Q21: the fill's corners follow the look
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -105,7 +109,8 @@ final class ModelChip: UIControl {
         plainFill.isHidden = !plain
         if plain {
             plainFill.frame = bounds
-            plainFill.layer.cornerRadius = bounds.height / 2
+            // [Mac AAA 2026-11-17] Q21, owner: the Desktop Look's 4 pt box, not a pill (`HQShape.radius`), as its hover.
+            plainFill.layer.cornerRadius = HQShape.radius(bounds.height / 2, .capsule)
             plainFill.layer.cornerCurve = .continuous
             plainFill.backgroundColor = ChatPalette.fill3
         }
@@ -141,6 +146,19 @@ final class ModelChip: UIControl {
     #if DEBUG
     /// Tests: the words as drawn.
     var debugLabel: FitLabel { label }
+
+    /// [Mac AAA 2026-11-17] `-HQDebugHoverModelChip YES`: the chip drawn hovered once it has been on screen 5 s (tours
+    /// can't move the pointer), to photograph its hover's shape.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        #if targetEnvironment(macCatalyst)
+        guard window != nil, UserDefaults.standard.bool(forKey: "HQDebugHoverModelChip") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self, self.window != nil else { return }
+            MacHover.debugHoverSurface(self)
+        }
+        #endif
+    }
     #endif
 
     @objc private func tapped() {

@@ -249,3 +249,26 @@ nonisolated enum SettingsWords {
         return name
     }
 }
+
+/// [Mac AAA 2026-11-17] Q18, owner: on the Mac each Settings › Chat row's explanation sits under its own title (as
+/// Notifications' rows do) instead of one long paragraph under the card. These are that paragraph's sentences, split to
+/// the rows they describe; a row the paragraph said nothing about has none (its name says what it does). Settings
+/// search finds a row by these words on both devices (`SettingsSearch.appRows`); the iPhone keeps its paragraph.
+nonisolated enum ChatRowNotes {
+    static let fewerTimestamps = "Shows a day line only when the date changes, and a time only under the bot’s replies."
+    static let showFileChanges = "Puts a “files changed” card under a reply that edited files; with it off, ⋯ › Changes still lists them."
+    static let newChatAsksProject = "Off, New Chat with a bot picked on Sessions starts in no project at once, with no sheet."
+    static func sendWhileBusy(mac: Bool = DeviceWord.isMac) -> String {
+        "What Send does while a reply runs: Steer adds your message to that reply, Queue sends it when the reply finishes."
+            + (mac ? " ⌘Return does the other one." : " Touch and hold Send for the other one.")
+    }
+    static let openLinksIn = "For web links: pages and files your bots make always open in the app."
+    /// ⌘N Opens (Mac only): what ⌘N and its two neighbours do, by the row's choice. `botChat`: ⌘N opens the bot's chat.
+    static func newChatMode(botChat: Bool) -> String {
+        botChat
+            ? "⌘N opens the ⌘N bot’s own chat, ready to type; ⌥⌘N starts a new chat like the one you’re in; ⇧⌘N asks for a bot and project."
+            : "⌘N starts a new chat with the ⌘N bot, in its project, at once; ⌥⌘N starts one with the bot and project of the chat you’re in; ⇧⌘N asks for both."
+    }
+    static let resumeLastChat = "Saved on \(HostWord.phrase)."
+    static let messageReactions = "Adds Tapbacks to a message’s menu, and lets the bot react to yours."
+}
