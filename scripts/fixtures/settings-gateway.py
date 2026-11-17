@@ -225,8 +225,28 @@ def onepassword_route(method, path, body):
         return None
     source = next((x for x in S['vault']['sources'] if x['name'] == 'onepassword'), None)
     rest = path[len(OP_ROUTE):]
+    # One login moved on approval: found after one look, done after one more.
+    if rest == '/move' and method == 'POST':
+        key = secrets.token_urlsafe(9)
+        OP['jobs'][key] = {'job': key, 'state': 'waiting', 'looks': 0, 'kind': 'move'}
+        return 200, {'job': key, 'state': 'waiting'}
+    mm = re.match(r'^/move/([A-Za-z0-9_-]+)$', rest)
+    if mm:
+        job = OP['jobs'].get(mm.group(1))
+        if job is None:
+            return 404, {'ok': False, 'detail': 'That request is gone. Start again.', 'code': 'gone'}
+        if method == 'POST':
+            job.update(state='moving', looks=0)
+            return 200, {'job': job['job'], 'state': 'moving'}
+        job['looks'] += 1
+        if job['state'] == 'waiting':
+            job.update(state='found', site='shop.example.invalid',
+                       matches=[{'id': 'fixtureitem1', 'title': 'Example Shop', 'user': 'ivy@example.invalid', 'vault': 'Private'}])
+        elif job['state'] == 'moving':
+            job.update(state='done', moved_to='Hermes')
+        return 200, {k: job[k] for k in ('job', 'state', 'site', 'matches', 'moved_to') if k in job}
     if rest == '' and method == 'GET':
-        return 200, {'ok': True, 'supported': True, 'phone': True, 'password': True, 'connected': OP['connected'], 'ours': OP['connected'],
+        return 200, {'ok': True, 'supported': True, 'phone': True, 'password': True, 'move': OP['connected'] or ONEPASSWORD == 'ok', 'connected': OP['connected'], 'ours': OP['connected'],
                      'vaults': OP['vaults'], 'name': 'Hermes HQ studio', 'bots': 3 if OP['connected'] else 0}
     if rest == '' and method == 'DELETE':
         OP.update(connected=False, vaults=[])

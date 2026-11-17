@@ -403,7 +403,11 @@ enum DesktopLookTourHooks {
                     // [1password-allow] `-HQDebugTourItem onepassword`: the 1Password unlock sheet (Allow in 1Password
                     // opens on the Allow in 1Password page when the gateway's add-on can ask).
                     let item = UserDefaults.standard.string(forKey: "HQDebugTourItem") ?? ""
-                    let prompt = item.hasPrefix("onepassword")
+                    // `savelogin`: the login card (it opens on moving the login out of 1Password where the add-on can).
+                    let prompt = item == "savelogin"
+                        ? ValuePrompt(id: "tour-login", kind: .vaultSaveLogin,
+                                      params: ["origin": .string("https://www.shop.example.invalid"), "site": .string("www.shop.example.invalid")])
+                        : item.hasPrefix("onepassword")
                         ? ValuePrompt(id: "tour-unlock", kind: .vaultUnlock,
                                       params: ["backend": .string("onepassword"), "display_name": .string("1Password")])
                         : ValuePrompt(id: "tour-sudo", kind: .sudo,

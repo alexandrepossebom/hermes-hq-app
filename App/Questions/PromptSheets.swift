@@ -91,6 +91,10 @@ nonisolated struct PromptSheetCopy: Sendable, Equatable {
         }
     }
 
+    /// [1password-allow] A bot asks for a login it has none of (not the "stopped waiting" card): it may be moved
+    /// out of the person's own 1Password vault instead of typed.
+    static func offersMove(_ prompt: ValuePrompt) -> Bool { prompt.kind == .vaultSaveLogin && !prompt.late }
+
     /// [1password-allow] The unlock is 1Password's, which can be allowed in the 1Password app instead (add-on 0.9.59).
     static func asksOnePassword(_ prompt: ValuePrompt) -> Bool {
         prompt.kind == .vaultUnlock && prompt.params["backend"]?.string == OnePasswordAllowWire.backend
@@ -281,11 +285,48 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
     /// password form is behind "Use Master Password Instead" when 1Password couldn't be asked.
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        if PromptSheetCopy.offersMove(prompt), !allowOpened {
+            if OnePasswordAllowModel.known.move { openMove() }
+            Task { [weak self] in
+                if await OnePasswordAllowModel.status().move { self?.openMove() }
+            }
+            return
+        }
         guard PromptSheetCopy.asksOnePassword(prompt), !allowOpened else { return }
         if OnePasswordAllowModel.known.supported { openAllow() }
         Task { [weak self] in
             if await OnePasswordAllowModel.status().supported { self?.openAllow() }
         }
+    }
+
+    /// [1password-allow] A login the bots have none of may be sitting in the person's own 1Password vault: this
+    /// sheet opens on moving that one login into the bots' vault, on one approval (OnePasswordMove.swift). Type It
+    /// Instead shows the fields.
+    private func openMove() {
+        guard !allowOpened, !sending, fields.allSatisfy({ ($0.text ?? "").isEmpty }),
+              let stack = navigationController ?? navigation, stack.viewControllers.first === self,
+              let origin = prompt.params["origin"]?.string, !origin.isEmpty else { return }
+        allowOpened = true
+        view.endEditing(true)
+        let page = OnePasswordMoveView.controller(model: OnePasswordMoveModel(origin: origin), done: { [weak self, weak stack] in
+            guard let self else { return }
+            stack?.setViewControllers([self], animated: false)
+            self.send(OnePasswordAllowWire.movedAnswer)   // not a login: the add-on tells the bot to fill it from 1Password
+        }, typeInstead: { [weak self, weak stack] in
+            guard let self else { return }
+            stack?.setViewControllers([self], animated: true)
+            self.fields.first?.becomeFirstResponder()
+        })
+        let close = UIBarButtonItem.hqClose(action: nil)
+        close.accessibilityIdentifier = "sheet.close"
+        close.primaryAction = UIAction(title: close.title ?? "") { [weak self] _ in self?.tuck() }
+        page.navigationItem.hqPlaceFormClose(close)
+        let title = SheetTitleLabel()
+        title.text = "1Password"
+        title.textAlignment = .center
+        title.accessibilityTraits = .header
+        page.navigationItem.titleView = title
+        stack.setViewControllers([page], animated: false)
     }
 
     private func openAllow() {

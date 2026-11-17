@@ -38,6 +38,9 @@ nonisolated enum OnePasswordAllowWire {
         var supported = false
         /// The add-on takes `fillOnPhone` on the unlock card.
         var phone = false
+        /// A login that's only in the person's own vaults can be moved, one at a time and on their approval, into
+        /// the vault the bots read (`…/vault/onepassword/move`).
+        var move = false
         /// 1Password's tool on Hermes's computer can sign in with the account password alone (sent once from here):
         /// the whole thing works with nobody at that computer.
         var password = false
@@ -62,7 +65,7 @@ nonisolated enum OnePasswordAllowWire {
     static func status(_ body: [String: Any]?) -> Status {
         guard let body else { return Status() }
         func flag(_ key: String) -> Bool { (body[key] as? NSNumber)?.boolValue == true }
-        return Status(supported: flag("supported"), phone: flag("phone"), password: flag("password"), connected: flag("connected"), ours: flag("ours"),
+        return Status(supported: flag("supported"), phone: flag("phone"), move: flag("move"), password: flag("password"), connected: flag("connected"), ours: flag("ours"),
                       vaults: (body["vaults"] as? [Any] ?? []).compactMap { $0 as? String },
                       bots: (body["bots"] as? NSNumber)?.intValue ?? 0)
     }
@@ -89,6 +92,67 @@ nonisolated enum OnePasswordAllowWire {
         case "failed": return (id, .failed(failure(body), code: body["code"] as? String ?? "failed"))
         default: return nil
         }
+    }
+
+    // MARK: One login moved when a bot needs it
+    //   POST …/vault/onepassword/move          {password, origin} → {job, state: waiting}
+    //   GET  …/vault/onepassword/move/<job>    waiting → found (the site's logins the bots can't read) | failed
+    //   POST …/vault/onepassword/move/<job>    {item} → moving → done (moved_to: the vault's name)
+
+    /// What the login card is answered with once the login was moved instead of typed: the add-on tells the bot to
+    /// fill it from the password manager. Nothing is saved from this answer.
+    static let movedAnswer: String = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(["identifier": "\u{1D}hermes-hq:moved", "password": "moved"])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }()
+
+    struct Match: Identifiable, Equatable, Sendable {
+        var id: String
+        var title: String
+        var user: String
+        var vault: String
+    }
+
+    enum MoveJob: Equatable, Sendable {
+        case waiting
+        case found([Match])
+        case moving
+        case done(vault: String)
+        case failed(String, code: String)
+    }
+
+    static func moveJob(_ body: [String: Any]?) -> (id: String, job: MoveJob)? {
+        guard let body, let id = body["job"] as? String, !id.isEmpty, let state = body["state"] as? String else { return nil }
+        switch state {
+        case "waiting": return (id, .waiting)
+        case "found":
+            let found: [Match] = (body["matches"] as? [Any] ?? []).compactMap { row in
+                guard let row = row as? [String: Any], let item = row["id"] as? String, !item.isEmpty else { return nil }
+                return Match(id: item, title: row["title"] as? String ?? "Login", user: row["user"] as? String ?? "",
+                             vault: row["vault"] as? String ?? "")
+            }
+            return (id, .found(found))
+        case "moving": return (id, .moving)
+        case "done": return (id, .done(vault: body["moved_to"] as? String ?? newVault))
+        case "failed": return (id, .failed(failure(body), code: body["code"] as? String ?? "failed"))
+        default: return nil
+        }
+    }
+
+    /// "bestbuy.com" from the card's origin, for the words.
+    static func site(_ origin: String) -> String {
+        var host = origin.trimmingCharacters(in: .whitespaces).lowercased()
+        if let range = host.range(of: "://") { host = String(host[range.upperBound...]) }
+        host = String(host.split(separator: "/").first ?? "")
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// Exactly what the approval does, said before it is done.
+    static func moveLine(_ match: Match, to vault: String) -> String {
+        let from = match.vault.isEmpty ? "its vault" : "your \(match.vault) vault"
+        return "Moves “\(match.title)” out of \(from) into your \(vault) vault, where your bots can read it. Only this login. It stays yours, and you can move it back in 1Password."
     }
 
     /// Why it didn't work, from a job or a refused call.

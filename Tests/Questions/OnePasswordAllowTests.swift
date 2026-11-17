@@ -225,6 +225,86 @@ struct OnePasswordAllowTests {
         OnePasswordAllowModel.known = Wire.Status()
     }
 
+    func settle(_ model: OnePasswordMoveModel, _ done: (OnePasswordMoveModel.Phase) -> Bool) async {
+        for _ in 0..<400 where !done(model.phase) { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    @Test func oneApprovalMovesThatOneLogin() async {
+        let addOn = AddOn()
+        let route = Wire.route + "/move"
+        let model = OnePasswordMoveModel(origin: "https://www.shop.example/identity/signin")
+        model.call = addOn.call
+        model.pause = .milliseconds(1)
+        #expect(model.phase == .signIn(nil) && model.site == "shop.example" && addOn.calls.isEmpty)
+
+        addOn.answers["POST \(route)"] = [(200, ["job": "f1", "state": "waiting"])]
+        addOn.answers["GET \(route)/f1"] = [(200, ["job": "f1", "state": "found", "site": "shop.example",
+                                                     "matches": [["id": "i1", "title": "Example Shop", "user": "me@example.com", "vault": "Private"]]])]
+        model.find(password: "correct horse")
+        await settle(model) { if case .found = $0 { true } else { false } }
+        let match = Wire.Match(id: "i1", title: "Example Shop", user: "me@example.com", vault: "Private")
+        #expect(model.phase == .found([match]) && model.picked == "i1")   // one login: it is the one
+        let sent = addOn.calls.first { $0.method == "POST" && $0.path == route }?.body
+        #expect(sent?["password"] as? String == "correct horse" && sent?["origin"] as? String == "https://www.shop.example/identity/signin")
+        // What the approval does is said before the button.
+        #expect(Wire.moveLine(match, to: "Hermes") == "Moves “Example Shop” out of your Private vault into your Hermes vault, where your bots can read it. Only this login. It stays yours, and you can move it back in 1Password.")
+        #expect(!addOn.calls.contains { $0.method == "POST" && $0.path == "\(route)/f1" })   // nothing moved yet
+
+        addOn.answers["POST \(route)/f1"] = [(200, ["job": "f1", "state": "moving"])]
+        addOn.answers["GET \(route)/f1"] = [(200, ["job": "f1", "state": "moving"]), (200, ["job": "f1", "state": "done", "moved_to": "Hermes"])]
+        model.move()
+        await settle(model) { if case .done = $0 { true } else { false } }
+        #expect(model.phase == .done("Hermes"))
+        #expect(addOn.calls.first { $0.method == "POST" && $0.path == "\(route)/f1" }?.body?["item"] as? String == "i1")
+    }
+
+    @Test func severalLoginsWaitForAPickAndNoLoginOrAWrongPasswordSaySo() async {
+        let addOn = AddOn()
+        let route = Wire.route + "/move"
+        let model = OnePasswordMoveModel(origin: "https://shop.example")
+        model.call = addOn.call
+        model.pause = .milliseconds(1)
+        addOn.answers["POST \(route)"] = [(200, ["job": "f2", "state": "waiting"])]
+        addOn.answers["GET \(route)/f2"] = [(200, ["job": "f2", "state": "found", "matches": [
+            ["id": "i1", "title": "Shop (me)", "user": "me@example.com", "vault": "Private"],
+            ["id": "i2", "title": "Shop (work)", "user": "work@example.com", "vault": "Private"]]])]
+        model.find(password: "pw")
+        await settle(model) { if case .found = $0 { true } else { false } }
+        #expect(model.picked == nil)
+        model.move()
+        if case .found = model.phase {} else { Issue.record("moved without a pick") }
+
+        addOn.answers["GET \(route)/f2"] = [(200, ["job": "f2", "state": "failed", "detail": "1Password has no login for shop.example outside the vaults your bots already read.", "code": "none"])]
+        model.find(password: "pw")
+        await settle(model) { if case .failed = $0 { true } else { false } }
+        #expect(model.phase == .failed("1Password has no login for shop.example outside the vaults your bots already read.", code: "none"))
+
+        addOn.answers["GET \(route)/f2"] = [(200, ["job": "f2", "state": "failed", "detail": "1Password didn’t take that password. Try again.", "code": "password"])]
+        model.find(password: "nope")
+        await settle(model) { if case .signIn(.some) = $0 { true } else { false } }
+        #expect(model.phase == .signIn("1Password didn’t take that password. Try again."))
+    }
+
+    @Test func theLoginSheetOpensOnTheMoveOnlyWhereTheAddOnCanAndNeverForALateCard() {
+        let asks = ValuePrompt(id: "srq-9", kind: .vaultSaveLogin, params: ["origin": "https://www.shop.example", "site": "www.shop.example"])
+        #expect(PromptSheetCopy.offersMove(asks))
+        #expect(!PromptSheetCopy.offersMove(ValuePrompt(id: "", kind: .vaultUnlock, params: [:])))
+        OnePasswordAllowModel.known = Wire.Status()
+        let plain = PromptSheetController.make(asks, botName: "Ivy")
+        plain.sheet.loadViewIfNeeded()
+        plain.sheet.viewWillAppear(false)
+        #expect(!plain.sheet.debugAllowOpened && plain.navigation.topViewController === plain.sheet)   // the fields, as before
+
+        OnePasswordAllowModel.known = Wire.Status(supported: true, move: true, password: true, connected: true, ours: true, vaults: ["Hermes"])
+        let move = PromptSheetController.make(asks, botName: "Ivy")
+        move.sheet.loadViewIfNeeded()
+        move.sheet.viewWillAppear(false)
+        #expect(move.sheet.debugAllowOpened && move.navigation.topViewController !== move.sheet)
+        OnePasswordAllowModel.known = Wire.Status()
+        #expect(Wire.site("https://WWW.Shop.example:443/a?b") == "shop.example:443" || Wire.site("https://www.shop.example/a") == "shop.example")
+        #expect(Wire.movedAnswer.contains("hermes-hq:moved") && Wire.status(["move": true]).move)
+    }
+
     @Test func aTuckedPagePicksTheSameRequestUp() async {
         let addOn = AddOn()
         let route = Wire.route + "/allow"
