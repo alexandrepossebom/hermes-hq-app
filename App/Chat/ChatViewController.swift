@@ -163,14 +163,29 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             updateJumpButton()
         }
     }
-    /// The bar and the status line under it, as one element of the top scroll edge: the fade covers the status
-    /// capsule's row and 10 pt more (spec 06 §4.1), from the push's first frame.
+    /// The bar (and the status line under it while one shows), as one element of the top scroll edge, from the push's
+    /// first frame.
     private let topEdgeElement = UIView()
-    /// The top edge element's bottom under the status line: further down while a status shows, so the soft edge covers
-    /// the whole capsule (verify round 1: it ended mid-capsule and text ran sharp under "Waiting for your reply").
+    /// The top edge element's bottom, measured from the status line's foot: further down while a status shows, so the
+    /// soft edge covers the whole capsule (verify round 1: it ended mid-capsule and text ran sharp under "Waiting for
+    /// your reply").
     private var topEdgeBottom: NSLayoutConstraint!
-    static let topEdgeBelowStatus: CGFloat = 10
-    static let topEdgeBelowShownStatus: CGFloat = 30
+    /// [edge-fade-height] 24 in the iOS look on the iPhone (the fade there is the stand-in, at full strength until its
+    /// last 26 pt); 30 under the system's edge (Desktop Look, Mac).
+    @MainActor static var topEdgeBelowShownStatus: CGFloat { DeviceWord.isMac || Theme.isDesktop ? 30 : 24 }
+    /// [edge-fade-height] Owner 2026-11-17: "Our fade … from the top of the screen goes down too far" (Grok's is
+    /// shorter). With no status showing the element ran on past the empty status row and 10 pt more, 28 pt under the
+    /// bar, and the blur frosted the first message well below the pills. It ends at the bar's foot now.
+    /// The Desktop Look's hard band keeps its old foot, 10 pt under the (empty) status row.
+    /// The Mac keeps it too (its chat bar draws its own band, `updateTopBand`).
+    @MainActor static var topEdgeBelowStatus: CGFloat {
+        if DeviceWord.isMac || Theme.isDesktop { return 10 }
+        return -(ChatMetrics.statusLineHeight + ChatMetrics.statusPillTop) + topEdgeTail
+    }
+    /// How far past the bar's foot the fade runs out (the system's ran ~30 pt).
+    static let topEdgeTail: CGFloat = 10
+    /// The chat has finished its first appearance (the stand-in's hand-over to the system's edge is due from then on).
+    private var chatAppeared = false
     /// A push waiting for this chat's first rows (`push(_:on:limit:done:)`).
     private var readyWaiter: (() -> Void)?
     /// The skeleton is fading out as the first rows fade in.
@@ -1421,6 +1436,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         activity.motionProbe?.auditDidAppear()   // Observation-only fresh measurement baseline.
         #endif
         ChatPerf.mark("chat.viewDidAppear")
+        chatAppeared = true
         edgeStandIn.handOver()
         // [desktoplook4] Panels that joined the window during the push sat under its dimming wrapper then: flatten
         // whatever is still glass now that it's done.
@@ -1845,6 +1861,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
     }
 
+    /// [edge-fade-height] How far down the top soft edge reaches: the bar's foot, or past the status capsule while one shows.
+    private func updateTopEdgeReach() {
+        let edge = statusPill.text == nil ? Self.topEdgeBelowStatus : Self.topEdgeBelowShownStatus
+        if let topEdgeBottom, topEdgeBottom.constant != edge { topEdgeBottom.constant = edge }
+    }
+
     /// The system's soft edge reaches about 40 pt above the composer, so the newest bubble, resting 8 pt above it, sat
     /// in the blur at rest in every chat (verification round 2). Nothing is under the composer while the list follows
     /// its newest end (a streaming reply's glide included, so the edge doesn't blink with each delta), so the edge
@@ -1861,6 +1883,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         jumpHeight.constant = jumpButton.preferredHeight
         activity.jumpWidthChanged(jumpButton.preferredWidth)
         statusPillTop.constant = ChatMetrics.statusPillTop
+        updateTopEdgeReach()
         var clear: UINavigationBarAppearance? = desktop ? ThemeChrome.solidBar() : nil
         #if !targetEnvironment(macCatalyst)
         // [desktop-hard-edge] Owner 2026-11-15: the Desktop Look's chat top on the iPhone as on the Mac (Mac 1009,
@@ -1869,6 +1892,11 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let edgeStyle: UIScrollEdgeEffect.Style = desktop ? .hard : .soft
         if edgeHost.topEdgeEffect.style != edgeStyle { edgeHost.topEdgeEffect.style = edgeStyle }
         edgeStandIn.hard = desktop
+        // [edge-fade-height] The iOS look's top fade is the stand-in, which ends where the top edge element does; the
+        // system's soft edge ran ~30 pt further down (owner 2026-11-17, "goes down too far").
+        edgeStandIn.keeps = !desktop
+        if edgeHost.topEdgeEffect.isHidden != !desktop { edgeHost.topEdgeEffect.isHidden = !desktop }
+        if desktop, chatAppeared { edgeStandIn.handOver() }
         #endif
         #if targetEnvironment(macCatalyst)
         // [mac-audit #5] Owner 2026-11-02: in the Desktop Look the chat's bar showed the list pane's band (and a
@@ -2316,8 +2344,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if ToolCallSettings.style == .bottom, (session as? LiveChatSession)?.statusIsWork() == true { statusText = nil }
         statusPill.set(statusText)
         updateNoticeTop()
-        let edge = statusText == nil ? Self.topEdgeBelowStatus : Self.topEdgeBelowShownStatus
-        if let topEdgeBottom, topEdgeBottom.constant != edge { topEdgeBottom.constant = edge }
+        updateTopEdgeReach()
         // MENUS (spec 1x §7.1): ☰ is off only while signed out (offline it still opens: cached list or the error).
         if case .signedOut = session.connection { composer.commandsEnabled = false } else { composer.commandsEnabled = true }
         // [composer-expand] The bar is always two rows (owner 2026-11-01), so its model bubble reads the chat's model when

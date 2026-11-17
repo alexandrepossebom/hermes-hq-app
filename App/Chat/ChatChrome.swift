@@ -933,6 +933,10 @@ final class ChatEdgeStandIn: UIView {
     private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
     private let blurMask = CAGradientLayer()
     private let wash = CAGradientLayer()
+    /// [edge-fade-height] On a chat background the fade runs into a lined-up copy of the picture instead of the page
+    /// colour, so the picture still reaches the top of the screen behind the bar (as it did under the system's edge).
+    private let picture = BackdropView(place: .chats)
+    private let pictureMask = CAGradientLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -941,6 +945,10 @@ final class ChatEdgeStandIn: UIView {
         blurMask.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
         blurMask.locations = [0, 0.55, 1]
         blur.layer.mask = blurMask
+        insertSubview(picture, aboveSubview: blur)   // under the wash (a sublayer added next)
+        pictureMask.colors = blurMask.colors
+        picture.layer.mask = pictureMask
+        picture.onShowChange = { [weak self] _ in self?.updateColors() }
         layer.addSublayer(wash)
         wash.locations = [0, 0.45, 1]
         updateColors()
@@ -963,6 +971,7 @@ final class ChatEdgeStandIn: UIView {
 
     private func updateColors() {
         if hard {
+            picture.alpha = 0
             blur.isHidden = HQAccessibility.reduceTransparency
             blur.layer.mask = nil
             let page = ChatPalette.page.resolvedColor(with: traitCollection)
@@ -972,14 +981,24 @@ final class ChatEdgeStandIn: UIView {
         }
         blur.layer.mask = blurMask
         let page = ChatPalette.page.resolvedColor(with: traitCollection)
+        picture.alpha = keeps ? 1 : 0
+        if keeps, picture.showsPicture {
+            // The picture copy is the page here (its own Dim veil included): no page colour over it.
+            wash.colors = [page.withAlphaComponent(0).cgColor, page.withAlphaComponent(0).cgColor]
+            wash.locations = [0, 1]
+            #if DEBUG
+            accessibilityValue = "opaque=0"
+            #endif
+            return
+        }
         // [a11y] Reduce Transparency: a solid band of the page colour, nothing showing through (the web's chat bar takes
         // the page colour, phone-ui-chat.css:286-288). The band still ends in a short fade so no hard line is drawn.
         let solid = HQAccessibility.reduceTransparency
         blur.isHidden = solid
         wash.colors = solid
             ? [page.cgColor, page.cgColor, page.withAlphaComponent(0).cgColor]
-            : [page.withAlphaComponent(0.92).cgColor, page.withAlphaComponent(0.6).cgColor, page.withAlphaComponent(0).cgColor]
-        wash.locations = solid ? [0, 0.8, 1] : [0, 0.45, 1]
+            : [page.withAlphaComponent(0.92).cgColor, page.withAlphaComponent(keeps ? 0.75 : 0.6).cgColor, page.withAlphaComponent(0).cgColor]
+        placeStops()
         #if DEBUG
         accessibilityValue = solid ? "opaque=1" : "opaque=0"
         #endif
@@ -990,15 +1009,58 @@ final class ChatEdgeStandIn: UIView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         blur.frame = bounds
         blurMask.frame = bounds
+        picture.frame = bounds
+        pictureMask.frame = bounds
         wash.frame = bounds
+        placeStops()
         CATransaction.commit()
     }
 
-    /// The system's edge is up: fade out and go.
+    /// [edge-fade-height] Kept as the chat's edge, it holds at full strength behind the bar's pills and runs out over
+    /// its last `keptRun` points (a proportional fade let rows read sharp between the pills); during a push it keeps
+    /// the proportions that match the system's edge it hands over to.
+    private static let keptRun: CGFloat = 26
+    private func placeStops() {
+        guard !hard else { return }
+        let solid = HQAccessibility.reduceTransparency
+        if keeps, bounds.height > 0 {
+            let hold = NSNumber(value: Double(max(0, (bounds.height - Self.keptRun) / bounds.height)))
+            blurMask.locations = [0, hold, 1]
+            pictureMask.locations = [0, hold, 1]
+            if !picture.showsPicture { wash.locations = [0, hold, 1] }
+        } else {
+            blurMask.locations = [0, 0.55, 1]
+            wash.locations = solid ? [0, 0.8, 1] : [0, 0.45, 1]
+        }
+    }
+
+    /// [edge-fade-height] Owner 2026-11-17: "Our fade … from the top of the screen goes down too far" (Grok's is
+    /// shorter). The system's soft edge runs a fixed ~30 pt tail past the bar whatever its element says, so in the iOS
+    /// look this stays as the chat's top edge for good, ending where the element ends, and the system's is off
+    /// (`ChatViewController.applyChatLook`). The Desktop Look still hands over to the system's hard edge.
+    var keeps = false {
+        didSet {
+            guard keeps != oldValue else { return }
+            updateColors()
+            guard keeps, handedOver else { return }
+            handedOver = false
+            layer.removeAllAnimations()
+            alpha = 1
+        }
+    }
+    private var handedOver = false
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        picture.alignedTo = superview
+    }
+
+    /// The system's edge is up: fade out (kept in place, so a switch back to the iOS look can show it again).
     func handOver() {
-        guard superview != nil else { return }
+        guard !keeps, !handedOver else { return }
+        handedOver = true
         UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: opacity only
             self.alpha = 0
-        } completion: { _ in self.removeFromSuperview() }
+        }
     }
 }
