@@ -62,7 +62,8 @@ nonisolated struct PromptSheetCopy: Sendable, Equatable {
                 command: nil, commandMissing: nil, fields: [.secure(placeholder: "Master password")], primary: "Unlock",
                 decline: "Keep Locked", chip: name.map { "Unlock \($0)" } ?? "Unlock password manager")
         case .vaultSaveLogin:
-            let site = nonEmpty("site") ?? nonEmpty("origin")
+            // "bestbuy.com", not "www.bestbuy.com": the title was cut to "Save Your www.bestbuy.com Lo…" on a phone.
+            let site = (nonEmpty("site") ?? nonEmpty("origin")).map { $0.lowercased().hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
             let origin = nonEmpty("origin") ?? site ?? "this site"
             if prompt.late {
                 // The bot stopped waiting (timed out, Hermes restarted): Save stores it and messages the bot.
@@ -76,7 +77,9 @@ nonisolated struct PromptSheetCopy: Sendable, Equatable {
                 title: "Save Your \(site ?? "Site") Login?",
                 // [1password-allow] Owner 2026-11-16: a login the bots' key can't read (the Private vault) is given
                 // "one password at a time when the agent needed one": here, from the phone's own password manager.
-                text: "\(botStart) reached a sign-in page at \(origin) and has no login for it. " + (DeviceWord.isMac ? "Enter it once here" : "Tap the key above the keyboard to fill it from 1Password or Passwords, once") + "; it is encrypted on \(HostWord.phrase) and filled into the page without \(bot) ever seeing the password.",
+                text: DeviceWord.isMac
+                    ? "\(botStart) reached a sign-in page at \(origin) and has no login for it. Enter it once here; it is encrypted on \(HostWord.phrase) and filled into the page without \(bot) ever seeing the password."
+                    : "\(botStart) needs your \(OnePasswordAllowWire.site(origin)) login. Tap a box, then your login above the keyboard. It’s kept for this site and \(bot) never sees the password.",
                 command: nil, commandMissing: nil, fields: [.username, .password], primary: "Save and Sign In", decline: "Don’t Save",
                 chip: site.map { "Save login for \($0)?" } ?? "Save login?")
         case .vaultCode:
@@ -120,6 +123,9 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
     private weak var declineButton: UIButton?
     /// [1password-allow] The Allow in 1Password page took this sheet's place (the add-on can ask 1Password).
     private var allowOpened = false
+    /// [1password-allow] The login boxes as a page of the site, so the phone's password manager offers its login.
+    private weak var fieldGroup: UIStackView?
+    private var webFields: LoginWebFields?
 
     /// A sheet in its frame (`ChatSheet.wrap`). The caller keeps the navigation controller; it holds the sheet.
     static func make(_ prompt: ValuePrompt, botName: String? = nil) -> (sheet: PromptSheetController, navigation: UINavigationController) {
@@ -234,8 +240,10 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
             fields.append(field)
             group.addArrangedSubview(field)
         }
+        fieldGroup = group
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last ?? words)
         stack.addArrangedSubview(group)
+        if OnePasswordAllowModel.known.supported { useWebFields() }
         if wordsLast {
             let note = label(copy.text, style: .footnote, color: HQPalette.label2)
             note.accessibilityIdentifier = "prompt.text"
@@ -285,11 +293,16 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
     /// password form is behind "Use Master Password Instead" when 1Password couldn't be asked.
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if PromptSheetCopy.offersMove(prompt), !allowOpened {
-            if OnePasswordAllowModel.known.move { openMove() }
+        if PromptSheetCopy.offersMove(prompt) {
+            // Owner 2026-11-16: "It must be as fluid as possible. Seamless." The sheet is the two boxes, which the
+            // phone's password manager fills for this site in a tap and Face ID; moving the login inside 1Password
+            // (which needs the 1Password password) is the other way, under them.
             Task { [weak self] in
-                if await OnePasswordAllowModel.status().move { self?.openMove() }
+                let status = await OnePasswordAllowModel.status()
+                if status.supported { self?.useWebFields() }
+                self?.showMoveButton(status.move)
             }
+            showMoveButton(OnePasswordAllowModel.known.move)
             return
         }
         guard PromptSheetCopy.asksOnePassword(prompt), !allowOpened else { return }
@@ -299,12 +312,58 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
         }
     }
 
-    /// [1password-allow] A login the bots have none of may be sitting in the person's own 1Password vault: this
-    /// sheet opens on moving that one login into the bots' vault, on one approval (OnePasswordMove.swift). Type It
-    /// Instead shows the fields.
+    /// The boxes become a page of the site (LoginWebFields.swift) on a phone or iPad, where the gateway's add-on is
+    /// current; elsewhere, and for a site address that isn't https, they stay plain fields.
+    private func useWebFields() {
+        guard webFields == nil, prompt.kind == .vaultSaveLogin, !DeviceWord.isMac, isViewLoaded, let group = fieldGroup,
+              fields.allSatisfy({ ($0.text ?? "").isEmpty }),
+              let address = LoginWebFields.address(prompt.params["origin"]?.string ?? "") else { return }
+        view.endEditing(true)
+        group.arrangedSubviews.forEach { $0.isHidden = true }
+        let boxes = LoginWebFields(address: address)
+        boxes.onChange = { [weak self] username, password, filled in
+            guard let self, self.fields.count > 1 else { return }
+            self.fields[0].text = username
+            self.fields[1].text = password
+            self.updatePrimary()
+            if filled, self.value != nil { self.primaryTapped() }   // filled by 1Password or Passwords: nothing more to tap
+        }
+        boxes.onGo = { [weak self] in self?.primaryTapped() }
+        group.addArrangedSubview(boxes)
+        webFields = boxes
+    }
+
+    private weak var moveButton: UIButton?
+
+    /// "Move It in 1Password Instead…" under the red decline, where the add-on can move a login.
+    private func showMoveButton(_ on: Bool) {
+        guard isViewLoaded, PromptSheetCopy.offersMove(prompt) else { return }
+        if let moveButton { moveButton.isHidden = !on; return }
+        guard on else { return }
+        var look = UIButton.Configuration.plain()
+        look.title = "Move It in 1Password Instead…"
+        look.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var out = incoming
+            out.font = HQFont.preferred(.subheadline)
+            return out
+        }
+        let button = UIButton(configuration: look, primaryAction: UIAction { [weak self] _ in self?.openMove() })
+        button.accessibilityIdentifier = "prompt.move-1password"
+        stack.setCustomSpacing(4, after: stack.arrangedSubviews.last ?? stack)
+        stack.addArrangedSubview(button)
+        moveButton = button
+    }
+
+    #if DEBUG
+    var debugWebFields: Bool { webFields != nil }
+    var debugMoveOffered: Bool { moveButton?.isHidden == false }
+    func debugWebFill(_ username: String, _ password: String, filled: Bool) { webFields?.onChange?(username, password, filled) }
+    #endif
+
+    /// [1password-allow] A login the bots have none of may be sitting in the person's own 1Password vault: the
+    /// other way on this sheet moves that one login into the bots' vault, on one approval (OnePasswordMove.swift).
     private func openMove() {
-        guard !allowOpened, !sending, fields.allSatisfy({ ($0.text ?? "").isEmpty }),
-              let stack = navigationController ?? navigation, stack.viewControllers.first === self,
+        guard !sending, let stack = navigationController ?? navigation, stack.viewControllers.first === self,
               let origin = prompt.params["origin"]?.string, !origin.isEmpty else { return }
         allowOpened = true
         view.endEditing(true)
@@ -314,8 +373,8 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
             self.send(OnePasswordAllowWire.movedAnswer)   // not a login: the add-on tells the bot to fill it from 1Password
         }, typeInstead: { [weak self, weak stack] in
             guard let self else { return }
+            self.allowOpened = false
             stack?.setViewControllers([self], animated: true)
-            self.fields.first?.becomeFirstResponder()
         })
         let close = UIBarButtonItem.hqClose(action: nil)
         close.accessibilityIdentifier = "sheet.close"
@@ -477,6 +536,7 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
     func clear() {
         guard isViewLoaded else { return }
         fields.forEach { $0.text = nil }
+        webFields?.clear()
         updatePrimary()
     }
 

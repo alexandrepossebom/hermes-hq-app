@@ -285,23 +285,45 @@ struct OnePasswordAllowTests {
         #expect(model.phase == .signIn("1Password didn’t take that password. Try again."))
     }
 
-    @Test func theLoginSheetOpensOnTheMoveOnlyWhereTheAddOnCanAndNeverForALateCard() {
+    @Test func theLoginSheetIsTheSitesOwnBoxesAndAFillSendsItWithMovingAsTheOtherWay() {
         let asks = ValuePrompt(id: "srq-9", kind: .vaultSaveLogin, params: ["origin": "https://www.shop.example", "site": "www.shop.example"])
         #expect(PromptSheetCopy.offersMove(asks))
         #expect(!PromptSheetCopy.offersMove(ValuePrompt(id: "", kind: .vaultUnlock, params: [:])))
+        #expect(PromptSheetCopy.make(asks).title == "Save Your shop.example Login?")   // no "www." to cut the title
+
+        // An add-on that can't: plain fields, no move, as before.
         OnePasswordAllowModel.known = Wire.Status()
         let plain = PromptSheetController.make(asks, botName: "Ivy")
         plain.sheet.loadViewIfNeeded()
-        plain.sheet.viewWillAppear(false)
-        #expect(!plain.sheet.debugAllowOpened && plain.navigation.topViewController === plain.sheet)   // the fields, as before
+        #expect(!plain.sheet.debugWebFields && !plain.sheet.debugMoveOffered && plain.navigation.topViewController === plain.sheet)
 
+        // One that can: the boxes are the site's own page, the sheet stays the sheet, and moving is offered under it.
         OnePasswordAllowModel.known = Wire.Status(supported: true, move: true, password: true, connected: true, ours: true, vaults: ["Hermes"])
-        let move = PromptSheetController.make(asks, botName: "Ivy")
-        move.sheet.loadViewIfNeeded()
-        move.sheet.viewWillAppear(false)
-        #expect(move.sheet.debugAllowOpened && move.navigation.topViewController !== move.sheet)
+        let sheet = PromptSheetController.make(asks, botName: "Ivy")
+        sheet.sheet.loadViewIfNeeded()
+        sheet.sheet.viewWillAppear(false)
+        #expect(sheet.sheet.debugWebFields && sheet.sheet.debugMoveOffered)
+        #expect(sheet.navigation.topViewController === sheet.sheet && !sheet.sheet.debugAllowOpened)
+
+        final class Catch: PromptSheetDelegate {
+            var answers: [String] = []
+            func promptSheet(_ sheet: PromptSheetController, answer value: String) { answers.append(value) }
+            func promptSheetTucked(_ sheet: PromptSheetController) {}
+        }
+        let caught = Catch()
+        sheet.sheet.delegate = caught
+        sheet.sheet.debugWebFill("m", "", filled: false)                       // typing: nothing is sent
+        sheet.sheet.debugWebFill("me@example.com", "hunter2", filled: false)
+        #expect(caught.answers.isEmpty && sheet.sheet.value?.contains("hunter2") == true)
+        sheet.sheet.debugWebFill("me@example.com", "hunter2", filled: true)    // a password manager filled both: sent at once
+        #expect(caught.answers.count == 1 && caught.answers[0].contains("me@example.com"))
+
+        // An address that isn't https, and the Mac, keep plain fields.
+        #expect(LoginWebFields.address("http://shop.example") == nil && LoginWebFields.address("shop") == nil)
+        #expect(LoginWebFields.address("https://www.shop.example/sign-in?next=1")?.absoluteString == "https://www.shop.example/")
+        #expect(LoginWebFields.page(font: 17).contains("autocomplete=\"current-password\"") && !LoginWebFields.page(font: 17).contains("://"))   // nothing is fetched from anywhere
         OnePasswordAllowModel.known = Wire.Status()
-        #expect(Wire.site("https://WWW.Shop.example:443/a?b") == "shop.example:443" || Wire.site("https://www.shop.example/a") == "shop.example")
+        #expect(Wire.site("https://www.shop.example/a") == "shop.example")
         #expect(Wire.movedAnswer.contains("hermes-hq:moved") && Wire.status(["move": true]).move)
     }
 
