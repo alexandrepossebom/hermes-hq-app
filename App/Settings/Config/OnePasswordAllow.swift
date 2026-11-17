@@ -103,6 +103,19 @@ import UIKit
         run = nil
     }
 
+    /// The page is back on screen (a sheet tucked and opened again): pick the same request up where it was.
+    func resume() {
+        guard run == nil else { return }
+        switch phase {
+        case .asking: start()
+        case .waiting:
+            run = Task { [weak self] in await self?.follow(until: { if case .waiting = $0 { false } else { true } }) }
+        case .making:
+            run = Task { [weak self] in await self?.follow(until: { if case .making = $0 { false } else { true } }) }
+        case .choose, .done, .failed: break
+        }
+    }
+
     /// Looks at the job until it moves on (four minutes of looking; a look that gets no answer is looked again).
     private func follow(until settled: (OnePasswordAllowWire.Job) -> Bool) async {
         guard let job, let call else { return }
@@ -164,7 +177,7 @@ struct OnePasswordAllowView: View {
             }
         }.hqMacSettingsRowInsets() }
         .settingsList().hqMacSettingsRows()
-        .task { if model.phase == .asking { model.start() } }
+        .onAppear { model.resume() }
         .onDisappear { model.stop() }
         .onChange(of: model.phase) { _, phase in
             if case .done(let bots, let vaults) = phase {
@@ -267,8 +280,9 @@ struct OnePasswordAllowView: View {
 extension OnePasswordAllowView {
     /// The page as a controller, for a UIKit navigation stack (the unlock sheet's).
     @MainActor static func controller(model: OnePasswordAllowModel = OnePasswordAllowModel(),
-                                      done: @escaping (_ bots: Int, _ vaults: [String]) -> Void) -> UIViewController {
-        let host = UIHostingController(rootView: OnePasswordAllowView(model: model, done: done))
+                                      done: @escaping (_ bots: Int, _ vaults: [String]) -> Void,
+                                      useMasterPassword: (() -> Void)? = nil) -> UIViewController {
+        let host = UIHostingController(rootView: OnePasswordAllowView(model: model, done: done, useMasterPassword: useMasterPassword))
         host.title = "Allow in 1Password"
         host.view.backgroundColor = .clear
         return host

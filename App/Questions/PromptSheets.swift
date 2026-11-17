@@ -93,13 +93,6 @@ nonisolated struct PromptSheetCopy: Sendable, Equatable {
     static func asksOnePassword(_ prompt: ValuePrompt) -> Bool {
         prompt.kind == .vaultUnlock && prompt.params["backend"]?.string == OnePasswordAllowWire.backend
     }
-
-    /// [1password-allow] The sheet's words when Allow in 1Password leads and the master password is the other way.
-    static func allowText(botName: String?) -> String {
-        let named = botName.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
-        return "\(named ?? "The bot") wants a login saved in 1Password. Allow it in 1Password on \(HostWord.phrase): one click, no master password, and your bots aren’t asked again."
-    }
-    static let allowOrMaster = "Or unlock it for this session with your master password. It goes straight to 1Password and is never stored."
 }
 
 final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdaptivePresentationControllerDelegate {
@@ -119,10 +112,8 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
     private var sending = false
     /// Don't Send / Keep Locked / Don't Save / Skip: dimmed with the primary while an answer is on its way.
     private weak var declineButton: UIButton?
-    /// [1password-allow] Allow in 1Password above the master password, shown once the add-on says it can.
-    private let botName: String?
-    private weak var wordsLabel: UILabel?
-    private var allowRows: [UIView] = []
+    /// [1password-allow] The Allow in 1Password page took this sheet's place (the add-on can ask 1Password).
+    private var allowOpened = false
 
     /// A sheet in its frame (`ChatSheet.wrap`). The caller keeps the navigation controller; it holds the sheet.
     static func make(_ prompt: ValuePrompt, botName: String? = nil) -> (sheet: PromptSheetController, navigation: UINavigationController) {
@@ -139,7 +130,6 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
         self.copy = PromptSheetCopy.make(prompt, botName: botName)
         let named = botName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         botLead = named.isEmpty ? "The bot" : named
-        self.botName = botName
         // Every close tucks (MEM:password-request-chip, build 85): the ✕ too.
         let close = UIBarButtonItem.hqClose(action: nil)   // [mac] #55: Done on the Mac
         close.accessibilityIdentifier = "sheet.close"
@@ -197,7 +187,6 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
         words.verticalPadding = 14
         let text = label(copy.text, style: .body, color: HQPalette.label)
         text.accessibilityIdentifier = "prompt.text"
-        wordsLabel = text
         words.content.addArrangedSubview(text)
         if copy.command == nil, let missing = copy.commandMissing {
             words.content.addArrangedSubview(label(missing, style: .footnote, color: HQPalette.label2))
@@ -239,7 +228,6 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
             fields.append(field)
             group.addArrangedSubview(field)
         }
-        if PromptSheetCopy.asksOnePassword(prompt) { addAllowRows() }
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last ?? words)
         stack.addArrangedSubview(group)
         if wordsLast {
@@ -284,58 +272,49 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
 
     // MARK: [1password-allow] Allow in 1Password
 
-    /// The button and the line that turns the master password into the other way. Hidden until the add-on says it
-    /// can ask 1Password (an older add-on, or no 1Password tool on Hermes's computer: the sheet stays as it was).
-    private func addAllowRows() {
-        var allow = UIButton.Configuration.hqSheetProminent()
-        allow.title = "Allow in 1Password"
-        allow.image = UIImage(systemName: "lock.open")
-        allow.imagePadding = 6
-        let button = UIButton(configuration: allow, primaryAction: UIAction { [weak self] _ in self?.allowInOnePassword() })
-        button.accessibilityIdentifier = "prompt.allow-1password"
-        if !DeviceWord.isMac { button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
-        let row = UIStackView(arrangedSubviews: [button])
-        row.axis = .vertical
-        row.alignment = DeviceWord.isMac ? .center : .fill
-        let other = label(PromptSheetCopy.allowOrMaster, style: .footnote, color: HQPalette.label2)
-        let otherRow = UIStackView(arrangedSubviews: [other])
-        otherRow.isLayoutMarginsRelativeArrangement = true
-        otherRow.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16)
-        stack.setCustomSpacing(16, after: stack.arrangedSubviews.last ?? stack)
-        stack.addArrangedSubview(row)
-        stack.setCustomSpacing(16, after: row)
-        stack.addArrangedSubview(otherRow)
-        stack.setCustomSpacing(6, after: otherRow)
-        allowRows = [row, otherRow]
-        showAllow(OnePasswordAllowModel.known.supported)
+    /// Owner 2026-11-16, on the first cut (an Allow in 1Password button over the master password field, a greyed
+    /// Unlock in the corner): "Fix this." What was asked for is what 1Password itself does: it pops up, you click
+    /// Allow. So where the add-on can ask 1Password, this sheet IS that: it opens on "Click Allow in 1Password" and
+    /// 1Password is already asking on Hermes's computer. No button to find, no master password field. The master
+    /// password form is behind "Use Master Password Instead" when 1Password couldn't be asked.
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard PromptSheetCopy.asksOnePassword(prompt), !allowOpened else { return }
+        if OnePasswordAllowModel.known.supported { openAllow() }
         Task { [weak self] in
-            let status = await OnePasswordAllowModel.status()
-            self?.showAllow(status.supported)
+            if await OnePasswordAllowModel.status().supported { self?.openAllow() }
         }
     }
 
-    private func showAllow(_ on: Bool) {
-        allowRows.forEach { $0.isHidden = !on }
-        wordsLabel?.text = on ? PromptSheetCopy.allowText(botName: botName) : copy.text
-    }
-
-    /// The page that follows 1Password's own Allow, in this sheet. Once the key is saved the card is answered with it
-    /// in place of a master password, and the bot signs in.
-    private func allowInOnePassword() {
-        guard !sending, let stack = navigationController ?? navigation else { return }
+    private func openAllow() {
+        guard !allowOpened, !sending, fields.allSatisfy({ ($0.text ?? "").isEmpty }),
+              let stack = navigationController ?? navigation, stack.viewControllers.first === self else { return }
+        allowOpened = true
         view.endEditing(true)
-        Haptics.play(.selection)
-        let page = OnePasswordAllowView.controller { [weak self, weak stack] _, _ in
-            stack?.popToRootViewController(animated: true)
-            self?.send(OnePasswordAllowWire.allowed)
-        }
-        stack.pushViewController(page, animated: true)
+        let page = OnePasswordAllowView.controller(done: { [weak self, weak stack] _, _ in
+            guard let self else { return }
+            stack?.setViewControllers([self], animated: false)
+            self.send(OnePasswordAllowWire.allowed)   // the card is answered with the saved key; the bot signs in
+        }, useMasterPassword: { [weak self, weak stack] in
+            guard let self else { return }
+            stack?.setViewControllers([self], animated: true)
+            self.fields.first?.becomeFirstResponder()
+        })
+        let close = UIBarButtonItem.hqClose(action: nil)   // every close tucks, as this sheet's own
+        close.accessibilityIdentifier = "sheet.close"
+        close.primaryAction = UIAction(title: close.title ?? "") { [weak self] _ in self?.tuck() }
+        page.navigationItem.hqPlaceFormClose(close)
+        let title = SheetTitleLabel()
+        title.text = "Allow in 1Password"
+        title.textAlignment = .center
+        title.accessibilityTraits = .header
+        page.navigationItem.titleView = title
+        // In this sheet's place, not over it: a page over it grew a Back button beside the ✕. The store keeps this sheet.
+        stack.setViewControllers([page], animated: false)
     }
 
     #if DEBUG
-    var debugAllowShown: Bool { !allowRows.isEmpty && allowRows.allSatisfy { !$0.isHidden } }
-    var debugWords: String { wordsLabel?.text ?? "" }
-    func debugShowAllow(_ on: Bool) { loadViewIfNeeded(); showAllow(on) }
+    var debugAllowOpened: Bool { allowOpened }
     #endif
 
     /// [login-fill-both] The typing starts once the sheet is up, not as it slides in. Focused in viewWillAppear, before
@@ -343,8 +322,8 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
     /// Passwords (Apple’s or 1Password) filled the username and left the password empty (the owner, 2026-11-14).
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // [1password-allow] With Allow in 1Password leading, the keyboard waits for a tap in the master password field.
-        if !allowRows.isEmpty, allowRows.allSatisfy({ !$0.isHidden }) { return }
+        // [1password-allow] Under the Allow in 1Password page nothing is typed.
+        if allowOpened, (navigationController ?? navigation)?.topViewController !== self { return }
         if fields.allSatisfy({ !$0.isFirstResponder }) { (fields.first { ($0.text ?? "").isEmpty } ?? fields.first)?.becomeFirstResponder() }
     }
 

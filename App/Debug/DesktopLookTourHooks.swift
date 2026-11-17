@@ -401,7 +401,7 @@ enum DesktopLookTourHooks {
                 case "promptsheet":
                     // Not the account's store: nothing is answered, and the sheet goes with the app.
                     // [1password-allow] `-HQDebugTourItem onepassword`: the 1Password unlock sheet (Allow in 1Password
-                    // leads when the gateway's add-on can ask); `onepassword-allow` then opens the page behind it.
+                    // opens on the Allow in 1Password page when the gateway's add-on can ask).
                     let item = UserDefaults.standard.string(forKey: "HQDebugTourItem") ?? ""
                     let prompt = item.hasPrefix("onepassword")
                         ? ValuePrompt(id: "tour-unlock", kind: .vaultUnlock,
@@ -412,9 +412,6 @@ enum DesktopLookTourHooks {
                     tourKeep = made.sheet
                     chat.present(made.navigation, animated: true)
                     halfHeightNoKeyboard(chat)
-                    if item == "onepassword-allow" {
-                        after(2.0) { made.navigation.pushViewController(OnePasswordAllowView.controller { _, _ in }, animated: false) }
-                    }
                 case "prompteditor":
                     menus.presentPrompts()
                     after(1.2) {

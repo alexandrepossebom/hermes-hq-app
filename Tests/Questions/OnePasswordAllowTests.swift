@@ -145,27 +145,54 @@ struct OnePasswordAllowTests {
         OnePasswordAllowModel.known = Wire.Status()
     }
 
-    @Test func theUnlockSheetLeadsWithAllowOnlyFor1PasswordAndOnlyWhenTheAddOnCan() {
+    @Test func theUnlockSheetOpensOn1PasswordsAllowOnlyFor1PasswordAndOnlyWhenTheAddOnCan() {
         let asks = ValuePrompt(id: "srq-1", kind: .vaultUnlock, params: ["backend": "onepassword", "display_name": "1Password"])
         #expect(PromptSheetCopy.asksOnePassword(asks))
         #expect(!PromptSheetCopy.asksOnePassword(ValuePrompt(id: "", kind: .vaultUnlock, params: ["backend": "bitwarden"])))
         #expect(!PromptSheetCopy.asksOnePassword(ValuePrompt(id: "", kind: .vaultSaveLogin, params: ["backend": "onepassword"])))
 
+        // An add-on that can't ask 1Password: the master password sheet, as it was.
         OnePasswordAllowModel.known = Wire.Status()
-        let sheet = PromptSheetController(prompt: asks, botName: "Ivy")
-        sheet.loadViewIfNeeded()
-        #expect(!sheet.debugAllowShown && sheet.debugWords == sheet.copy.text)   // as it was: the master password
-        sheet.debugShowAllow(true)
-        #expect(sheet.debugAllowShown)
-        #expect(sheet.debugWords.hasPrefix("Ivy wants a login saved in 1Password. Allow it in 1Password"))
-        #expect(!sheet.debugWords.contains("Enter your master password"))
-        sheet.debugType(["hunter2-master"])
-        #expect(sheet.value == "hunter2-master")   // the master password still works
+        let plain = PromptSheetController.make(asks, botName: "Ivy")
+        plain.sheet.loadViewIfNeeded()
+        plain.sheet.viewWillAppear(false)
+        #expect(!plain.sheet.debugAllowOpened && plain.navigation.viewControllers.count == 1)
+        plain.sheet.debugType(["hunter2-master"])
+        #expect(plain.sheet.value == "hunter2-master")
 
-        let other = PromptSheetController(prompt: ValuePrompt(id: "srq-2", kind: .vaultUnlock, params: ["backend": "bitwarden"]))
-        other.debugShowAllow(true)
-        #expect(!other.debugAllowShown)
+        // One that can: the sheet is the Allow in 1Password page, with no master password field in sight.
+        OnePasswordAllowModel.known = Wire.Status(supported: true)
+        let allow = PromptSheetController.make(asks, botName: "Ivy")
+        allow.sheet.loadViewIfNeeded()
+        allow.sheet.viewWillAppear(false)
+        #expect(allow.sheet.debugAllowOpened && allow.navigation.viewControllers.count == 1)   // in its place: no Back
+        #expect(allow.navigation.topViewController !== allow.sheet)
+
+        // Another manager's unlock never opens it.
+        let other = PromptSheetController.make(ValuePrompt(id: "srq-2", kind: .vaultUnlock, params: ["backend": "bitwarden"]))
+        other.sheet.loadViewIfNeeded()
+        other.sheet.viewWillAppear(false)
+        #expect(!other.sheet.debugAllowOpened && other.navigation.viewControllers.count == 1)
+        OnePasswordAllowModel.known = Wire.Status()
         #expect(Wire.allowed.unicodeScalars.first?.value == 0x1D)   // never something a person types
+    }
+
+    @Test func aTuckedPagePicksTheSameRequestUp() async {
+        let addOn = AddOn()
+        let route = Wire.route + "/allow"
+        addOn.answers["POST \(route)"] = [(200, ["job": "j5", "state": "waiting"])]
+        addOn.answers["GET \(route)/j5"] = [(200, ["job": "j5", "state": "waiting"])]
+        let model = OnePasswordAllowModel()
+        model.call = addOn.call
+        model.pause = .milliseconds(1)
+        model.resume()   // first show: asks
+        await settle(model) { $0 == .waiting }
+        model.stop()     // the sheet is tucked
+        addOn.answers["GET \(route)/j5"] = [(200, ["job": "j5", "state": "choose", "vaults": vaults])]
+        model.resume()   // opened again: the same request, not a second one
+        await settle(model) { if case .choose = $0 { true } else { false } }
+        #expect(addOn.calls.filter { $0.method == "POST" }.count == 1)
+        if case .choose(let found) = model.phase { #expect(found.count == 2) } else { Issue.record("not at the vaults") }
     }
 
     @Test func thePasswordsPagesLine() throws {
