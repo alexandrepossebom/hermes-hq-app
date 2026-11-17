@@ -1370,7 +1370,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let style = window.traitCollection.userInterfaceStyle
         var pinned: [UIView] = [titleView, statusPill, noticeToast]
         if let bar = navigationController?.navigationBar, navigationController?.topViewController === self { pinned.append(bar) }
+        // Owner 2026-11-17, a fourth photo of the foot of the chat gone black, under a green voice memo this time: "Any
+        // color behind the text input makes the whole thing go black." The message box is no longer the transcript's
+        // edge element (viewDidLoad), which was what the system redrew; the box and everything that floats at it are
+        // pinned to the window's light or dark as well, so nothing else can redraw them for what lies under them.
         for item in pinned where item.overrideUserInterfaceStyle != style { item.overrideUserInterfaceStyle = style }
+        // These follow the chat's own view (the window's style, or a style the chat page itself was given on purpose).
+        let own = view.traitCollection.userInterfaceStyle
+        for item in [composer, queueCard, jumpButton, activity.shelf] as [UIView] where item.overrideUserInterfaceStyle != own {
+            item.overrideUserInterfaceStyle = own
+        }
     }
     #endif
 
