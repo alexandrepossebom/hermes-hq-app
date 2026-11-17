@@ -426,7 +426,7 @@ final class ProductCardsView: UIView, UIScrollViewDelegate {
             card.addAction(UIAction { [weak self] _ in
                 Haptics.play(.selection)
                 self?.onOpen?(index)
-            }, for: .touchUpInside)   // a plain UIControl never sends .primaryActionTriggered (only UIButton does)
+            }, for: .primaryActionTriggered)
             card.onAsk = { [weak self] ask in self?.onAsk?(index, ask) }
             cards.append(card)
         }
@@ -559,7 +559,6 @@ final class ProductCardView: UIControl {
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityHint = "Opens the product’s page"
-        accessibilityIdentifier = "shopping.card"
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }

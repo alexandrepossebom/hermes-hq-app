@@ -389,7 +389,7 @@ final class ProductPageSheet: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             Haptics.play(.selection)
             LinkOpener.open(url, from: self)
-        }, for: .touchUpInside)   // a plain UIControl never sends .primaryActionTriggered
+        }, for: .primaryActionTriggered)
         control.isAccessibilityElement = true
         control.accessibilityTraits = .link
         control.accessibilityLabel = ([offer.store, offer.price.map { ShoppingCards.price($0, currency: currency) }].compactMap { $0 } + under).joined(separator: ", ")
