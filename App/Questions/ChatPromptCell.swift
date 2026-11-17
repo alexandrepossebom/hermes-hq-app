@@ -17,6 +17,12 @@ import UIKit
     func draftCardThread(_ draft: DraftCardRow)
     /// [questions] Answer Now on a question that went without an answer.
     func clarifyCardAnswer(_ card: SettledClarifyCard)
+    /// [shopping] A product card opens its page; the one product's Buy / Notify Me, a follow-up, See All; an order's
+    /// Cancel or Pay (App/Shopping/ChatViewController+Shopping.swift).
+    func shoppingOpen(_ card: ProductsCardRow, index: Int)
+    func shoppingAsk(_ card: ProductsCardRow, index: Int, ask: ShoppingCards.Ask)
+    func shoppingFollowUp(_ card: ProductsCardRow, text: String)
+    func orderCard(_ card: OrderCardRow, tapped answer: ShoppingCards.OrderAnswer)
 }
 
 final class ChatPromptCell: ChatBaseCell {
@@ -39,6 +45,8 @@ final class ChatPromptCell: ChatBaseCell {
     private var settled: SettledClarifyCard?                 // [questions] a settled question card
     private let answerNow = UIButton(type: .system)
     private var ticker: Timer?
+    /// [shopping] The product cards' view and the order card's buttons, made on first use (ChatPromptCell+Shopping.swift).
+    var shoppingViews = ShoppingCellViews()
     private var baseAccessibility = ""
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -97,7 +105,7 @@ final class ChatPromptCell: ChatBaseCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    private var handler: ChatPromptCellHandling? { delegate as? ChatPromptCellHandling }
+    var handler: ChatPromptCellHandling? { delegate as? ChatPromptCellHandling }
 
     override func prepareForReuse() {
         super.prepareForReuse()
@@ -107,6 +115,7 @@ final class ChatPromptCell: ChatBaseCell {
         draft = nil
         settled = nil
         stopTicking()
+        resetShopping()   // [shopping]
     }
 
     override func configure(_ row: ChatRow, layout: RowLayout) {
@@ -151,6 +160,7 @@ final class ChatPromptCell: ChatBaseCell {
         placeRules(l.rules)
         baseAccessibility = l.accessibility
         configureAnswerNow(spec, l)
+        configureShopping(spec, l)   // [shopping]
 
         guard case .approval(let a) = spec.kind, let al = l.approval else {
             approval = nil
@@ -168,7 +178,8 @@ final class ChatPromptCell: ChatBaseCell {
                 threadToggle.isHidden = true
                 draftButtons.values.forEach { $0.isHidden = true }
                 card.accessibilityIdentifier = "clarify.note"
-                contentView.accessibilityElements = [card] + (answerNow.isHidden ? [] : [answerNow])
+                contentView.accessibilityElements = shoppingAccessibility(card: card)   // [shopping]
+                    ?? ([card] + (answerNow.isHidden ? [] : [answerNow]))
             }
             return
         }

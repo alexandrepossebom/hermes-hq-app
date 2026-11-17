@@ -102,6 +102,11 @@ import UserNotifications
             let told = await call(PushPolicy.route + DraftCards.cardsPath, "PUT", nil)
             AppLog.note("drafts", "told the add-on this app draws draft cards (\(told.status))")
         }
+        // [shopping] The same for show_products and order_card: offered to bots once an app that draws the cards says so.
+        if result.status == 200, !legacy, ShoppingCards.cardsUntold(result.body) {
+            let told = await call(PushPolicy.route + ShoppingCards.cardsPath, "PUT", nil)
+            AppLog.note("shopping", "told the add-on this app draws shopping cards (\(told.status))")
+        }
         return result
     }
 

@@ -262,6 +262,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private var pendingTouched: [String] = []
     /// [drafts] The draft answers the rows were last built with (ChatViewController+Drafts.swift).
     var draftAnswersShown: [String: DraftCards.Answer] = [:]
+    /// [shopping] The shopping answers the rows were last built with (App/Shopping/ChatViewController+Shopping.swift).
+    var shoppingAnswersShown = ShoppingCards.Answers()
     /// [questions] The later answers to skipped questions the rows were last built with (ChatViewController+Prompts).
     var clarifyLateShown: [String: ClarifyLate.Found] = [:]
     private var pendingNewest = false
@@ -536,6 +538,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         input.activity = activity.rowsInput()                                                  // [activity]
         input.bots = DeliveryRoster.seats                                                      // [botdm]
         input.drafts = DraftEdits.shared.rowsInput(messages, queued: draftQueuedTexts, scope: scope)                      // [drafts]
+        input.shopping = ShoppingCards.answers(messages, queued: shoppingQueuedTexts)                                    // [shopping]
         input.clarifyLate = ClarifyLate.answers(messages, queued: clarifyLateQueuedTexts)                                // [questions]
         input.fewerTimes = ToolCallSettings.fewerTimestamps
         input.externalWorking = externalWorking && !ownerWaiting                                // [external-turn]
@@ -2350,8 +2353,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         // [drafts] A draft answered some other way than its card's buttons: that card is drawn again.
         switch change {
-        case .appended, .state, .removed: pendingTouched += draftMessagesToRebuild() + clarifyLateMessagesToRebuild()
-        case .reset: _ = draftMessagesToRebuild(); _ = clarifyLateMessagesToRebuild()   // everything is rebuilt; only the answers are noted
+        case .appended, .state, .removed: pendingTouched += draftMessagesToRebuild() + clarifyLateMessagesToRebuild() + shoppingMessagesToRebuild()   // [shopping]
+        case .reset: _ = draftMessagesToRebuild(); _ = clarifyLateMessagesToRebuild(); _ = shoppingMessagesToRebuild()   // everything is rebuilt; only the answers are noted
         default: break
         }
         activity.sessionChanged()        // [activity] the live Steps sheet, an open step sheet
@@ -4982,6 +4985,18 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         following = false
         tableView.contentOffset.y = min(tableView.contentOffset.y + points,
                                         max(minOffset, tableView.contentSize.height + topInset - tableView.bounds.height))
+        updateJumpButton()
+        revealIfNeeded()
+    }
+
+    /// [shopping] Screenshots: the chat scrolled so the first row whose id starts with `prefix` has its top `top`
+    /// points under the screen's top (the table is flipped: a row's visual top is its rect's maxY).
+    func debugScrollToRow(prefix: String, top: CGFloat = 110) {
+        guard let i = rows.firstIndex(where: { $0.id.hasPrefix(prefix) }) else { return }
+        let rect = tableView.rectForRow(at: IndexPath(row: i, section: 0))
+        following = false
+        tableView.contentOffset.y = max(minOffset, min(rect.maxY - tableView.bounds.height + top,
+                                                       tableView.contentSize.height + topInset - tableView.bounds.height))
         updateJumpButton()
         revealIfNeeded()
     }

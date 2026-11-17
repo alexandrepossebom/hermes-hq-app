@@ -409,6 +409,7 @@ extension LiveChatSession {
         let input = args.isEmpty ? nil : ToolArgs.inputText(args)
         let rawText = args.isEmpty ? p["args_text"]?.string : nil
         let argsText = DraftCards.wholeArgsText(name: name, args: args)   // [drafts] a draft card draws its call whole
+            ?? ShoppingCards.wholeArgsText(name: name, args: args)        // [shopping] so do product and order cards
             ?? input.map { ToolArgs.boundedText(args, input: $0) } ?? ToolArgs.boundedText(args, raw: rawText)
         turn.sawAssistantPayload = true
         turn.awaitingResponse = false
@@ -489,6 +490,7 @@ extension LiveChatSession {
                                            live: false)
         var call = ToolCall(id: toolId.isEmpty ? "live-tool-\(localCounter + 1)" : toolId, name: name, title: title,
                             argsText: DraftCards.wholeArgsText(name: name, args: args)   // [drafts]
+                                ?? ShoppingCards.wholeArgsText(name: name, args: args)   // [shopping]
                                 ?? input.map { ToolArgs.boundedText(args, input: $0) }
                                 ?? ToolArgs.boundedText(args, raw: argsText),          // [activity] bounded per value
                             summary: ClarifySettled.summary(name: name, result: result,   // [questions] settled Q&A (1x §4.4)

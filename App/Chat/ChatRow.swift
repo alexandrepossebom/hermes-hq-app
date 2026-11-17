@@ -348,6 +348,8 @@ nonisolated enum ChatRowBuilder {
         var diffs: [String: String] = [:]
         /// [drafts] The chat's draft cards: which are answered, your edits, the one being edited (PromptRows.draftRow).
         var drafts = DraftRowsInput()
+        /// [shopping] What the chat's messages say about its product and order cards (`ShoppingCards.answers`).
+        var shopping = ShoppingCards.Answers()
         /// [questions] Skipped questions answered later in the chat, by card key (`ClarifyLate.answers`).
         var clarifyLate: [String: ClarifyLate.Found] = [:]
 
@@ -663,7 +665,7 @@ nonisolated enum ChatRowBuilder {
                 let id = "\(m.id)|b0"
                 // [drafts] Your answer to a draft card reads "Send it": the card above shows the words that went.
                 // [questions] A skipped question answered later reads as the answer: the card above shows the question.
-                let text = DraftCards.bubbleWords(text) ?? ClarifyLate.bubbleWords(text) ?? text
+                let text = DraftCards.bubbleWords(text) ?? ShoppingCards.bubbleWords(text) ?? ClarifyLate.bubbleWords(text) ?? text   // [shopping]
                 rows.append(ChatRow(id: id, messageId: m.id, scope: input.scope, fingerprint: bubbleFingerprint(text, mine: true, speaker: "You"),
                                     kind: .bubble(BubbleRow(mine: true, text: text, markdown: true, partIndex: 0, joinsAbove: false,
                                                             joinsBelow: false, tail: false, time: nil, pending: m.isPending,
@@ -893,6 +895,12 @@ nonisolated enum ChatRowBuilder {
                 }
                 // [drafts] A draft for review is its card, whatever Tool Call Style and Hide Steps say.
                 if call.name == DraftCards.tool, let card = PromptRows.draftRow(call, message: m, input: input) {
+                    flushRun(endingAt: i - 1)
+                    rows.append(card)
+                    continue
+                }
+                // [shopping] Product cards and an order card, the same way.
+                if ShoppingCards.tools.contains(call.name), let card = PromptRows.shoppingRow(call, message: m, input: input) {
                     flushRun(endingAt: i - 1)
                     rows.append(card)
                     continue

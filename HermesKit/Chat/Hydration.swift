@@ -1002,6 +1002,7 @@ nonisolated private struct Folder {
         if hasResult { summary = ClarifySettled.summary(name: tool.name, result: tool.result, fallback: summary) }
         var toolCall = ToolCall(id: tool.id, name: tool.name, title: title.isEmpty ? tool.name : title,
                                 argsText: DraftCards.wholeArgsText(name: tool.name, args: tool.args)   // [drafts]
+                                    ?? ShoppingCards.wholeArgsText(name: tool.name, args: tool.args)   // [shopping]
                                     ?? (tool.argsText.isEmpty ? nil : ToolArgs.boundedText(tool.args, raw: tool.argsText)),   // [activity]
                                 summary: summary, state: failed ? .failed : .done, durationSeconds: nil)
         if !failed { toolCall.card = ToolCards.card(name: tool.name, args: tool.args, result: tool.result) }   // [activity] §11.1

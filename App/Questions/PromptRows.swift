@@ -63,6 +63,9 @@ nonisolated struct PromptRow: Sendable {
         case settled(SettledClarifyCard)
         /// [drafts] A bot's draft for review: its text, Send, Edit and Don't Send (HermesKit/Drafts/DraftCards.swift).
         case draft(DraftCardRow)
+        /// [shopping] A bot's product cards and its order card (HermesKit/Shopping/ShoppingCards.swift, App/Shopping).
+        case products(ProductsCardRow)
+        case order(OrderCardRow)
     }
     var kind: Kind
 }
@@ -133,13 +136,15 @@ nonisolated enum PromptRows {
         return nil
     }
 
-    private static func row(id: String, messageId: String, kind: PromptRow.Kind, scope: String) -> ChatRow {
+    static func row(id: String, messageId: String, kind: PromptRow.Kind, scope: String) -> ChatRow {
         var h = Hasher()
         switch kind {
         case .approval(let a): h.combine(0); h.combine(a)
         case .note(let n): h.combine(1); h.combine(n)
         case .settled(let card): h.combine(2); h.combine(card)
         case .draft(let d): h.combine(3); h.combine(d)
+        case .products(let p): h.combine(4); h.combine(p)   // [shopping]
+        case .order(let o): h.combine(5); h.combine(o)
         }
         return ChatRow(id: id, messageId: messageId, scope: scope, fingerprint: h.finalize(), kind: .prompt(PromptRow(kind: kind)),
                        gapAbove: ChatMetrics.turnGap, variant: 0)
@@ -189,6 +194,8 @@ nonisolated struct PromptRowLayout: @unchecked Sendable {
     var rules: [CGRect] = []
     /// [drafts] The draft card's Show All line and buttons.
     var draft: DraftCardLayout? = nil
+    /// [shopping] The product cards' or the order card's own drawing (App/Shopping).
+    var shopping: ShoppingRowLayout? = nil
     /// VoiceOver's reading of the whole card.
     var accessibility: String
     /// A settled question card's Answer Now button (a question went without an answer), in row coordinates.
@@ -237,6 +244,8 @@ nonisolated enum PromptLayout {
         case .note(let n): return note(n, gap: row.gapAbove, width: width, category: style.category)
         case .settled(let card): return settled(card, gap: row.gapAbove, width: width, category: style.category)
         case .draft(let d): return draft(d, gap: row.gapAbove, width: width, category: style.category)
+        case .products(let p): return ProductCardsLayout.make(p, gap: row.gapAbove, width: width, category: style.category)   // [shopping]
+        case .order(let o): return OrderCardLayout.make(o, gap: row.gapAbove, width: width, category: style.category)
         }
     }
 

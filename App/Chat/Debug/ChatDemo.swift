@@ -31,6 +31,12 @@ import UIKit
 /// - `-HQDemoDrafts` [drafts] two replies that each hold a draft card (a Slack message, a long email)
 /// - `-HQDemoSkippedQuestion` [questions] a question that went unanswered, then the reply waiting on it (Answer Now);
 ///   `-HQDemoAnswerNow` taps Answer Now, `-HQDemoAnswerSend <text>` sends that answer
+/// - `-HQDemoShopping` [shopping] replies with 1, 2, 5 and 12 product cards, then an order card;
+///   `-HQDemoShoppingOpen <n>` opens the n-th product's page (`-HQDemoShoppingPageScroll <points>` scrolls it),
+///   `-HQDemoOrderState waiting|approved|cancelled|replaced`, `-HQDemoShoppingShow <row id prefix>` scrolls that
+///   row near the top (shop-a1|shop the one product, shop-a2|shop the pair, shop-a5|order the order card),
+///   `-HQDemoShoppingShowTop <points>` puts its top there instead of 110 pt down (negative: above the screen),
+///   `-HQDemoShoppingExpand` opens the twelve's "7 more"
 /// - `-HQDemoLinks` [mac-audit] short plain replies and two bare links (one page without a title)
 /// - `-HQDemoVoiceRecord` [voice record] a chat that ends with a live voice chat's line (`-HQDemoVoiceRecordOpen` opens it)
 /// - `-HQDemoPhotos <folder>` [photo-grid] messages made from the pictures in <folder> on this Mac: `<set>-<n>.png`
@@ -265,6 +271,21 @@ final class ChatDemoListViewController: UITableViewController {
             chat.debugExpandNewestTools()
         }
         if ChatDemo.flag("-HQDemoVoiceRecordOpen") { chat.debugOpenVoiceRecords() }   // [voice record]
+        if ChatDemo.flag("-HQDemoShoppingExpand"), let list = chat.rows.first(where: { $0.id.hasPrefix("shop-a4|shop") }) {
+            chat.draftCardToggle(rowId: list.id)   // [shopping] the twelve's "7 more", as tapped
+        }
+        if let row = ChatDemo.argument("-HQDemoShoppingShow") {   // [shopping] e.g. shop-a1|shop: that row near the top
+            let top = ChatDemo.argument("-HQDemoShoppingShowTop").flatMap(Double.init).map { CGFloat($0) } ?? 110
+            chat.debugScrollToRow(prefix: row, top: top)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { chat.debugScrollToRow(prefix: row, top: top) }   // after late measures
+        }
+        if let n = ChatDemo.argument("-HQDemoShoppingOpen").flatMap(Int.init) {   // [shopping]
+            let after: Double = ChatDemo.argument("-HQDemoShoppingBuy") == nil ? 1 : 3   // after a demo Buy has landed
+            DispatchQueue.main.asyncAfter(deadline: .now() + after) { chat.debugOpenProduct(n) }
+        }
+        if let n = ChatDemo.argument("-HQDemoShoppingBuy").flatMap(Int.init) {   // [shopping] the n-th product's Buy, as tapped
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { chat.debugOpenProduct(n, buy: true) }
+        }
         if ChatDemo.flag("-HQDemoOpenGroups") {   // [updates]
             chat.debugOpenGroups(group: ChatDemo.argument("-HQDemoOpenGroup").flatMap(Int.init),
                                  member: ChatDemo.argument("-HQDemoOpenMember").flatMap(Int.init))

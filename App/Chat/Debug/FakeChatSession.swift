@@ -51,6 +51,7 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         older = all
         if ChatDemo.flag("-HQDemoDrafts") { messages += FakeChatSession.draftMessages }
         if ChatDemo.flag("-HQDemoSkippedQuestion") { messages += FakeChatSession.skippedQuestionMessages }
+        if ChatDemo.flag("-HQDemoShopping") { messages += FakeChatSession.shoppingMessages }   // [shopping]
     }
 
     /// `-HQDemoSkippedQuestion` [questions]: a question that went unanswered while you were away (its card offers Answer
@@ -156,12 +157,15 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         statusText = "Thinking…"
         onChange?(.state)
         schedule(0.35) { [weak self] in self?.mutate(id) { $0.isPending = false } }
-        if let found = DraftCards.answer(in: text) {
+        // [shopping] An answer to a product or order card: one short line back, as the bot would start its work.
+        let shopping = ShoppingCards.orderAnswer(in: text).map { $0.answer == .pay ? "Placing the order now." : "Okay, nothing was ordered." }
+            ?? ShoppingCards.productAnswer(in: text).map { $0.ask == .buy ? "On it: taking it to checkout." : "I’ll keep an eye on it." }
+        if let found = DraftCards.answer(in: text).map({ $0.answer == .skip ? "Okay, I won’t send it." : "Sent." }) ?? shopping {
             // [drafts] An answer to a draft card: one short line back, as a bot that sent it (or left it) says.
             schedule(1.2) { [weak self] in
                 guard let self else { return }
                 self.counter += 1
-                let reply = found.answer == .skip ? "Okay, I won’t send it." : "Sent."
+                let reply = found
                 let new = ChatMessage(id: "local-draft-reply-\(self.counter)", role: .assistant, parts: [.text(reply)], timestamp: Date(), rowId: nil)
                 self.messages.append(new)
                 self.onChange?(.appended(ids: [new.id]))

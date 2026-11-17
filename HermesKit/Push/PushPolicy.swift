@@ -105,6 +105,10 @@ nonisolated enum PushPolicy {
     /// card with Send, Edit and Don't Send (DraftCards). Only that the add-on says so: one with `drafts.off` says false
     /// and must not be offered the update forever.
     static func draftCardsKnown(_ body: [String: Any]?) -> Bool { body?["draftCards"] is NSNumber }
+    /// [shopping] The add-on has `show_products` and `order_card` (docs/spec/3x-shopping.md): a bot shows products
+    /// and an order as cards. Only that the add-on says so. Not part of `current` yet: no update prompt until that
+    /// add-on is published.
+    static func shoppingCardsKnown(_ body: [String: Any]?) -> Bool { body?["shoppingCards"] is NSNumber }
     /// [cron-media] hermes-hq-push 0.9.42+ keeps a scheduled job's pictures when the bot it reports to sums it up in a Bot
     /// Chat. No flag of its own: the add-on says its version (`pluginVersion`, 0.9.40+).
     static func cronMedia(_ body: [String: Any]?) -> Bool {
