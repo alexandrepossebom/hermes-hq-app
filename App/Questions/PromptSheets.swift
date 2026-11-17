@@ -243,7 +243,7 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
         fieldGroup = group
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last ?? words)
         stack.addArrangedSubview(group)
-        if OnePasswordAllowModel.known.supported { useWebFields() }
+        if Self.siteBoxesEverywhere || OnePasswordAllowModel.known.supported { useWebFields() }
         if wordsLast {
             let note = label(copy.text, style: .footnote, color: HQPalette.label2)
             note.accessibilityIdentifier = "prompt.text"
@@ -312,8 +312,20 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
         }
     }
 
-    /// The boxes become a page of the site (LoginWebFields.swift) on a phone or iPad, where the gateway's add-on is
-    /// current; elsewhere, and for a site address that isn't https, they stay plain fields.
+    /// On a real iPhone or iPad the login boxes are always the site's page: the phone's password manager needs no
+    /// add-on for it (owner 2026-11-16, at this sheet on Hermes Cloud, where there is no add-on: "This is on my cloud
+    /// nous account"). The Simulator keeps plain fields unless the gateway's add-on is there, so the UI tests that
+    /// type into them still find them.
+    static var siteBoxesEverywhere: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
+    }
+
+    /// The boxes become a page of the site (LoginWebFields.swift) on a phone or iPad; on the Mac, and for a site
+    /// address that isn't https, they stay plain fields.
     private func useWebFields() {
         guard webFields == nil, prompt.kind == .vaultSaveLogin, !DeviceWord.isMac, isViewLoaded, let group = fieldGroup,
               fields.allSatisfy({ ($0.text ?? "").isEmpty }),
