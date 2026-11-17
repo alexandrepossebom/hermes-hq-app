@@ -11,7 +11,7 @@ Plugin routes (cookie session for REST, a `ticket=` for websockets, like /api/ws
                                                            take/give, input; a fake sign-in page whose username box is
                                                            at y 30–38 % and password box at 42–50 % (x 30–70 %)
 Fixture control:
-  POST /__fixture/browser  {active?, listed?, url?, ask?, driver?: a session id of another chat using the browser now, choice_feature?, dialogs_feature?, plugin?: "ready"|"missing", frame_fps?,
+  POST /__fixture/browser  {active?, listed?: false also ends open watches, url?, ask?, driver?: a session id of another chat using the browser now, choice_feature?, dialogs_feature?, plugin?: "ready"|"missing", frame_fps?, bot_status?,
                             blocked?: {profile: reason},   a bot whose browser the plugin doesn't run (3.6.2 codes)
                             dialog?: {id, kind, …} | null}  a box the page opened (3.7.0); an `answer` closes it
   GET  /__fixture/browser  {inputs, acks, frames_sent, hellos, views, control, choice (default's), choices, blocked,
@@ -46,6 +46,7 @@ def fresh_state():
     return {'active': False, 'listed': True, 'url': 'https://example.test/sign-in', 'ask': None, 'plugin': 'ready',
             'choice_feature': True, 'dialogs_feature': True, 'frame_fps': 60.0, 'control': 'bot', 'holder': None, 'epoch': 0, 'pointer': (0.5, 0.5),
             'focus': None, 'choices': {'default': own_choice()}, 'blocked': {}, 'take_overs': [], 'dialog': None,
+            'bot_status': None,   # /bots' status for default ('cloud': a Browser Use Cloud bot, no browser of its own)
             'hosted': False, 'hosted_told': 0,   # a hosted Hermes (3.11): no Chrome per bot; the app says so when the gateway is Nous's
             'cloud_feature': True, 'cloud_all_feature': True, 'cloud_all': False, 'cloud_skip': [], 'cloud_key': None,   # Browser Use Cloud (3.9): the invented key's last four, never a real one
             'inputs': [], 'acks': 0, 'frames_sent': 0, 'hellos': [], 'views': [], 'viewers': 0, 'version': 0}
@@ -356,7 +357,7 @@ def handler(gateway):
                                                      'cloud_all': bool(STATE['cloud_feature'] and STATE['cloud_all_feature'])}})
             if route == '/bots':
                 return self.reply(200, {'schema': 'dispatch-browser.bots.v1', 'own_chrome': True,
-                                        'bots': [{'profile': 'default', 'status': 'ready', 'port': 9222}]})
+                                        'bots': [{'profile': 'default', 'status': STATE['bot_status'] or 'ready', 'port': 9222}]})
             if route == '/sessions':
                 return self.reply(200, listing())
             if route == '/chrome-profiles' and STATE['choice_feature']:
@@ -496,11 +497,20 @@ def handler(gateway):
             if path == '/__fixture/browser':
                 body = self.body()
                 with LOCK:
-                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'cloud_feature', 'cloud_all_feature', 'cloud_skip', 'hosted', 'plugin', 'frame_fps', 'dialog', 'driver'):
+                    for key in ('active', 'listed', 'url', 'ask', 'choice_feature', 'dialogs_feature', 'cloud_feature', 'cloud_all_feature', 'cloud_skip', 'hosted', 'plugin', 'frame_fps', 'dialog', 'driver', 'bot_status'):
                         if key in body:
                             STATE[key] = body[key]
                     if isinstance(body.get('blocked'), dict):
                         STATE['blocked'] = {str(k): str(v) for k, v in body['blocked'].items() if v}
+                    if body.get('listed') is False:
+                        # The browser closed (the plugin's stream.py: `ended`, reason closed, to every watcher).
+                        for watch in list(WATCHERS):
+                            try:
+                                watch.ws.send({'type': 'ended', 'reason': 'closed'})
+                            except OSError:
+                                pass
+                            watch.alive = False
+                            watch.ws.close()
                     bump()
                 return self.reply(200, {'ok': True})
             if path == '/__fixture/browser/reset':

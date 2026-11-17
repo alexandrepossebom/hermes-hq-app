@@ -347,6 +347,7 @@ final class AppModel: AppServices {
             // bots' photos (also when no Bots store was made).
             PluginListCache.shared.forget(account: leaving)
             CapabilitiesWarmCache.shared.forget(account: leaving.id)
+            BrowserLastPages.shared.purge(account: leaving.id)          // [last-page] the bots' last browser pages
             BotPhotoStore.purge(cacheDirectory: Self.listsCacheDirectory, account: leaving)
         }
         // [m2/pages] Jobs, Kanban and Artifacts caches go with the account (docs/spec/1x-pages.md §2.1, §2.5).
@@ -393,6 +394,7 @@ final class AppModel: AppServices {
         connection = client.state
         browser = BrowserService(rest: client, sockets: client)   // [browser]
         browser?.hostedGateway = CloudGatewayFlow.isCloud(account.baseURL)   // [cloud-hosted]
+        browser?.accountId = account.id                                  // [last-page]
         registerBrowserMenu()                                     // [browser]
         startPresence()                                           // [presence]
         screen = ScreenService(client: client)                    // [screen]

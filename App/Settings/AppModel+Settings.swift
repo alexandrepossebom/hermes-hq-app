@@ -209,6 +209,7 @@ import UIKit
         KeychainToolRuleVault(account: account.id).removeAll()            // [13-13] half-saved connectors' recovery copies
         PluginListCache.shared.forget(account: account)                   // [load-cache] files went with the pages'
         CapabilitiesWarmCache.shared.forget(account: account.id)          //   (it was never forgotten before)
+        BrowserLastPages.shared.purge(account: account.id)               // [last-page] the bots' last browser pages
         QueueStash.shared.purge(accountId: account.id)                    // verify round 3: messages kept queued
         LostSends.shared.purge(accountId: account.id)                     // [sessions-m9] the rows' "Not Delivered:" words
         SideResultStash.shared.purge(accountId: account.id)               // /btw and /bg results kept for the launch

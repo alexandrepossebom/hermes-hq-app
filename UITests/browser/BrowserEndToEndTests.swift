@@ -543,6 +543,51 @@ final class BrowserEndToEndTests: XCTestCase {
         attach("chat-this-chat-browsing")
     }
 
+    // MARK: 10. The last page: once the browser closes, the viewer keeps its last frame, and shows it again later
+
+    @MainActor func test10_LastPageStaysAfterTheBrowserCloses() throws {
+        // A Browser Use Cloud bot: no browser of its own, so once the cloud one closes there is none.
+        try account.control("/__fixture/browser", ["active": true, "bot_status": "cloud"])
+        launch()
+        openChat()
+        let chip = app.activityCategory("browser")
+        XCTAssertTrue(chip.waitForExistence(timeout: 15), "the browser card shows while the bot browses")
+        chip.tap()
+        let stage = app.descendants(matching: .any)["browser.stage"]
+        XCTAssertTrue(stage.waitForExistence(timeout: 10), "the viewer opens")
+        XCTAssertTrue(waitUntil(timeout: 15) { self.framesShown() >= 10 }, "frames are drawn (\(self.stageValue()))")
+        attach("last-page-1-live")
+
+        try account.control("/__fixture/browser", ["listed": false, "active": false])
+        let caption = app.staticTexts["browser.caption"]
+        XCTAssertTrue(waitUntil(timeout: 10) { caption.exists && caption.label.contains("browser has closed") },
+                      "the last page shows with its words: \(caption.exists ? caption.label : "none")")
+        XCTAssertTrue(stage.exists, "the page stays on screen")
+        XCTAssertFalse(app.staticTexts["browser.empty.title"].exists, "no \"Browser Closed\" page")
+        XCTAssertFalse(app.buttons["browser.take"].exists, "nothing to take control of")
+        XCTAssertEqual(app.textFields["browser.address"].value as? String, "example.test", "the address still says where")
+        attach("last-page-2-closed")
+
+        // Closed and opened again (⋯ › Watch Browser): the same page, not "No Browser Open".
+        app.buttons["browser.close"].tap()
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10))
+        app.buttons["chat.more"].firstMatch.tap()
+        let item = app.buttons["Watch Browser"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "⋯ has Watch Browser")
+        item.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { caption.exists && caption.label.contains("last page it showed") },
+                      "reopened, the last page shows: \(caption.exists ? caption.label : "none")")
+        XCTAssertTrue(stage.exists)
+        attach("last-page-3-reopened")
+
+        // The bot browses again: live once more.
+        try account.control("/__fixture/browser", ["listed": true, "active": true])
+        let take = app.buttons["browser.take"]
+        XCTAssertTrue(waitUntil(timeout: 15) { take.exists && take.isEnabled }, "a new browser is watched live")
+        XCTAssertFalse(caption.label.contains("browser has closed"), caption.label)
+        attach("last-page-4-live-again")
+    }
+
     /// With a 3.7 add-on there is nothing to offer.
     @MainActor func test8_CurrentAddOnOffersNothing() throws {
         try account.control("/__fixture/browser", ["active": true])

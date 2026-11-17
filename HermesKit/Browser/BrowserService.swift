@@ -101,6 +101,8 @@ nonisolated final class BrowserCloseOnce: Sendable {
     /// [cloud-hosted] The gateway is one Nous hosts (Hermes Cloud). The add-on is told (3.11+), so it starts no Chrome
     /// there and leaves each bot on the browser Hermes Cloud gives it until the person chooses Browser Use Cloud.
     var hostedGateway = false
+    /// [last-page] The signed-in account's id: the viewer keeps each bot's last page under it (`BrowserLastPages`).
+    var accountId: String?
 
     init(rest: any GatewayClient, sockets: any GatewayPluginSockets) {
         self.rest = rest

@@ -58,6 +58,14 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     private var session: BrowserWatchSession?
     private var own: OwnBrowser?? = .none
     private var ownPoll: Task<Void, Never>?
+    /// [last-page] The last page this bot's browser showed on this phone (kept from the frames drawn here, or saved
+    /// from an earlier watch). Shown still, with the time, once the browser has closed, in place of "Browser Closed".
+    private var lastPage: BrowserLastPage?
+    /// [last-page] The viewer shows `lastPage`, not a live browser.
+    private var showingLast = false
+    /// [last-page] The bot's last use of the browser when its watch ended: the same browser used again after that is
+    /// watched afresh.
+    private var endedAgentAt: Double?
     private var checkTask: Task<Void, Never>?
     private var appActive = UIApplication.shared.applicationState == .active
     private var observers: [NSObjectProtocol] = []
@@ -137,6 +145,10 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         view.backgroundColor = HQPalette.plainPage
         if DeviceWord.isMac { view.backgroundColor = HQPalette.groupedPage }   // [mac] Stress test 2026-10-28 round 7: the grouped page, as the other Mac pages
         title = "\(name)’s Browser"
+        if let account = service.accountId, let saved = BrowserLastPages.shared.page(account: account, profile: scope.profile),
+           saved.fits(scope) {
+            lastPage = saved
+        }
         let close = UIBarButtonItem.hqClose(action: UIAction { [weak self] _ in self?.closeTapped() })
         close.accessibilityIdentifier = "browser.close"
         navigationItem.hqPlaceClose(close)   // [mac] Stress test 2026-10-28 #55: trailing on the Mac, after the tabs
@@ -284,6 +296,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         caption.textColor = HQPalette.label2
         caption.numberOfLines = 0
         caption.textAlignment = .center
+        caption.accessibilityIdentifier = "browser.caption"
         caption.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(caption)
 
@@ -391,6 +404,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         updateShown()
+        flushLastPage()
     }
 
     override func viewDidLayoutSubviews() {
@@ -522,9 +536,13 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
 
     private func rowsChanged() {
         let row = self.row
-        if let row, row.id != session?.rowId {
+        // [last-page] A browser that ended and is listed again with a newer use (the same id opened once more) is
+        // watched afresh, not left on its last page.
+        let reopened = session?.ended == true && row.map { $0.agentAt > (endedAgentAt ?? .infinity) } == true
+        if let row, row.id != session?.rowId || reopened {
             session?.stop()
             stage.clear()
+            endedAgentAt = nil
             let watch = BrowserWatchSession(service: service, rowId: row.id, base: plugin?.base ?? BrowserWire.plugin,
                                             profile: row.profile, name: name)
             wire(watch)
@@ -553,12 +571,21 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     }
 
     private func wire(_ watch: BrowserWatchSession) {
-        watch.onChange = { [weak self] in self?.render() }
-        watch.onFrame = { [weak self] image, frame in
+        watch.onChange = { [weak self, weak watch] in
+            guard let self else { return }
+            if let watch, watch.ended, self.endedAgentAt == nil {
+                // [last-page] Closed: the last frame drawn is saved now, and stays on the stage.
+                self.endedAgentAt = self.row?.agentAt ?? 0
+                self.flushLastPage()
+            }
+            self.render()
+        }
+        watch.onFrame = { [weak self, weak watch] image, frame in
             guard let self else { return }
             self.stage.show(image, pageSize: CGSize(width: frame.width, height: frame.height))
+            if let watch { self.keepLastPage(frame, watch) }
             #if DEBUG
-            self.stage.accessibilityValue = watch.pacing.summary
+            self.stage.accessibilityValue = watch?.pacing.summary
             #endif
         }
         watch.onNotice = { [weak self] text, warning in self?.showNotice(text, warning: warning) }
@@ -572,6 +599,28 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
             // [presence] Through the one way out, so a page presented over the viewer goes with it.
             if self.presentingViewController != nil { self.close() }
         }
+    }
+
+    /// [last-page] The frame just drawn becomes this bot's last page (in memory now, on disk shortly).
+    private func keepLastPage(_ frame: BrowserFrame, _ watch: BrowserWatchSession) {
+        let tab = watch.view?.currentTab
+        let row = self.row
+        let page = BrowserLastPage(jpeg: frame.jpeg, width: frame.width, height: frame.height, url: tab?.url ?? row?.url,
+                                   title: tab?.title, sessionId: row.map(\.driver), at: Date())
+        lastPage = page
+        guard let account = service.accountId else { return }
+        BrowserLastPages.shared.keep(page, account: account, profile: scope.profile)
+    }
+
+    private func flushLastPage() {
+        guard let account = service.accountId else { return }
+        BrowserLastPages.shared.flush(account: account, profile: scope.profile)
+    }
+
+    /// [last-page] Puts the last page on the stage when it holds nothing (a viewer opened after the browser closed).
+    private func showLastPageOnStage(_ page: BrowserLastPage) {
+        guard !stage.hasFrame, let image = BrowserFrameDecoder.decode(page.jpeg) else { return }
+        stage.show(image, pageSize: CGSize(width: page.width, height: page.height))
     }
 
     private func sendViewSize() {
@@ -590,6 +639,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         let live = session.map { $0.page != nil && $0.view != nil && $0.link != .stalled } ?? false
         // The empty states.
         var emptyState: EmptyState?
+        var last = false
         switch setup {
         case .checking: emptyState = EmptyState(true, false, "", "", nil)
         case .failed(let message):
@@ -617,10 +667,13 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
             emptyState = EmptyState(false, true, copy.title, copy.body, action)
         case .ready:
             if let session, session.ended {
-                emptyState = EmptyState(false, true, "Browser Closed", "When \(name) opens a web page, you’ll see it here live.", nil)
+                if lastPage != nil { last = true }
+                else { emptyState = EmptyState(false, true, "Browser Closed", "When \(name) opens a web page, you’ll see it here live.", nil) }
             } else if session == nil {
                 if !service.activity.connected {
                     emptyState = EmptyState(true, false, "Connecting…", "", nil)
+                } else if lastPage != nil, BrowserLastPage.replaces(own) {
+                    last = true
                 } else {
                     let why = BrowserEmptyCopy.noBrowser(own, name: name)
                     var action: EmptyAction?
@@ -637,6 +690,8 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
                               stalled ? "It may be busy or restarting. Hermes HQ keeps trying." : (session?.link == .reconnecting ? "Reconnecting…" : "Connecting…"), nil)
             }
         }
+        showingLast = last
+        if last, let lastPage { showLastPageOnStage(lastPage) }
         if let e = emptyState {
             empty.isHidden = false
             emptySpinner.isHidden = !e.spinner
@@ -659,12 +714,12 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         }
         stage.isHidden = emptyState != nil && !live
         let hasPage = session != nil && setup == .ready
-        address.isHidden = !hasPage
+        address.isHidden = !hasPage && !last
         // The address: the site's host, or the whole address while the person edits it.
         let tab = state?.currentTab
-        let site = BrowserAddress(tab?.url ?? row?.url)
+        let site = BrowserAddress(last ? lastPage?.url : tab?.url ?? row?.url)
         if !editingAddress {
-            address.text = site.host.isEmpty ? (live ? "" : "Loading…") : site.host
+            address.text = site.host.isEmpty ? (live || last ? "" : "Loading…") : site.host
             address.showsLock = site.secure
         }
         let blank = live && tab.map { BrowserAddress.isBlank($0.url) } == true && !editingAddress
@@ -672,7 +727,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         (blankNote.viewWithTag(1) as? UILabel)?.text = mine ? "Type an address above to open a page." : "\(name) hasn’t opened a page in its browser."
         // The bot's question (browser_ask_user), while it still drives.
         let ask = state?.ask ?? row?.ask
-        let asking = hasPage && ask != nil && (state?.control.state ?? .bot) == .bot
+        let asking = hasPage && !last && ask != nil && (state?.control.state ?? .bot) == .bot
         askHidden?.isActive = !asking
         askCard.isHidden = !asking
         askTitle.text = "\(name) needs you"
@@ -703,7 +758,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
             navigationItem.rightBarButtonItem = nil
         }
         followFieldFocus()
-        renderBar(live: live, hasPage: hasPage)
+        renderBar(live: live, hasPage: hasPage, last: last ? lastPage.map { BrowserLastPage.caption(name: name, at: $0.at) } : nil)
         if session?.link == .reconnecting && live && notice.isHidden { showNotice("Reconnecting…", warning: false, keep: true) }
         if session?.link == .live, notice.text == "Reconnecting…" { hideNotice() }
     }
@@ -725,7 +780,8 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     /// The width the bar was last laid out for: a new one (rotation, a resized window) lays it out again.
     private var barWidth: CGFloat = 0
 
-    private func renderBar(live: Bool, hasPage: Bool) {
+    /// `last`: the last page shows (the words under it); no buttons, there is no browser to drive.
+    private func renderBar(live: Bool, hasPage: Bool, last: String? = nil) {
         let mine = session?.mine ?? false, waiting = session?.waiting ?? false, someoneElse = session?.someoneElse ?? false
         let link = session?.link ?? .idle
         // [a11y] At accessibility text sizes, or whenever the one row would run past the margins (Extra Large on a
@@ -734,7 +790,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         let large = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
         let width = view.safeAreaLayoutGuide.layoutFrame.width
         barWidth = width
-        let signature = !hasPage ? "none" : mine ? "mine:\(typing):\(large):\(traitCollection.preferredContentSizeCategory.rawValue):\(Int(width))" : waiting ? "waiting" : someoneElse ? "other" : "watch:\(live && link == .live)"
+        let signature = last.map { "last:\($0)" } ?? (!hasPage ? "none" : mine ? "mine:\(typing):\(large):\(traitCollection.preferredContentSizeCategory.rawValue):\(Int(width))" : waiting ? "waiting" : someoneElse ? "other" : "watch:\(live && link == .live)")
         guard signature != barSignature else { return }
         barSignature = signature
         bar.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -743,6 +799,11 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         barFull?.isActive = false
         caption.text = nil
         caption.isHidden = true
+        if let last {
+            caption.text = last
+            caption.isHidden = false
+            return
+        }
         guard hasPage else { return }
         if mine {
             let icons = UIStackView()
@@ -1226,6 +1287,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     func stageZoomed() { sendViewSize() }
 
     func stageWatchTap() {
+        if showingLast { return }   // [last-page] a still picture: nothing to take control of
         // [mac] A pinch brings no touches on the Mac, so there is no zoom to offer.
         showHint("\(DeviceWord.Tap) Take Control to click, scroll and type on this page." + (DeviceWord.isMac ? "" : " Pinch to zoom."))
     }
@@ -1236,7 +1298,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
 
     /// Only while in control. Watching, a tap says how to get control, as a tap on the page does (it did nothing).
     func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool {
-        guard let session else { return false }
+        guard let session, !showingLast else { return false }
         if session.mine { return true }
         if !session.someoneElse && !session.waiting { stageWatchTap() }
         return false
