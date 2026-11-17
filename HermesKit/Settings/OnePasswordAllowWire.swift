@@ -20,6 +20,10 @@ nonisolated enum OnePasswordAllowWire {
     /// What the unlock card is answered with once the key is saved, in place of a master password. The add-on reads
     /// it; an add-on without the feature never gets it (the button isn't shown).
     static let allowed = "\u{1D}hermes-hq:allowed-in-1password"
+    /// What the unlock card is answered with when the person is on their phone, away from Hermes's computer: the
+    /// add-on (`phone` in its status) refuses the unlock with words that send the bot to ask for the login itself,
+    /// which the phone's own 1Password fills into the login sheet (Face ID there).
+    static let fillOnPhone = "\u{1D}hermes-hq:fill-on-phone"
     /// The vault the add-on makes when asked.
     static let newVault = "Hermes"
 
@@ -32,6 +36,8 @@ nonisolated enum OnePasswordAllowWire {
     struct Status: Equatable, Sendable {
         /// The add-on has the feature and 1Password's command-line tool is on Hermes's computer.
         var supported = false
+        /// The add-on takes `fillOnPhone` on the unlock card.
+        var phone = false
         /// This bot has a key (ours or one somebody set by hand).
         var connected = false
         /// The key is the one this feature made: its vaults are known and Disconnect removes it.
@@ -51,7 +57,7 @@ nonisolated enum OnePasswordAllowWire {
     static func status(_ body: [String: Any]?) -> Status {
         guard let body else { return Status() }
         func flag(_ key: String) -> Bool { (body[key] as? NSNumber)?.boolValue == true }
-        return Status(supported: flag("supported"), connected: flag("connected"), ours: flag("ours"),
+        return Status(supported: flag("supported"), phone: flag("phone"), connected: flag("connected"), ours: flag("ours"),
                       vaults: (body["vaults"] as? [Any] ?? []).compactMap { $0 as? String },
                       bots: (body["bots"] as? NSNumber)?.intValue ?? 0)
     }

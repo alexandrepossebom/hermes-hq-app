@@ -226,7 +226,7 @@ def onepassword_route(method, path, body):
     source = next((x for x in S['vault']['sources'] if x['name'] == 'onepassword'), None)
     rest = path[len(OP_ROUTE):]
     if rest == '' and method == 'GET':
-        return 200, {'ok': True, 'supported': True, 'connected': OP['connected'], 'ours': OP['connected'],
+        return 200, {'ok': True, 'supported': True, 'phone': True, 'connected': OP['connected'], 'ours': OP['connected'],
                      'vaults': OP['vaults'], 'name': 'Hermes HQ studio', 'bots': 3 if OP['connected'] else 0}
     if rest == '' and method == 'DELETE':
         OP.update(connected=False, vaults=[])

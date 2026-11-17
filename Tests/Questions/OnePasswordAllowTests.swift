@@ -177,6 +177,16 @@ struct OnePasswordAllowTests {
         #expect(Wire.allowed.unicodeScalars.first?.value == 0x1D)   // never something a person types
     }
 
+    @Test func onAPhoneThePageStartsOnTheChoiceAndAsksNothingYet() async {
+        let addOn = AddOn()
+        let model = OnePasswordAllowModel(choosing: true)
+        model.call = addOn.call
+        model.resume()
+        #expect(model.phase == .pick && addOn.calls.isEmpty)   // the computer's 1Password isn't asked until chosen
+        #expect(Wire.status(["supported": true, "phone": true]).phone && !Wire.status(["supported": true]).phone)
+        #expect(Wire.fillOnPhone != Wire.allowed && Wire.fillOnPhone.unicodeScalars.first?.value == 0x1D)
+    }
+
     @Test func aTuckedPagePicksTheSameRequestUp() async {
         let addOn = AddOn()
         let route = Wire.route + "/allow"

@@ -291,7 +291,10 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
               let stack = navigationController ?? navigation, stack.viewControllers.first === self else { return }
         allowOpened = true
         view.endEditing(true)
-        let page = OnePasswordAllowView.controller(done: { [weak self, weak stack] _, _ in
+        // On a phone the person is rarely at Hermes's computer: 1Password on this device comes first (the add-on
+        // sends the bot to ask for the login, which 1Password here fills). The Mac asks its own 1Password at once.
+        let onPhone = !DeviceWord.isMac && OnePasswordAllowModel.known.phone
+        let page = OnePasswordAllowView.controller(model: OnePasswordAllowModel(choosing: onPhone), done: { [weak self, weak stack] _, _ in
             guard let self else { return }
             stack?.setViewControllers([self], animated: false)
             self.send(OnePasswordAllowWire.allowed)   // the card is answered with the saved key; the bot signs in
@@ -299,13 +302,17 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
             guard let self else { return }
             stack?.setViewControllers([self], animated: true)
             self.fields.first?.becomeFirstResponder()
+        }, fillOnThisDevice: !onPhone ? nil : { [weak self, weak stack] in
+            guard let self else { return }
+            stack?.setViewControllers([self], animated: false)
+            self.send(OnePasswordAllowWire.fillOnPhone)
         })
         let close = UIBarButtonItem.hqClose(action: nil)   // every close tucks, as this sheet's own
         close.accessibilityIdentifier = "sheet.close"
         close.primaryAction = UIAction(title: close.title ?? "") { [weak self] _ in self?.tuck() }
         page.navigationItem.hqPlaceFormClose(close)
         let title = SheetTitleLabel()
-        title.text = "Allow in 1Password"
+        title.text = onPhone ? "1Password" : "Allow in 1Password"
         title.textAlignment = .center
         title.accessibilityTraits = .header
         page.navigationItem.titleView = title

@@ -11,6 +11,7 @@ import UIKit
 
 @MainActor @Observable final class OnePasswordAllowModel {
     enum Phase: Equatable {
+        case pick                                     // on a phone: 1Password here, or on the computer
         case asking                                   // sending the request
         case waiting                                  // the 1Password app shows Allow on Hermes's computer
         case choose([OnePasswordAllowWire.Vault])
@@ -20,6 +21,9 @@ import UIKit
     }
 
     private(set) var phase: Phase = .asking
+
+    /// `choosing`: start on the phone's choice instead of asking the computer's 1Password at once.
+    init(choosing: Bool = false) { if choosing { phase = .pick } }
     var picked: Set<String> = []
     var makeNew = false
 
@@ -112,7 +116,7 @@ import UIKit
             run = Task { [weak self] in await self?.follow(until: { if case .waiting = $0 { false } else { true } }) }
         case .making:
             run = Task { [weak self] in await self?.follow(until: { if case .making = $0 { false } else { true } }) }
-        case .choose, .done, .failed: break
+        case .pick, .choose, .done, .failed: break
         }
     }
 
@@ -164,10 +168,13 @@ struct OnePasswordAllowView: View {
     let done: (_ bots: Int, _ vaults: [String]) -> Void
     /// Offered when 1Password couldn't be asked; nil where a master password field is already in reach.
     var useMasterPassword: (() -> Void)?
+    /// On a phone, from a bot's unlock card: the person fills the login from 1Password on this device instead.
+    var fillOnThisDevice: (() -> Void)?
 
     var body: some View {
         List { Group {
             switch model.phase {
+            case .pick: pick
             case .asking: LoadingSection(text: "Asking 1Password…")
             case .waiting: waiting
             case .choose(let vaults): choose(vaults)
@@ -188,6 +195,42 @@ struct OnePasswordAllowView: View {
             }
         }
         .accessibilityIdentifier("onepassword.allow")
+    }
+
+    /// Owner 2026-11-16, on the phone with the sheet waiting for a click on the computer: "it needs to open up in
+    /// the 1Password app on my phone because that's where I am. I'm not on my computer." 1Password's own Allow only
+    /// shows on the computer, so on a phone the sheet leads with the phone's 1Password: the bot asks for the login,
+    /// and 1Password here fills it with Face ID.
+    private var pick: some View {
+        Section {
+            Button {
+                Haptics.play(.selection)
+                fillOnThisDevice?()
+            } label: {
+                choice("Fill From 1Password on This \(DeviceWord.name)",
+                       "The login sheet opens next. Tap the key above the keyboard, pick the login in 1Password, and it’s saved for this site.")
+            }
+            .accessibilityIdentifier("onepassword.on-device")
+            Button {
+                Haptics.play(.selection)
+                model.start()
+            } label: {
+                choice("Allow on the Computer Instead",
+                       "One click in 1Password on \(HostWord.phrase), once. Your bots then use every login in the vaults you pick.")
+            }
+            .accessibilityIdentifier("onepassword.on-computer")
+        } footer: { HQSectionFooter {
+            Text("No master password either way.")
+        } }
+    }
+
+    private func choice(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(Font.hq(.body).weight(.semibold)).foregroundStyle(Color.hqLabel)
+            Text(detail).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private var waiting: some View {
@@ -281,8 +324,10 @@ extension OnePasswordAllowView {
     /// The page as a controller, for a UIKit navigation stack (the unlock sheet's).
     @MainActor static func controller(model: OnePasswordAllowModel = OnePasswordAllowModel(),
                                       done: @escaping (_ bots: Int, _ vaults: [String]) -> Void,
-                                      useMasterPassword: (() -> Void)? = nil) -> UIViewController {
-        let host = UIHostingController(rootView: OnePasswordAllowView(model: model, done: done, useMasterPassword: useMasterPassword))
+                                      useMasterPassword: (() -> Void)? = nil,
+                                      fillOnThisDevice: (() -> Void)? = nil) -> UIViewController {
+        let host = UIHostingController(rootView: OnePasswordAllowView(model: model, done: done, useMasterPassword: useMasterPassword,
+                                                                      fillOnThisDevice: fillOnThisDevice))
         host.title = "Allow in 1Password"
         host.view.backgroundColor = .clear
         return host
