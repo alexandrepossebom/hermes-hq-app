@@ -22,6 +22,11 @@ final class PageCardView: UIControl {
         pictureHeight + padV + style.bodyLineHeight + 2 + style.timeLineHeight + padV
     }
 
+    /// [page-fold] A card folded to its caption (the page is handed over again further down).
+    nonisolated static func foldedHeight(style: ChatStyle) -> CGFloat {
+        padV + style.bodyLineHeight + 2 + style.timeLineHeight + padV
+    }
+
     nonisolated static func width(maxText: CGFloat) -> CGFloat { min(maxText, widest) }
 
     var onOpen: ((MediaRef) -> Void)?
@@ -32,6 +37,11 @@ final class PageCardView: UIControl {
     private let pinBadge = UIImageView(image: UIImage(systemName: "pin.fill"))
     private var context: MediaContext?
     private var dark = false
+    /// [page-fold] Only the caption shows: a later message hands the page over again.
+    private var folded = false
+    /// [page-cards] The reply that hands the page over is still arriving: the page's shape, no picture yet (the bot
+    /// may still be writing the file).
+    private var building = false
     private let pictureFrame = UIView()
     private let picture = UIImageView()
     /// [page-refine] Until the page is pictured: the shape of a page with a soft light crossing it, not a grey chart
@@ -78,6 +88,11 @@ final class PageCardView: UIControl {
         PointerEffects.surface(self)   // [mac] Feel list B: lit under the pointer, deeper while pressed
         NotificationCenter.default.addObserver(self, selector: #selector(turnEnded(_:)), name: PageSnapshots.turnEnded, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(pinsChanged), name: ArtifactPins.didChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(headLearnt), name: PageSnapshots.headLearnt, object: nil)
+    }
+
+    @objc private func headLearnt() {
+        if let ref { showName(ref, context: context) }
     }
 
     @objc private func pinsChanged() { showPinned() }
@@ -85,12 +100,12 @@ final class PageCardView: UIControl {
     private func showPinned() {
         guard let context, let path = ref?.attachment.gatewayPath else { pinBadge.isHidden = true; return }
         let pinned = ArtifactPins.of(accountId: context.accountId).isPinned(profile: context.profile, value: path)
-        pinBadge.isHidden = !pinned
+        pinBadge.isHidden = !pinned || folded
         accessibilityValue = pinned ? "Pinned" : nil
     }
 
     @objc private func turnEnded(_ note: Notification) {
-        guard (note.object as? ContextBox)?.context == context else { return }
+        guard (note.object as? ContextBox)?.context == context, !folded else { return }
         loadPicture()
     }
 
@@ -98,19 +113,30 @@ final class PageCardView: UIControl {
 
     override var isHighlighted: Bool { didSet { alpha = PointerEffects.dim(isHighlighted, to: 0.6) } }
 
-    func configure(_ ref: MediaRef, context: MediaContext?, style: ChatStyle) {
+    func configure(_ ref: MediaRef, context: MediaContext?, style: ChatStyle, folded: Bool = false, building: Bool = false) {
         layer.cornerRadius = HQShape.radius(12, .card)
         layer.cornerCurve = .continuous
         nameLabel.font = style.bodyBold
         hintLabel.font = style.time
-        showName(ref, context: context)
         let isDark = traitCollection.userInterfaceStyle == .dark
-        guard self.ref != ref || self.context != context || dark != isDark else { showPinned(); return }
+        #if DEBUG
+        let building = building || UserDefaults.standard.bool(forKey: "HQDebugPageBuilding")   // the wait, held for a picture
+        #endif
+        let same = self.ref == ref && self.context == context && dark == isDark && self.folded == folded && self.building == building
+        self.folded = folded
+        self.building = building
+        showName(ref, context: context)
+        openGlyph.image = UIImage(systemName: folded ? "arrow.down" : "arrow.up.left.and.arrow.down.right")
+        for view in [pictureFrame, rule] as [UIView] { view.isHidden = folded }
+        if folded { skeleton.vanish(animated: false) }
+        setNeedsLayout()
+        guard !same else { showPinned(); return }
         self.ref = ref
         self.context = context
         dark = isDark
         showPinned()
-        loadPicture()
+        if folded { return }
+        if building, picture.image == nil { show(nil) } else { loadPicture() }
     }
 
     /// [page-refine] The page's own title over its file ("Replies per 100 follow-ups" over "followups.html") once the
@@ -118,15 +144,12 @@ final class PageCardView: UIControl {
     private func showName(_ ref: MediaRef, context: MediaContext?) {
         let file = ref.attachment.name
         let title = context.flatMap { context in ref.attachment.gatewayPath.flatMap { PageSnapshots.shared.head(path: $0, context: context)?.title } }
-        if let title, !title.isEmpty, title.caseInsensitiveCompare(file) != .orderedSame {
-            nameLabel.text = title
-            hintLabel.text = "Interactive page · \(file)"
-            accessibilityLabel = "Page, \(title), \(file)"
-        } else {
-            nameLabel.text = file
-            hintLabel.text = "Interactive page"
-            accessibilityLabel = "Page, \(file)"
-        }
+        let named = title.map { !$0.isEmpty && $0.caseInsensitiveCompare(file) != .orderedSame } ?? false
+        nameLabel.text = named ? title : file
+        // What the second line says: folded, where the page went; while the reply arrives, that it is on its way.
+        let kind = folded ? "Updated below" : building && picture.image == nil ? "Building page…" : "Interactive page"
+        hintLabel.text = named && !folded ? "\(kind) · \(file)" : kind
+        accessibilityLabel = "Page, \(named ? "\(title ?? file), \(file)" : file)\(folded ? ", updated below" : "")"
     }
 
     func reset() {
@@ -187,7 +210,7 @@ final class PageCardView: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         let w = bounds.width
-        let h = Self.pictureHeight
+        let h: CGFloat = folded ? 0 : Self.pictureHeight
         pictureFrame.frame = CGRect(x: 0, y: 0, width: w, height: h)
         // The page's chart (or its top) fitted whole into the card, centred on the page's colour.
         if let image = picture.image, image.size.width > 0, image.size.height > 0 {

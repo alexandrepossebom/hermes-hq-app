@@ -79,6 +79,12 @@ struct ChatRowModel {
         var lo = min(messages.count, max(builtFrom, min(lo, messages.count)))
         // [updates] From the start of an update group the region reaches into: its line counts what follows.
         if lo < messages.count { lo = max(builtFrom, UpdateGroups.widen(lo...lo, input: input).lowerBound) }
+        // [page-fold] Back to the first card of any page these messages hand over: it folds ("Updated below") once a
+        // later message hands the page over again.
+        if lo < messages.count {
+            let reach = PageOrder.reach(from: lo, floor: builtFrom, in: messages)
+            if reach < lo { lo = max(builtFrom, UpdateGroups.widen(reach...reach, input: input).lowerBound) }
+        }
         // [chat-refine] A reply's time reads up to minuteReach later messages: rebuild that many earlier ones when
         // any of them changes, not just those in the newest minute. Missing timestamps and edits in an older minute
         // must agree with a full build too. The bounded eight-message reach keeps this cheap.

@@ -383,7 +383,8 @@ final class BlockView: UIView, UIScrollViewDelegate {
             }()
             view.isHidden = false
             view.frame = CGRect(origin: .zero, size: placed.frame.size)
-            view.configure(ref, context: placed.pageContext, style: ChatStyleCache.shared.style(for: traitCollection.preferredContentSizeCategory))
+            view.configure(ref, context: placed.pageContext, style: ChatStyleCache.shared.style(for: traitCollection.preferredContentSizeCategory),
+                           folded: placed.pageFolded, building: placed.pageBuilding)
         } else if let pageCard {
             pageCard.isHidden = true
             pageCard.reset()

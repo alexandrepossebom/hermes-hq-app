@@ -85,6 +85,9 @@ nonisolated struct BubbleRow {
     var files: [FileItem] = []
     /// [attachments] The chat's media context, for a reply's markdown media (`#media:` links, images).
     var mediaContext: MediaContext? = nil
+    /// [page-fold] Pages this bubble hands over that a later message hands over again (`PageOrder`): their cards fold
+    /// to one line, "Updated below".
+    var pagesUpdatedBelow: Set<String> = []
     /// [attachments] Reply pictures the gateway refused (path → their row's words): drawn as file rows.
     var mediaUnavailable: [String: String] = [:]
     /// [attachments] Reply pictures' pixel sizes learnt by loading them (`MessageAttachment.sizeKey` → size).
@@ -821,6 +824,7 @@ nonisolated enum ChatRowBuilder {
                    joined.media.isEmpty {                     // a picture card isn't words: they get their own bubble
                     joined.text += "\n\n" + text
                     joined.streaming = m.isStreaming
+                    joined.pagesUpdatedBelow = PageOrder.updatedBelow(joined.text, messageId: m.id, in: input.messages)
                     let prior = rows[last]
                     rows[last] = ChatRow(id: prior.id, messageId: m.id, scope: input.scope,
                                          fingerprint: bubbleFingerprint(joined.text, mine: false, speaker: joined.speaker,
@@ -836,6 +840,7 @@ nonisolated enum ChatRowBuilder {
                                        speaker: speaker,
                                        openCode: openCode(id, input.expanded))
                 bubble.mediaContext = input.media.context                                                  // [attachments]
+                bubble.pagesUpdatedBelow = PageOrder.updatedBelow(text, messageId: m.id, in: input.messages)   // [page-fold]
                 bubble.mediaUnavailable = input.media.unavailable
                 bubble.mediaSizes = input.media.replySizes[m.id] ?? [:]
                 bubble.sender = m.sender                                                                   // [groups]
@@ -1223,6 +1228,8 @@ nonisolated enum ChatRowBuilder {
             hasher.combine(bubble.memo)   // VOICE
             // A settled reply's code is highlighted: its layout (same geometry, new colours) is made again once.
             hasher.combine(bubble.streaming)
+            // [page-fold] Only when set: other rows keep their layouts.
+            if !bubble.pagesUpdatedBelow.isEmpty { hasher.combine(bubble.pagesUpdatedBelow) }
             // [groups] Only when set: chats without senders keep the layouts they had.
             if bubble.senderInset {
                 hasher.combine(bubble.sender); hasher.combine(bubble.showsSenderName); hasher.combine(bubble.showsSenderFace)

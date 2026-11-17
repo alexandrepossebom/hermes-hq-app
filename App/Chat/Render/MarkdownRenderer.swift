@@ -136,7 +136,8 @@ nonisolated enum MarkdownRenderer {
     /// `filePaths`: a path in inline code is a link that opens the file (`FileLinks`): a bot's reply in the chat.
     /// `streaming`: the reply is still arriving (an unclosed thinking tag on its own line hides what follows it).
     static func render(_ markdown: String, style: ChatStyle, theme: MarkdownTheme = .bot, highlight: Bool = false,
-                       linkChips: Bool = false, filePaths: Bool = false, streaming: Bool = false) -> RenderedMarkdown {
+                       linkChips: Bool = false, filePaths: Bool = false, streaming: Bool = false,
+                       pageCards: Bool = false) -> RenderedMarkdown {
         // Copy, Share and VoiceOver start from `plainText`: the reply as written, less its hidden thinking.
         let shown = ReasoningTags.strip(markdown, streaming: streaming)
         if markdown.utf16.count > plainTextLimit {
@@ -153,12 +154,12 @@ nonisolated enum MarkdownRenderer {
             // Within the limits but deeply nested: parse where the stack is big (the recursion is per nesting level).
             let rendered = BigStackRunner.shared.run {
                 UncheckedSendable(parse(source, style: style, theme: theme, highlight: highlight, linkChips: linkChips,
-                                        filePaths: filePaths, formulas: formulas, plainText: shown))
+                                        filePaths: filePaths, pageCards: pageCards, formulas: formulas, plainText: shown))
             }
             return rendered.value
         case .simple:
             return parse(source, style: style, theme: theme, highlight: highlight, linkChips: linkChips,
-                         filePaths: filePaths, formulas: formulas, plainText: shown)
+                         filePaths: filePaths, pageCards: pageCards, formulas: formulas, plainText: shown)
         }
     }
 
@@ -189,12 +190,13 @@ nonisolated enum MarkdownRenderer {
     }
 
     private static func parse(_ source: String, style: ChatStyle, theme: MarkdownTheme, highlight: Bool,
-                              linkChips: Bool = false, filePaths: Bool = false,
+                              linkChips: Bool = false, filePaths: Bool = false, pageCards: Bool = false,
                               formulas: [MathText.Span.Taken] = [], plainText: String) -> RenderedMarkdown {
         let document = Document(parsing: source, options: [.disableSmartOpts, .disableSourcePosOpts])
         var builder = BlockBuilder(style: style, theme: theme)
         builder.highlight = highlight
         builder.linkChips = linkChips
+        builder.pageCards = pageCards || linkChips
         builder.filePaths = filePaths
         builder.formulas = formulas
         builder.blocks(of: document)
@@ -330,6 +332,9 @@ nonisolated private struct BlockBuilder {
     var highlight = false
     /// [transcript] The chat's replies: a bare web address alone on its paragraph gets a chip (§3.7).
     var linkChips = false
+    /// [page-cards] A page alone on its line is a page card: a bot's reply in the chat, settled or still arriving (the
+    /// card is the same size either way, so the reply settling moves nothing; it was a file's row until then).
+    var pageCards = false
     /// A path in inline code opens the file (`FileLinks`).
     var filePaths = false
     /// [transcript] F17: the reply's formulas, by the index their tokens carry (`MathText.extract`).
@@ -365,7 +370,7 @@ nonisolated private struct BlockBuilder {
             if let refs = MarkdownMedia.mediaOnly(p) {                       // [attachments] spec §7.5
                 flush()
                 // A settled reply's pages: each a page card (the desktop draws them live in the reply).
-                if linkChips, refs.allSatisfy(MarkdownRenderer.isPage) {
+                if pageCards, refs.allSatisfy(MarkdownRenderer.isPage) {
                     out.append(contentsOf: refs.map(MarkdownBlock.pageCard))
                     return
                 }

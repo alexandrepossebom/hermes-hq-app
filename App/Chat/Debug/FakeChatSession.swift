@@ -904,10 +904,21 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
             + "Drag the red line to where a follow-up stops being worth it, and the table shows which attempt to stop at for each "
             + "channel and how much time that frees up.\n\n::preview{file=\"\(path)\"}\n\n**At 1 reply per 100 follow-ups, here's where to stop:**\n\n"
             + "- **Skip entirely:** List A, List B, List C, List D.\n- **Stop early:** Web Form after attempt 3, Partner B after 4."
-        return [
+        var thread = [
             ChatMessage(id: "pg-u1", role: .user, parts: [.text(ask)], timestamp: now.addingTimeInterval(-120), rowId: nil),
             ChatMessage(id: "pg-a1", role: .assistant, parts: [.text(reply)], timestamp: now.addingTimeInterval(-60), rowId: nil),
         ]
+        // `-HQDemoPageTwice YES`: you comment on the page and the bot hands it over again (the first card folds).
+        if UserDefaults.standard.bool(forKey: "HQDemoPageTwice") {
+            let file = (path as NSString).lastPathComponent
+            thread += [
+                ChatMessage(id: "pg-u2", role: .user, parts: [.text("On \(file), about the chart “Replies by attempt”:\nMake the stop line thicker")],
+                            timestamp: now.addingTimeInterval(-40), rowId: nil),
+                ChatMessage(id: "pg-a2", role: .assistant, parts: [.text("Done. The stop line is twice as thick now.\n\n::preview{file=\"\(path)\"}")],
+                            timestamp: now.addingTimeInterval(-20), rowId: nil),
+            ]
+        }
+        return thread
     }
 
     /// [voice record] `-HQDemoVoiceRecord`: a typed exchange, then what a live voice chat left in the chat.

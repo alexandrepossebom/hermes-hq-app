@@ -484,6 +484,9 @@ nonisolated struct PlacedBlock: @unchecked Sendable {
     var media: BlockMedia? = nil
     /// A page card's chat (where its page is read from).
     var pageContext: MediaContext? = nil
+    /// [page-fold] The card is folded to its caption ("Updated below"); [page-cards] the reply is still arriving.
+    var pageFolded = false
+    var pageBuilding = false
 }
 
 /// [attachments] What a `.media` block draws (docs/spec/1x-attachments.md §7.5), relative to the block.
@@ -883,7 +886,8 @@ nonisolated enum TextLayout {
             r = MarkdownRenderer.render(b.text, style: style, theme: b.mine ? .me : .bot, highlight: highlight,
                                         linkChips: !b.mine && !b.streaming,   // [transcript] §3.7: chips under a settled reply's bare links
                                         filePaths: !b.mine,                    // a path the bot names opens in Files
-                                        streaming: b.streaming)
+                                        streaming: b.streaming,
+                                        pageCards: !b.mine)                    // [page-cards] also while the reply arrives
         } else {
             r = RenderedMarkdown(blocks: [.text(MarkdownRenderer.plain(b.text, style: style, theme: b.mine ? .me : .bot))],
                                  plainText: b.text)
@@ -1207,12 +1211,17 @@ nonisolated enum TextLayout {
                                           contentWidth: w, contentHeight: h, layoutWidth: nil, pieces: [], codeOpen: nil))
                 contentWidth = max(contentWidth, w)
                 y += h
-            case .pageCard:
-                let w = PageCardView.width(maxText: maxText), h = PageCardView.height(style: style)
+            case .pageCard(let ref):
+                // [page-fold] A page handed over again further down folds to its caption.
+                let folded = ref.attachment.gatewayPath.map(b.pagesUpdatedBelow.contains) ?? false
+                let w = PageCardView.width(maxText: maxText)
+                let h = folded ? PageCardView.foldedHeight(style: style) : PageCardView.height(style: style)
                 y += 6
                 var p = PlacedBlock(block: block, frame: CGRect(x: 0, y: y, width: w, height: h), textFrame: .zero,
                                     contentWidth: w, contentHeight: h, layoutWidth: nil, pieces: [], codeOpen: nil)
                 p.pageContext = b.mediaContext
+                p.pageFolded = folded
+                p.pageBuilding = b.streaming
                 placed.append(p)
                 contentWidth = max(contentWidth, w)
                 y += h + 4

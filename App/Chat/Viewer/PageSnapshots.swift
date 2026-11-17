@@ -12,6 +12,8 @@ import WebKit
 
     /// Posted when a chat's turn ends; `object` is the chat's `MediaContext` (boxed). Open pages reload, pictures redraw.
     static let turnEnded = Notification.Name("hq.page.turnEnded")
+    /// Posted when a page's title is read for the first time or has changed (`head`).
+    static let headLearnt = Notification.Name("hq.page.headLearnt")
 
     /// The width a page is drawn at: a phone's column, so a page laid out for a phone pictures as it will open.
     static let drawWidth: CGFloat = 390
@@ -170,7 +172,13 @@ import WebKit
             }
             AppLog.swallowed("chatui", "page card download\(url != nil ? ", the kept copy drawn" : "")", error)
         }
-        if let url { snapshots?.heads[headKey] = readHead(url) }
+        if let url, let snapshots {
+            let head = readHead(url)
+            let learnt = snapshots.heads[headKey]?.title != head.title
+            snapshots.heads[headKey] = head
+            // [page-fold] A folded card of the page isn't pictured, so it hears of the title here.
+            if learnt { NotificationCenter.default.post(name: headLearnt, object: nil) }
+        }
         return url
     }
 

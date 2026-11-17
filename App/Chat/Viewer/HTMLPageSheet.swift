@@ -864,6 +864,15 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                     (function(){var e=document.querySelector('\(pick)');if(!e)return;var r=e.getBoundingClientRect();
                     e.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2}))})()
                     """)
+                #if targetEnvironment(macCatalyst)
+                // The Mac hosts the comment's box in a window of its own, which the page window's picture doesn't reach.
+                if let name = UserDefaults.standard.string(forKey: "HQDebugFileWindow") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                        guard let window = (self?.presentedViewController as? PageCommentBox)?.viewIfLoaded?.window else { return }
+                        MacShots.shoot(window, to: URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "\(name)-box.png"))
+                    }
+                }
+                #endif
             default: break
             }
         }
