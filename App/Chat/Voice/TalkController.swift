@@ -49,6 +49,8 @@ import UIKit
         var engine: TalkEngine = .standard
         var liveState = LiveTalkState()
         var transport: (any LiveVoiceTransport)?
+        /// The bot's question already handed to the live voice.
+        var voicedQuestion: String?
         var lastTool: String?
         /// When GPT-Live took this conversation: replies dated earlier are the seed's, never passed on.
         var liveSince = Date()
@@ -99,6 +101,8 @@ import UIKit
     // [gpt-live] What tests and the debug hooks swap.
     /// What a live voice is asked to open with; nil starts silent.
     var helloPrompt: @MainActor () -> String? = { VoiceHello.prompt() }
+    /// What the voice said for its hello, kept so the next one differs.
+    var rememberHello: @MainActor (String) -> Void = { VoiceHello.remember($0) }
     var makeLiveTransport: @MainActor () -> any LiveVoiceTransport = { WebRTCLiveVoice() }
     // [grok-live] (docs/spec/3x-grok-live.md)
     var makeGrokTransport: @MainActor () -> any LiveVoiceTransport = { GrokLiveVoice() }
@@ -499,6 +503,8 @@ import UIKit
     /// A bot's question took the dock's place, or left it (T12).
     func questionWaiting(_ waiting: Bool, in chat: (any ChatVoiceTurns)?) {
         guard isLive(in: chat) else { return }
+        // A live voice asks the bot's question itself and takes the answer by voice: no muting for that card.
+        if waiting, let live, live.engine.isLive, live.chat.openQuestion != nil { checkQuestion(live); return }
         send(.questionWaiting(waiting))
     }
 
@@ -797,10 +803,21 @@ import UIKit
 
     /// The chat changed (a delta, a turn starting or ending, the connection). Reply text is passed on at most ten
     /// times a second; a turn starting or ending and the connection go through at once.
+    /// The bot's open question, handed to a live voice once (and its going, once).
+    private func checkQuestion(_ conversation: Conversation) {
+        guard conversation.engine.isLive, live === conversation else { return }
+        let question = conversation.chat.openQuestion
+        guard question?.id != conversation.voicedQuestion else { return }
+        conversation.voicedQuestion = question?.id
+        if question != nil { AppLog.trace("talk", "\(conversation.engine.rawValue) asks the bot's question aloud") }
+        sendLive(.question(question))
+    }
+
     private func chatChanged(_ conversation: Conversation) {
         let chat = conversation.chat
         if !chat.allowsTalk { finish(conversation, .gone); return }
         if case .signedOut = chat.connection { finish(conversation, .gone); return }
+        checkQuestion(conversation)
         let running = chat.isRunning, open = chat.connection == .ready
         if open != conversation.lastOpen {
             conversation.lastOpen = open
@@ -854,7 +871,13 @@ import UIKit
 
     private func startTicker() {
         ticker?.invalidate()
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.send(.tick) } }
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.send(.tick)
+                // A question that came while the chat's screen was away changes nothing the chat reports.
+                if let self, let live = self.live { self.checkQuestion(live) }
+            }
+        }
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
     }
@@ -1173,6 +1196,12 @@ extension TalkController {
                 transport?.think(delegationId: id, text: text)
             case .instruct(let text):
                 transport?.instruct(text)
+            case .helloSaid(let words):
+                AppLog.trace("talk", "\(conversation.engine.rawValue) said hello in \(words.split(separator: " ").count) words")
+                rememberHello(words)
+            case .answerQuestion(let id, let text):
+                AppLog.trace("talk", "\(conversation.engine.rawValue) answer to the bot's question: \(text.split(separator: " ").count) words")
+                conversation.chat.answerQuestion(id, spoken: text)
             case .greet(let prompt):
                 AppLog.trace("talk", "\(conversation.engine.rawValue) asked to say hello")
                 transport?.greet(prompt)

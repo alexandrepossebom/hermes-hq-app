@@ -334,13 +334,14 @@ import Foundation
         pendingHello = nil
         helloHold = (CACurrentMediaTime() + Self.helloHoldLimit, false)
         AppLog.note("voice", "grok-live hello asked for at \(AppLog.ms(since: began)) ms")
-        perform(calls.instruct(prompt))
+        perform(calls.greet(prompt))
     }
 
     func close() async {
         guard !finished else { return }
         AppLog.trace("voice", "grok-live transport stopped")
         stages.unplayed = audio?.unplayed ?? 0
+        if let played = audio?.played { stages.playedOut = played.out; stages.revived = played.revived }
         AppLog.note("voice", "grok-live summary: \(stages.summary(ready: calls.ready))")
         finished = true
         observers.forEach(NotificationCenter.default.removeObserver)
@@ -470,6 +471,10 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
     /// Pieces of the voice that came while there was no player to take them.
     var unplayed: Int { lock.withLock { dropped } }
     private var dropped = 0
+    /// Pieces that played to their end, and times a stopped player was started again for a piece.
+    var played: (out: Int, revived: Int) { lock.withLock { (playedOut, revived) } }
+    private var playedOut = 0
+    private var revived = 0
 
     func play(_ pcm: Data) -> Double {
         guard let player else { lock.withLock { dropped += 1 }; return 0 }
@@ -484,9 +489,15 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
             }
         }
         lock.withLock { queued += 1 }
-        player.scheduleBuffer(buffer) { [weak self] in
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             guard let self else { return }
-            self.lock.withLock { self.queued = max(0, self.queued - 1) }
+            self.lock.withLock { self.queued = max(0, self.queued - 1); self.playedOut += 1 }
+        }
+        // A player the engine's own restart left stopped takes buffers and plays none of them (the owner's phone, builds
+        // 1058 and 1063: the voice's audio came, had a player and was not cut off, and nothing was heard).
+        if engine?.isRunning == true, !player.isPlaying {
+            lock.withLock { revived += 1 }
+            player.play()
         }
         return TalkLevel.level(rms: TalkLevel.rms(UnsafeBufferPointer(start: out, count: count)))
     }
@@ -554,7 +565,7 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
     func think(delegationId: String?, text: String) { perform(calls.think(delegationId: delegationId, text: text)) }
     func instruct(_ text: String) { perform(calls.instruct(text)) }
     /// Grok: a response asked for with the hello as its instructions.
-    func greet(_ prompt: String) { perform(calls.instruct(prompt)) }
+    func greet(_ prompt: String) { perform(calls.greet(prompt)) }
 
     func close() async { closed = true }
 

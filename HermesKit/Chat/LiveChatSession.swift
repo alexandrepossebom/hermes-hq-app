@@ -1415,7 +1415,7 @@ final class LiveChatSession: ChatSessionModel {
             if let context = voiceLiveSends[localId] {
                 // [gpt-live] a delegation: the gateway puts the spoken exchange in the model input only (3x-gpt-live §3.4)
                 params["surface"] = "voice-live"
-                if !context.isEmpty { params["voice_context"] = .string(String(context.suffix(LiveVoiceWire.voiceContextLimit))) }
+                params["voice_context"] = .string(LiveVoiceWire.voiceContext(context))
             }
             // MENUS: a rewind's send (Regenerate, Edit, Rewind to Here) truncates before its stored turn.
             if let rewind = rewindParams(for: localId) { params.merge(rewind) { _, new in new } }

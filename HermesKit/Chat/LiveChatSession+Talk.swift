@@ -172,6 +172,28 @@ extension LiveChatSession: ChatVoiceTurns {
         return further.count > loaded.count ? further : loaded
     }
 
+    var openQuestion: VoiceQuestion? {
+        guard let clarify = prompts.clarify, !clarify.sending else { return nil }
+        let open = clarify.questions.filter { clarify.lockedAnswers[$0.qid] == nil }
+        guard !open.isEmpty else { return nil }
+        return VoiceQuestion(id: clarify.id, spoken: VoiceQuestionText.spoken(open))
+    }
+
+    func answerQuestion(_ id: String, spoken: String) {
+        guard let clarify = prompts.clarify, clarify.id == id else { return }
+        let answers = clarify.questions.map { question -> (qid: String, answer: String?) in
+            if let locked = clarify.lockedAnswers[question.qid] { return (question.qid, locked) }
+            return (question.qid, VoiceQuestionText.answer(spoken, to: question))
+        }
+        Task { [weak self] in
+            do {
+                try await self?.sendClarify(id, answers: answers)
+            } catch {
+                AppLog.note("talk", "spoken answer to a question not sent: \(AppLog.scrub(String(describing: error)))")
+            }
+        }
+    }
+
     /// `voiceHold` changed (called from its `didSet`): a chat left on screen-less hold lets go once the conversation ends.
     func voiceHoldChanged() {
         if !voiceHold { endAwayDrainIfDone() }

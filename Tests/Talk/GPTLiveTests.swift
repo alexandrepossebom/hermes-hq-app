@@ -149,7 +149,7 @@ struct GPTLiveWireTests {
 struct GPTLiveLoopTests {
     private struct Loop {
         var state = TalkLoopState(now: 0, speaksReplies: true)
-        var live = LiveTalkState()
+        var live = LiveTalkState(personSpoke: true)
         var now: TimeInterval = 0
 
         @discardableResult
@@ -230,6 +230,54 @@ struct GPTLiveLoopTests {
         #expect(LiveVoiceWire.quietWhileWorking.count <= LiveVoiceWire.appendCharLimit)
     }
 
+    /// A bot's question in a voice chat: the voice asks it, the microphone stays open, and what the person says next
+    /// answers it in the running turn (no new turn, nothing stopped).
+    @Test func theBotsQuestionIsAskedAloudAndAnsweredByVoice() {
+        var loop = Loop()
+        loop.ready()
+        loop.said("Check if it is going to shut down", at: 1)
+        loop.send(.delegation(id: "d1"), at: 2)
+        loop.send(.turnRunning(true))
+        let question = VoiceQuestion(id: "q1", spoken: "Before I can go on, I need to know: Which one? The choices are: A, or B.")
+        #expect(loop.send(.question(question), at: 3) == [.speak(delegationId: "d1", text: question.spoken)])
+        #expect(loop.send(.question(question), at: 3).isEmpty)                       // asked once
+        #expect(loop.send(.questionWaiting(true)).isEmpty)                             // the card showing mutes nothing
+        #expect(!loop.state.muted)
+        loop.said("The first one", at: 5)
+        #expect(loop.send(.delegation(id: "d2"), at: 6) == [.answerQuestion(id: "q1", text: "The first one")])
+        #expect(loop.live.delegationId == "d2" && loop.live.questionId == nil)
+        // The next thing said is a request again.
+        loop.said("And check the weather", at: 9)
+        guard case .submit(let text, _)? = loop.send(.delegation(id: "d3"), at: 10).first else { Issue.record("no submit"); return }
+        #expect(text == "And check the weather")
+    }
+
+    @Test func aSpokenAnswerNamesTheChoice() {
+        let question = ClarifyQuestion(qid: "a", question: "Do you mean a government shutdown, an outage, or something else?",
+                                       choices: ["Government shutdown", "Internet or power outage", "Something in the news"], multiSelect: false)
+        #expect(VoiceQuestionText.spoken([question]) == "Before I can go on, I need to know: Do you mean a government shutdown, an outage, "
+            + "or something else? The choices are: Government shutdown, Internet or power outage, or Something in the news.")
+        #expect(VoiceQuestionText.answer("the government shutdown.", to: question) == "Government shutdown")
+        #expect(VoiceQuestionText.answer("I meant the internet or power outage one", to: question) == "Internet or power outage")
+        #expect(VoiceQuestionText.answer("The first one", to: question) == "Government shutdown")
+        #expect(VoiceQuestionText.answer("option two", to: question) == "Internet or power outage")
+        #expect(VoiceQuestionText.answer("the last one", to: question) == "Something in the news")
+        // Anything else goes as the person said it.
+        #expect(VoiceQuestionText.answer("No, I mean whether the store closes early", to: question) == "No, I mean whether the store closes early")
+        let open = ClarifyQuestion(qid: "b", question: "Which city?", choices: nil, multiSelect: false)
+        #expect(VoiceQuestionText.spoken([open]) == "Before I can go on, I need to know: Which city?")
+        #expect(VoiceQuestionText.answer("  Austin ", to: open) == "Austin")
+    }
+
+    /// Every delegation tells the bot the person is on voice and to ask aloud, ahead of the spoken exchange and inside
+    /// the gateway's limit.
+    @Test func theVoiceContextAsksForSpokenQuestions() {
+        #expect(LiveVoiceWire.voiceContext("") == LiveVoiceWire.spokenOnlyNote)
+        #expect(LiveVoiceWire.voiceContext("User: hi") == LiveVoiceWire.spokenOnlyNote + "\nUser: hi")
+        let long = LiveVoiceWire.voiceContext(String(repeating: "a", count: 9_000) + "END")
+        #expect(long.count == LiveVoiceWire.voiceContextLimit && long.hasSuffix("END") && long.hasPrefix(LiveVoiceWire.spokenOnlyNote))
+    }
+
     /// The hello is asked for once, when the session is ready.
     @Test func theHelloIsAskedForOnceTheSessionIsReady() {
         var loop = Loop()
@@ -237,6 +285,53 @@ struct GPTLiveLoopTests {
         #expect(loop.send(.start).isEmpty)
         #expect(loop.send(.sessionReady) == [.instruct(LiveVoiceWire.quietWhileWorking), .greet("Say hello now.")])
         #expect(loop.live.hello == nil)
+    }
+
+    /// A voice seeded with the chat can take the chat's last request for a new one: until the person's words have been
+    /// heard, a delegation is not run and the voice is told so.
+    @Test func aDelegationBeforeThePersonSpokeIsNotRun() {
+        var loop = Loop()
+        loop.live.personSpoke = false
+        loop.ready()
+        #expect(loop.send(.delegation(id: "d0"), at: 1) == [.think(delegationId: "d0", text: LiveVoiceWire.nobodyAsked)])
+        loop.said("Check the server", at: 2)
+        guard case .submit(let text, _)? = loop.send(.delegation(id: "d1"), at: 3).first else { Issue.record("no submit"); return }
+        #expect(text == "Check the server")
+    }
+
+    /// What the voice says for its hello is handed back once the person speaks (or after a while), to be kept.
+    @Test func theHellosWordsAreKeptForNextTime() {
+        var loop = Loop()
+        loop.live.hello = "Say hello now."
+        loop.ready()
+        loop.send(.transcript(LiveTranscriptFragment(speaker: .assistant, text: "Hey, good ", startMs: 0, endMs: 1)), at: 1)
+        loop.send(.transcript(LiveTranscriptFragment(speaker: .assistant, text: "to hear you.", startMs: 1, endMs: 2)), at: 1)
+        #expect(loop.send(.tick, at: 5).isEmpty)
+        #expect(loop.send(.tick, at: 11) == [.helloSaid("Hey, good to hear you.")])
+        #expect(loop.send(.tick, at: 12).isEmpty)
+        // The person speaking first ends the gathering too.
+        var other = Loop()
+        other.live.hello = "Say hello now."
+        other.ready()
+        other.send(.transcript(LiveTranscriptFragment(speaker: .assistant, text: "Hi there.", startMs: 0, endMs: 1)), at: 1)
+        let spoke = other.send(.transcript(LiveTranscriptFragment(speaker: .user, text: "Hello", startMs: 2, endMs: 3)), at: 2)
+        #expect(spoke == [.helloSaid("Hi there.")])
+    }
+
+    /// The last few hellos ride the next request, and the request never grows past one append.
+    @Test func recentHellosAreNamedInTheNextRequest() {
+        let defaults = UserDefaults(suiteName: "voice-hello-tests-\(UUID().uuidString)")!
+        for line in ["One.", "Two.", "Three.", "Two.", String(repeating: "long ", count: 60)] { VoiceHello.remember(line, defaults: defaults) }
+        let kept = VoiceHello.recent(defaults)
+        #expect(kept.count == VoiceHello.recentKeep && kept.first == "Three." && kept[1] == "Two.")
+        #expect(kept.last?.count == VoiceHello.recentChars)
+        let longest = VoiceHello.leanings.indices.map { VoiceHello.prompt(leaning: $0, tone: "calm and unhurried", recent: Array(repeating: String(repeating: "x", count: 90), count: 3)) }
+        #expect(longest.allSatisfy { $0.count <= LiveVoiceWire.appendCharLimit })
+        #expect(VoiceHello.prompt(leaning: 0, recent: ["Hey, good evening."]).contains("\"Hey, good evening.\""))
+        #expect(VoiceHello.prompt(leaning: 0, recent: []).contains("Nobody has asked for anything yet"))
+        // Only the leaning about the time is told the time.
+        #expect(VoiceHello.prompt(leaning: VoiceHello.timeLeaning, recent: []).contains("It is "))
+        #expect(!VoiceHello.prompt(leaning: 0, recent: []).contains("It is "))
     }
 
     @Test func theHelloRequestChangesFromOneStartToTheNext() {
@@ -253,7 +348,7 @@ struct GPTLiveLoopTests {
         let first = VoiceHello.nextLeaning(random: { _ in 2 })
         let second = VoiceHello.nextLeaning(random: { _ in 2 })
         #expect(first != second)
-        let prompts = Set(VoiceHello.leanings.indices.map { VoiceHello.prompt(now: monday, calendar: calendar, leaning: $0) })
+        let prompts = Set(VoiceHello.leanings.indices.map { VoiceHello.prompt(now: monday, calendar: calendar, leaning: $0, tone: nil, recent: []) })
         #expect(prompts.count == VoiceHello.leanings.count)
         // One commentary append: under OpenAI's cap.
         #expect(prompts.allSatisfy { $0.count <= LiveVoiceWire.appendCharLimit })
@@ -496,6 +591,7 @@ struct GPTLiveControllerTests {
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
         talk.helloPrompt = { nil }
+        talk.rememberHello = { _ in }
         return (talk, box)
     }
 
@@ -517,6 +613,32 @@ struct GPTLiveControllerTests {
         let hellos = sent("session.commentary.append").filter { $0["content"]?.string == "Say hello now." }
         #expect(hellos.count == 1)
         #expect(hellos.first?["delegation_id"] == .null)
+        talk.end()
+        #expect(await waitUntil { !talk.isLive })
+        await talk.resetForTests()
+    }
+
+    /// A question the bot asks during a voice chat is said by the voice, and the person's spoken answer goes back to it.
+    @Test func aQuestionCardIsAskedAndAnsweredByVoice() async throws {
+        let (talk, box) = make()
+        let chat = FakeTalkChat()
+        talk.setFront(chat, onScreen: true)
+        talk.start(in: chat, name: "Ivy")
+        #expect(await waitUntil { talk.view?.phase == .listening })
+        let transport = try #require(box.transport)
+        transport.play(#"{"type":"session.input_transcript.delta","delta":"Is it going to shut down?","start_ms":0,"end_ms":900}"#)
+        transport.play(#"{"type":"session.delegation.created","delegation":{"id":"del_1"}}"#)
+        #expect(await waitUntil { chat.delegated.count == 1 })
+        chat.openQuestion = VoiceQuestion(id: "q1", spoken: "Before I can go on, I need to know: Which one?")
+        chat.changed()
+        #expect(await waitUntil { self.sent("session.commentary.append").contains { $0["content"]?.string?.contains("Which one?") == true } })
+        talk.questionWaiting(true, in: chat)                      // the card on screen mutes nothing
+        #expect(sent("session.input_audio.mute").isEmpty)
+        transport.play(#"{"type":"session.input_transcript.delta","delta":"The government one","start_ms":3000,"end_ms":3900}"#)
+        transport.play(#"{"type":"session.delegation.created","delegation":{"id":"del_2"}}"#)
+        #expect(await waitUntil { chat.answered.count == 1 })
+        #expect(chat.answered.first?.id == "q1" && chat.answered.first?.spoken == "The government one")
+        #expect(chat.delegated.count == 1)                        // an answer, not a new request
         talk.end()
         #expect(await waitUntil { !talk.isLive })
         await talk.resetForTests()

@@ -140,6 +140,7 @@ struct GrokLiveWireTests {
 struct GrokLiveCallsTests {
     @Test func theSessionIsReadyOnceUpdated() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         #expect(calls.receive(.sessionCreated, ms: 0).isEmpty)
         #expect(calls.receive(.sessionUpdated, ms: 0) == [.event(.started(sessionId: nil))])
         #expect(calls.receive(.sessionUpdated, ms: 0).isEmpty)
@@ -148,6 +149,7 @@ struct GrokLiveCallsTests {
 
     @Test func aCallBecomesADelegationAndItsAnswerGoesBackOnce() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         let asked = calls.receive(.functionCall(callId: "c1", name: "ask_agent", arguments: #"{"request":"What's on today?"}"#), ms: 0)
         #expect(asked == [.event(.askAgent(callId: "c1", request: "What's on today?"))])
         let answered = sends(calls.speak(delegationId: "c1", text: "Two meetings."))
@@ -163,6 +165,7 @@ struct GrokLiveCallsTests {
 
     @Test func aTurnWithoutWordsAndARefusedSendStillAnswerTheCall() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         _ = calls.receive(.functionCall(callId: "c1", name: "ask_agent", arguments: #"{"request":"Run it"}"#), ms: 0)
         let none = sends(calls.think(delegationId: "c1", text: LiveVoiceWire.noSpokenResult))
         #expect(none.first?["item"]?["output"]?.string.flatMap(json)?["note"]?.string == GrokLiveWire.noWordsNote)
@@ -178,6 +181,7 @@ struct GrokLiveCallsTests {
 
     @Test func aNewerCallClosesTheOpenOne() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         _ = calls.receive(.functionCall(callId: "c1", name: "ask_agent", arguments: #"{"request":"One"}"#), ms: 0)
         let actions = calls.receive(.functionCall(callId: "c2", name: "ask_agent", arguments: #"{"request":"Two"}"#), ms: 0)
         let closed = sends(actions)
@@ -190,6 +194,7 @@ struct GrokLiveCallsTests {
 
     @Test func anUnknownToolIsAnsweredAndNotDelegated() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         let actions = calls.receive(.functionCall(callId: "x", name: "web_search", arguments: "{}"), ms: 0)
         #expect(!actions.contains { if case .event = $0 { return true } else { return false } })
         #expect(sends(actions).last?["type"]?.string == "response.create")
@@ -198,6 +203,7 @@ struct GrokLiveCallsTests {
 
     @Test func speakingOverTheVoiceFlushesItAndCancelsTheResponse() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         #expect(calls.receive(.speechStarted, ms: 0) == [.flushPlayback])
         _ = calls.receive(.responseCreated, ms: 0)
         #expect(calls.receive(.audio(Data([0, 1])), ms: 0) == [.play(Data([0, 1]))])
@@ -206,8 +212,24 @@ struct GrokLiveCallsTests {
         #expect(calls.receive(.speechStarted, ms: 0) == [.flushPlayback])
     }
 
+    /// A voice seeded with the chat took the chat's last request for a new one. Until the person has been heard, a
+    /// call is answered "nobody asked" with tools off, and nothing reaches the bot.
+    @Test func aCallBeforeThePersonSpokeNeverReachesTheBot() {
+        var calls = GrokLiveCalls()
+        _ = calls.receive(.sessionUpdated, ms: 0)
+        let early = calls.receive(.functionCall(callId: "c1", name: GrokLiveWire.toolName, arguments: #"{"request":"Sign in to the store"}"#), ms: 10)
+        #expect(!early.contains { if case .event = $0 { return true } else { return false } })
+        #expect(sends(early).first?["item"]?["output"]?.string?.contains("nobody asked") == true)
+        #expect(sends(early).last?["response"]?["tool_choice"]?.string == "none")
+        // Once xAI hears the person start, calls go through.
+        _ = calls.receive(.speechStarted, ms: 20)
+        let asked = calls.receive(.functionCall(callId: "c2", name: GrokLiveWire.toolName, arguments: #"{"request":"Sign in to the store"}"#), ms: 30)
+        #expect(asked == [.event(.askAgent(callId: "c2", request: "Sign in to the store"))])
+    }
+
     @Test func unrequestedNewsIsToldAndInterruptCancels() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         let news = sends(calls.speak(delegationId: nil, text: "The nightly job finished."))
         #expect(news.first?["item"]?["role"]?.string == "user")
         #expect(news.last?["type"]?.string == "response.create")
@@ -220,6 +242,7 @@ struct GrokLiveCallsTests {
 
     @Test func transcriptsBecomeFragmentsWithoutRepeats() {
         var calls = GrokLiveCalls()
+        calls.personSpoke = true
         func text(_ actions: [GrokAction]) -> String? {
             if case .event(.transcript(let fragment))? = actions.first { return fragment.text } else { return nil }
         }
@@ -237,7 +260,7 @@ struct GrokLiveCallsTests {
 struct GrokLiveLoopTests {
     private struct Loop {
         var state = TalkLoopState(now: 0, speaksReplies: true)
-        var live = LiveTalkState(engine: .grokLive)
+        var live = LiveTalkState(engine: .grokLive, personSpoke: true)
         var now: TimeInterval = 0
 
         @discardableResult
@@ -331,6 +354,7 @@ struct GrokLiveControllerTests {
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
         talk.helloPrompt = { nil }
+        talk.rememberHello = { _ in }
         return (talk, box)
     }
 
@@ -356,9 +380,17 @@ struct GrokLiveControllerTests {
         talk.setFront(chat, onScreen: true)
         talk.start(in: chat, name: "Ivy")
         #expect(await waitUntil { talk.view?.phase == .listening })
-        #expect(await waitUntil { FixtureGrokLiveVoice.sent.compactMap(json).contains { $0["response"]?["instructions"]?.string == "Say hello now." } })
-        let hellos = FixtureGrokLiveVoice.sent.compactMap(json).filter { $0["response"]?["instructions"]?.string == "Say hello now." }
-        #expect(hellos.count == 1 && hellos.first?["type"]?.string == "response.create")
+        func hellos() -> [JSONValue] {
+            FixtureGrokLiveVoice.sent.compactMap(json).filter { $0["item"]?["content"]?[0]?["text"]?.string?.hasSuffix("Say hello now.") == true }
+        }
+        #expect(await waitUntil { !hellos().isEmpty })
+        // The request joins the conversation as a note from the app, and the response that answers it has tools off.
+        #expect(hellos().count == 1)
+        #expect(hellos().first?["item"]?["role"]?.string == "user")
+        #expect(hellos().first?["item"]?["content"]?[0]?["text"]?.string?.hasPrefix("(Not from the person.") == true)
+        let responses = FixtureGrokLiveVoice.sent.compactMap(json).filter { $0["type"]?.string == "response.create" }
+        #expect(responses.count == 1 && responses.first?["response"]?["tool_choice"]?.string == "none")
+        #expect(responses.first?["response"]?["instructions"] == nil)
         talk.end()
         #expect(await waitUntil { !talk.isLive })
         await talk.resetForTests()

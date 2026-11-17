@@ -36,6 +36,8 @@ nonisolated enum LiveTalkInput: Sendable, Equatable {
     case tick
     case interrupted(TalkPauseCause, detail: String?)
     case questionWaiting(Bool)
+    /// The bot asked something that waits for an answer (`VoiceQuestion`); nil: it no longer waits.
+    case question(VoiceQuestion?)
     case otherAudio(Bool)
     /// OpenAI said something went wrong; the session goes on.
     case vendorError(String)
@@ -53,6 +55,10 @@ nonisolated enum LiveTalkEffect: Sendable, Equatable {
     case instruct(String)
     /// The hello the voice opens with (`VoiceHello.prompt`): asked for once, when the session is ready.
     case greet(String)
+    /// What the person said in answer to the bot's question `id`.
+    case answerQuestion(id: String, text: String)
+    /// What the voice said for its hello.
+    case helloSaid(String)
     case setMuted(Bool)
     case closeSession
     case haptic(TalkHaptic)
@@ -71,6 +77,14 @@ nonisolated struct LiveTalkState: Sendable, Equatable {
     /// What the voice is asked to open with (`VoiceHello.prompt`); nil says nothing first (a conversation that fell
     /// back and came again, tests).
     var hello: String?
+    /// The person's words have been heard in this session: until then no delegation becomes a turn.
+    var personSpoke = false
+    /// What the voice says in answer to the hello's request, gathered until the person speaks or a while has passed,
+    /// then kept so the next hello is told not to repeat it (`VoiceHello.remember`).
+    var helloWords: String?
+    /// The bot's question the voice has asked and the person has not answered yet: what they say next answers it.
+    var questionId: String?
+    var helloAt: TimeInterval = 0
     var transcript: [LiveTranscriptFragment] = []
     var assistantSpeaking = false
     /// The delegation Hermes is answering; late replies for an older one are not spoken.
@@ -112,6 +126,8 @@ nonisolated enum LiveTalkLoop {
     /// Quiet after the person's last words before the utterance is judged as a whole ("stop" ends the chat; "stop the
     /// container" is a request).
     static let utteranceSettle: TimeInterval = 1.5
+    /// The hello's words are gathered this long after it was asked for, unless the person speaks first.
+    static let helloGather: TimeInterval = 10
     /// A progress note waits this long into a turn, and this long after the last one.
     static let toolNoteAfter: TimeInterval = 20
     static let toolNoteEvery: TimeInterval = 45
@@ -251,6 +267,14 @@ nonisolated enum LiveTalkLoop {
 
         /// A delegation becomes a turn: `asked` is the request when the voice said it (Grok's tool argument), else
         /// everything the person said since the last one.
+        /// The hello's words are complete (the person spoke, or long enough has passed): kept for next time.
+        func helloOver() {
+            guard let words = live.helloWords else { return }
+            live.helloWords = nil
+            let said = LiveVoiceWire.collapse(words)
+            if !said.isEmpty { effects.append(.helloSaid(said)) }
+        }
+
         func delegate(_ id: String, asked: String?) {
             let (lastTurn, context) = LiveVoiceWire.delegationPrompt(LiveVoiceWire.contextWindow(live.transcript))
             let request = asked.map(LiveVoiceWire.collapse) ?? LiveVoiceWire.spokenRequest(live.heard)
@@ -259,6 +283,15 @@ nonisolated enum LiveTalkLoop {
             // The voice answers a bare "stop" itself and rarely delegates it; when it does, it ends the chat.
             if !prompt.isEmpty, TalkStopWord.isStop(prompt, config: state.stopPhrases) { end(.said); return }
             guard !prompt.isEmpty else { effects.append(.think(delegationId: id, text: LiveVoiceWire.noSpokenResult)); return }
+            // The bot is waiting on a question the voice asked: these words answer it, in the turn that is running.
+            if let question = live.questionId {
+                live.questionId = nil
+                live.delegationId = id
+                live.submittedAt = now
+                effects.append(.answerQuestion(id: question, text: prompt))
+                refreshStatus()
+                return
+            }
             // A newer request supersedes the one still running: the answer spoken is for what was asked last. The chat
             // steers it into the running reply (or stops that reply when it can't), so the work done so far is kept
             // (owner, 2026-10-28: one thought split into two requests 3 s apart, and the second stopped the first's
@@ -292,6 +325,8 @@ nonisolated enum LiveTalkLoop {
             if state.muted { effects.append(.setMuted(true)) }
             if let hello = live.hello {
                 live.hello = nil
+                live.helloWords = ""
+                live.helloAt = now
                 effects.append(.greet(hello))
             }
             refreshStatus()
@@ -306,13 +341,23 @@ nonisolated enum LiveTalkLoop {
             }
             live.heard.append(fragment)
             if live.heard.count > heardKeep { live.heard.removeFirst(live.heard.count - heardKeep) }
-            guard fragment.speaker == .user else { break }
+            guard fragment.speaker == .user else {
+                if live.helloWords != nil { live.helloWords? += fragment.text }
+                break
+            }
+            if !LiveVoiceWire.collapse(fragment.text).isEmpty { live.personSpoke = true }
+            helloOver()
             state.silence.reset(now: now)
             state.silenceState = .ok
             live.utterance += fragment.text
             live.utteranceAt = now
 
         case .delegation(let id):
+            // Nothing is handed to the bot before the person has said a word (see `GrokLiveCalls`'s same rule).
+            guard live.personSpoke else {
+                effects.append(.think(delegationId: id, text: LiveVoiceWire.nobodyAsked))
+                break
+            }
             delegate(id, asked: nil)
 
         case .askAgent(let id, let request):
@@ -395,6 +440,7 @@ nonisolated enum LiveTalkLoop {
                 live.utteranceAt = nil
                 if TalkStopWord.isStop(words, config: state.stopPhrases) { end(.said); break }
             }
+            if live.helloWords != nil, now - live.helloAt >= helloGather { helloOver() }
             noteTool()
             settleIfQuiet()
             state.silence.observe(status: state.status, level: 0, muted: state.muted, now: now)
@@ -406,9 +452,18 @@ nonisolated enum LiveTalkLoop {
         case .interrupted(let cause, let detail):
             end(.paused(cause, detail: detail))
 
+        case .question(let question):
+            guard let question else { live.questionId = nil; break }
+            guard question.id != live.questionId else { break }
+            live.questionId = question.id
+            if state.muted, state.autoMuted { setMuted(false, auto: false) }
+            let open = live.delegationId.flatMap { $0 == otherTurn ? nil : $0 }
+            effects.append(.speak(delegationId: open, text: question.spoken))
+
         case .questionWaiting(let waiting):
             if waiting {
-                if !state.muted { setMuted(true, auto: true) }
+                // A question the voice has asked is answered by voice: the microphone stays open.
+                if !state.muted, live.questionId == nil { setMuted(true, auto: true) }
             } else if state.muted, state.autoMuted {
                 setMuted(false, auto: false)
             }

@@ -211,6 +211,21 @@ nonisolated enum LiveVoiceWire {
         + "latest part, shortened. The backend has the whole chat and everything it remembers about the user. When the "
         + "user refers to anything from before that you cannot see, do not ask them to explain it and do not guess: "
         + "delegate the request as they said it."
+    /// Rides every delegation's `voice_context` (model input only), ahead of the spoken exchange. The owner, 2026-11-16,
+    /// app closed and a voice chat going: the bot asked with a question card, which only a tap answers.
+    static let spokenOnlyNote = "(From the app, not said by the user: they are talking with you by voice and are not looking at "
+        + "the screen; the app may be closed. Do not ask with a question card or the clarify tool. If you need to know "
+        + "something, ask it in your spoken reply in one short sentence, or make the sensible choice and say which you chose.)"
+
+    /// `voice_context` as sent: the note, then the newest of the spoken exchange that fits the gateway's limit.
+    static func voiceContext(_ exchange: String) -> String {
+        guard !exchange.isEmpty else { return spokenOnlyNote }
+        return spokenOnlyNote + "\n" + String(exchange.suffix(voiceContextLimit - spokenOnlyNote.count - 1))
+    }
+
+    /// A delegation made before the person had said a word is not run (`LiveTalkLoop`).
+    static let nobodyAsked = "That was not sent: the user has not spoken yet, so nobody asked for it. Do not act on the "
+        + "earlier messages. Say hello and wait for them."
     static let noSpokenResult = "That request finished without a spoken result."
     static let couldNotReach = "Sorry, that request didn't go through. Please try again."
 

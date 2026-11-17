@@ -47,6 +47,13 @@ import Foundation
     var onDelegationRefused: (() -> Void)?
     var runningToolTitle: String? { runningTool }
     var spokenHistory: [(assistant: Bool, text: String)] { history }
+    /// The bot's open question, and the spoken answers it was given.
+    var openQuestion: VoiceQuestion?
+    private(set) var answered: [(id: String, spoken: String)] = []
+    func answerQuestion(_ id: String, spoken: String) {
+        answered.append((id, spoken))
+        openQuestion = nil
+    }
     /// The finished replies `spokenReplies(since:)` returns, whatever the date.
     var recent: [SpokenReply] = []
     func spokenReplies(since: Date) -> [SpokenReply] { recent }

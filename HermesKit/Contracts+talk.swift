@@ -36,6 +36,8 @@ protocol ChatVoiceTurns: AnyObject {
     var runningToolTitle: String? { get }
     var spokenHistory: [(assistant: Bool, text: String)] { get }
     func spokenSeed() async -> [(assistant: Bool, text: String)]
+    var openQuestion: VoiceQuestion? { get }
+    func answerQuestion(_ id: String, spoken: String)
     var onDelegationRefused: (() -> Void)? { get set }
     func spokenReplies(since: Date) -> [SpokenReply]
 }
@@ -52,6 +54,10 @@ extension ChatVoiceTurns {
     /// The turns a new session is seeded from: `spokenHistory` once the chat has loaded, read further back when what is
     /// on screen is less than the seed holds.
     func spokenSeed() async -> [(assistant: Bool, text: String)] { spokenHistory }
+    /// The bot's question that waits for an answer, as the voice asks it (`VoiceQuestion`).
+    var openQuestion: VoiceQuestion? { nil }
+    /// What the person said in answer to it.
+    func answerQuestion(_ id: String, spoken: String) {}
     /// The chat's finished assistant replies dated `since` or later, oldest first (never one still streaming, stopped
     /// or failed): what a GPT-Live conversation passes on when nothing else did.
     func spokenReplies(since: Date) -> [SpokenReply] { [] }

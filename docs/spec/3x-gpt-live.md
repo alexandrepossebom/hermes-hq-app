@@ -86,17 +86,26 @@ A pure reducer beside `TalkLoop`, sharing `TalkLoopState` so the dock, the pill 
   chat's latest part, that the backend has the whole chat and its memory, and to delegate anything earlier instead of
   asking the person to explain it or guessing (`LiveVoiceWire.chatNote`).
 - The voice says hello first (owner, 2026-11-16: "some warm intro that needs to not be the same thing every time").
-  Nothing is scripted: the voice model writes its own line from `VoiceHello.prompt` (one short warm sentence, the
-  person's day and time of day, one of five leanings picked at random and never the last one used, no name, no stock
-  "how can I help"). GPT-Live, as OpenAI's guide greets before the caller speaks: the request ends the seed as a
-  `developer` message and is sent once more as `session.commentary.append` (no delegation) on `session.started`; the
-  vendor says the model may still stay silent. Grok: `response.create` with the request as its instructions on
-  `session.updated`. The standard engine says nothing first. Build 1058 on the owner's phone (Grok): asked three
-  times, xAI sent the words and audio each time, nothing was heard. The engine was still starting and restarting
-  itself for the loudspeaker when the audio came, and the microphone opened in the same moment. So Grok's hello is
-  asked for 0.7 s after the engine is up (and not during a restart), and no microphone audio is sent from the request
-  until the hello's response is done and played out (at most 8 s). The summary line counts cut-offs, voice pieces
-  with no player and microphone pieces held.
+  Nothing is scripted: the voice model writes its own line from `VoiceHello.prompt`: one short, ordinary, friendly
+  hello; one of five leanings picked at random and never the last one used; a tone; the day and time only in the one
+  leaning about them; its last three hellos, to stay away from (kept in `hq.voice.hello.recent`, gathered by the loop
+  until the person speaks or 10 s pass); nothing about the person, their voice, calling or the phone; and "nobody has
+  asked for anything yet".
+  - GPT-Live, as OpenAI's guide greets before the caller speaks: the request ends the seed as a `developer` message and
+    is sent once more as `session.commentary.append` (no delegation) on `session.started`.
+  - Grok: the request joins the conversation as a user item marked "(Not from the person. The app says:)" and the
+    response is asked for with `tool_choice: none`, 0.7 s after the audio engine is up (not during its own restart);
+    no microphone audio is sent from the request until that response is done and played out (8 s at most).
+  - Nothing reaches the bot before the person has been heard: a GPT-Live delegation with no words from the person yet
+    is answered with a note and not run; a Grok `ask_agent` call before xAI's speech start or the person's words is
+    answered "nobody asked" with tools off.
+  - The standard engine says nothing first.
+  - History, on the owner's phone. Build 1058 (Grok): silent. Build 1063 (Grok): still silent, and worse, asked for a
+    hello with `response.create` + instructions over a seeded chat, Grok sent the chat's last request to `ask_agent`
+    (a search, a sign-in). Reproduced against xAI every time; the item + tools-off form greeted in twenty of twenty
+    sessions. Build 1063 (GPT-Live): heard, "creepy" (the request spoke of a friend picking up the phone and being glad
+    they called). Why Grok's audio was not heard at all is not settled: its pieces had a player and were not cut off.
+    A stopped player is now started again when a piece arrives, and the summary line counts pieces played out.
 - Progress notes are rare: the newest tool's title goes to the voice 20 s into a turn at the earliest, then at most every
   45 s, phrased so the voice need not say it.
 - A turn the voice did not ask for (a bot's message, a finished background job, a schedule) is treated as one: its reply
@@ -107,7 +116,14 @@ A pure reducer beside `TalkLoop`, sharing `TalkLoopState` so the dock, the pill 
   own bot (Hermes `tools/voice_live.py`, branch `hq/handoff-notes`): "You are Otto", "Otto's agent".
 - A bare stop phrase ends the chat once the person's words settle (1.5 s), so "stop the container" is still a request.
 - Send Now asks the voice to answer now. Interrupt stops the turn and tells the voice to stop talking.
-- A question card mutes the microphone and un-mutes it after; other audio mutes it.
+- The bot's questions are spoken (owner, 2026-11-16, app closed and a voice chat going: a question card nobody could
+  tap). Every delegation's `voice_context` opens with a note that the person is on voice and not looking at the screen:
+  no question card or clarify tool, ask in the spoken reply or choose and say so (`LiveVoiceWire.spokenOnlyNote`). If a
+  clarify question still comes (`ChatVoiceTurns.openQuestion`, checked on every chat change and tick), the voice is
+  given it to ask, with its choices; the microphone stays open; what the person says next answers it in the running
+  turn (`answerQuestion`: the choice they named, by its words or "the first one", else their words) instead of becoming
+  a request. Approval and sign-in cards still mute the microphone until answered; other audio mutes it. Not yet tried
+  on a real session; the standard engine still shows the card.
 - Long silence (the standard engine's pause window) ends the session: idle time is billed.
 - Falls back, never strands the person: if GPT-Live can't start (the gateway or OpenAI refuses, WebRTC fails), or
   `session.closed` / a dropped connection arrives without the person ending it, the same conversation carries on with
