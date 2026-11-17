@@ -506,7 +506,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             let header = ProjectPageHeader(
                 name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
-                onJump: { [weak self] section in self?.scrollToPageSection(section) })
+                onJump: { [weak self] section in self?.scrollToPageSection(section) },
+                onSoftCard: BackdropCards.on(self))
             cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
             cell.accessibilityIdentifier = "sessions.projectPage"
             cell.backgroundConfiguration = .clear()
