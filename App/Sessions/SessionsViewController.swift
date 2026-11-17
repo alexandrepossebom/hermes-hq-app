@@ -133,21 +133,6 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     private var barCapsule: PageBarCapsule?
     /// [Mac full pass 2026-11-14] The Mac's "All Bots ⌄", in the bar where Jobs, Artifacts and Tasks have theirs (it
     /// stood in a row of its own under the bar, the one list that put it there).
-    private lazy var botsScope = ScopeBarItem()
-    /// [mac-switch] The Bots | Projects switch in the Mac's bar (`SessionsPillsSwitch` in a bar item of its own).
-    private lazy var switchItem: UIBarButtonItem = {
-        let host = UIHostingController(rootView: SessionsPillsSwitch(model: headerModel, inBar: true))
-        host.sizingOptions = .intrinsicContentSize
-        host.view.backgroundColor = .clear
-        let item = UIBarButtonItem(customView: host.view)
-        item.hidesSharedBackground = true   // its own capsule, not a glass button around it
-        item.accessibilityIdentifier = "sessions.pills.switch"
-        switchHost = host
-        return item
-    }()
-    private var switchHost: UIHostingController<SessionsPillsSwitch>?
-
-    private var botWordsShown: Bool?
     /// [ipad-polish] The bar's compose button while this list is the page on show: New Chat hangs off it in two panes.
     /// The bar and the compose button's place in it (the trailing-most item): a pop-over given the bar's item itself
     /// grows out of the button and covers the page's title.
@@ -376,12 +361,6 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutHeader()
-        // [Mac full pass 2026-11-14] The bots' words or glyph follow the pane's width (`placeBotsItem`).
-        let words = view.bounds.width >= Self.botWordsAt
-        if DeviceWord.isMac, view.bounds.width > 0, words != botWordsShown {
-            botWordsShown = words
-            refreshChrome()
-        }
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -2017,31 +1996,7 @@ extension SessionsViewController {
         let elements = SessionFilterMenu.elements(SessionFilterMenuModel.nodes(state, end: menuEnd)) { [weak self] action, item in
             self?.perform(action, item)
         }
-        return botsInFilter ? withBotPicker(elements, picked: state.botFilter) : elements
-    }
-
-    /// [Mac full pass 2026-11-14] The list pane too narrow for "All Bots ⌄" beside Filter, New and Search (UIKit then
-    /// drops the "Sessions" title): the bots move into Filter, a Bot › submenu where its All Bots ✓ was.
-    private var botsInFilter: Bool { DeviceWord.isMac && botWordsShown == false && chipBots.count > 1 && !headerModel.showsSwitch }
-
-    private func withBotPicker(_ elements: [UIMenuElement], picked: String?) -> [UIMenuElement] {
-        elements.map { element in
-            if let action = element as? UIAction, action.identifier.rawValue == "sessions.filter.allbots" {
-                let bots = chipBots
-                let all = UIAction(title: "All Bots", state: picked == nil ? .on : .off) { [weak self] _ in self?.pickBot(nil) }
-                let each = bots.map { bot in
-                    UIAction(title: bot.name, state: picked == bot.id ? .on : .off) { [weak self] _ in self?.pickBot(bot.id) }
-                }
-                let name = picked.flatMap { id in bots.first { $0.id == id }?.name } ?? "All Bots"
-                let menu = UIMenu(title: "Bot", subtitle: name, image: UIImage(systemName: "person.2"),
-                                  identifier: UIMenu.Identifier("sessions.filter.bots"), options: .singleSelection,
-                                  children: [all, UIMenu(options: .displayInline, children: each)])
-                menu.accessibilityIdentifier = "sessions.filter.bots"
-                return menu
-            }
-            if let menu = element as? UIMenu { return menu.replacingChildren(withBotPicker(menu.children, picked: picked)) }
-            return element
-        }
+        return elements
     }
 
     /// A pick in the menu, the strip's tap, a chip, or the empty state's button.
@@ -2329,17 +2284,16 @@ extension SessionsViewController {
         let bots = chipBots
         if let picked = store.botFilter, !bots.contains(where: { $0.id == picked }) { store.setBotFilter(nil) }
         let state = store.filterState(order: bots.map(\.id), botCount: bots.count)
-        // Narrow on the Mac the picked bot is one of Filter's choices, so it lights the button as they do.
-        let botInFilter = botsInFilter && state.botFilter != nil
-        barCapsule?.setFilterActive(SessionFilterWords.filterCount(state) > 0 || botInFilter, token: SessionFilterWords.token(state),
+        barCapsule?.setFilterActive(SessionFilterWords.filterCount(state) > 0, token: SessionFilterWords.token(state),
                                     label: SessionFilterWords.buttonLabel(state))
         // [perf] The header is measured again only when what it draws changed, not on every roster tick.
         var headerChanged = false
-        // [mac-audit] Owner 2026-11-02 (#20): on the Mac the header draws these as an "All Bots ⌄" pop-up, not a rail.
+        // [mac-switch] The same pills on the Mac (owner 2026-11-17, "B"; it had an "All Bots ⌄" pop-up since 2026-11-02 #20).
         let chips = SessionChipBot.chips(from: bots)
         if headerModel.bots != chips { headerModel.bots = chips; headerChanged = true }
         if headerModel.picked != state.botFilter { headerModel.picked = state.botFilter; headerChanged = true }
-        if DeviceWord.isMac { placeScopeItem(bots, state: state) }
+        // [mac-switch] Owner 2026-11-17 (picked from three drawings, "B"): the Mac has the iPhone's own pill row under its
+        // bar (the switch, New and Working, the bots' or projects' pills), so its bar has no "All Bots ⌄" of its own.
         // [sessions-fresh] New and Working after All, with their counts under the bot chip.
         let counts = store.chipCounts
         if headerModel.statusChips != counts { headerModel.statusChips = counts; headerChanged = true }
@@ -2368,89 +2322,6 @@ extension SessionsViewController {
         let composeIn = pickedProjects.count == 1 ? state.projects.first { pickedProjects.contains($0.key) && $0.key != SessionProjects.homeKey }?.label : nil
         barCapsule?.composeItem?.accessibilityLabel = composeIn.map { "New Chat in \($0)" } ?? "New Chat"
         if headerChanged { view.setNeedsLayout() }
-    }
-
-    /// [Mac full pass 2026-11-14] "All Bots ⌄" (or the picked bot's name) at the bar's leading end, left of Filter, as
-    /// Jobs' sits left of +: with a second bot only, as the other pages show theirs.
-    /// The list pane's least width (points) for "All Bots ⌄" beside Filter, New, Search and the title; narrower, a
-    /// fourth item (words or a glyph) made UIKit drop the title, and the bots are in Filter (`botsInFilter`).
-    private static let botWordsAt: CGFloat = 400
-
-    /// [mac-projects] Owner 2026-11-16 (what the iPhone has that the Mac doesn't): the Mac has no pill rail, so the
-    /// Bots | Projects switch and the project pills (builds 1027, 1039, 1046) had no place on it. They are this one
-    /// pop-up: Bots or Projects on top, then that view's choices. "All Projects ⌄" lists the projects in the pills'
-    /// order (the one waiting on you first, marked as the pills are), and picking one opens its page.
-    private func placeScopeItem(_ bots: [Bot], state: SessionFilterState) {
-        var items = navigationItem.rightBarButtonItems ?? []
-        let shown = items.contains { $0 === botsScope.item }
-        let inProjects = state.prefs.pills == .projects
-        let hasProjects = inProjects || state.projects.contains { $0.key != SessionProjects.homeKey }
-        // [mac-switch] Owner 2026-11-17: the Bots | Projects switch where it can be seen, as on the iPhone (icons and
-        // words), at the bar's leading end, at every pane width; the pop-up holds only that view's choices (one place
-        // to switch).
-        // [mac-switch] Then (owner: "Shouldn't this be one line lower?") the switch and this pop-up stand on the row
-        // under the bar (`SessionsHeaderView.macRow`) whenever there are projects; the bar keeps "All Bots ⌄" only
-        // without them.
-        placeSwitchItem(shown: false)
-        guard bots.count > 1, !hasProjects, botWordsShown != false else {
-            if shown { items.removeAll { $0 === botsScope.item }; navigationItem.rightBarButtonItems = items }
-            return
-        }
-        var sections: [UIMenuElement] = []
-        if hasProjects, !DeviceWord.isMac {
-            let views: [(SessionPills, String)] = [(.bots, "Bots"), (.projects, "Projects")]
-            sections.append(UIMenu(options: [.displayInline, .singleSelection], children: views.map { view, word in
-                let action = UIAction(title: word, state: state.prefs.pills == view ? .on : .off) { [weak self] _ in self?.pickPills(view) }
-                action.accessibilityIdentifier = "sessions.pills.\(view.rawValue)"
-                return action
-            }))
-        }
-        let title: String
-        var signature = [inProjects ? "projects" : "bots", hasProjects ? "1" : "0"]
-        if inProjects {
-            let projects = store?.pillProjects(order: bots.map(\.id)) ?? []
-            let picked = SessionFilterWords.effectiveProjects(state)
-            let one = picked.count == 1 ? projects.first { picked.contains($0.key) } : nil
-            title = one?.label ?? "All Projects"
-            let all = UIAction(title: "All Projects", state: picked.isEmpty ? .on : .off) { [weak self] _ in self?.pickProject(nil) }
-            let each = projects.map { project in
-                UIAction(title: project.archived ? "\(project.label) (Archived)" : project.label, image: Self.scopeMark(project.state),
-                         state: picked == [project.key] ? .on : .off) { [weak self] _ in self?.pickProject(project.key) }
-            }
-            sections.append(UIMenu(options: [.displayInline, .singleSelection], children: [all] + each))
-            signature += picked.sorted() + projects.map { "\($0.key)\u{1F}\($0.label)\u{1F}\($0.state)\u{1F}\($0.archived)" }
-        } else {
-            let picked = state.botFilter
-            title = picked.flatMap { id in bots.first { $0.id == id }?.name } ?? "All Bots"
-            let all = UIAction(title: "All Bots", state: picked == nil ? .on : .off) { [weak self] _ in self?.pickBot(nil) }
-            let each = bots.map { bot in
-                UIAction(title: bot.name, state: picked == bot.id ? .on : .off) { [weak self] _ in self?.pickBot(bot.id) }
-            }
-            sections.append(UIMenu(options: [.displayInline, .singleSelection], children: [all, UIMenu(options: .displayInline, children: each)]))
-            signature += [picked ?? ""] + bots.map { "\($0.id)\u{1F}\($0.name)" }
-        }
-        botsScope.show(title: title, menu: UIMenu(children: sections), signature: signature.joined(separator: "\u{1E}"))
-        if !shown { items.append(botsScope.item); navigationItem.rightBarButtonItems = items }
-    }
-
-    private func placeSwitchItem(shown: Bool) {
-        let has = navigationItem.leftBarButtonItems?.contains { $0 === switchItem } ?? false
-        guard has != shown else { return }
-        var items = navigationItem.leftBarButtonItems ?? []
-        if shown { items.append(switchItem) } else { items.removeAll { $0 === switchItem } }
-        navigationItem.leftBarButtonItems = items
-        navigationItem.leftItemsSupplementBackButton = true
-    }
-
-    /// A project's mark in the pop-up, as its pill's: orange while it waits on you, blue with a reply to read, a ring
-    /// while a bot works in it; none while it is quiet.
-    private static func scopeMark(_ state: SessionProjectState) -> UIImage? {
-        switch state {
-        case .needsYou: UIImage(systemName: "circle.fill")?.withTintColor(.systemOrange, renderingMode: .alwaysOriginal)
-        case .ready: UIImage(systemName: "circle.fill")?.withTintColor(HQPalette.tint, renderingMode: .alwaysOriginal)
-        case .working: UIImage(systemName: "circle.dotted")
-        default: nil
-        }
     }
 
     /// Mark All as Read (§5.6): both unread sources of every listed chat, and (as the web does) every bot's own chat.

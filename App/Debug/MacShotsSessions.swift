@@ -1,6 +1,6 @@
-// [mac-switch] DEBUG: `-HQDebugMacShotsSessions YES` photographs Sessions' Bots | Projects switch in the Mac's bar: the
-// Bots side, the Projects side, a project's page from "All Projects", back to Bots, a project's row on the Bots side
-// opening its page, and the same in a narrow window (the list at its narrowest).
+// [mac-switch] DEBUG: `-HQDebugMacShotsSessions YES` photographs Sessions' pill row on the Mac (the Bots | Projects
+// switch, New and Working, the pills): the Bots side, a bot picked, the Projects side, a project's page, back to Bots,
+// a project's row on the Bots side opening its page, and the same in a narrow window (the list at its narrowest).
 
 #if DEBUG && targetEnvironment(macCatalyst)
 import UIKit
@@ -28,6 +28,13 @@ extension MacShots {
             list.pickPills(.bots)
             await wait(1.5)
             snap("\(pass)a-bots")
+            if let bot = tabs.services.bots.dropFirst(2).first?.id {
+                list.pickBot(bot)
+                await wait(1.5)
+                snap("\(pass)a2-bot-picked")
+                list.pickBot(nil)
+                await wait(1)
+            }
             list.pickPills(.projects)
             await wait(1.5)
             snap("\(pass)b-projects")

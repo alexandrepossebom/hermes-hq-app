@@ -63,9 +63,9 @@ final class SessionsHeaderModel {
     }
 
     var isEmpty: Bool { !hasRail && strip == nil }
-    /// The rail shows with a second bot, or a status chip. Not on the Mac: its bots are the bar's "All Bots ⌄"
-    /// ([Mac full pass 2026-11-14], `SessionsViewController.placeBotsItem`), where every other list has it.
-    var hasRail: Bool { DeviceWord.isMac ? showsSwitch : hasPills || !shownStatus.isEmpty || showsSwitch }
+    /// The rail shows with a second bot, a status chip, or the Bots | Projects switch. [mac-switch] Owner 2026-11-17
+    /// (picked "B" of three drawings): on the Mac too, the iPhone's own row under the bar (it had an "All Bots ⌄" pop-up).
+    var hasRail: Bool { hasPills || !shownStatus.isEmpty || showsSwitch }
     /// [projects-switch] Owner 2026-11-15: the project view was three taps into Filter. With projects to show, the rail
     /// starts with a Bots | Projects switch (one tap; Group By follows it).
     var showsSwitch = false
@@ -164,64 +164,7 @@ struct SessionsHeaderView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.strip)
     }
 
-    @ViewBuilder private var rail: some View {
-        if DeviceWord.isMac { macRow } else { pillRail }
-    }
-
-    /// [mac-switch] Owner 2026-11-17, on the switch in the Mac's bar ("Shouldn't this be one line lower?"): on the Mac
-    /// the Bots | Projects switch and the view's "All Bots ⌄" / "All Projects ⌄" stand on a row of their own under the
-    /// bar, where the iPhone has its pill row; the bar keeps the title and its buttons.
-    private var macRow: some View {
-        HStack(spacing: 10) {
-            SessionsPillsSwitch(model: model, inBar: true)
-            scopeMenu
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, ProjectCard.lead - 4)
-        .padding(.trailing, ProjectCard.lead)
-        .padding(.top, Theme.isDesktop ? 6 : 4)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The view's choices: every bot or one, every project or one (a project opens its page).
-    private var scopeMenu: some View {
-        let projects = model.pills == .projects
-        let pickedProject = model.projects.first { model.pickedProjects.contains($0.key) }
-        let title = projects ? (model.pickedProjects.count == 1 ? pickedProject?.label ?? "All Projects" : "All Projects")
-            : model.picked.flatMap { id in model.bots.first { $0.id == id }?.name } ?? "All Bots"
-        return Menu {
-            if projects {
-                Picker(selection: Binding(get: { model.pickedProjects.count == 1 ? model.pickedProjects.first : nil },
-                                          set: { model.onPickProject($0) })) {
-                    Text("All Projects").tag(String?.none)
-                    Divider()
-                    ForEach(model.projects) { project in
-                        Text(project.archived ? "\(project.label) (Archived)" : project.label).tag(Optional(project.key))
-                    }
-                } label: { EmptyView() }
-                .pickerStyle(.inline)
-            } else {
-                Picker(selection: Binding(get: { model.picked }, set: { model.onPick($0) })) {
-                    Text("All Bots").tag(String?.none)
-                    Divider()
-                    ForEach(model.bots) { bot in Text(bot.name).tag(Optional(bot.id)) }
-                } label: { EmptyView() }
-                .pickerStyle(.inline)
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(title).lineLimit(1)
-                Image(systemName: "chevron.down").font(Font.hq(.caption2).weight(.semibold))
-            }
-            .font(Font.hq(.subheadline).weight(.medium))
-            .foregroundStyle(Theme.isDesktop ? Color.hqLabel2 : Color.hqLabel)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .fixedSize()
-        .accessibilityIdentifier("pages.scope")
-    }
+    @ViewBuilder private var rail: some View { pillRail }
 
     /// The Mac's faces rail with ‹ › arrows, unused since the pop-up took its place (#20); kept until the owner has seen it.
     @ViewBuilder private var macRail: some View {
@@ -747,13 +690,9 @@ struct ChipPaging: ScrollTargetBehavior {
     }
 }
 
-/// [projects-switch] The Bots | Projects switch, on the iPhone's and iPad's pill rail (its first item) and, [mac-switch]
-/// in the Mac's bar (`inBar`), where the rail isn't drawn: the same drawing and the same one tap.
+/// [projects-switch] The Bots | Projects switch: the pill rail's first item (iPhone, iPad and, since 2026-11-17, the Mac).
 struct SessionsPillsSwitch: View {
     var model: SessionsHeaderModel
-    /// [mac-switch] In the Mac's bar: a 24 pt capsule, its touch the capsule's own.
-    var inBar = false
-
     /// The side drawn is the tint while nothing is picked, dark while a pill is.
     private var allPicked: Bool {
         model.pills == .projects ? model.pickedProjects.isEmpty && model.status == nil && !model.botPicked
@@ -762,12 +701,12 @@ struct SessionsPillsSwitch: View {
 
     var body: some View {
         Group {
-            let side: CGFloat = Theme.isDesktop || inBar ? HQFont.scaled(24) : HQFont.scaled(30)
+            let side: CGFloat = Theme.isDesktop ? HQFont.scaled(24) : HQFont.scaled(30)
             let half = side + 8
             // Each side's touch reaches this far past the capsule (into the rail's margin, and the gap before the
-            // next pill), so it is 44 pt wide as every pill's is. In the Mac's bar the pointer needs no reach.
-            let reach = inBar ? 0 : max(0, 44 - half - 2)
-            let touch: CGFloat = inBar ? side + 4 : 44
+            // next pill), so it is 44 pt wide as every pill's is.
+            let reach = max(0, 44 - half - 2)
+            let touch: CGFloat = 44
             let views: [SessionPills] = [.bots, .projects]
             // The drawing: glyphs in the glass (the glass takes its content, as every pill's does).
             HStack(spacing: 0) {
