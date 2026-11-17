@@ -269,8 +269,8 @@ nonisolated enum ThemeResolver {
 
     /// [message-colour] Your messages in the colour picked on Chat Bubbles, over what the skin gave them. A named
     /// colour has its own light and dark shade; any other goes through the rule a skin's accent does (`ios`: brightened
-    /// then deepened in dark). Either is deepened until white reads on it (`messageInk`), with black text only where it is
-    /// too light for white. Graphite is the page's own grey with the page's text: a quiet pill, a step from the
+    /// then deepened in dark). Either is deepened until white reads on it (`messageInk`), however light it starts.
+    /// Graphite is the page's own grey with the page's text: a quiet pill, a step from the
     /// reply's bubble.
     static func paintMessage(_ t: inout ThemeTokens, _ colour: MessageColour, dark: Bool) {
         let start: RGBA
@@ -314,19 +314,18 @@ nonisolated enum ThemeResolver {
                 t.rowAccent = dark ? light.raisingL(to: 57) : light
             }
         }
+        // [white-text] White words on every colour (owner 2026-11-17, picking from three drawn ways: "White text on every
+        // face"): a light one (butter, rose, mint, a light custom pick) is deepened as far as white needs, where it used
+        // to keep its colour with black words.
         var bubble = start
-        if RGBA.white.contrast(with: bubble) >= 3 {
-            var keep = 100.0
-            while keep > 60, RGBA.white.contrast(with: bubble) < messageInk {
-                keep -= 2
-                bubble = start.mix(keep, .black)
-            }
+        var keep = 100.0
+        while keep > 0, RGBA.white.contrast(with: bubble) < messageInk {
+            keep -= 1
+            bubble = start.mix(keep, .black)
         }
-        let white = RGBA.white.contrast(with: bubble), black = RGBA.black.contrast(with: bubble)
-        let ink: RGBA = white >= 4.5 || white >= black ? .white : .black
         t.meBubble = bubble
-        t.meText = ink
-        t.meTime = ink.alpha(dark ? 0.88 : 0.85)
+        t.meText = .white
+        t.meTime = RGBA.white.alpha(dark ? 0.88 : 0.85)
     }
 
     /// A skin's own iOS look (`SkinOwnLook`) over what the general rule made: its surfaces, its greys, its code card.

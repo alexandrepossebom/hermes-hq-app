@@ -1663,6 +1663,34 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(ThemeResolver.resolve(blue).light.meBubble == RGBA(hex: 0x0053FD), "the app's blue (5.7:1) is untouched")
     }
 
+    /// [white-text] Owner 2026-11-17, from three ways drawn for him: "White text on every face". Every face, named colour
+    /// and odd custom pick has white words, light and dark, at `messageInk`; Graphite (and a paper face) keeps its quiet
+    /// pill with the page's text; a colour white already reads on is left as it was.
+    @Test func whiteWordsOnEveryFace() {
+        for name in Head.ColorName.allCases where name != .paper {
+            var head = Head()
+            head.color = name
+            var state = ThemeState.default
+            state.messageColour = head.messageColour
+            let set = ThemeResolver.resolve(state)
+            for t in [set.light, set.dark] {
+                #expect(t.meText == .white, "\(name)")
+                #expect(Self.reads(.white, on: t.meBubble) >= ThemeResolver.messageInk, "\(name)")
+            }
+        }
+        for hex: UInt32 in [0xFFFFFF, 0xFFE100, 0x7FFFD4, 0xFFAFC8] {
+            var state = ThemeState.default
+            state.messageColour = .custom(hex)
+            #expect(ThemeResolver.resolve(state).light.meText == .white, "#\(String(hex, radix: 16))")
+        }
+        var grey = ThemeState.default
+        grey.messageColour = .preset(.graphite)
+        #expect(ThemeResolver.resolve(grey).light.meText == ThemeResolver.resolve(grey).light.label)
+        var cobalt = ThemeState.default
+        cobalt.messageColour = .custom(0x2E5BFF)
+        #expect(ThemeResolver.resolve(cobalt).light.meBubble == RGBA(hex: 0x2E5BFF), "reads already: untouched")
+    }
+
     /// Tinted takes the picture only as far as the words keep a little past 4.5:1 on a light picture.
     @Test func tintedKeepsRoomOverALightPicture() {
         let t = ThemeResolver.resolve(.default).light
