@@ -88,7 +88,12 @@ enum ProjectCardSlice {
     /// [soft-cards] Sessions stands on soft cards (Theme › App Background › Soft Cards, the app's picture showing): the
     /// projects share one soft card, and an open project draws no card of its own on it (its line holds its chats).
     static var soft: Bool { Backdrop.app.cards && Backdrop.app.shows }
-    static var fill: UIColor { soft ? SoftCard.rowClear : HQPalette.groupedCard }
+    /// [project-card-colour] Owner 2026-11-17 ("What about the background behind an opened project folder? Keep or
+    /// get rid of?", then "Yes" to keeping it and making it show in every look): the theme's card, stepped toward its
+    /// ink where it stood too close to the page to read as a card (31 of 84 looks: the Desktop Look's, Paper light,
+    /// Rose Pine, Catppuccin, Everforest light), as the project page's header card is (`ProjectPageHeader.fill`). A
+    /// closed project's folder box, a piece of this card, shows in those looks too.
+    static var fill: UIColor { soft ? SoftCard.rowClear : ProjectPageHeader.fill }
     static var pressedFill: UIColor { soft ? SoftCard.rowPressed : HQPalette.cellPressed }
     /// The folder's box on the card: the page colour in light, a raised grey in dark.
     static let box: UIColor = {

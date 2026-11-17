@@ -1,10 +1,11 @@
 // [project-header-card] Owner 2026-11-16: a project's page header stands on a card that "has to work for every theme
 // properly and in every scenario". The card is `ProjectCard.fill` (the theme's `groupedCard`) on the list's page
 // (`page`): every skin, light and dark, both looks, with and without High Contrast, must part the two clearly enough to
-// read as a card.
+// read as a card. [project-card-colour] 2026-11-17: an opened project's card is the same colour (`ProjectCard.fill`).
 
 import Foundation
 import Testing
+import UIKit
 @testable import HermesHQNative
 
 @MainActor @Suite struct ProjectHeaderCardTests {
@@ -64,5 +65,33 @@ import Testing
         #expect(light.r < 1 && ProjectPageHeader.ratio(.white, light) >= ProjectPageHeader.cardLeast)
         let dark = ProjectPageHeader.cardColour(page: .black, card: .black, ink: .white)
         #expect(dark.r > 0 && ProjectPageHeader.ratio(.black, dark) >= ProjectPageHeader.cardLeast)
+    }
+
+    /// [project-card-colour] The colours as drawn: the project cards' fill, resolved in every skin, light and dark, both
+    /// looks, stands apart from the page it is drawn on (Soft Cards off: on Soft Cards the card is the soft card's).
+    @Test func theProjectCardsResolveApartFromThePageInEveryLook() {
+        #expect(!ProjectCard.soft, "no app picture in the unit tests")
+        var drawn = 0
+        for skin in SkinCatalog.all {
+            for desktop in [false, true] {
+                let state = ThemeState(skinID: skin.id, desktopLook: desktop, highContrast: false, uiScalePercent: 100)
+                ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
+                    for style in [UIUserInterfaceStyle.light, .dark] {
+                        let traits = UITraitCollection(userInterfaceStyle: style)
+                        let page = HQPalette.page.resolvedColor(with: traits), card = ProjectCard.fill.resolvedColor(with: traits)
+                        let ratio = ProjectPageHeader.ratio(Self.rgba(page), Self.rgba(card))
+                        #expect(ratio >= ProjectPageHeader.cardLeast - 0.005, "\(skin.id) \(desktop ? "desktop" : "ios") \(style == .dark ? "dark" : "light"): \(ratio)")
+                        drawn += 1
+                    }
+                }
+            }
+        }
+        #expect(drawn == SkinCatalog.all.count * 4)
+    }
+
+    private static func rgba(_ colour: UIColor) -> RGBA {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        colour.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return RGBA(unit: Double(r), Double(g), Double(b), Double(a)).over(.white)
     }
 }

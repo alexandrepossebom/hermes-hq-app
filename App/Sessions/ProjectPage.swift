@@ -80,7 +80,8 @@ struct ProjectPageHeader: View {
         return colour
     }
 
-    /// The same, as a colour that follows the look (light, dark, the skin, Increase Contrast).
+    /// The same, as a colour that follows the look (light, dark, the skin, Increase Contrast). Every project card's too
+    /// (`ProjectCard.fill`).
     static let fill: UIColor = {
         let page = HQPalette.page, card = HQPalette.groupedCard, ink = HQPalette.label   // read here: resolved off the main thread
         return UIColor { @Sendable traits in
