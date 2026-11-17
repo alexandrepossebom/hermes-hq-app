@@ -1044,23 +1044,19 @@ final class ChatEdgeStandIn: UIView {
         }
         blur.layer.mask = blurMask
         let page = ChatPalette.page.resolvedColor(with: traitCollection)
-        picture.alpha = keeps ? 1 : 0
-        if keeps, picture.showsPicture {
-            // The picture copy is the page here (its own Dim veil included): no page colour over it.
-            wash.colors = [page.withAlphaComponent(0).cgColor, page.withAlphaComponent(0).cgColor]
-            wash.locations = [0, 1]
-            #if DEBUG
-            accessibilityValue = "opaque=0"
-            #endif
-            return
-        }
+        picture.alpha = 0   // only asked whether a picture shows; the real one is seen through the blur
         // [a11y] Reduce Transparency: a solid band of the page colour, nothing showing through (the web's chat bar takes
         // the page colour, phone-ui-chat.css:286-288). The band still ends in a short fade so no hard line is drawn.
         let solid = HQAccessibility.reduceTransparency
         blur.isHidden = solid
+        // [top-bar-soft] Owner 2026-11-17, of the kept band: "you can't even see through it. It's just solid … the whole
+        // point is … a blur that fades away". Kept, it is the blur alone on a picture and a light veil of the page
+        // colour over it otherwise (the clock stays readable); the conversation and the picture show through it.
+        let veil: CGFloat = picture.showsPicture ? 0 : 1
         wash.colors = solid
             ? [page.cgColor, page.cgColor, page.withAlphaComponent(0).cgColor]
-            : [page.withAlphaComponent(0.92).cgColor, page.withAlphaComponent(keeps ? 0.75 : 0.6).cgColor, page.withAlphaComponent(0).cgColor]
+            : keeps ? [page.withAlphaComponent(0.5 * veil).cgColor, page.withAlphaComponent(0.25 * veil).cgColor, page.withAlphaComponent(0).cgColor]
+            : [page.withAlphaComponent(0.92).cgColor, page.withAlphaComponent(0.6).cgColor, page.withAlphaComponent(0).cgColor]
         placeStops()
         #if DEBUG
         accessibilityValue = solid ? "opaque=1" : "opaque=0"
@@ -1079,18 +1075,19 @@ final class ChatEdgeStandIn: UIView {
         CATransaction.commit()
     }
 
-    /// [edge-fade-height] Kept as the chat's edge, it holds at full strength behind the bar's pills and runs out over
-    /// its last `keptRun` points (a proportional fade let rows read sharp between the pills); during a push it keeps
-    /// the proportions that match the system's edge it hands over to.
+    /// [top-bar-soft] Kept as the chat's edge, the blur is whole behind the clock and thins out from there through the
+    /// bar's pills to nothing at its foot (held whole to the foot it read as a solid band, owner 2026-11-17). Reduce
+    /// Transparency keeps the solid band, run out over its last `keptRun` points. During a push it keeps the
+    /// proportions that match the system's edge it hands over to.
     private static let keptRun: CGFloat = 26
     private func placeStops() {
         guard !hard else { return }
         let solid = HQAccessibility.reduceTransparency
         if keeps, bounds.height > 0 {
-            let hold = NSNumber(value: Double(max(0, (bounds.height - Self.keptRun) / bounds.height)))
+            let whole = min((window?.safeAreaInsets.top ?? 0) * 0.75, bounds.height * 0.5)
+            let hold = NSNumber(value: Double(solid ? max(0, (bounds.height - Self.keptRun) / bounds.height) : whole / bounds.height))
             blurMask.locations = [0, hold, 1]
-            pictureMask.locations = [0, hold, 1]
-            if !picture.showsPicture { wash.locations = [0, hold, 1] }
+            wash.locations = [0, solid ? hold : 0.5, 1]
         } else {
             blurMask.locations = [0, 0.55, 1]
             wash.locations = solid ? [0, 0.8, 1] : [0, 0.45, 1]
@@ -1117,6 +1114,11 @@ final class ChatEdgeStandIn: UIView {
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
         picture.alignedTo = superview
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        setNeedsLayout()   // the fade starts from the window's safe area
     }
 
     /// The system's edge is up: fade out (kept in place, so a switch back to the iOS look can show it again).
