@@ -16,6 +16,7 @@ import UIKit
         case waiting                                  // the 1Password app shows Allow on Hermes's computer
         case choose([OnePasswordAllowWire.Vault])
         case making
+        case moving(Int, Int)                         // the Private vault's logins on their way to Main
         case done(bots: Int, vaults: [String])
         case failed(String, code: String)
     }
@@ -31,6 +32,10 @@ import UIKit
     let byPassword: Bool
     var picked: Set<String> = []
     var makeNew = false
+    /// The Private vault, when it has logins: 1Password lets no key read it, so they can be moved to Main.
+    private(set) var privateVault: (name: String, logins: Int)?
+    var movePrivate = false
+    private(set) var unmoved = 0
 
     @ObservationIgnored var call: PushRegistrar.Call? = PushRegistrar.shared.call
     /// Between looks at the job.
@@ -63,7 +68,7 @@ import UIKit
         return answer.status == 200
     }
 
-    var canGive: Bool { !picked.isEmpty || makeNew }
+    var canGive: Bool { !picked.isEmpty || makeNew || (movePrivate && privateVault != nil) }
 
     /// Ask 1Password (again, after a failure). `password`: sign in with it on Hermes's computer, once; it is sent
     /// and dropped, never kept here.
@@ -93,7 +98,7 @@ import UIKit
     func give() {
         guard canGive, let job, case .choose = phase else { return }
         run?.cancel()
-        let body: [String: Any] = ["vaults": Array(picked), "create": makeNew]
+        let body: [String: Any] = ["vaults": Array(picked), "create": makeNew, "move_private": movePrivate && privateVault != nil]
         phase = .making
         run = Task { [weak self] in
             guard let self, let call = self.call else { return }
@@ -105,7 +110,15 @@ import UIKit
                                      code: sent.body?["code"] as? String ?? "failed")
                 return
             }
-            await self.follow(until: { if case .making = $0 { false } else { true } })
+            await self.follow(until: Self.keyed, looks: 1500)   // a full vault takes minutes to move
+        }
+    }
+
+    /// Done or failed: making and moving are still on their way.
+    private static func keyed(_ job: OnePasswordAllowWire.Job) -> Bool {
+        switch job {
+        case .making, .moving: false
+        default: true
         }
     }
 
@@ -128,17 +141,17 @@ import UIKit
         case .asking: if byPassword { phase = .signIn(nil) } else { start() }
         case .waiting:
             run = Task { [weak self] in await self?.follow(until: { if case .waiting = $0 { false } else { true } }) }
-        case .making:
-            run = Task { [weak self] in await self?.follow(until: { if case .making = $0 { false } else { true } }) }
+        case .making, .moving:
+            run = Task { [weak self] in await self?.follow(until: Self.keyed, looks: 1500) }
         case .signIn, .choose, .done, .failed: break
         }
     }
 
     /// Looks at the job until it moves on (four minutes of looking; a look that gets no answer is looked again).
-    private func follow(until settled: (OnePasswordAllowWire.Job) -> Bool) async {
+    private func follow(until settled: (OnePasswordAllowWire.Job) -> Bool, looks limit: Int = 200) async {
         guard let job, let call else { return }
         var looks = 0
-        while looks < 200, !Task.isCancelled {
+        while looks < limit, !Task.isCancelled {
             try? await Task.sleep(for: pause)
             guard !Task.isCancelled else { return }
             let answer = await call(OnePasswordAllowWire.route + "/allow/" + job, "GET", nil)
@@ -149,7 +162,10 @@ import UIKit
             }
             guard answer.status == 200, let now = OnePasswordAllowWire.job(answer.body) else { continue }
             looks += 1
+            if case .choose = now.job { privateVault = OnePasswordAllowWire.privateVault(answer.body) }
+            if case .done = now.job { unmoved = OnePasswordAllowWire.unmoved(answer.body) }
             if settled(now.job) { show(now.job); return }
+            if case .moving = now.job { show(now.job) }   // how far it is
         }
         if !Task.isCancelled { phase = .failed("1Password didn’t answer in time. Try again.", code: "timeout") }
     }
@@ -158,10 +174,11 @@ import UIKit
         switch job {
         case .waiting: phase = .waiting
         case .choose(let vaults, _):
-            picked = OnePasswordAllowWire.firstPick(vaults)
-            makeNew = vaults.isEmpty
+            picked = OnePasswordAllowWire.firstPick(vaults, connected: Self.known.ours ? Self.known.vaults : [])
+            makeNew = vaults.isEmpty && privateVault == nil
             phase = .choose(vaults)
         case .making: phase = .making
+        case .moving(let moved, let total): phase = .moving(moved, total)
         case .done(let bots, let vaults):
             Self.known.connected = true
             Self.known.ours = true
@@ -194,6 +211,7 @@ struct OnePasswordAllowView: View {
             case .waiting: if model.byPassword { LoadingSection(text: "Signing in to 1Password…") } else { waiting }
             case .choose(let vaults): choose(vaults)
             case .making: LoadingSection(text: "Saving a key for your bots…")
+            case .moving(let moved, let total): LoadingSection(text: OnePasswordAllowWire.movingLine(moved: moved, total: total))
             case .done(let bots, let vaults): finished(bots: bots, vaults: vaults)
             case .failed(let why, _): failed(why)
             }
@@ -269,6 +287,18 @@ struct OnePasswordAllowView: View {
 
     @ViewBuilder private func choose(_ vaults: [OnePasswordAllowWire.Vault]) -> some View {
         Section {
+            // Owner 2026-11-16: "We need the main vault to work." 1Password lets no key read Private, so its logins
+            // move, on this tick, into a normal vault of the person's own named Main.
+            if let own = model.privateVault {
+                Button {
+                    Haptics.play(.selection)
+                    model.movePrivate.toggle()
+                } label: {
+                    row(own.name, detail: OnePasswordAllowWire.privateDetail(own.logins), on: model.movePrivate)
+                }
+                .accessibilityIdentifier("onepassword.vault.private")
+                .accessibilityAddTraits(model.movePrivate ? .isSelected : [])
+            }
             ForEach(vaults) { vault in
                 let on = model.picked.contains(vault.id)
                 Button {
@@ -280,7 +310,7 @@ struct OnePasswordAllowView: View {
                 .accessibilityIdentifier("onepassword.vault.\(vault.name)")
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
-            if OnePasswordAllowWire.offersNewVault(vaults) {
+            if OnePasswordAllowWire.offersNewVault(vaults), model.privateVault == nil || !vaults.isEmpty {
                 Button {
                     Haptics.play(.selection)
                     model.makeNew.toggle()
@@ -293,7 +323,9 @@ struct OnePasswordAllowView: View {
         } header: { HQSectionLabel {
             Text("Vaults Your Bots May Fill From")
         } } footer: { HQSectionFooter {
-            Text("Your bots get a key that only reads these vaults, and keep it: nobody is asked again. 1Password never shares your Private vault, so move a login into one of these for a bot to fill it.")
+            Text(model.privateVault == nil
+                 ? "Your bots get a key that only reads these vaults, and keep it: nobody is asked again."
+                 : "Your bots get a key that only reads these vaults, and keep it: nobody is asked again. 1Password never shares \(model.privateVault?.name ?? "Private") itself: ticking it moves its logins into a vault of yours named \(OnePasswordAllowWire.mainVault), which only you and your bots can read. Save new logins there too.")
         } }
         Section {
             Button("Give Access") { model.give() }
@@ -319,7 +351,8 @@ struct OnePasswordAllowView: View {
         Section {
             Label("1Password Is Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(Color.hqLabel)
         } footer: { HQSectionFooter {
-            Text(OnePasswordAllowWire.doneLine(bots: bots, vaults: vaults))
+            Text(OnePasswordAllowWire.doneLine(bots: bots, vaults: vaults)
+                 + (model.unmoved > 0 ? " \(model.unmoved) logins wouldn’t move and are still in Private." : ""))
         } }
     }
 

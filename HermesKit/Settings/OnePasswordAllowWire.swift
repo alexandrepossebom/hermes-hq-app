@@ -53,6 +53,8 @@ nonisolated enum OnePasswordAllowWire {
         case waiting
         case choose([Vault], account: String)
         case making
+        /// The Private vault's logins are on their way to Main.
+        case moving(moved: Int, total: Int)
         case done(bots: Int, vaults: [String])
         case failed(String, code: String)
     }
@@ -80,11 +82,31 @@ nonisolated enum OnePasswordAllowWire {
         case "waiting": return (id, .waiting)
         case "choose": return (id, .choose(vaults(body), account: body["account"] as? String ?? ""))
         case "making": return (id, .making)
+        case "moving":
+            let moved = ((body["moved"] as? NSNumber)?.intValue ?? 0) + ((body["unmoved"] as? NSNumber)?.intValue ?? 0)
+            return (id, .moving(moved: moved, total: (body["total"] as? NSNumber)?.intValue ?? 0))
         case "done": return (id, .done(bots: (body["saved"] as? NSNumber)?.intValue ?? 0, vaults: vaults(body).map(\.name)))
         case "failed": return (id, .failed(failure(body), code: body["code"] as? String ?? "failed"))
         default: return nil
         }
     }
+
+    /// The vault where logins a key can read may go when they come out of Private (the add-on makes it).
+    static let mainVault = "Main"
+
+    /// The Private vault in a job's answer: its name and how many logins it holds (1Password lets no key read it;
+    /// its logins can be moved to `mainVault` on the person's say).
+    static func privateVault(_ body: [String: Any]?) -> (name: String, logins: Int)? {
+        guard let found = body?["private"] as? [String: Any], let logins = (found["logins"] as? NSNumber)?.intValue, logins > 0 else { return nil }
+        return ((found["name"] as? String) ?? "Private", logins)
+    }
+
+    /// Logins that wouldn't move, in a finished job's answer.
+    static func unmoved(_ body: [String: Any]?) -> Int { (body?["unmoved"] as? NSNumber)?.intValue ?? 0 }
+
+    static func privateDetail(_ logins: Int) -> String { "\(logins == 1 ? "1 login" : "\(logins) logins") → \(mainVault)" }
+
+    static func movingLine(moved: Int, total: Int) -> String { "Moving logins to \(mainVault)… \(moved) of \(total)" }
 
     /// Why it didn't work, from a job or a refused call.
     static func failure(_ body: [String: Any]?) -> String {
@@ -121,6 +143,12 @@ nonisolated enum OnePasswordAllowWire {
     }
 
     /// The vault rows start with nothing ticked unless there is exactly one, or one already named Hermes.
+    /// Changing vaults later: the ones the key reads now stay ticked.
+    static func firstPick(_ vaults: [Vault], connected: [String]) -> Set<String> {
+        let kept = Set(vaults.filter { connected.contains($0.name) }.map(\.id))
+        return kept.isEmpty ? firstPick(vaults) : kept
+    }
+
     static func firstPick(_ vaults: [Vault]) -> Set<String> {
         if vaults.count == 1 { return [vaults[0].id] }
         return Set(vaults.filter { $0.name.caseInsensitiveCompare(newVault) == .orderedSame }.map(\.id))

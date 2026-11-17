@@ -272,9 +272,14 @@ struct PasswordsPageView: View {
                         if source.enabled, source.installed, allow {
                             if onePassword.connected {
                                 if onePassword.ours {
-                                    Button("Disconnect…") { confirmDisconnect() }
-                                        .buttonStyle(.borderless)
-                                        .accessibilityIdentifier("onepassword.disconnect")
+                                    HStack(spacing: 16) {
+                                        // The vaults the key reads, and the Private vault's logins (moved to Main).
+                                        Button("Change Vaults…") { openAllow(source) }
+                                            .accessibilityIdentifier("onepassword.change")
+                                        Button("Disconnect…") { confirmDisconnect() }
+                                            .accessibilityIdentifier("onepassword.disconnect")
+                                    }
+                                    .buttonStyle(.borderless)
                                 }
                             } else {
                                 HStack(spacing: 16) {
