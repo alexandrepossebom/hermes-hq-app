@@ -507,8 +507,14 @@ extension View {
     /// [Mac AAA 2026-11-16] An icon-only SwiftUI button's name: what VoiceOver says, and on the Mac the tip shown under
     /// the pointer. A UIKit button gets its tip from its label by itself (`MacToolTips`), but a SwiftUI button is not a
     /// view the window can find, so an `accessibilityLabel` alone showed no tip.
-    func hqIconLabel(_ label: String) -> some View {
+    /// [Mac AAA rest 2026-11-17] The tip on the Mac only: on the iPhone and iPad `help` is also VoiceOver's hint, so the
+    /// button read its name twice; there it is the plain `accessibilityLabel` it was before the polish.
+    @ViewBuilder func hqIconLabel(_ label: String) -> some View {
+        #if targetEnvironment(macCatalyst)
         accessibilityLabel(label).help(label)
+        #else
+        accessibilityLabel(label)
+        #endif
     }
 
     @ViewBuilder func hqPointerFill<Outline: Shape>(_ shape: Outline, on: Bool = true) -> some View {
@@ -525,11 +531,45 @@ private struct MacPointerFill<Outline: Shape>: ViewModifier {
     let shape: Outline
     let on: Bool
     @State private var over = false
+    /// [rest-hands 2026-11-17] P-2: the press deepens the fill on mouse-down, as UIKit's rows do (`MacHover`). Read from
+    /// the app's mouse button (`MacMouseButton`), never from a gesture: a zero-distance drag on the row was tried with
+    /// the real pointer and took the click and the drag from a Kanban card's list (the card neither opened nor moved).
+    @State private var pressed = false
+    @ObservedObject private var mouse = MacMouseButton.shared
 
     func body(content: Content) -> some View {
         content
-            .overlay { shape.fill(Color(uiColor: MacHover.rowFill)).opacity(over && on ? 1 : 0).allowsHitTesting(false) }
-            .onHover { over = $0 }
+            .overlay {
+                shape.fill(Color(uiColor: pressed ? MacHover.rowPressFill : MacHover.rowFill))
+                    .opacity(over && on ? 1 : 0).allowsHitTesting(false)
+            }
+            .onHover { inside in
+                over = inside
+                if inside { MacMouseButton.shared.watch() } else { pressed = false }
+            }
+            .onChange(of: mouse.down) { _, down in pressed = down && over }
+    }
+}
+
+/// [rest-hands 2026-11-17] Whether the mouse's main button is down in this app: an AppKit local monitor that only
+/// looks (every event goes on unchanged), installed the first time a SwiftUI row is under the pointer.
+@MainActor final class MacMouseButton: ObservableObject {
+    static let shared = MacMouseButton()
+    @Published private(set) var down = false
+    private var monitor: AnyObject?
+
+    func watch() {
+        guard monitor == nil, let events = NSClassFromString("NSEvent"),
+              let method = class_getClassMethod(events, NSSelectorFromString("addLocalMonitorForEventsMatchingMask:handler:")) else { return }
+        typealias Handler = @convention(block) (NSObject) -> NSObject?
+        typealias Add = @convention(c) (AnyClass, Selector, UInt64, @escaping Handler) -> AnyObject?
+        let add = unsafeBitCast(method_getImplementation(method), to: Add.self)
+        let leftDown: UInt64 = 1 << 1, leftUp: UInt64 = 1 << 2
+        monitor = add(events, NSSelectorFromString("addLocalMonitorForEventsMatchingMask:handler:"), leftDown | leftUp) { event in
+            let type = (event.value(forKey: "type") as? NSNumber)?.intValue
+            MainActor.assumeIsolated { MacMouseButton.shared.down = type == 1 }
+            return event
+        }
     }
 }
 #endif

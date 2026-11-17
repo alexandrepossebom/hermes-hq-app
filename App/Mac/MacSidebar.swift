@@ -468,7 +468,7 @@ final class MacSidebar: UIView {
             MainActor.assumeIsolated { self?.showGateway() }
         }
         railGrip.accessibilityIdentifier = "mac-sidebar.rail-edge"
-        railGrip.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(railDragged(_:))))
+        railGrip.addGestureRecognizer(MacGripPan(target: self, action: #selector(railDragged(_:))))
         railGrip.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(railHovered(_:))))
         let reset = UITapGestureRecognizer(target: self, action: #selector(openWidthReset))
         reset.numberOfTapsRequired = 2
@@ -1400,7 +1400,7 @@ final class MacSidebar: UIView {
         case .began:
             railDragStart = Self.railWidth
         case .changed:
-            let moved = pan.translation(in: self).x * (effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1)
+            let moved = ((pan as? MacGripPan)?.travel(in: self).x ?? pan.translation(in: self).x) * (effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1)   // [rest-hands 2026-11-17]
             let width = min(max(railDragStart + moved, compact - 12), named + 16)
             Self.railDragWidth = width
             MacWindow.cursor("resizeLeftRightCursor")
@@ -1428,7 +1428,7 @@ final class MacSidebar: UIView {
         case .began:
             railDragStart = Self.openWidth
         case .changed:
-            let moved = pan.translation(in: self).x * (effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1)
+            let moved = ((pan as? MacGripPan)?.travel(in: self).x ?? pan.translation(in: self).x) * (effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1)   // [rest-hands 2026-11-17]
             Self.openDragWidth = min(max(railDragStart + moved, Self.narrowestOpen), Self.widestOpen)
             MacWindow.cursor("resizeLeftRightCursor")
             superview?.setNeedsLayout()

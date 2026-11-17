@@ -280,7 +280,7 @@ struct StarMapNodeSheet: View {
                     }
                     .hqGlassCard()   // [glass-audit] the facts on a solid card while the sheet sits on glass
                     // [Mac AAA 2026-11-16] one whole screen pixel (`HQShape.hairline`), not the system Divider's 0.77 px
-                    if !(glass && GlassSheetKit.designed) { HQHairline() }
+                    if !(glass && GlassSheetKit.designed) { SettingsHairline() }   // iPhone: its Divider
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         PagesFlowLayout(spacing: 6, lineSpacing: 6) {

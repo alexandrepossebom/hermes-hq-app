@@ -370,12 +370,22 @@ struct StarMapZoomButtons: View {
     var body: some View {
         VStack(spacing: 0) {
             button("plus.magnifyingglass", "Zoom In", "starmap.zoomIn", .zoomIn)
-            Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 28, height: HQShape.hairline)   // [Mac AAA 2026-11-16] whole pixel
+            zoomRule   // [Mac AAA 2026-11-16] whole pixel on the Mac
             button("minus.magnifyingglass", "Zoom Out", "starmap.zoomOut", .zoomOut)
-            Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 28, height: HQShape.hairline)
+            zoomRule
             button("arrow.up.left.and.arrow.down.right", "Whole Map", "starmap.whole", .fit)
         }
         .hqGlassEffect(in: Capsule())
+    }
+
+    /// [Mac AAA rest 2026-11-17] The rule between two zoom buttons: one whole pixel on the Mac; the iPhone and iPad keep
+    /// the system's one-pixel Divider (the polish's 1 pt drew three times as thick on a phone).
+    @ViewBuilder private var zoomRule: some View {
+        #if targetEnvironment(macCatalyst)
+        Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 28, height: HQShape.hairline)
+        #else
+        Divider().frame(width: 28)
+        #endif
     }
 
     private func button(_ symbol: String, _ label: String, _ identifier: String, _ step: ZoomStep) -> some View {

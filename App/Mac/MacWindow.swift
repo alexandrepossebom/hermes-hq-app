@@ -3,6 +3,7 @@
 
 import ObjectiveC
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 #if targetEnvironment(macCatalyst)
 nonisolated(unsafe) private var pageBarKey: UInt8 = 0
@@ -257,5 +258,31 @@ extension AppDelegate {
     @objc func hqTextSmaller(_ sender: Any?) { MacWindow.changeTextSize(by: -1) }
     @objc func hqTextNormal(_ sender: Any?) { MacWindow.changeTextSize(by: 0) }
     @objc func hqToggleSidebar(_ sender: Any?) { KeyCommands.root?.split?.macSidebar.toggleCollapsed() }
+}
+
+/// [rest-hands 2026-11-17] A divider's drag (the sidebar's edge, the list's, the right-hand panel's), measured from where
+/// the button went down. A pan's own translation only counts from where it was recognised, a few points into the move,
+/// so the edge trailed the pointer by about 8 pt for the whole drag (measured with the real pointer: a 50 pt drag moved
+/// the edge 42).
+final class MacGripPan: UIPanGestureRecognizer {
+    private var down: CGPoint?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if state == .possible, let touch = touches.first, let window = view?.window { down = touch.location(in: window) }
+        super.touchesBegan(touches, with: event)
+    }
+
+    /// The pointer's travel since the button went down, in `target`'s coordinates.
+    func travel(in target: UIView?) -> CGPoint {
+        guard let down, let window = view?.window else { return translation(in: target) }
+        let from = target?.convert(down, from: window) ?? down
+        let now = location(in: target)
+        return CGPoint(x: now.x - from.x, y: now.y - from.y)
+    }
+
+    override func reset() {
+        super.reset()
+        down = nil
+    }
 }
 #endif

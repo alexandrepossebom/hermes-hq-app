@@ -160,6 +160,12 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     /// The bar's trailing items: the scope menu (none for one fixed bot), search, and `extra`.
     private func updateBarItems(extra given: [UIBarButtonItem] = []) {
         let extra = given
+        // [Mac AAA 2026-11-17] Edit Tiles on the Mac: Done alone in the bar, as with no tiles (Home Screen's edit): the
+        // filter, the view switch, + and search have nothing to do until it ends.
+        if DeviceWord.isMac, tilesInBar, editingTiles {
+            if navigationItem.rightBarButtonItems ?? [] != [tilesDoneItem] { navigationItem.rightBarButtonItems = [tilesDoneItem] }
+            return
+        }
         // [mac-audit G] Owner 2026-11-02 (Mac audit #18, mac2/3): a page with nothing in it shows no controls with
         // nothing to act on. While the list is empty with no search, filter or one bot narrowing it, its Filter (All
         // Bots) and Search leave the bar; the empty state's own button is the one thing to do. They come back with the
@@ -404,6 +410,11 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     }
 
     // MARK: Edit Tiles
+
+    #if DEBUG
+    /// [Mac AAA 2026-11-17] Tours: into or out of Edit Tiles, as View As › Edit Tiles and the bar's Done do.
+    func debugEditTiles(_ on: Bool) { setEditingTiles(on) }
+    #endif
 
     /// [dashboard] Into or out of Edit Tiles (Grid only).
     private func setEditingTiles(_ on: Bool) {
@@ -1176,6 +1187,39 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         cell.accessibilityTraits = .button
     }
 
+    #if DEBUG
+    /// [Mac AAA 2026-11-17] `-HQDebugTileHostile`'s tile for the `index`th pin: white, black, red, a photo, then again.
+    private static func debugHostileTile(_ index: Int) -> (picture: UIImage, health: TileJobs.Health, working: Bool)? {
+        guard UserDefaults.standard.bool(forKey: "HQDebugTileHostile") else { return nil }
+        let size = CGSize(width: 320, height: 320)
+        let kind = index % 4
+        let picture = UIGraphicsImageRenderer(size: size).image { context in
+            let colours: [UIColor] = [.white, .black, UIColor(red: 1, green: 0, blue: 0, alpha: 1)]
+            if kind < 3 {
+                colours[kind].setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            } else {
+                // A stand-in photo: a bright sky over dark hills, with a sun.
+                let sky = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                     colors: [UIColor(red: 0.98, green: 0.78, blue: 0.45, alpha: 1).cgColor,
+                                              UIColor(red: 0.35, green: 0.62, blue: 0.95, alpha: 1).cgColor] as CFArray, locations: [0, 1])!
+                context.cgContext.drawLinearGradient(sky, start: .zero, end: CGPoint(x: 0, y: size.height * 0.6), options: [.drawsAfterEndLocation])
+                UIColor(red: 1, green: 0.95, blue: 0.8, alpha: 1).setFill()
+                UIBezierPath(ovalIn: CGRect(x: 200, y: 40, width: 70, height: 70)).fill()
+                UIColor(red: 0.08, green: 0.2, blue: 0.12, alpha: 1).setFill()
+                let hills = UIBezierPath()
+                hills.move(to: CGPoint(x: 0, y: 200))
+                hills.addQuadCurve(to: CGPoint(x: 160, y: 190), controlPoint: CGPoint(x: 80, y: 120))
+                hills.addQuadCurve(to: CGPoint(x: 320, y: 170), controlPoint: CGPoint(x: 240, y: 110))
+                hills.addLine(to: CGPoint(x: 320, y: 320)); hills.addLine(to: CGPoint(x: 0, y: 320)); hills.close()
+                hills.fill()
+            }
+        }
+        let health: [TileJobs.Health] = [.late, .paused, .updating, .failed(nil)]
+        return (picture, health[kind], kind == 3)
+    }
+    #endif
+
     private func configurePin(_ cell: UICollectionViewCell, _ kept: ArtifactPin) {
         let pin = pins.shown(kept)   // Mac polish #45: its name as every list shows it
         let dark = traitCollection.userInterfaceStyle == .dark
@@ -1192,13 +1236,26 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         let health = failed && pin.isPage ? .failed(TileHealthMark.goneWords) : TileUpdates.shared.health(pin.id)
         let hover = pinHover(pin.id, cell: cell)
         // [tiles] Its bot working on it (Change…, a button), and the moment after a change is done.
-        let working = TileMaker.working(on: pin.id, accountId: store.account.id)?.tileWords
+        var working = TileMaker.working(on: pin.id, accountId: store.account.id)?.tileWords
         let ringed = justChanged.contains(pin.id)
+        #if DEBUG
+        // [Mac AAA 2026-11-17] `-HQDebugTileHostile YES`: the tiles drawn white, black, saturated red and a photo, with
+        // a mark on each (late, paused, updating, failed) and "changing" on the photo, to see what floats over them.
+        var tilePicture = picture, tileHealth = health, fills = pin.kind == .image
+        if let index = pins.pins.firstIndex(where: { $0.id == kept.id }), let hostile = Self.debugHostileTile(index) {
+            tilePicture = hostile.picture
+            fills = true
+            tileHealth = hostile.health
+            if hostile.working { working = "Otto is changing it…" }
+        }
+        #else
+        let tilePicture = picture, tileHealth = health, fills = pin.kind == .image
+        #endif
         if grid {
             let names = ArtifactPins.showsNames, editing = editingTiles
             let live = editing ? nil : liveTiles?.view(for: pin, dark: dark)   // [live-tiles]
             cell.contentConfiguration = UIHostingConfiguration {
-                PinTileView(pin: pin, picture: picture, fills: pin.kind == .image, busy: busy, showsName: names, health: health,
+                PinTileView(pin: pin, picture: tilePicture, fills: fills, busy: busy, showsName: names, health: tileHealth,
                             editing: editing, live: live, hover: hover, failed: failed,
                             working: editing ? nil : working, ringed: ringed && !editing) { [weak self] in
                     guard let self else { return }
@@ -1207,7 +1264,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             }.margins(.all, 0)
         } else {
             cell.contentConfiguration = UIHostingConfiguration {
-                PinCardView(pin: pin, picture: picture, fills: pin.kind == .image, subtitle: subtitle, busy: busy, health: health,
+                PinCardView(pin: pin, picture: tilePicture, fills: fills, subtitle: subtitle, busy: busy, health: tileHealth,
                             hover: hover, failed: failed, working: working, ringed: ringed) { [weak self, weak cell] in
                     self?.pinMenu(kept, anchor: cell) ?? UIMenu(children: [])   // the kept pin: Rename… starts from its own name
                 }

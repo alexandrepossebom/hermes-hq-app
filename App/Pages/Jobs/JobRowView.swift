@@ -361,14 +361,15 @@ final class ScopeBarItem {
             item.accessibilityLabel = "Showing \(title). Change"
             applyLook()
         }
-        if navigationItem.rightBarButtonItems?.contains(item) != true || navigationItem.rightBarButtonItems?.contains(search) != true {
-            // [mac] Stress test 2026-10-28 #66: with the magnifier at the trailing edge (`DesktopBars.searchToEdge`),
-            // Jobs' + sat between it and "All Bots", so All Bots stood one item further in on Jobs than on Artifacts.
-            // On the Mac All Bots comes straight after the magnifier on both, and the page's own items after it.
-            // [mac-audit G] Owner 2026-11-02 (Mac audit #19): one order on every list's bar, read left to right as
-            // Bots and Sessions read: filter (All Bots), then New (+), then Search at the edge.
-            navigationItem.rightBarButtonItems = DeviceWord.isMac ? [search] + extra + [item] : extra + [search, item]
-        }
+        // [mac] Stress test 2026-10-28 #66: with the magnifier at the trailing edge (`DesktopBars.searchToEdge`),
+        // Jobs' + sat between it and "All Bots", so All Bots stood one item further in on Jobs than on Artifacts.
+        // On the Mac All Bots comes straight after the magnifier on both, and the page's own items after it.
+        // [mac-audit G] Owner 2026-11-02 (Mac audit #19): one order on every list's bar, read left to right as
+        // Bots and Sessions read: filter (All Bots), then New (+), then Search at the edge.
+        // [Mac AAA 2026-11-17] Set again whenever the page's own items change, not only when the filter or search was
+        // missing: Tiles' Edit Tiles never put its Done in the bar (the + and the view switch stayed).
+        let items = DeviceWord.isMac ? [search] + extra + [item] : extra + [search, item]
+        if navigationItem.rightBarButtonItems ?? [] != items { navigationItem.rightBarButtonItems = items }
     }
 }
 

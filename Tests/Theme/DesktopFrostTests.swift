@@ -50,6 +50,23 @@ private func appearances(_ bar: UINavigationBar) -> [UINavigationBarAppearance?]
         }
     }
 
+    /// [Mac AAA rest 2026-11-17] The look's bars have their own backing on every device (owner, O2: "Give them their
+    /// own backing"): a page veil over the frost strong enough that a black, white or green message under a bar leaves
+    /// its tone (Mac 94 %, iPhone and iPad 90 %), still under 1 so the frost shows. Selections keep the 30 % tint.
+    @Test func theBarsHaveTheirOwnBacking() {
+        #if targetEnvironment(macCatalyst)
+        #expect(DesktopFrost.barTintAlpha == 0.94)
+        #else
+        #expect(DesktopFrost.barTintAlpha == 0.9)
+        #endif
+        #expect(DesktopFrost.tintAlpha == 0.3)
+        let appearance = UINavigationBarAppearance()
+        DesktopFrost.barAppearance(appearance, color: ChatPalette.page)
+        let alpha = appearance.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)).cgColor.alpha ?? 0
+        #expect(abs(alpha - DesktopFrost.barTintAlpha) < 0.001)
+        #expect(appearance.backgroundEffect != nil, "the frost stays under the veil")
+    }
+
     @Test func theFrostIsABlurNotGlassAndStaysThroughTheGlassSweep() {
         ThemeTable.$testSet.withValue(set(look: true)) {
             let band = DesktopFrostView(frame: CGRect(x: 0, y: 0, width: 400, height: 120))

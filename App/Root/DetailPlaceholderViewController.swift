@@ -217,5 +217,28 @@ final class DetailPlaceholderViewController: UIViewController {
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
         ])
+        if DeviceWord.isMac {
+            // [Mac AAA 2026-11-17] At 150 % in a laptop window "Nothing Open" stood one syllable a line ("Noth / ing /
+            // Ope / n"): centred in the stack, the words took their own width, and a multi-line label's own width can
+            // be the narrow one it was first laid out at (the pane collapsed at launch). On the Mac the block takes the
+            // room it has, up to the empty states' one measure (`MacInset.emptyMeasure`), and the words wrap in it,
+            // centred, at whole words.
+            stack.alignment = .fill
+            let wide = stack.widthAnchor.constraint(equalTo: view.safeAreaLayoutGuide.widthAnchor, constant: -48)
+            wide.priority = .defaultHigh
+            measure.isActive = true
+            wide.isActive = true
+            for label in [heading, detail] { label.lineBreakMode = .byWordWrapping }
+        }
+    }
+
+    /// [Mac AAA 2026-11-17] The block's widest: the empty states' measure at the current UI Scale.
+    private lazy var measure = stack.widthAnchor.constraint(lessThanOrEqualToConstant: MacInset.emptyMeasure)
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard DeviceWord.isMac else { return }
+        if measure.constant != MacInset.emptyMeasure { measure.constant = MacInset.emptyMeasure }
+        hqPlaceMacEmptyTitle()   // a folded list's state (offline, no bots) level with the lists' own, at the measure
     }
 }

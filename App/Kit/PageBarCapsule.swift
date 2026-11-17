@@ -171,10 +171,23 @@ import UIKit
     func openSearch() {
         guard let host, let search = configuration.search else { return }
         if host.navigationItem.searchController !== search { host.navigationItem.searchController = search }
+        fitFieldFont()
+        #if targetEnvironment(macCatalyst)
+        TypeToChatKeys.fieldWillFocus()   // [rest-hands 2026-11-17] letters typed at once wait for the field
+        #endif
         DispatchQueue.main.async {
             search.isActive = true
-            search.searchBar.becomeFirstResponder()
+            Self.focus(search.searchBar, tries: 10)
         }
+    }
+
+    /// [rest-hands 2026-11-17] ⌘F unfolded the field but left it without the keyboard on the Mac (Sessions, Jobs, Tasks,
+    /// Artifacts; found with the real keyboard): the bar is put in its window a turn or two after the search turns on, and
+    /// a field outside a window can't take the keyboard. Asked again each turn until it can (half a second at most).
+    static func focus(_ bar: UISearchBar, tries: Int) {
+        if bar.window != nil, bar.searchTextField.becomeFirstResponder() || bar.searchTextField.isFirstResponder { return }
+        guard tries > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focus(bar, tries: tries - 1) }
     }
 
     /// Fold the field away (nothing typed in it).
@@ -211,6 +224,16 @@ import UIKit
         host.navigationItem.hidesSearchBarWhenScrolling = false
         host.navigationItem.preferredSearchBarPlacement = .stacked
         configuration.search?.searchBar.searchTextField.accessibilityIdentifier = "\(configuration.page).search.field"
+        fitFieldFont()
+    }
+
+    /// [rest-hands 2026-11-17] The field's words at the app's text size: at UI Scale 150 they stayed at the system's
+    /// size while the page round them grew (seen with ⌘F in Sessions, Jobs, Tasks). Set as the field opens, so a scale
+    /// changed meanwhile is followed.
+    private func fitFieldFont() {
+        #if targetEnvironment(macCatalyst)
+        configuration.search?.searchBar.searchTextField.font = MacType.row
+        #endif
     }
 
     /// The page shows again (another tab, or back from a pushed page) holding a query: its field is there with it.

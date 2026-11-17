@@ -757,7 +757,7 @@ struct KanbanTaskView: View {
                 ProgressView().controlSize(.small)
             }
             if let summary = Self.latestUpdate(task) {
-                HQHairline()   // [Mac AAA 2026-11-16] whole pixels
+                SettingsHairline()   // [Mac AAA 2026-11-16] whole pixels on the Mac; the iPhone keeps its Divider
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Latest Update").font(Font.hq(.footnote).weight(.semibold)).foregroundStyle(Color.hqLabel2)
                     FoldedMarkdown(text: summary, lines: 6)

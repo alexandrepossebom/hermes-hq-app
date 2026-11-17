@@ -57,6 +57,18 @@ import UIKit
                     let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
                     write(press(bits.count > 1 ? bits[1] : ""), to: folder.appending(path: "\(name)-\(bits[0])"), "txt")
                 case "release": release()
+                case "pins":
+                    // [rest-hands 2026-11-17] pins <file>: pin the stand-in's artifacts as tiles from the Artifacts list
+                    // on show (the stand-ins have no tiles), as the rest tour does.
+                    var lists: [ArtifactsViewController] = []
+                    func seek(_ c: UIViewController?) {
+                        guard let c else { return }
+                        if let a = c as? ArtifactsViewController, a.viewIfLoaded?.window != nil { lists.append(a) }
+                        c.children.forEach(seek); seek(c.presentedViewController)
+                    }
+                    seek(window.rootViewController)
+                    lists.first?.debugPin(["index.html", "report.pdf", "plan.md", "export.csv", "Open Planning"])
+                    write("pinned from \(lists.count) list(s)", to: file, "txt")
                 case "find":
                     // find <file> <label>: the screen middle of the first view so named, as "x y" ("none" when absent)
                     let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
@@ -278,6 +290,74 @@ import UIKit
     }
 
     private static func find(_ label: String) -> String {
+        // [rest-hands 2026-11-17] "@link:<n>": a point on the n-th link drawn in a message on show; "@text:<n>": a point
+        // inside the n-th drawn piece of message text (BlockView pieces, top to bottom).
+        if label.hasPrefix("@link:") || label.hasPrefix("@text:") {
+            let want = Int(label.split(separator: ":").last ?? "1") ?? 1
+            let main = MacShots.mainWindow(fallback: windows.first ?? UIWindow())
+            var blocks: [BlockView] = []
+            func walk(_ v: UIView) { if let b = v as? BlockView, !b.isHidden, b.window != nil { blocks.append(b) }; v.subviews.forEach(walk) }
+            walk(main)
+            blocks = blocks.filter { main.bounds.intersects($0.convert($0.bounds, to: main)) }
+                .sorted { $0.convert($0.bounds, to: main).minY < $1.convert($1.bounds, to: main).minY }
+            var count = 0
+            for block in blocks {
+                if label.hasPrefix("@text:") {
+                    for piece in block.drawnPieces {
+                        let frame = piece.convert(piece.bounds, to: main)
+                        guard main.bounds.insetBy(dx: 0, dy: 120).contains(CGPoint(x: frame.midX, y: frame.midY)), frame.width > 60 else { continue }
+                        count += 1
+                        if count == want, let screen = onScreen(frame, in: main) {
+                            return "\(Int(screen.midX)) \(Int(screen.midY)) TextPiece \(frame.integral) left \(Int(screen.minX)) right \(Int(screen.maxX))"
+                        }
+                    }
+                    continue
+                }
+                let box = block.bounds
+                var y = box.minY + 2
+                while y < box.maxY {
+                    var x = box.minX + 2
+                    while x < box.maxX {
+                        if block.link(at: CGPoint(x: x, y: y)) != nil {
+                            count += 1
+                            let rect = block.convert(CGRect(x: x + 4, y: y + 2, width: 1, height: 1), to: main)
+                            if count == want, main.bounds.insetBy(dx: 0, dy: 120).contains(rect.origin), let screen = onScreen(rect, in: main) {
+                                return "\(Int(screen.midX)) \(Int(screen.midY)) Link \(rect.integral) '\(block.link(at: CGPoint(x: x, y: y))?.absoluteString.prefix(40) ?? "")'"
+                            }
+                            y += 24; break
+                        }
+                        x += 6
+                    }
+                    y += 4
+                }
+            }
+            return "none"
+        }
+        // [rest-hands 2026-11-17] "@in:<type>:<n>": the n-th row (top to bottom) inside the first view of that type, or
+        // the view of a controller of that type (the model panel's list).
+        if label.hasPrefix("@in:") {
+            let bits = label.split(separator: ":").map(String.init)
+            let wanted = bits.count > 1 ? bits[1] : "", n = bits.count > 2 ? Int(bits[2]) ?? 1 : 1
+            for window in windows.reversed() {
+                var box: UIView?
+                func seek(_ v: UIView) {
+                    if box != nil || v.isHidden { return }
+                    if String(describing: type(of: v)).contains(wanted) || (v.next as? UIViewController).map({ String(describing: type(of: $0)).contains(wanted) }) == true { box = v; return }
+                    v.subviews.forEach(seek)
+                }
+                seek(window)
+                guard let box else { continue }
+                var rows: [UIView] = []
+                func cells(_ v: UIView) { if (v is UITableViewCell || v is UICollectionViewCell), !v.isHidden { rows.append(v); return }; v.subviews.forEach(cells) }
+                cells(box)
+                rows = rows.filter { window.bounds.contains(CGPoint(x: $0.convert($0.bounds, to: window).midX, y: $0.convert($0.bounds, to: window).midY)) }
+                    .sorted { $0.convert($0.bounds, to: window).minY < $1.convert($1.bounds, to: window).minY }
+                let target = rows.indices.contains(n - 1) ? rows[n - 1] : (n == 0 ? box : nil)
+                guard let target, let screen = onScreen(target.convert(target.bounds, to: window), in: window) else { return "none" }
+                return "\(Int(screen.midX)) \(Int(screen.midY)) \(type(of: target)) \(target.convert(target.bounds, to: window).integral) left \(Int(screen.minX)) right \(Int(screen.maxX))"
+            }
+            return "none"
+        }
         guard let (view, window) = locate(label) else { return "none" }
         let frame = view.convert(view.bounds, to: window)
         guard let screen = onScreen(frame, in: window) else { return "none" }
@@ -459,15 +539,33 @@ import UIKit
         }.joined(separator: "\n") + "\n"
     }
 
+    /// [rest-hands 2026-11-17] The cursor on show now: the system's (what the real pointer shows) and the app's, each
+    /// matched to AppKit's named cursors by image and hot spot (Catalyst hands out its own copies).
     private static func cursor() -> String {
-        guard let cls = NSClassFromString("NSCursor") as? NSObject.Type,
-              let current = cls.value(forKey: "currentCursor") as? NSObject else { return "no cursor" }
+        guard let cls = NSClassFromString("NSCursor") as? NSObject.Type else { return "no cursor" }
         let named = ["arrowCursor", "pointingHandCursor", "IBeamCursor", "resizeLeftRightCursor", "resizeUpDownCursor",
-                     "openHandCursor", "closedHandCursor", "crosshairCursor", "columnResizeCursor", "rowResizeCursor"]
-        for name in named where cls.responds(to: NSSelectorFromString(name)) {
-            if let cursor = cls.value(forKey: name) as? NSObject, cursor === current || cursor.isEqual(current) { return name }
+                     "resizeLeftCursor", "resizeRightCursor", "resizeUpCursor", "resizeDownCursor",
+                     "openHandCursor", "closedHandCursor", "crosshairCursor", "dragCopyCursor", "dragLinkCursor",
+                     "operationNotAllowedCursor", "contextualMenuCursor", "disappearingItemCursor", "IBeamCursorForVerticalLayout",
+                     "columnResizeCursor", "rowResizeCursor"]
+        func data(_ c: NSObject) -> Data? {
+            (c.value(forKey: "image") as? NSObject)?.value(forKey: "TIFFRepresentation") as? Data
         }
-        return "other \(current)"
+        func name(_ current: NSObject?) -> String {
+            guard let current else { return "none" }
+            let spot = (current.value(forKey: "hotSpot") as? NSValue)?.cgPointValue ?? .zero
+            let size = ((current.value(forKey: "image") as? NSObject)?.value(forKey: "size") as? NSValue)?.cgSizeValue ?? .zero
+            let mine = data(current)
+            for n in named where cls.responds(to: NSSelectorFromString(n)) {
+                guard let c = cls.value(forKey: n) as? NSObject else { continue }
+                if c === current || c.isEqual(current) { return n }
+                let cs = (c.value(forKey: "hotSpot") as? NSValue)?.cgPointValue ?? .zero
+                if cs == spot, let mine, mine == data(c) { return n + " (by image)" }
+            }
+            return "other size \(size) hot spot \(spot) \(current)"
+        }
+        let system = cls.responds(to: NSSelectorFromString("currentSystemCursor")) ? cls.value(forKey: "currentSystemCursor") as? NSObject : nil
+        return "system \(name(system))\napp \(name(cls.value(forKey: "currentCursor") as? NSObject))\n"
     }
 }
 #endif

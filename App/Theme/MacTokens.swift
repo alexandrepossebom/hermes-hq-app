@@ -4,6 +4,7 @@
 // Sizes are HQFont styles, so they follow the look's base and UI Scale as the rest of the Mac's text does. Nothing
 // here changes the iPhone or iPad: the helpers that apply them are no-ops off the Mac.
 
+import ObjectiveC
 import SwiftUI
 import UIKit
 
@@ -222,8 +223,10 @@ struct HQSectionFooter<Content: View>: View {
         // [mac] Stress test 2026-10-28 round 9: the text runs the list's width less the rows' side room (20), not the
         // state's own 24 a side: "Jobs run a prompt on a schedule." needed 273 of a laptop pane's 272 and wrapped to
         // leave "a schedule." alone.
-        copy.directionalLayoutMargins.leading = MacInset.side
-        copy.directionalLayoutMargins.trailing = MacInset.side
+        // [Mac AAA 2026-11-17] …and no wider than the empty states' one measure, centred (`MacEmptyMeasure`).
+        let side = MacEmptyMeasure.side(in: view.bounds.inset(by: view.safeAreaInsets).width, least: MacInset.side)
+        copy.directionalLayoutMargins.leading = side
+        copy.directionalLayoutMargins.trailing = side
         let margins = copy.directionalLayoutMargins
         let width = view.bounds.inset(by: view.safeAreaInsets).width - margins.leading - margins.trailing
         let parts = parts(copy, width: width)
@@ -235,6 +238,65 @@ struct HQSectionFooter<Content: View>: View {
         return copy
     }
 }
+
+/// [Mac AAA 2026-11-17] One measure for every empty state on the Mac. The SwiftUI states and Artifacts' state cell
+/// wrapped at `MacInset.emptyMeasure`; every UIKit `UIContentUnavailableConfiguration` ran its one long line across the
+/// whole pane ("Can't Reach Hermes" beside the bots: 760 pt of words in a wide window). Whoever set the state, its
+/// view now keeps it to the measure, centred: the side margins grow to `(width − measure) / 2` and never shrink below
+/// the page's own. Installed at launch on the Mac (`UIContentUnavailableView.layoutSubviews`, exchanged on that class
+/// alone).
+@MainActor enum MacEmptyMeasure {
+    private static var installed = false
+    fileprivate static let marginsKey = malloc(1)!
+
+    /// The side margin that keeps a state `MacInset.emptyMeasure` wide in `width`, and at least `least`.
+    static func side(in width: CGFloat, least: CGFloat) -> CGFloat {
+        max(least, ((width - MacInset.emptyMeasure) / 2).rounded(.down))
+    }
+
+    static func install() {
+        #if targetEnvironment(macCatalyst)
+        guard !installed else { return }
+        installed = true
+        let type: AnyClass = UIContentUnavailableView.self
+        let selector = #selector(UIView.layoutSubviews), hook = #selector(UIContentUnavailableView.hqMeasureLayoutSubviews)
+        guard let original = class_getInstanceMethod(type, selector), let replacement = class_getInstanceMethod(type, hook) else { return }
+        // Added on the class itself first, so UIView's own is never swapped for every view.
+        if class_addMethod(type, selector, method_getImplementation(replacement), method_getTypeEncoding(replacement)) {
+            class_replaceMethod(type, hook, method_getImplementation(original), method_getTypeEncoding(original))
+        } else if let own = class_getInstanceMethod(type, selector) {
+            method_exchangeImplementations(own, replacement)
+        }
+        #endif
+    }
+}
+
+#if targetEnvironment(macCatalyst)
+extension UIContentUnavailableView {
+    @objc fileprivate func hqMeasureLayoutSubviews() {
+        if bounds.width > 0, let config = configuration as? UIContentUnavailableConfiguration {
+            let now = config.directionalLayoutMargins
+            // [page's leading, page's trailing, leading set here, trailing set here]: a configuration whose sides aren't
+            // the ones set here was set since, by its page, and its sides are the page's own.
+            var kept = objc_getAssociatedObject(self, MacEmptyMeasure.marginsKey) as? [CGFloat] ?? []
+            if kept.count != 4 || kept[2] != now.leading || kept[3] != now.trailing {
+                kept = [now.leading, now.trailing, now.leading, now.trailing]
+            }
+            let width = bounds.inset(by: safeAreaInsets).width
+            kept[2] = MacEmptyMeasure.side(in: width, least: kept[0])
+            kept[3] = MacEmptyMeasure.side(in: width, least: kept[1])
+            objc_setAssociatedObject(self, MacEmptyMeasure.marginsKey, kept, .OBJC_ASSOCIATION_RETAIN)
+            if kept[2] != now.leading || kept[3] != now.trailing {
+                var copy = config
+                copy.directionalLayoutMargins.leading = kept[2]
+                copy.directionalLayoutMargins.trailing = kept[3]
+                configuration = copy
+            }
+        }
+        hqMeasureLayoutSubviews()
+    }
+}
+#endif
 
 extension UIViewController {
     /// [mac] Round 7: places the page's empty state's title as the detail placeholder's (`MacEmptyTitle.placed`). Call

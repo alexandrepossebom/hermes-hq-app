@@ -243,7 +243,7 @@ struct PinTileView: View {
                                 .font(.system(size: 13, weight: .bold))   // a11y-font-ok: sized to its 26 pt disc, as Home Screen's badge
                                 .foregroundStyle(Color.hqLabel)
                                 .frame(width: 26, height: 26)
-                                .background(.regularMaterial, in: Circle())
+                                .hqTileMark(Circle())
                                 .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
@@ -289,11 +289,36 @@ struct PinTileView: View {
     }
 }
 
+/// [Mac AAA 2026-11-17] What stands on a tile's picture (the health discs, Edit Tiles' unpin badge and corner handle,
+/// "Changing…"): the frosted material on the page colour. The material alone took the picture's tone: over a black
+/// tile in the light look a grey disc with a black glyph that barely read, over a red one a pink one. On the page it
+/// keeps its own tone and its glyph reads on any picture. Mac only (`-HQDebugTileMarkBare YES` shows the old one).
+enum TileMarkBacking {
+    static var on: Bool {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "HQDebugTileMarkBare") { return false }
+        #endif
+        return DeviceWord.isMac
+    }
+}
+
+extension View {
+    /// See `TileMarkBacking`.
+    func hqTileMark<S: Shape>(_ shape: S) -> some View {
+        background {
+            ZStack {
+                if TileMarkBacking.on { shape.fill(Color.hqPage) }
+                shape.fill(.regularMaterial)
+            }
+        }
+    }
+}
+
 /// [dashboard] The corner handle on a tile in Edit Tiles: a thick quarter-round on a frosted disc, as a window's corner.
 private struct ResizeHandleMark: View {
     var body: some View {
         ZStack {
-            Circle().fill(.regularMaterial).frame(width: 28, height: 28)
+            Color.clear.frame(width: 28, height: 28).hqTileMark(Circle())
                 .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
             Path { path in
                 path.move(to: CGPoint(x: 18, y: 8))
@@ -346,7 +371,7 @@ struct TileHealthMark: View {
         content
             .foregroundStyle(Color.hqLabel)
             .frame(width: Self.size, height: Self.size)
-            .background(.regularMaterial, in: Circle())
+            .hqTileMark(Circle())
             .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
             .accessibilityIdentifier("tile.health.\(id)")
     }

@@ -325,6 +325,17 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// it is drawn (pictures of a project lower down).
     private var debugScrolled = false
     private func debugScrollToProject() {
+        // [Mac AAA 2026-11-17] `-HQDebugSessionsScrollBy <pt>`: the list scrolled that far once drawn (rows under the
+        // header, on the simulator where no tour drives it).
+        let by = UserDefaults.standard.double(forKey: "HQDebugSessionsScrollBy")
+        if !debugScrolled, by > 0 {
+            debugScrolled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self else { return }
+                self.collectionView.setContentOffset(CGPoint(x: 0, y: -self.collectionView.adjustedContentInset.top + by), animated: false)
+            }
+            return
+        }
         guard !debugScrolled, let key = UserDefaults.standard.string(forKey: "HQDebugSessionsScroll"), !key.isEmpty,
               groups.contains(where: { $0.id == SessionListPipeline.projectPrefix + key }) else { return }
         debugScrolled = true
@@ -1563,7 +1574,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         if listEmpty {
             if searching {
                 // A spinner while the gateway search runs; the magnifier only once it has answered.
-                var empty: UIContentUnavailableConfiguration = searchTask != nil ? .loading() : .search()
+                var empty = (searchTask != nil ? UIContentUnavailableConfiguration.loading() : .search()).hqScaled()   // [rest-hands 2026-11-17] it kept the system's small fonts at every UI Scale
                 let words = SessionsSearchWords.empty(query: query, searching: searchTask != nil, failed: searchFailed)
                 empty.text = words.text
                 empty.secondaryText = words.secondary

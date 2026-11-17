@@ -128,6 +128,15 @@ import UIKit
 
     private static weak var shown: MacPickPanel?
     static var isShown: Bool { shown != nil }
+    /// [Mac AAA 2026-11-17] The panel on show that hangs over `composer`'s box, its frame in the window: the chat fades
+    /// its words out by the panel's foot, so none show in the gap between the panel and the box (the Models and
+    /// Commands panels left a ghost line of the owner's green message there).
+    static func over(_ composer: UIView) -> CGRect? {
+        guard let shown, shown.clearOf === composer, shown.presentingViewController != nil, !shown.closing,
+              shown.isViewLoaded, shown.panel.frame.height > 1, shown.panel.frame.maxY <= composer.convert(composer.bounds, to: shown.view).minY + 1
+        else { return nil }
+        return shown.view.convert(shown.panel.frame, to: nil)
+    }
 
     /// `anchor`: the button it hangs off (the panel opens above it when there's more room above, as at the composer).
     /// `clearOf`: a larger view around the anchor that the panel must not cover (the composer the ☰ sits in).
@@ -271,7 +280,7 @@ import UIKit
         panel.addSubview(footRule)
         tail.isUserInteractionEnabled = false
         tail.isHidden = true
-        view.insertSubview(tail, belowSubview: panel)
+        view.insertSubview(tail, aboveSubview: panel)   // [Mac AAA 2026-11-17] over the panel's rim, no seam
         listRing.isUserInteractionEnabled = false
         listRing.isHidden = true
         listRing.layer.cornerCurve = .continuous
@@ -318,12 +327,14 @@ import UIKit
         super.viewDidAppear(animated)
         if fieldBox.isHidden { becomeFirstResponder() } else { field.becomeFirstResponder() }
         if !fadedIn { fadedIn = true; hqPanelAppeared() }   // [mac-feel]
+        clearOf?.superview?.setNeedsLayout()   // [Mac AAA 2026-11-17] the chat's fade ends at the panel's foot (`over`)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         guard isBeingDismissed || presentingViewController == nil else { return }   // not for a sheet over it (Show Details)
         if Self.shown === self { Self.shown = nil }
+        clearOf?.superview?.setNeedsLayout()   // [Mac AAA 2026-11-17] the fade back at the box
         onGone?()
         onGone = nil
         driver = nil   // the driver and its panel hold each other until the panel goes
@@ -559,7 +570,9 @@ import UIKit
             let side = Self.tailWidth
             let corner = Self.glassRadius + side / 2
             let mid = min(max(anchorFrame.midX, panel.frame.minX + corner), panel.frame.maxX - corner)
-            tail.frame = CGRect(x: (mid - side / 2).rounded(), y: panel.frame.maxY - 1, width: side, height: min(Self.tailHeight, gap) + 1)
+            let over = MacPanelTail.overlap
+            // [Mac AAA 2026-11-17] Its tip 3 pt clear of the box's line (at the gap's full 8 it all but touched it).
+            tail.frame = CGRect(x: (mid - side / 2).rounded(), y: panel.frame.maxY - over, width: side, height: min(Self.tailHeight, gap - 3) + over)
         }
     }
 
@@ -1028,56 +1041,96 @@ import UIKit
 }
 
 /// [Mac model selector] The panel's pointer: a small triangle in the panel's own surface, its tip at the anchor.
+/// [Mac AAA 2026-11-17] It read as a separate grey chip under the panel in the light look ("like the panel's own edge"):
+/// a thick blur over the veil drew it 208 grey under a 252 panel, and the glass's rim ran straight across its top as a
+/// seam. It is now drawn over the panel's foot, covering the rim where they join, in the panel's own veil and glass,
+/// with the rim's own line down its two sides.
 final class MacPanelTail: UIView {
     var fill: UIColor = .clear { didSet { setNeedsDisplay() } }
-    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
+    /// How far it reaches up over the panel's foot: past the glass's rim, so no line crosses the join.
+    static let overlap: CGFloat = 2
+    /// The panel's own glass, cut to the pointer: a fixed colour could never match it, as the glass takes a tone from
+    /// what lies under it (white over a white page, 240 over a grey reply, a hint of green over a green message).
+    private let glass = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
+    private let cut = TailMask()
+    private let rimLine = CAShapeLayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
         backgroundColor = .clear
         contentMode = .redraw
-        blur.isUserInteractionEnabled = false
-        addSubview(blur)
-        blur.mask = TailMask()
+        glass.isUserInteractionEnabled = false
+        addSubview(glass)
+        glass.mask = cut
+        rimLine.fillColor = nil
+        rimLine.lineJoin = .round
+        layer.addSublayer(rimLine)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        blur.frame = bounds
-        blur.mask?.frame = bounds
-        blur.mask?.setNeedsDisplay()
+        // Wider than the pointer so the glass's own rim falls outside the cut.
+        glass.frame = bounds.insetBy(dx: -8, dy: -8)
+        cut.frame = glass.bounds
+        cut.inset = 8
+        cut.setNeedsDisplay()
+        rimLine.frame = bounds
+        rimLine.path = Self.path(in: bounds, open: true).cgPath
+        rimLine.lineWidth = HQShape.hairline
+        rimLine.strokeColor = Self.rim(traitCollection).cgColor
         setNeedsDisplay()
     }
 
+    /// The glass's rim as it shows round the panel: a soft dark line in the light look, a faint light one in the dark.
+    static func rim(_ traits: UITraitCollection) -> UIColor {
+        traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.2) : UIColor(white: 0, alpha: 0.2)
+    }
+
     override func draw(_ rect: CGRect) {
+        // The panel's veil under the glass, as under the panel's.
         fill.resolvedColor(with: traitCollection).setFill()
-        TailMask.path(in: bounds).fill()
+        Self.path(in: bounds).fill()
     }
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
         super.traitCollectionDidChange(previous)
-        setNeedsDisplay()
+        setNeedsLayout()
     }
 
     private final class TailMask: UIView {
+        var inset: CGFloat = 0
         override init(frame: CGRect) { super.init(frame: frame); isOpaque = false; backgroundColor = .clear; contentMode = .redraw }
         required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-        override func draw(_ rect: CGRect) { UIColor.black.setFill(); TailMask.path(in: bounds).fill() }
+        override func draw(_ rect: CGRect) {
+            UIColor.black.setFill()
+            MacPanelTail.path(in: bounds.insetBy(dx: inset, dy: inset)).fill()
+        }
+    }
 
-        /// Down from the panel's foot (its top row overlaps the panel by a point, so no seam shows), a soft tip.
-        static func path(in bounds: CGRect) -> UIBezierPath {
-            let path = UIBezierPath()
-            let tip = CGPoint(x: bounds.midX, y: bounds.maxY)
+    /// Down from the panel's foot (its top `overlap` points lie over the panel, so no seam shows), a soft tip.
+    static func path(in bounds: CGRect, open: Bool = false) -> UIBezierPath {
+        let path = UIBezierPath()
+        let tip = CGPoint(x: bounds.midX, y: bounds.maxY - HQShape.hairline / 2)
+        let top = bounds.minY + overlap
+        if open {
+            path.move(to: CGPoint(x: bounds.minX + HQShape.hairline / 2, y: top))
+        } else {
             path.move(to: CGPoint(x: bounds.minX, y: bounds.minY))
             path.addLine(to: CGPoint(x: bounds.maxX, y: bounds.minY))
+            path.addLine(to: CGPoint(x: bounds.maxX, y: top))
             path.addLine(to: CGPoint(x: tip.x + 1.5, y: tip.y - 1.2))
             path.addQuadCurve(to: CGPoint(x: tip.x - 1.5, y: tip.y - 1.2), controlPoint: tip)
+            path.addLine(to: CGPoint(x: bounds.minX, y: top))
             path.close()
             return path
         }
+        path.addLine(to: CGPoint(x: tip.x - 1.5, y: tip.y - 1.2))
+        path.addQuadCurve(to: CGPoint(x: tip.x + 1.5, y: tip.y - 1.2), controlPoint: tip)
+        path.addLine(to: CGPoint(x: bounds.maxX - HQShape.hairline / 2, y: top))
+        return path
     }
 }
 

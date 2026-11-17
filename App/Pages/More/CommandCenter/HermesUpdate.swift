@@ -576,14 +576,16 @@ import UserNotifications
         lines += action?.lines ?? []
         UIPasteboard.general.string = PageStates.scrubbed(lines.joined(separator: "\n"))
         Haptics.play(.success)
-        if let sheet { PagesHUD.show("Copied", symbol: "doc.on.doc", from: sheet) }
+        // [rest-hands 2026-11-17] On the Mac the sheet's foot is its button row: "Copied" sat on Show Update Output and
+        // Done (real click on Copy Details); it stands inside the steps card above the row instead, clear of the card's edge.
+        if let sheet { PagesHUD.show("Copied", symbol: "doc.on.doc", from: sheet, lift: DeviceWord.isMac ? 76 : 0) }
     }
 
     func copyCommand() {
         guard case .cantUpdateHere(_, let command?)? = end else { return }
         UIPasteboard.general.string = command
         Haptics.play(.success)
-        if let sheet { PagesHUD.show("Copied", symbol: "doc.on.doc", from: sheet) }
+        if let sheet { PagesHUD.show("Copied", symbol: "doc.on.doc", from: sheet, lift: DeviceWord.isMac ? 76 : 0) }   // as `copyDetails`
     }
 
     // MARK: Words

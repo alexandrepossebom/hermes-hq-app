@@ -14,12 +14,21 @@ enum DesktopFrost {
     /// Mac a bar's 30 % tint let a black message under it turn the whole bar dark grey (a white one, pale), as the iOS
     /// look's chat band did; it now carries the pop-overs' 94 % page veil (`ChatPalette.popupVeil`, the iOS look's chat
     /// band since the same day) over the frost, so a message under it is a faint local shade and the bar keeps its own
-    /// tone. The iPhone keeps its see-through frost. Selection colours and other `tint` users keep `tintAlpha`.
+    /// tone. Selection colours and other `tint` users keep `tintAlpha`. [Mac AAA rest 2026-11-17] The iPhone and iPad
+    /// too, at 90 %: the lowest veil at which a black (light), white (dark) or green message under the bar leaves it
+    /// its own tone (at 30 % the bar's right side went grey or green; 80–85 % still left a grey or mint cast); the
+    /// frost stays under it. On the phone it is also the chat's band over the system's hard edge (`ChatEdgeStandIn`).
     static var barTintAlpha: CGFloat {
         #if targetEnvironment(macCatalyst)
-        0.94
+        return 0.94
         #else
-        tintAlpha
+        #if DEBUG
+        // `-HQDebugBarTintAlpha <0…1>`: the iPhone's and iPad's bar veil for a picture (choosing its value).
+        if let debug = UserDefaults.standard.string(forKey: "HQDebugBarTintAlpha"), let value = Double(debug) {
+            return CGFloat(value)
+        }
+        #endif
+        return 0.9
         #endif
     }
     /// The blur under the tint (the system's plain blur, light and dark by itself; not glass).

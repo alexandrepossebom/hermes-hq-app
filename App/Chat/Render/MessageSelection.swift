@@ -63,6 +63,16 @@ nonisolated struct MessageSelection: Hashable, Sendable {
         return inside ?? before
     }
 
+    /// [rest-hands 2026-11-17] The paragraph round `offset` (a triple-click), without its line break; nil on an empty one.
+    static func paragraph(in text: String, at offset: Int) -> NSRange? {
+        let ns = text as NSString
+        guard ns.length > 0, offset >= 0 else { return nil }
+        var range = ns.paragraphRange(for: NSRange(location: min(offset, ns.length - 1), length: 0))
+        while range.length > 0, let last = Unicode.Scalar(ns.character(at: NSMaxRange(range) - 1)),
+              CharacterSet.newlines.contains(last) { range.length -= 1 }
+        return range.length > 0 ? range : nil
+    }
+
     /// The whole of blocks whose pieces are `lengths` (nil when there is no text).
     static func all(lengths: [[Int]]) -> MessageSelection? {
         guard let first = lengths.firstIndex(where: { !$0.isEmpty }),

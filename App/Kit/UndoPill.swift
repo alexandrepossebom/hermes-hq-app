@@ -101,7 +101,10 @@ final class UndoPill: UIView {
         let origin = host
         guard let given = host?.tabBarController ?? host, let givenView = given.view else { return nil }
         #if targetEnvironment(macCatalyst)
-        let (host, view, messageBar) = shownPane(given, givenView)
+        let (host, view, paneBar) = shownPane(given, givenView)
+        // [Mac AAA rest 2026-11-17] Asked to show over a chat itself (or its pane's stack), it stands above that chat's
+        // message box too: at the pane's foot it lay across the box.
+        let messageBar = paneBar ?? (((host as? UINavigationController)?.topViewController ?? host) as? ChatViewController)?.composer
         #else
         let (host, view) = (given, givenView)
         #endif

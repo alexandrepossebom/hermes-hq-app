@@ -37,6 +37,9 @@ final class ChatFindController: NSObject, UITextFieldDelegate {
             chat.showFindBar(bar)
         }
         unitsStale = true
+        #if targetEnvironment(macCatalyst)
+        TypeToChatKeys.fieldWillFocus()   // [rest-hands 2026-11-17] letters typed at once wait for the field, not the box
+        #endif
         // After the ⋯ menu has handed focus back, so the field keeps it (and the keyboard comes up).
         DispatchQueue.main.async { [weak self] in self?.bar.field.becomeFirstResponder() }
         if !query.isEmpty { research(keepCurrent: true) }

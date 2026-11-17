@@ -649,11 +649,14 @@ extension MoreViewController: KeySearchable {}
 
     /// Opens the list's own search with the caret in it: the magnifier's action where the list has one.
     static func openSearch(_ screen: UIViewController?) {
+        #if targetEnvironment(macCatalyst)
+        TypeToChatKeys.fieldWillFocus()   // [rest-hands 2026-11-17] letters typed at once wait for the field
+        #endif
         if let list = screen as? KeySearchable {
             list.openSearchFromKeyboard()
         } else if let search = screen?.navigationItem.searchController {
             search.isActive = true
-            DispatchQueue.main.async { search.searchBar.searchTextField.becomeFirstResponder() }
+            DispatchQueue.main.async { PageBarCapsule.focus(search.searchBar, tries: 10) }   // [rest-hands 2026-11-17] once in its window
         } else {
             PageBarCapsule.on(screen)?.openSearch()   // [keys] Mac polish #17: the bar's folded search, as its magnifier
         }

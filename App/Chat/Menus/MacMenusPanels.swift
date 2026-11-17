@@ -256,6 +256,14 @@ import UIKit
 
     private func rebuild(markFirst: Bool, holding: (section: String, key: String)? = nil) {
         let offline = context.offline
+        #if DEBUG
+        // [Mac AAA 2026-11-17] `-HQDebugModelListPad <n>`: n made-up providers of five models each ahead of the real
+        // ones, so the current model sits far down a long list (the selector's reveal under its foot).
+        let pad = UserDefaults.standard.integer(forKey: "HQDebugModelListPad")
+        let models = pad > 0 && !self.models.isEmpty ? (0..<pad).flatMap { p in
+            (1...5).map { m in ModelChoice(id: "pad-\(p)-\(m)", name: "Stand-in \(p + 1).\(m)", provider: "pad\(p)", providerName: "Provider \(p + 1)") }
+        } + self.models : self.models
+        #endif
         panel.accessoryEnabled = !loading && !offline
         let status = offline ? ModelSheetViewController.offlineWords : loading ? ModelLoad.loadingWords : nil
         // [Mac model selector] The scope has its own line under the field (with the bot's default); the note keeps

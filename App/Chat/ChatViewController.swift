@@ -201,6 +201,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private var placeholderHiding = false
     /// The soft top edge during the push (UIKit draws its own only once the push is over).
     private let edgeStandIn = ChatEdgeStandIn()
+    /// [Mac AAA rest 2026-11-17] Where the stand-in ends: the top edge element's foot (the iOS look's fade), or in the
+    /// Desktop Look the bar's foot, where the system's hard edge it lies over is cut.
+    private lazy var standInToElement = edgeStandIn.bottomAnchor.constraint(equalTo: topEdgeElement.bottomAnchor)
+    private lazy var standInToBar = edgeStandIn.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
     /// A still (non-scrolling) scroll view holding the inverted table. The bar's scroll edge effect needs a
     /// scroll view whose top is the screen's top; the flipped table's own top is the screen's bottom.
     private let edgeHost = UIScrollView()
@@ -926,7 +930,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             edgeStandIn.topAnchor.constraint(equalTo: view.topAnchor),
             edgeStandIn.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             edgeStandIn.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            edgeStandIn.bottomAnchor.constraint(equalTo: topEdgeElement.bottomAnchor),
+            standInToElement,
         ])
 
         applyChatLook()
@@ -1343,22 +1347,35 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private func macFadeTop() -> CGFloat? {
         var top: CGFloat?
         func lower(_ y: CGFloat) { top = min(top ?? y, y) }
+        // [Mac AAA 2026-11-17] Gone a little above a glass float, not at its edge: the glass bends what lies just past its
+        // rim into it, and the last of a green message fading out at the "/" list's or the question dock's top edge
+        // showed as a green glow inside their top 20 pt. The box (a plain surface) keeps its 2 pt.
+        let clear = ChatMetrics.macFloatGap
         func lift(_ float: UIView) {
             guard !float.isHidden, float.alpha > 0.01, float.frame.height > 1, float.superview === view else { return }
-            lower(float.frame.minY)
+            lower(float.frame.minY - clear)
         }
         if let dock = promptDock {
             lift(dock)
         } else if let line = composer.macFadeLine, composer.window != nil, !composer.isHidden, composer.alpha > 0.01 {
-            lower(composer.convert(CGPoint(x: 0, y: line), to: view).y)
+            // A banner or the tray (glass) above the box stands clear of the fade too; the box's own line does not.
+            let atBox = composer.macBoxFrame.map { abs($0.minY - line) < 0.5 } ?? true
+            lower(composer.convert(CGPoint(x: 0, y: line), to: view).y - (atBox ? 0 : clear))
         }
         guard top != nil else { return nil }
         [queueCard, composerNotices, voice.notice].forEach(lift)
+        // [Mac AAA 2026-11-17] And the "/" and @ list: the words showed in its 8 pt gap above the box, and through its veil
+        // the owner's green message tinted the list green.
+        if let panel = drawer?.panel { lift(panel) }
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-17] A pick panel over the box (Models, Commands): gone by its foot, so the gap under it is clean.
+        if let panel = MacPickPanel.over(composer) { lower(view.convert(panel, from: nil).maxY) }
+        #endif
         // [Mac AAA 2026-11-17] Owner's choice ("Fade before the pill"): the activity / helpers pill and its opened card
         // move the fade too, so no line passes behind the pill with its two ends showing. The arrow alone does not.
         let shelf = activity.shelf
         if shelf.hasActivity, !shelf.isHidden, shelf.alpha > 0.01, shelf.frame.height > 1 {
-            lower(shelf.frame.minY + (shelf.expanded ? 0 : ActivityShelfView.pillMargin))
+            lower(shelf.frame.minY + (shelf.expanded ? 0 : ActivityShelfView.pillMargin) - clear)
         }
         return top.map { view.convert(CGPoint(x: 0, y: $0), to: edgeHost).y }
     }
@@ -2066,7 +2083,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         edgeStandIn.hard = desktop
         // [edge-fade-height] The iOS look's top fade is the stand-in, which ends where the top edge element does; the
         // system's soft edge ran ~30 pt further down (owner 2026-11-17, "goes down too far").
-        edgeStandIn.keeps = !desktop
+        // [Mac AAA rest 2026-11-17] In the Desktop Look it stays too, over the system's hard edge, as the bar's own
+        // backing (`DesktopFrost.barTintAlpha`): a dark or coloured message under the bar tinted it, as on the Mac.
+        edgeStandIn.keeps = true
+        if standInToBar.isActive != desktop {
+            NSLayoutConstraint.deactivate([desktop ? standInToElement : standInToBar])
+            NSLayoutConstraint.activate([desktop ? standInToBar : standInToElement])
+        }
         if edgeHost.topEdgeEffect.isHidden != !desktop { edgeHost.topEdgeEffect.isHidden = !desktop }
         if desktop, chatAppeared { edgeStandIn.handOver() }
         #endif
@@ -2109,6 +2132,15 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // as a faint, local shade and the bar keeps its own tone.
         band.backgroundColor = ChatPalette.popupVeil
         band.shadowColor = HQPalette.paneLine   // the panes' own line, at the bar's foot, level with the inspector's rule
+        // [Mac AAA 2026-11-17] …drawn solid, as it shows on the page: the line lies just under the band, over the rows,
+        // and see-through it went dark green across the width under the owner's green message (93,142,109 against its
+        // 198 grey on the page).
+        band.shadowColor = UIColor { traits in
+            let line = HQPalette.paneLine.resolvedColor(with: traits), page = ChatPalette.page.resolvedColor(with: traits)
+            var lr: CGFloat = 0, lg: CGFloat = 0, lb: CGFloat = 0, la: CGFloat = 0, pr: CGFloat = 0, pg: CGFloat = 0, pb: CGFloat = 0, pa: CGFloat = 0
+            guard line.getRed(&lr, green: &lg, blue: &lb, alpha: &la), page.getRed(&pr, green: &pg, blue: &pb, alpha: &pa) else { return line }
+            return UIColor(red: lr * la + pr * (1 - la), green: lg * la + pg * (1 - la), blue: lb * la + pb * (1 - la), alpha: 1)
+        }
         return band
     }()
     private static let barClear: UINavigationBarAppearance = {
@@ -2157,7 +2189,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private func updateInsets() {
         let dockTop = transcriptBottom   // [questions] composer or dock, queue card, prompt chip; VOICE memo notice; [activity] shelf
         let bottom = max(0, view.bounds.maxY - dockTop) + ChatMetrics.composerContentGap
-        let top = view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findInset
+        // [Mac AAA 2026-11-17] The Find bar standing in the empty status line's place (`findGap`) takes that much less.
+        let findRoom = findInset > 0 && findGap < 0 ? max(0, findInset + findGap) : findInset
+        let top = view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findRoom
         let old = tableView.contentInset
         // The scroll bar runs the whole height the rows can show in: down behind the composer to the screen's bottom
         // edge (above the home indicator), or to the keys when they're up. Owner 2026-11-01: ended at the composer's
@@ -3533,7 +3567,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let showing = lowest > 0
         let solid = (showing ? lowest : noticeToast.frame.maxY) + ChatMetrics.macFloatGap
         let noticeBottom = solid
-        let noticeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: solid + 16)
+        let noticeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: solid + ChatMetrics.macTopFade)
         if noticeBacking.frame != noticeFrame, solid > ChatMetrics.macFloatGap {
             // With the stack's own motion when it moves inside an animation (a notice or the Find bar coming or going).
             let step = UIView.inheritedAnimationDuration
@@ -3608,9 +3642,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private func installEarlierPill() {
         earlierPill.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(earlierPill)
+        // [Mac AAA 2026-11-17] As the Find bar and the notice: in the empty status line's place on the Mac (`findGap`).
+        let earlierTop = earlierPill.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: DeviceWord.isMac ? findGap : 8)
+        earlierPillTop = earlierTop
         NSLayoutConstraint.activate([
             earlierPill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            earlierPill.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: 8),
+            earlierTop,
             earlierPill.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -48),
             earlierPill.widthAnchor.constraint(lessThanOrEqualToConstant: ReadableColumn.maxWidth - 48),
         ])
@@ -4590,7 +4627,30 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         anchor === statusPill && statusPill.text == nil ? -ChatMetrics.statusLineHeight : ChatMetrics.underBarGap
     }
 
+    /// [Mac AAA 2026-11-17] The Find bar's and the Search Earlier pill's tops, under the status line.
+    private weak var findBarTop: NSLayoutConstraint?
+    private weak var earlierPillTop: NSLayoutConstraint?
+
+    /// [Mac AAA 2026-11-17] The Find bar sat a whole empty status line below the title (8 + 34 + 8 pt: twice the gap of
+    /// a notice there), the fault the owner caught for the notice on 2026-11-15. As the notice does, with no status
+    /// words it takes the status line's place 8 pt under the title, and steps down under the words when they show.
+    private var findGap: CGFloat {
+        guard DeviceWord.isMac else { return 4 }
+        return statusPill.text == nil ? -ChatMetrics.statusLineHeight : ChatMetrics.underBarGap
+    }
+
     private func updateNoticeTop() {
+        if DeviceWord.isMac, let earlierPillTop, earlierPillTop.constant != findGap {
+            earlierPillTop.constant = findGap
+            if view.window != nil, !earlierPill.isHidden {
+                HQMotion.animate(HQMotion.fade, options: [.beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
+            }
+        }
+        if let findBarTop, findBarTop.constant != findGap {
+            findBarTop.constant = findGap
+            updateInsets()
+            if view.window != nil { HQMotion.animate(HQMotion.fade, options: [.beginFromCurrentState], changes: { self.view.layoutIfNeeded() }) }
+        }
         guard let top = noticeToastTop, let anchor = top.secondItem as? UIView else { return }
         let gap = noticeGap(under: anchor)
         guard top.constant != gap else { return }
@@ -4606,8 +4666,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [mac] Stress test 2026-10-28 #79: notices ("Read Replies Aloud is on") draw over the bar and sit under it, not
         // hidden behind it (the Desktop Look bar is opaque; the glass one faded them).
         view.insertSubview(bar, belowSubview: noticeToast)
+        let top = bar.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: findGap)
+        findBarTop = top
         NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: DeviceWord.isMac ? ChatMetrics.underBarGap : 4),
+            top,
             // [mac] Stress test 2026-10-28 #53: on the composer's and the bubbles' edges (it was 4 to 14 pt wider).
             bar.leadingAnchor.constraint(equalTo: columnGuide.leadingAnchor, constant: Self.findBarSide),
             bar.trailingAnchor.constraint(equalTo: columnGuide.trailingAnchor, constant: -Self.findBarSide),
@@ -5035,6 +5097,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     /// [Mac AAA 2026-11-17] Tours: the status capsule's words through its own path (nil: gone).
     func debugStatus(_ text: String?) { statusPill.set(text) }
+
+    /// [Mac AAA 2026-11-17] Tours: the Search Earlier pill in a state, as at the top of what is loaded.
+    func debugEarlier(_ state: ChatEarlierPill.State) {
+        earlierPill.set(state)
+        updateBarBacking()
+    }
 
     /// [Mac AAA 2026-11-17] Tours: the light or dark the top bar and everything on it is drawn in, against the window's,
     /// and what could feed the bar from the transcript (the owner: white words on a pale bar over a blue message).

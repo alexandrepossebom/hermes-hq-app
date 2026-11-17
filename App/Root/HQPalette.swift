@@ -521,13 +521,19 @@ private final class EdgeHostScrollView: UIScrollView {
         #endif
         #if targetEnvironment(macCatalyst)
         guard backing.superview != nil else { return }
-        let height = headerBottom + Self.fadeHeight
+        // [Mac AAA 2026-11-17] With a strip of its own under the bar (Sessions' Bots | Projects row and pills, Tasks'
+        // pills: the page's `additionalSafeAreaInsets.top`), the backing is solid 8 pt past the strip's foot before its
+        // fade, as under the chat's title stack: rows scrolled up stood half cut against the switch row ("App 2 ›"
+        // sliced under the pills, a face's top half), the owner's kind of photo.
+        let strip = (page?.additionalSafeAreaInsets.top ?? 0) > 0.5
+        let solid = headerBottom + (strip ? ChatMetrics.macFloatGap : 0)
+        let height = solid + Self.fadeHeight
         let frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
         if backing.frame != frame {
             CATransaction.begin(); CATransaction.setDisableActions(true)
             backing.frame = frame
             fade.frame = backing.bounds
-            fade.locations = [0, NSNumber(value: Double(headerBottom / max(height, 1))), 1]
+            fade.locations = [0, NSNumber(value: Double(solid / max(height, 1))), 1]
             CATransaction.commit()
         }
         // [mac-audit] Owner 2026-11-02 (#22): in the Desktop Look too. Its frosted bar (`ListBarAppearance.apply`) has no

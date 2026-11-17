@@ -329,11 +329,15 @@ extension View {
 /// [Mac AAA 2026-11-16] A row divider on whole screen pixels (`HQShape.hairline`) in the separator colour: SwiftUI's
 /// `Divider()` lands between pixels at the Mac's 77 % and draws blurred.
 struct SettingsHairline: View {
+    /// [Mac AAA rest 2026-11-17] Also a vertical line (a pair's divider): the Mac's whole-pixel `HQHairline`, the
+    /// system's one-pixel `Divider` on the iPhone and iPad, where the polish's 1 pt lines drew three times as thick.
+    var axis: Axis = .horizontal
+
     var body: some View {
         #if targetEnvironment(macCatalyst)
-        HQHairline()
+        HQHairline(axis: axis)
         #else
-        Divider()   // the iPhone and iPad keep theirs
+        Divider()   // the iPhone and iPad keep theirs (a Divider takes the axis its stack gives it)
         #endif
     }
 }

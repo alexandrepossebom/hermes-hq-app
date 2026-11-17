@@ -65,11 +65,28 @@ final class ChatEarlierPill: UIView {
     /// above the button and doubled the pill's height (owner screenshot, 2026-10-28).
     private let row = UIStackView()
 
+    /// [Mac AAA 2026-11-17] On the Mac the pill is the status capsule's sibling under the title: 34 pt (it was 48, the
+    /// iPhone's 44 pt tap height plus its rim, beside a 34 pt capsule), the capsule's words, the page under its glass so
+    /// a message under it never tints it. The iPhone keeps its 44 pt tap height.
+    private static var mac: Bool { DeviceWord.isMac }
+    private let backing = UIView()
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         accessibilityIdentifier = "chat.earlier"
         alpha = 0
         isHidden = true
+        if Self.mac {
+            backing.isUserInteractionEnabled = false
+            backing.backgroundColor = ChatPalette.page
+            backing.translatesAutoresizingMaskIntoConstraints = false
+            backing.cornerConfiguration = .capsule()
+            addSubview(backing)
+            NSLayoutConstraint.activate([
+                backing.topAnchor.constraint(equalTo: topAnchor), backing.bottomAnchor.constraint(equalTo: bottomAnchor),
+                backing.leadingAnchor.constraint(equalTo: leadingAnchor), backing.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ])
+        }
         addSubview(glass)
         glass.translatesAutoresizingMaskIntoConstraints = false
         label.textColor = ChatPalette.label2
@@ -93,18 +110,21 @@ final class ChatEarlierPill: UIView {
         glass.contentView.addSubview(column)
         // Under required, so hiding the row (its stack's zero height) doesn't break it. 44 like the button, so tapping
         // "Show earlier messages" swaps in "Loading…" without the pill changing height.
-        let rowFloor = row.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        let floor: CGFloat = Self.mac ? ChatMetrics.statusLineHeight : 44
+        let rowFloor = row.heightAnchor.constraint(greaterThanOrEqualToConstant: floor)
         rowFloor.priority = .init(999)
+        let rim: CGFloat = Self.mac ? 0 : 2
+        let side: CGFloat = Self.mac ? 14 : 16   // the status capsule's ends on the Mac
         NSLayoutConstraint.activate([
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.leadingAnchor.constraint(equalTo: leadingAnchor),
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            column.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: 2),
-            column.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -2),
-            column.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 16),
-            column.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -16),
-            button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            column.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: rim),
+            column.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -rim),
+            column.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: side),
+            column.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -side),
+            button.heightAnchor.constraint(greaterThanOrEqualToConstant: floor),
             rowFloor,
         ])
         applyFonts()
@@ -114,6 +134,13 @@ final class ChatEarlierPill: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     private func applyFonts() {
+        if Self.mac {
+            // [Mac AAA 2026-11-17] The status capsule's words (`ChatStatusPill.updateFont`), the action in the accent.
+            let size = min(HQFont.preferred(.subheadline, compatibleWith: traitCollection).pointSize, 22)
+            label.font = HQFont.face(ofSize: size)
+            button.titleLabel?.font = HQFont.system(ofSize: size, weight: .semibold)
+            return
+        }
         let size = min(HQFont.preferred(.footnote, compatibleWith: traitCollection).pointSize, 22)
         label.font = HQFont.face(ofSize: size)
         button.titleLabel?.font = HQFont.system(ofSize: size + 2, weight: .semibold)
@@ -161,7 +188,10 @@ final class ChatEarlierPill: UIView {
         }
         // One line (the button, or the spinner and its words) is a capsule like the status line above it; the wrapped
         // failure keeps the card's corners.
-        if next != .hidden { glass.cornerConfiguration = next == .failed ? .corners(radius: .fixed(18)) : .capsule() }
+        if next != .hidden {
+            glass.cornerConfiguration = next == .failed ? .corners(radius: .fixed(18)) : .capsule()
+            backing.cornerConfiguration = glass.cornerConfiguration
+        }
         let shown = next != .hidden
         if shown { isHidden = false }
         let changes = { self.alpha = shown ? 1 : 0 }

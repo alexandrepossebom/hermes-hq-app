@@ -259,7 +259,7 @@ struct TileChangingVeil: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(.regularMaterial, in: Capsule())
+            .hqTileMark(Capsule())   // [Mac AAA 2026-11-17] its own tone over any picture
             .overlay { Capsule().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
             .padding(8)
         }

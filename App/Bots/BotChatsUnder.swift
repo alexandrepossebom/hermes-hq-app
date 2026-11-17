@@ -247,7 +247,9 @@ struct BotChatRowView: View {
             if session.pinned {
                 Image(systemName: "pin.fill").font(Font.hq(.caption2)).foregroundStyle(Color.hqLabel3).accessibilityHidden(true)
             }
-            Text(session.title)
+            // [Mac AAA rest 2026-11-17] A chat with no title yet was a blank row with only its time: it is named as its
+            // Sessions row (and the Mac sidebar) names it, the title, else its first words, else "Untitled Chat".
+            Text(SessionRowView.title(session))
                 .font(Font.hq(Density.compact && !Theme.isDesktop ? .subheadline : .callout).weight(session.unread ? .semibold : .regular))
                 .foregroundStyle(Color.hqLabel)
                 .lineLimit(1)
@@ -285,7 +287,7 @@ struct BotChatRowView: View {
     }
 
     static func label(_ session: SessionSummary, time: String) -> String {
-        var words = [session.title]
+        var words = [SessionRowView.title(session)]
         if session.pinned { words.append("Pinned") }
         if session.status == .needsInput { words.append("Waiting for you") }
         if session.isRunning { words.append("Working") } else if session.unread { words.append("Unread") }

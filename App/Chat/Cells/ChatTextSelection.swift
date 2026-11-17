@@ -83,6 +83,12 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
     let pan = UIPanGestureRecognizer()
     /// [macpass 2026-11-14] FEEL-LIST #19: a double-click on a word selects it, as in every Mac text view.
     let doubleClick = UITapGestureRecognizer()
+    /// [rest-hands 2026-11-17] A triple-click selects the paragraph, as in every Mac text view (the third click used to
+    /// put the double-click's word away).
+    let tripleClick = UITapGestureRecognizer()
+    /// [rest-hands 2026-11-17] Where the button went down (host coordinates). The pan's translation only counts from
+    /// where it began, after the pointer had already moved a few points, so a drag-select started two letters late.
+    private var downPoint: CGPoint?
     private(set) var selection: MessageSelection?
     private var clearing = false
 
@@ -101,6 +107,11 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
         doubleClick.addTarget(self, action: #selector(doubleClicked(_:)))
         doubleClick.delegate = self
         host.addGestureRecognizer(doubleClick)
+        tripleClick.numberOfTapsRequired = 3
+        tripleClick.cancelsTouchesInView = false
+        tripleClick.addTarget(self, action: #selector(tripleClicked(_:)))
+        tripleClick.delegate = self
+        host.addGestureRecognizer(tripleClick)
     }
 
     var hasSelection: Bool { selection.map { !$0.isEmpty } ?? false }
@@ -123,18 +134,21 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
     // MARK: The drag
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        canReceive(touch)
+        let takes = canReceive(touch)
+        if gestureRecognizer === pan { downPoint = takes ? host.map { touch.location(in: $0) } : nil }
+        return takes
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer === doubleClick, let host { return hit(doubleClick.location(in: host)) != nil }
+        if gestureRecognizer === tripleClick, let host { return hit(tripleClick.location(in: host)) != nil }
         return startsSelection(at: pressPoint())
     }
 
     /// The double-click never takes the message's own click (links, one-click copy, a table's page, ⌘A's focus).
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        gestureRecognizer === doubleClick
+        gestureRecognizer === doubleClick || gestureRecognizer === tripleClick
     }
 
     @objc private func doubleClicked(_ gr: UITapGestureRecognizer) {
@@ -144,9 +158,17 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
         DispatchQueue.main.async { [weak self] in self?.selectWord(at: point) }
     }
 
+    @objc private func tripleClicked(_ gr: UITapGestureRecognizer) {
+        guard gr.state == .ended, let host else { return }
+        let point = gr.location(in: host)
+        // After the third click's own handling (which puts the double-click's word away).
+        DispatchQueue.main.async { [weak self] in self?.selectParagraph(at: point) }
+    }
+
     /// Where the press was, before the pointer moved far enough to make a drag (host coordinates).
     private func pressPoint() -> CGPoint {
         guard let host else { return .zero }
+        if let downPoint { return downPoint }
         let now = pan.location(in: host), moved = pan.translation(in: host)
         return CGPoint(x: now.x - moved.x, y: now.y - moved.y)
     }
@@ -221,6 +243,21 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
         becomeActive()
         selection = MessageSelection(anchor: TextSpot(block: spot.block, piece: spot.piece, offset: word.location),
                                      focus: TextSpot(block: spot.block, piece: spot.piece, offset: NSMaxRange(word)))
+        apply()
+        takeKeyboard()
+    }
+
+    /// A triple-click (host coordinates): the paragraph under it, without its line break.
+    func selectParagraph(at point: CGPoint) {
+        guard let spot = hit(point) else { return }
+        let all = surfaces()
+        guard all.indices.contains(spot.block) else { return }
+        let pieces = all[spot.block].selectionPieces
+        guard pieces.indices.contains(spot.piece),
+              let range = MessageSelection.paragraph(in: pieces[spot.piece].text.string, at: spot.offset) else { return }
+        becomeActive()
+        selection = MessageSelection(anchor: TextSpot(block: spot.block, piece: spot.piece, offset: range.location),
+                                     focus: TextSpot(block: spot.block, piece: spot.piece, offset: NSMaxRange(range)))
         apply()
         takeKeyboard()
     }

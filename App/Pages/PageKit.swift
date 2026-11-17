@@ -261,8 +261,9 @@ final class PagesHUD: UIView {
 
     /// Shows a HUD over `controller`'s tab bar controller (or its window).
     @discardableResult
+    /// `lift`: points more above the foot (a sheet's own button row, which it would sit on).
     static func show(_ text: String, detail: String? = nil, symbol: String? = nil, from controller: UIViewController,
-                     duration: TimeInterval? = nil) -> PagesHUD? {
+                     duration: TimeInterval? = nil, lift: CGFloat = 0) -> PagesHUD? {
         // A tab bar controller passed itself (an action's result host, `JobActions.resultHost`) hosts it directly.
         let tabs = (controller as? UITabBarController) ?? controller.tabBarController
         guard let host = tabs?.view ?? controller.view.window ?? controller.view else { return nil }
@@ -279,7 +280,7 @@ final class PagesHUD: UIView {
             return !tabs.isTabBarHidden && !bar.isHidden && bar.isDescendant(of: host) ? bar : nil
         }
         let bottom = tabBar.map { hud.bottomAnchor.constraint(equalTo: $0.topAnchor, constant: -12) }
-            ?? hud.bottomAnchor.constraint(equalTo: host.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+            ?? hud.bottomAnchor.constraint(equalTo: host.safeAreaLayoutGuide.bottomAnchor, constant: -16 - lift)
         NSLayoutConstraint.activate([
             hud.centerXAnchor.constraint(equalTo: host.centerXAnchor), bottom,
             hud.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 24),

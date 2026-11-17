@@ -352,6 +352,9 @@ struct KanbanCardView: View {
         }
         .overlay(shape.strokeBorder(selected ? Color.hqTint.opacity(0.6) : Color(uiColor: desktop ? UIColor(Color.hqStroke) : HQPalette.cardEdge),
                                     lineWidth: HQShape.hairline))
+        // [rest-hands 2026-11-17] A card answers the pointer as the app's other cards do: lit under it, deeper while the
+        // button is down (a real pointer found it dead; the column lists sit too deep for the screen's row hover).
+        .hqPointerFill(shape, on: !selected)
         .contentShape(shape)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.title). \(row.bits.map(\.text).joined(separator: ", "))")

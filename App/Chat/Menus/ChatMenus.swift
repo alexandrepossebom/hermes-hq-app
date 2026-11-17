@@ -424,7 +424,15 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         screen.stowKeys()
         let chip = screen.composer.modelChip
         let onChip = chip.window != nil && !chip.isHidden && chip.alpha > 0.01
-        let anchor = onChip ? chip : Self.composerAnchor(screen)
+        // [Mac AAA 2026-11-17] With the name stepped aside (a narrow pane beside a task, the inspector open) the panel
+        // hung off ☰ at the box's other end, over the column's middle: it hangs off the box's right end, where the name
+        // stands, with no pointer (there is no name to point at).
+        let circle = screen.composer.macTrailingAnchor
+        var atEnd = circle.window != nil && !circle.isHidden
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "HQDebugModelAnchorOld") { atEnd = false }   // the 1081 placing, for a before picture
+        #endif
+        let anchor = onChip ? chip : atEnd ? circle : Self.composerAnchor(screen)
         let bot = host?.botInfo(for: screen.session, over: screen)
         let actions = modelPanelActions(screen: screen, switcher: switcher, closed: { _ in })
         let picker = MacModelsPanel(anchor: anchor, clearOf: screen.composer, context: context, query: query, bot: bot?.name,

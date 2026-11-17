@@ -123,7 +123,7 @@ final class RootSplitController: UIViewController {
         view.addSubview(hairline)
         #if targetEnvironment(macCatalyst)
         view.addSubview(macSidebar)
-        grip.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragged(_:))))
+        grip.addGestureRecognizer(MacGripPan(target: self, action: #selector(dragged(_:))))
         grip.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
         view.addSubview(grip)
         #endif
@@ -392,7 +392,7 @@ final class RootSplitController: UIViewController {
         case .began:
             dragStart = layout.sidebar
         case .changed:
-            let moved = pan.translation(in: view).x
+            let moved = (pan as? MacGripPan)?.travel(in: view).x ?? pan.translation(in: view).x   // [rest-hands 2026-11-17]
             dragWidth = dragStart + (view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? -moved : moved)
             MacWindow.cursor("resizeLeftRightCursor")
             view.setNeedsLayout()

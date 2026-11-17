@@ -45,6 +45,16 @@ struct MessageSelectionRuleTests {
         #expect(MessageSelection.word(in: "word", at: 9) == nil, "past the end")
     }
 
+    /// [rest-hands 2026-11-17] A triple-click selects the paragraph round the caret, without its line break.
+    @Test func aTripleClickPicksTheParagraph() {
+        let text = "First line here.\nSecond one.\n\nThird."
+        #expect(MessageSelection.paragraph(in: text, at: 3) == NSRange(location: 0, length: 16))
+        #expect(MessageSelection.paragraph(in: text, at: 20) == NSRange(location: 17, length: 11))
+        #expect(MessageSelection.paragraph(in: text, at: 29) == nil, "the empty line")
+        #expect(MessageSelection.paragraph(in: text, at: 99) == NSRange(location: 30, length: 6), "past the end: the last")
+        #expect(MessageSelection.paragraph(in: "", at: 0) == nil)
+    }
+
     @Test func eachPieceGetsItsPartOfTheSelection() {
         let s = MessageSelection(anchor: TextSpot(block: 0, piece: 1, offset: 4), focus: TextSpot(block: 2, piece: 0, offset: 6))
         #expect(s.range(block: 0, piece: 0, length: 20) == nil, "before the start")

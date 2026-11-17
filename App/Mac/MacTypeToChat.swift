@@ -37,11 +37,28 @@ import UIKit
     /// identity; the box has the keyboard by then, so they pass anyway, and this keeps one that didn't from looping).
     private static var passUntil: CFTimeInterval = 0
 
+    /// [rest-hands 2026-11-17] Until then a search field is on its way to the keyboard (⌘F, a magnifier's click: the
+    /// field takes it a turn of the run loop later). Letters typed in that moment went into the chat's message box, or
+    /// nowhere with no chat open; now they wait for the field and land there in order.
+    private static var fieldComing: CFTimeInterval = 0
+
+    /// A search field (a list's, Find in Chat's) is about to take the keyboard.
+    static func fieldWillFocus() { fieldComing = CACurrentMediaTime() + 0.5 }
+
     /// True when the press is taken here: it waits while the box takes the keyboard, then goes round again.
     private static func take(_ event: NSObject) -> Bool {
         if CACurrentMediaTime() < passUntil { return false }
         // A key typed while the first waits goes after it, whatever it is (Return included), so nothing changes order.
         if !held.isEmpty { held.append(event); return true }
+        if CACurrentMediaTime() < fieldComing, !(ChatFirstResponder.current() is UIKeyInput) {
+            let flags = (event.value(forKey: "modifierFlags") as? NSNumber)?.uintValue ?? 0
+            if flags & (1 << 20) == 0 {   // ⌘ shortcuts go on as they are
+                AppLog.note("keys", "typed while a search field takes the keyboard: held for it")
+                held = [event]
+                awaitField()
+                return true
+            }
+        }
         guard let code = (event.value(forKey: "keyCode") as? NSNumber)?.uint16Value else { return false }
         let flags = (event.value(forKey: "modifierFlags") as? NSNumber)?.uintValue ?? 0
         let characters = event.value(forKey: "charactersIgnoringModifiers") as? String
@@ -82,6 +99,15 @@ import UIKit
                 }
             }
             return true
+        }
+    }
+
+    /// The held presses go round again once a text field has the keyboard (or the moment has passed).
+    private static func awaitField() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+            MainActor.assumeIsolated {
+                if ChatFirstResponder.current() is UIKeyInput || CACurrentMediaTime() >= fieldComing { fieldComing = 0; release() } else { awaitField() }
+            }
         }
     }
 

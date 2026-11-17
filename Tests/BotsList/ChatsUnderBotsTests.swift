@@ -23,6 +23,17 @@ struct ChatsUnderBotsTests {
          chat("x", "otto", hoursAgo: 0.5), chat("old", hoursAgo: 0.1, archived: true)]
     }
 
+    /// [Mac AAA rest 2026-11-17] A chat with no title under its bot is named by its first words, else "Untitled Chat",
+    /// as its Sessions row and the Mac sidebar name it (it was a blank row with only its time).
+    @Test func untitledChatIsNamed() {
+        var session = chat("u", hoursAgo: 1)
+        session.title = "  "
+        session.preview = "Draft the weekly newsletter"
+        #expect(BotChatRowView.label(session, time: "1h").hasPrefix("Draft the weekly newsletter, "))
+        session.preview = nil
+        #expect(BotChatRowView.label(session, time: "1h") == "Untitled Chat, 1h")
+    }
+
     @Test func pinnedThenNewest() {
         let picked = BotChatsUnder.pick(list, bot: "default", choice: BotChatsChoice(mode: .recent, count: 2))
         #expect(picked.shown.map(\.id) == ["p1", "p2", "a", "b"])

@@ -320,7 +320,7 @@ struct KanbanStatusView: View {
                 }
                 .padding(.vertical, 12).padding(.horizontal, 16)
                 // [Mac AAA 2026-11-16] A whole-pixel line (a Divider drew blurry at the Mac's scale).
-                HQHairline().padding(.leading, 16)
+                SettingsHairline().padding(.leading, 16)   // iPhone: its Divider
                 Button(retrying ? "Trying…" : "Try Again", action: retry)
                     .disabled(retrying)
                     .padding(.vertical, 12).padding(.horizontal, 16)

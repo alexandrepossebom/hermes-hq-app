@@ -1082,7 +1082,7 @@ struct SettingsRootView: View {
                 SendWhileBusy.chosen = value
             })
             if DeviceWord.isMac {
-                HStack(spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {   // [Mac AAA 2026-11-17] on the title's line, as the switches
                     SettingsRowLabel(title: SettingsSearch.sendWhileBusyLabel, systemImage: "text.line.last.and.arrowtriangle.forward",
                                      subtitle: ChatRowNotes.sendWhileBusy(mac: true))
                     Spacer(minLength: 16)
@@ -1118,7 +1118,7 @@ struct SettingsRootView: View {
             })
             let linkChoices = LinkOpener.choices(installed: model.linkBrowsers)
             if DeviceWord.isMac {
-                HStack(spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {   // [Mac AAA 2026-11-17] on the title's line, as the switches
                     SettingsRowLabel(title: SettingsSearch.openLinksInLabel, systemImage: "safari", subtitle: ChatRowNotes.openLinksIn)
                     Spacer(minLength: 16)
                     MacPopUp(label: SettingsSearch.openLinksInLabel, selection: linkChoice, options: linkChoices) {
@@ -1148,7 +1148,7 @@ struct SettingsRootView: View {
             }
             if DeviceWord.isMac {
                 // [cmd-n] A tester 2026-11-02: ⌘N opens the bot's own chat instead of a new one, when asked.
-                HStack(spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {   // [Mac AAA 2026-11-17] on the title's line, as the switches
                     SettingsRowLabel(title: "⌘N Opens", systemImage: "command",
                                      subtitle: ChatRowNotes.newChatMode(botChat: model.newChatKeyMode == .botChat))
                     Spacer(minLength: 16)
@@ -1670,8 +1670,9 @@ struct SettingsCategoryColumn: View {
             }
             .padding(.horizontal, 12)
             // [Mac AAA 2026-11-16] The search field on the sidebar's search line (its middle 79 pt down in both
-            // windows): beside the sidebar it stood 6 pt higher than the sidebar's own field.
-            .padding(.top, 20)
+            // windows): beside the sidebar it stood 6 pt higher than the sidebar's own field. [Mac AAA rest 2026-11-17]
+            // Mac only: the iPad's two-column Settings keeps its 14 pt (no sidebar field beside it to line up with).
+            .padding(.top, DeviceWord.isMac ? 20 : 14)
             .padding(.bottom, 14)
         }
         .frame(width: Self.width)
@@ -1810,12 +1811,16 @@ struct GatewayCardView: View {
                 let small = 7 + 5 + Self.width(model.stateWords + facts, HQFont.preferred(.caption1), medium: true)
                 if rowWidth > 0, !typeSize.isAccessibilitySize, full <= room {
                     HStack(alignment: .firstTextBaseline, spacing: 0) {
-                        state
+                        // [Mac AAA rest 2026-11-17] The state is never broken inside its word: in the iPhone's Desktop
+                        // Look the measure above came out a few points short and "Connected" broke as "Connecte / d".
+                        // If the line is that little too long the facts give up a little size instead (where it fits,
+                        // as chosen, both draw exactly as before).
+                        state.fixedSize()
                         Text(facts)
                             .font(Font.hq(.footnote))
                             .foregroundStyle(Color(uiColor: HQPalette.cardNote))
                             .lineLimit(1)
-                            .fixedSize()
+                            .minimumScaleFactor(0.85)
                     }
                 } else if rowWidth > 0, !typeSize.isAccessibilitySize, small <= room {
                     // A narrower phone (the mini): the whole line a size down before it is given up for two lines.

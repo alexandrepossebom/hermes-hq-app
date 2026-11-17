@@ -88,7 +88,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// largest text sizes. A text-size change re-measures it through `recomputeHeight`.
     private var editBannerHeight: CGFloat {
         guard let editBanner else { return 0 }
-        let width = bounds.width > 0 ? max(0, bounds.width - 2 * (currentSideInset - boxOutset)) : 320
+        let width = bounds.width > 0 ? max(0, bounds.width - 2 * (currentSideInset - bannerOutset)) : 320
         let fitted = editBanner.systemLayoutSizeFitting(CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
                                                         withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
         return max(44, ceil(fitted.height))
@@ -681,6 +681,9 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// [desktoplook2] How far the look's one box reaches past the row on each side (`layoutDesktopBox`): the cards
     /// docked above it reach as far, so their edges line up with the box's.
     var boxOutset: CGFloat { Self.oneBox ? 4 : 0 }
+    /// [Mac AAA rest 2026-11-17] How far the reply / edit banner reaches past the row: to the box's edges on the Mac
+    /// only; the iPhone's and iPad's Desktop Look box keeps its banner 4 pt inside, as before the Mac polish.
+    private var bannerOutset: CGFloat { DeviceWord.isMac ? boxOutset : 0 }
     /// How far that box rises over the composer's own top (`layoutDesktopBox`: 3 pt above the row): a card resting on
     /// the composer keeps its gap from the box, not from the bounds hidden under it.
     var boxRise: CGFloat { Self.oneBox ? 3 - boxTrim : 0 }
@@ -745,7 +748,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         let rowTop = max(0, bounds.height - fieldHeight - chip)
         topAccessory?.frame = CGRect(x: 0, y: editExtra, width: bounds.width, height: max(0, rowTop - editExtra))
         // MENUS. [Mac AAA 2026-11-16] Edge to edge with the one box under it (it stood 4 pt inside the box's edges).
-        let bannerSide = side - boxOutset
+        let bannerSide = side - bannerOutset
         editBanner?.frame = CGRect(x: bannerSide, y: 0, width: max(0, bounds.width - 2 * bannerSide), height: editBannerHeight)
         // [composer-bar] The bar's trailing end: the circle is drawn 4 pt in from the bar's edge.
         let pad = toolbarPad
@@ -833,6 +836,9 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     // desktop's.
 
     private let desktopBox = UIView()
+    /// [Mac AAA 2026-11-17] The box's right end (its circle): where a panel for the model's name hangs while the name has
+    /// stepped aside in a narrow pane.
+    var macTrailingAnchor: UIView { primaryButton }
     /// [mac-ui-issues] The one box's frame (in the composer), nil while the bar isn't the box.
     var macBoxFrame: CGRect? { desktopBox.isHidden || desktopBox.frame.isEmpty ? nil : desktopBox.frame }
     /// [mac-message-box] The Mac's message box in the iOS look: a plain surface, not glass. It has been three things.
@@ -1221,7 +1227,8 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         // [Mac AAA 2026-11-16] Reconnecting… with nothing typed there is nothing to send: the circle stays Talk, dimmed,
         // as it will be once the chat is back (it turned into a dim send arrow). Still `.disabled` underneath: nothing
         // starts from it, and the Talk tip and its listeners see no Talk.
-        let dimTalk = next == .disabled && !isEnabled && talkAvailable && !hasText && attachmentCount == 0 && memoChip == nil
+        // [Mac AAA rest 2026-11-17] Mac only, as its commit said: the iPhone and iPad keep their dim send arrow.
+        let dimTalk = DeviceWord.isMac && next == .disabled && !isEnabled && talkAvailable && !hasText && attachmentCount == 0 && memoChip == nil
             && memoSend == nil && !editingQueued && !dictating
         let drawn: Primary = dimTalk ? .talk : next
         primaryButton.alpha = memoPrimary == .hidden ? 0 : busy || dimTalk ? 0.45 : 1

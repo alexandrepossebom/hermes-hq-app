@@ -1034,7 +1034,11 @@ final class ChatEdgeStandIn: UIView {
             blur.isHidden = HQAccessibility.reduceTransparency
             blur.layer.mask = nil
             let page = ChatPalette.page.resolvedColor(with: traitCollection)
-            wash.colors = [page.withAlphaComponent(blur.isHidden ? 1 : 0.6).cgColor, page.withAlphaComponent(blur.isHidden ? 1 : 0.6).cgColor]
+            // [Mac AAA rest 2026-11-17] Kept over the system's hard edge (the iPhone's and iPad's Desktop Look), the band
+            // is the look's bar veil (`DesktopFrost.barTintAlpha`), as the Mac's bars got answering O2 ("Give them their
+            // own backing"): a dark or coloured message under the bar turned its right side grey or green.
+            let veil: CGFloat = blur.isHidden ? 1 : keeps ? DesktopFrost.barTintAlpha : 0.6
+            wash.colors = [page.withAlphaComponent(veil).cgColor, page.withAlphaComponent(veil).cgColor]
             wash.locations = [0, 1]
             return
         }
@@ -1096,7 +1100,8 @@ final class ChatEdgeStandIn: UIView {
     /// [edge-fade-height] Owner 2026-11-17: "Our fade … from the top of the screen goes down too far" (Grok's is
     /// shorter). The system's soft edge runs a fixed ~30 pt tail past the bar whatever its element says, so in the iOS
     /// look this stays as the chat's top edge for good, ending where the element ends, and the system's is off
-    /// (`ChatViewController.applyChatLook`). The Desktop Look still hands over to the system's hard edge.
+    /// (`ChatViewController.applyChatLook`). [Mac AAA rest 2026-11-17] The Desktop Look keeps it too, as the bar's veil
+    /// over the system's hard edge (`updateColors`).
     var keeps = false {
         didSet {
             guard keeps != oldValue else { return }

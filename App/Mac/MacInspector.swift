@@ -167,7 +167,7 @@ final class MacInspector: UIViewController {
         taskTitle.accessibilityIdentifier = "mac.inspector.task-title"
         tabsRow.addArrangedSubview(taskTitle)
         empty.isHidden = true
-        grip.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragged(_:))))
+        grip.addGestureRecognizer(MacGripPan(target: self, action: #selector(dragged(_:))))
         grip.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
         grip.accessibilityIdentifier = "mac.inspector.grip"
         band.isUserInteractionEnabled = false
@@ -270,7 +270,7 @@ final class MacInspector: UIViewController {
             dragStart = view.bounds.width
             dragging = true
         case .changed:
-            let moved = pan.translation(in: view.superview).x
+            let moved = (pan as? MacGripPan)?.travel(in: view.superview).x ?? pan.translation(in: view.superview).x   // [rest-hands 2026-11-17]
             let wider = view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? moved : -moved
             Self.chosenWidth = dragStart + wider
             MacWindow.cursor("resizeLeftRightCursor")

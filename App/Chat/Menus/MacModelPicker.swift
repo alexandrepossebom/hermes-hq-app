@@ -74,12 +74,26 @@ import UIKit
             scope.frame = CGRect(x: inset + MacPickRowCell.textInset, y: ((h - lineH) / 2).rounded(), width: bounds.width - 2 * inset, height: lineH)
             return
         }
-        let size = link.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: h))
-        let linkW = min(ceil(size.width), bounds.width * 0.6)
+        // [Mac AAA 2026-11-17] In a narrow chat (beside an open task) "For this chat only" was cut to "For this chat o…"
+        // beside the face and the link. The scope stays whole: the face steps out first, then the link's name is cut.
+        let x = inset + MacPickRowCell.textInset
+        let room = bounds.width - inset + 6 - x - 8
+        let need = ceil(scope.intrinsicContentSize.width)
+        func linkWidth() -> CGFloat { ceil(link.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: h)).width) }
+        setFace(shown: true)
+        if need + linkWidth() > room { setFace(shown: false) }
+        let linkW = min(linkWidth(), max(room - need, bounds.width * 0.3), bounds.width * 0.6)
         link.frame = CGRect(x: bounds.width - inset - linkW + 6, y: 0, width: linkW, height: h)
         face?.frame = CGRect(x: 6, y: ((h - Self.faceSide) / 2).rounded(), width: Self.faceSide, height: Self.faceSide)
-        let x = inset + MacPickRowCell.textInset
         scope.frame = CGRect(x: x, y: ((h - lineH) / 2).rounded(), width: max(0, link.frame.minX - x - 8), height: lineH)
+    }
+
+    /// The face before the link's name, or not (its room in the button's leading inset goes with it).
+    private func setFace(shown: Bool) {
+        guard let face, face.isHidden == shown, var config = link.configuration else { return }
+        face.isHidden = !shown
+        config.contentInsets.leading = shown ? 6 + Self.faceSide + 6 : 6
+        link.configuration = config
     }
 }
 

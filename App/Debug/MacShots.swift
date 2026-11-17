@@ -408,6 +408,10 @@ enum MacShots {
                 await coreTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
+            if let stops = UserDefaults.standard.string(forKey: "HQDebugMacShotsRest"), !stops.isEmpty {   // [Mac AAA 2026-11-17] MacShotsRest.swift
+                await restTour(window, tabs: tabs, name: name, folder: folder, stops: stops)
+                exit(0)
+            }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsFloat") {   // [Mac AAA 2026-11-17] MacShotsFloat.swift
                 await floatTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)

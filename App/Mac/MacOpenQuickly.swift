@@ -136,6 +136,10 @@ import UIKit
         table.tableFooterView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: CGFloat.leastNormalMagnitude))
         table.rowHeight = UITableView.automaticDimension
         table.estimatedRowHeight = 52
+        // [rest-hands 2026-11-17] With more results than fit, the last row scrolled to the table's foot and its mark sat
+        // 6 px over the panel's edge against 12 at the sides (real pointer, ↓ to the end). The room it scrolls into:
+        // the same 6 the table's height already adds, so the foot is 12 whether the list scrolls or not.
+        table.contentInset.bottom = 6
         table.accessibilityIdentifier = "open-quickly.results"
         table.register(UITableViewCell.self, forCellReuseIdentifier: "row")
         // Feel list B (2026-11-13): the pointer moves the mark, as in Commands and Models. It drew a grey bar of its

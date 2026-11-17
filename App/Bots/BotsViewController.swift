@@ -1139,7 +1139,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         var config: UIContentUnavailableConfiguration?
         let noResults = sections.first.map { $0.bots.isEmpty && $0.rooms.isEmpty } ?? true   // [groups] rooms count too
         if !query.isEmpty, noResults {
-            config = .search()
+            config = UIContentUnavailableConfiguration.search().hqScaled()   // [rest-hands 2026-11-17] as every other state
         } else if kind == .groups, activity == .all, roomsByID.isEmpty {
             // [groups] Show › Group Chats with none (docs/spec/3x-groups.md §7.10).
             var empty = UIContentUnavailableConfiguration.empty().hqScaled()
@@ -1228,7 +1228,12 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     /// wrong and what the app is doing, in the offline screen's words, with Try Again (the stale card's own retry), as
     /// it shows the folded list's other states (Mac polish #4). Nil while connected, connecting or with no bots.
     var macOfflineState: UIContentUnavailableConfiguration? {
-        guard case .offline(let reason) = services.connection, !services.bots.isEmpty, query.isEmpty,
+        var offline: String?
+        if case .offline(let reason) = services.connection { offline = reason }
+        #if DEBUG
+        if Self.debugOffline { offline = offline ?? "" }   // [Mac AAA 2026-11-17] tours: the state without a dead gateway
+        #endif
+        guard let reason = offline, !services.bots.isEmpty, query.isEmpty,
               contentUnavailableConfiguration == nil else { return nil }
         let screen = OfflineCopy.screen(reason: reason, hasAddress: true)
         var state = UIContentUnavailableConfiguration.empty().hqScaled()
@@ -1241,6 +1246,9 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         state.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.retryFromNotice("stale") }
         return state
     }
+    #if DEBUG
+    static var debugOffline = false
+    #endif
     #endif
 
     /// A link problem shows under the title only once it has lasted this long: the line changes the bar's height, and
