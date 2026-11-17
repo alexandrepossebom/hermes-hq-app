@@ -2299,7 +2299,9 @@ final class PanelGroup: UIView {
 /// blue smear (the light iOS look). On the Mac a backing of the page (the pop-ups' veil) sits right under the glass,
 /// moving, sizing, fading and rounding with it, so the glass only ever has the backing behind it. The iPhone keeps
 /// its clear glass.
-final class BackedGlassCard: UIVisualEffectView {
+/// [Mac glass 2026-11-17] Open (not final): the reply peek and the presence notice, glass capsules at the window's top,
+/// take the same backing (their glass alone let the chat's title read through them).
+class BackedGlassCard: UIVisualEffectView {
     private let backing = UIView()
 
     override init(effect: UIVisualEffect?) {

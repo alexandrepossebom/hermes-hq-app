@@ -188,7 +188,9 @@ struct PinTileView: View {
 
     /// The name's line under the tile (the layout keeps this much room under every row of tiles): Caption 1, growing
     /// with the text to 17 pt.
-    static var nameFont: UIFont { HQFont.style(.caption1, cap: 17) }
+    /// Owner 2026-11-17 (Mac calls Q14): on the Mac the body's size (15 pt on the screen, as the rows beside it), not
+    /// Caption 1 (about 12 pt there); the room under each row of tiles follows (`nameHeight`).
+    static var nameFont: UIFont { DeviceWord.isMac ? MacType.row : HQFont.style(.caption1, cap: 17) }
     static var nameHeight: CGFloat { ceil(nameFont.lineHeight) + 5 }
 
     var body: some View {

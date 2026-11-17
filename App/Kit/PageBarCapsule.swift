@@ -188,7 +188,15 @@ import UIKit
     /// The magnifier reads "on" while a query is typed (call on every text change).
     func updateSearchState() {
         let on = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        searchItem?.isSelected = on
+        // [Mac AAA 2026-11-17] Q22, owner: in the Desktop Look on the Mac no light grey disc behind the magnifier (the
+        // system's selected look, the loudest thing on the flat bar); the glyph takes the accent while a search is on,
+        // and the look's quiet grey (`DesktopBars.quietGlyph`) again after. The iOS look keeps its disc.
+        if Theme.isDesktop, DeviceWord.isMac {
+            searchItem?.isSelected = false
+            searchItem?.tintColor = on ? HQPalette.tint : HQPalette.label2
+        } else {
+            searchItem?.isSelected = on
+        }
         searchItem?.accessibilityValue = on ? query : nil
     }
 

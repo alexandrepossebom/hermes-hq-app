@@ -111,6 +111,33 @@ nonisolated enum MediaLayout {
         return (out, CGSize(width: width, height: out.last?.maxY ?? 0))
     }
 
+    /// [Mac AAA 2026-11-17] Q4, owner: on the Mac a lone photo is as wide as a pair of photos in the grid and takes the
+    /// grid's rounded tile look (`AttachmentBubbleLayout`); 260 pt was half as wide as each pair beside it. Here, set at
+    /// compile time so the iPhone and iPad never see it.
+    static var cardSingle: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Q4: a lone photo as a grid's card. As wide as a grid (`min(maxWidth, gridMaxWidth)`), at its own shape, never
+    /// taller than a grid of four at that width (a square: the grid's own tallest), then at least `singleMinWidth`
+    /// wide; ≥ `singleMinHeight` tall. Unknown size: the grid's width at 4:3.
+    static func card(width pw: Int?, height ph: Int?, maxWidth maxW: CGFloat) -> CGSize {
+        let cap = floor(min(maxW, gridMaxWidth))
+        guard let pw, let ph, pw > 0, ph > 0 else { return CGSize(width: cap, height: floor(cap * 3 / 4)) }
+        var w = cap
+        var h = w * CGFloat(ph) / CGFloat(pw)
+        if h > cap {
+            h = cap
+            w = max(min(singleMinWidth, cap), cap * CGFloat(pw) / CGFloat(ph))
+        }
+        if h < singleMinHeight { h = singleMinHeight }
+        return CGSize(width: floor(w), height: floor(h))
+    }
+
     /// The generated-image card (spec §7.7): `w = min(column, 320)`, the result's aspect (else the requested one),
     /// at most 400 tall.
     static func generated(_ info: GeneratedImageInfo, column: CGFloat) -> CGSize {

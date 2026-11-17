@@ -118,7 +118,19 @@ import UIKit
 /// Models: the catalog by provider with Favorites first, the current model checked and marked as it opens (a Mac
 /// pop-up opens on its current item), search, a star per row, Refresh beside the field. Offline, the rows grey out and
 /// the note under the field says why; the stars still work.
+///
+/// [Mac model selector] Owner 2026-11-17 (design B): with a `Picker` it is the Mac's one model selector, hung off the
+/// model's name in the message box: "For this chat only" with the bot's default under the field, Recent after
+/// Favorites, the model card's settings and facts at its foot (MacModelPicker.swift), and a pick that leaves it open.
 @MainActor final class MacModelsPanel {
+    /// What makes the list the model selector: the card's actions and state, the chat's bot (its face), and the
+    /// model's name in the box it hangs off (marked while it is open; nil when the panel hangs off the ☰ instead).
+    struct Picker {
+        var actions: ModelPanelActions
+        var head: (raw: JSONValue?, profile: String)
+        weak var chip: ModelChip?
+    }
+
     let panel: MacPickPanel
     private let context: ModelMenuContext
     private let pick: (ModelChoice) -> Void
@@ -132,14 +144,23 @@ import UIKit
     private var positioned = false
     /// [model-scope] What a pick changes (`ModelPanelModel.switchScope`), as the iPhone's sheet says it.
     private let scope: String
+    /// [Mac model selector]
+    private let selector: Picker?
+    private var foot: MacModelSettingsFoot?
+    /// The model a pick is switching to, until the switch lands (its row says so).
+    private var switchingTo: String?
 
     init(anchor: UIView, clearOf: UIView? = nil, context: ModelMenuContext, query: String?, bot: String? = nil,
-         onPick: @escaping (ModelChoice) -> Void, onCancel: @escaping () -> Void) {
-        panel = MacPickPanel(placeholder: "Search Models", anchor: anchor, clearOf: clearOf, width: 400, showsChecks: true, identifier: "models.sheet")
+         selector: Picker? = nil, onPick: @escaping (ModelChoice) -> Void, onCancel: @escaping () -> Void) {
+        // [Mac model selector] 440 wide as drawn (the strip's Fast | YOLO halves and Approval Mode's line need it).
+        panel = MacPickPanel(placeholder: "Search Models", anchor: anchor, clearOf: clearOf, width: selector == nil ? 400 : Self.selectorWidth,
+                             showsChecks: true, identifier: "models.sheet")
         self.context = context
         self.scope = ModelPanelModel.switchScope(bot: bot)
+        self.selector = selector
         self.pick = onPick
         panel.driver = self
+        if let selector { setUpSelector(selector) }
         let initial = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         panel.setQuery(initial)
         panel.setAccessory(symbol: "arrow.clockwise", label: "Refresh Models", identifier: "models.refresh") { [weak self] in
@@ -154,6 +175,7 @@ import UIKit
                 return
             }
             guard let model = self.byKey[row.key] else { return }
+            if self.selector != nil { self.switchTo(model); return }   // [Mac model selector] the panel stays
             self.stop()
             self.pick(model)
         }
@@ -236,7 +258,9 @@ import UIKit
         let offline = context.offline
         panel.accessoryEnabled = !loading && !offline
         let status = offline ? ModelSheetViewController.offlineWords : loading ? ModelLoad.loadingWords : nil
-        panel.setNote([status, scope].compactMap { $0 }.joined(separator: "\n"))
+        // [Mac model selector] The scope has its own line under the field (with the bot's default); the note keeps
+        // the status alone.
+        panel.setNote([status, selector == nil ? scope : nil].compactMap { $0 }.joined(separator: "\n"))
         if loading && models.isEmpty { panel.show(.loading); return }
         if let failure, models.isEmpty {
             let retry = UIAction(title: "Try Again") { [weak self] _ in self?.load(refresh: true) }
@@ -257,6 +281,11 @@ import UIKit
         var out = ModelSheetModel.sections(models, query: query, current: (current.id, current.provider))
         let favorites = query.isEmpty ? ModelSheetModel.favoriteRows(models, keys: context.prefs.favorites) : []
         if !out.isEmpty, !favorites.isEmpty { out.insert(ModelSection(provider: "", title: "Favorites", models: favorites), at: 0) }
+        // [Mac model selector] Recent after Favorites, as the card's menu lists it (five at most; not while searching).
+        let recents = query.isEmpty && selector != nil ? (selector?.actions.state()?.recents ?? []).map(\.model) : []
+        if !out.isEmpty, !recents.isEmpty {
+            out.insert(ModelSection(provider: "", title: "Recent", models: recents), at: favorites.isEmpty ? 0 : 1)
+        }
         byKey = [:]
         // [model-fold] Never while searching, never Favorites (as the iPhone's sheet).
         let folded = query.isEmpty ? context.prefs.foldedProviders : []
@@ -265,7 +294,8 @@ import UIKit
                 ? MacPickPanel.Fold(key: section.provider, count: section.models.count, folded: folded.contains(section.provider)) : nil
             return MacPickPanel.Section(title: section.title, rows: fold?.folded == true ? [] : section.models.map { model in
                 byKey[model.key] = model
-                let detail = section.provider.isEmpty ? (model.providerName ?? model.provider) : ""
+                var detail = section.provider.isEmpty ? (model.providerName ?? model.provider) : ""
+                if model.key == switchingTo { detail = "Switching…" }   // [Mac model selector] until it lands
                 let checked = model.id == current.id && model.provider == current.provider
                 return MacPickPanel.Row(key: model.key, title: model.name, detail: detail, checked: checked,
                                         starred: context.prefs.isFavorite(model), enabled: !offline,
@@ -287,6 +317,63 @@ import UIKit
     }
 
     static let addProviderKey = "hq.add-provider"
+
+    /// [Mac model selector] 440 as drawn, following UI Scale (at 150 % its words outgrew a fixed 440).
+    static var selectorWidth: CGFloat { (440 * CGFloat(ThemeTable.current.state.uiScalePercent) / 100).rounded() }
+
+    // MARK: [Mac model selector]
+
+    private func setUpSelector(_ selector: Picker) {
+        panel.staysOpenOnPick = true
+        panel.pointsAtAnchor = selector.chip != nil
+        // The pages the foot and the scope line open come up once the panel has gone (as the card hands over).
+        var actions = selector.actions
+        let handOff: (@escaping () -> Void) -> () -> Void = { [weak panel] open in
+            { if let panel { panel.close(then: open) } else { open() } }
+        }
+        actions.openUsage = handOff(selector.actions.openUsage)
+        actions.openPrices = handOff(selector.actions.openPrices)
+        actions.openContextWindow = selector.actions.openContextWindow.map(handOff)
+        actions.bot = selector.actions.bot.map { bot in (bot.name, handOff(bot.open)) }
+        panel.setSubheader(MacModelScopeLine(bot: actions.bot, head: selector.head))
+        if let state = actions.state() {
+            let foot = MacModelSettingsFoot(state: state, actions: actions)
+            self.foot = foot
+            panel.setFooter(foot)
+        }
+        selector.chip?.isSelected = true
+        panel.onGone = { [weak self, weak chip = selector.chip] in
+            chip?.isSelected = false
+            self?.foot?.panelClosed()
+        }
+        AppLog.trace("chatui", "model selector opened (\(selector.chip == nil ? "off the box" : "off the model's name"))")
+    }
+
+    /// A pick: the switch goes ahead (its alerts, its notice), the row says so until it lands, then the tick moves,
+    /// the name in the box changes and the foot shows the new model's thinking levels and Fast. The panel stays.
+    private func switchTo(_ model: ModelChoice) {
+        let current = context.current()
+        guard let selector, model.id != current.id || model.provider != current.provider, switchingTo == nil else { return }
+        AppLog.trace("chatui", "model selector: switch picked")
+        switchingTo = model.key
+        foot?.switching = true
+        rebuild(markFirst: false)
+        Task { @MainActor [weak self] in
+            await selector.actions.pick(model)
+            guard let self else { return }
+            self.switchingTo = nil
+            self.foot?.switching = false
+            self.foot?.refresh()
+            self.rebuild(markFirst: false)
+            // The tick moved: the least scroll that shows it (none while a search is typed or the list was scrolled).
+            let now = self.context.current()
+            self.panel.mark(key: ModelPrefs.key(provider: now.provider, model: now.id))
+        }
+    }
+
+    #if DEBUG
+    var debugFoot: MacModelSettingsFoot? { foot }
+    #endif
 
     private func setFolds(_ next: Set<String>) {
         context.prefs.setFoldedProviders(next)

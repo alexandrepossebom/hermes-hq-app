@@ -339,6 +339,13 @@ final class ComposerDrawerController: NSObject, UITableViewDataSource, UITableVi
             let markedId = keepHighlight ? highlighted.flatMap { row(at: $0) }?.id : nil
             sections = next
             highlighted = markedId.flatMap { id in path(where: { $0.id == id }) }
+            #if targetEnvironment(macCatalyst)
+            // [Mac AAA 2026-11-17] Owner's call Q2: "/st" marks its first match, so Return picks it (as the Commands
+            // panel's search does) instead of sending "/st"; each key typed starts the mark over on the new first match.
+            // Only a command is a match: a note's Check Again (no commands sent) is never marked for Return.
+            if highlighted == nil, mode.marksFirstMatch, let first = flatRows.first,
+               case .command? = row(at: first)?.action { highlighted = first }
+            #endif
             hovered = nil
             if case .at = mode { panel.isAt = true } else { panel.isAt = false }
             reload()
@@ -415,6 +422,11 @@ final class ComposerDrawerController: NSObject, UITableViewDataSource, UITableVi
         pick(at: highlighted)
         return true
     }
+
+    #if DEBUG
+    /// The probe's read: the row marked now, by its title (nil: none).
+    var debugMarkedTitle: String? { highlighted.flatMap { row(at: $0) }?.title }
+    #endif
 
     // MARK: Picks
 

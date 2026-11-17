@@ -75,6 +75,24 @@ struct ComposerDrawerTriggerTests {
     }
 }
 
+/// [Mac AAA 2026-11-17] Owner's call Q2: a command's name being typed marks its first match (Return picks it).
+@Suite("Composer drawers · the first match marked")
+struct ComposerDrawerFirstMatchTests {
+    @Test func aNameBeingTypedMarksItsFirstMatch() {
+        #expect(M.Mode.slash(text: "/st").marksFirstMatch)
+        #expect(M.Mode.slash(text: "/s").marksFirstMatch)
+    }
+
+    @Test func aBareSlashAnArgumentAndTheOtherDrawersMarkNothing() {
+        #expect(!M.Mode.slash(text: "/").marksFirstMatch, "the whole list: nothing typed to match yet")
+        #expect(!M.Mode.slash(text: "/reasoning h").marksFirstMatch, "an argument: Return sends it as typed")
+        #expect(!M.Mode.slash(text: "/model ").marksFirstMatch)
+        #expect(!M.Mode.closed.marksFirstMatch)
+        #expect(!M.Mode.skill(word: "/re", range: NSRange(location: 3, length: 3)).marksFirstMatch)
+        #expect(!M.Mode.at(word: "iv", range: NSRange(location: 0, length: 3)).marksFirstMatch)
+    }
+}
+
 @Suite("Composer drawers · the slash drawer (§9.2–9.4)")
 struct ComposerDrawerSlashTests {
     let catalog = MenusCommandsTests.fixtureCatalog()

@@ -25,6 +25,7 @@
 // - `-HQPagesOpenSession <id>`   open that stored chat as a tapped alert does (NotificationHub.open), 4 s after the tabs show
 // - `-HQPagesBotsCopyOpen <id>` [more-bots] the hidden Bots list's copy (More › Bots; the Mac's Tools › Bots, `-HQPagesTab 1000`)
 //                                opens that bot's chat, as a click on its row, 5 s after the tabs show
+// - `-HQPagesWindow <w>x<h>`     [Mac AAA 2026-11-17] the window that size (a laptop's 1000x680), 2 s after the tabs show
 
 #if DEBUG
 import UIKit
@@ -49,6 +50,16 @@ enum PagesDebug {
                 BotsViewController.copies.first { $0.viewIfLoaded?.window != nil }?.open(bot)
             }
         }
+        #if targetEnvironment(macCatalyst)
+        if let size = defaults.string(forKey: "HQPagesWindow")?.split(separator: "x").compactMap({ Double($0) }), size.count == 2 {
+            Task { @MainActor in
+                for _ in 0..<60 where MainTabController.current?.view.window == nil { try? await Task.sleep(for: .milliseconds(500)) }
+                try? await Task.sleep(for: .seconds(2))
+                MainTabController.current?.view.window?.windowScene?.requestGeometryUpdate(
+                    .Mac(systemFrame: CGRect(x: 80, y: 80, width: size[0], height: size[1]))) { _ in }
+            }
+        }
+        #endif
         guard let tab = defaults.object(forKey: "HQPagesTab") as? Int ?? Int(defaults.string(forKey: "HQPagesTab") ?? "") else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { showTab(tab, host: host, tries: 20) }
     }

@@ -308,6 +308,10 @@ enum MacShots {
                 await modelMenuTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
+            if let stops = UserDefaults.standard.string(forKey: "HQDebugMacShotsHostile"), !stops.isEmpty {   // [Mac glass 2026-11-17]
+                await hostileTour(window, tabs: tabs, name: name, folder: folder, stops: stops)
+                exit(0)
+            }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsPopups") {
                 await popupsTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
@@ -398,6 +402,10 @@ enum MacShots {
             }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsCore") {   // [Mac AAA 2026-11-16] MacShotsCore.swift
                 await coreTour(window, tabs: tabs, name: name, folder: folder)
+                exit(0)
+            }
+            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsFloat") {   // [Mac AAA 2026-11-17] MacShotsFloat.swift
+                await floatTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsChatSizes") {
@@ -1077,10 +1085,32 @@ enum MacShots {
     }
 
     /// [mac-polish new group, 2026-11-07] `-HQDebugMacShotsModelMenu YES`: the first bot's chat with the model panel
-    /// open, and Switch Model's rows as the menu would list them (Favorites with its star row, Recent, All Models), drawn
-    /// as a plain light list (`-switchmenu.png`, `-switchmenu.txt`: a real menu can't be photographed). Pair it with
-    /// `-HQDebugModelPanelSample YES` for a full Favorites list.
+    /// open. [Mac model selector] Owner 2026-11-17 (design B): on the Mac that is the Models list with the model card's
+    /// settings at its foot, photographed in its states: just opened (the name's click); a model picked with ↓ ↓ Return
+    /// and the panel still open; Thinking stepped with Tab and →; a search with results and with none; every provider
+    /// folded; a failed switch's alert over it; Escape (the caret back in the box); then at 1000 × 700 with the
+    /// inspector open, opened by Chat › Choose Model… (⌃⌘M). `-HQDebugModelPanelSample YES` for a full foot,
+    /// `-HQDebugModelPanelCase offline` for an offline one. `<name>-modelmenu.txt`: the panel's frame, Tab's place, the
+    /// foot's facts and Approval Mode's menu, step by step.
     @MainActor private static func modelMenuTour(_ window: UIWindow, tabs: MainTabController, name: String, folder: URL) async {
+        var log = ""
+        var step = 0
+        func panel() -> MacPickPanel? { window.rootViewController.flatMap(topPresented) as? MacPickPanel }
+        func snap(_ label: String) {
+            step += 1
+            let slug = label.lowercased().map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
+            shoot(window, to: folder.appending(path: "\(name)-m\(step)-\(slug).png"))
+            let presented = window.rootViewController.flatMap(topPresented)
+            log += "m\(step) \(label): presented \(presented.map { String(describing: type(of: $0)) } ?? "-")"
+            if let p = presented as? MacPickPanel {
+                log += " panel \(p.debugPanelFrame) focus \(p.debugFocus) field first \(p.field.isFirstResponder) query \"\(p.query)\" list \(p.debugVisible)"
+            }
+            if let chat = tabs.chatOnShow {
+                log += " chip \"\(chat.composer.modelChip.accessibilityLabel ?? "-")\" selected \(chat.composer.modelChip.isSelected)"
+                log += " box \(chat.composer.convert(chat.composer.bounds, to: window))"
+            }
+            log += "\n"
+        }
         tabs.selectedIndex = 0
         try? await Task.sleep(for: .seconds(0.8))
         if let first = tabs.services.bots.first(where: { $0.id == "default" })?.id ?? tabs.services.bots.first?.id {
@@ -1088,35 +1118,108 @@ enum MacShots {
         }
         try? await Task.sleep(for: .seconds(2.5))
         guard let chat = find(ChatViewController.self, in: window.rootViewController), let menus = chat.menus else { return }
-        menus.presentModelPanel()
-        try? await Task.sleep(for: .seconds(2.5))
-        shoot(window, to: folder.appending(path: "\(name)-panel.png"))
-        guard let panel = findView(ModelPanelView.self, in: window) else { return }
-        let titles = await panel.debugMenuTitles()
-        let text = titles.joined(separator: "\n")
-        let txt = folder.appending(path: "\(name)-switchmenu.txt")
-        try? text.write(to: txt, atomically: true, encoding: .utf8)
-        post(txt)
-        let rowH: CGFloat = 22, width: CGFloat = 380
-        let height = CGFloat(titles.count) * rowH + 16
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { _ in
-            UIColor(white: 0.97, alpha: 1).setFill()
-            UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: width, height: height), cornerRadius: 10).fill()
-            var y: CGFloat = 8
-            for line in titles {
-                let header = line.hasPrefix("[") && line.hasSuffix("]")
-                (line as NSString).draw(at: CGPoint(x: header ? 14 : 30, y: y + 3), withAttributes: [
-                    .font: HQFont.face(ofSize: header ? 11 : 13, weight: header ? .semibold : .regular),
-                    .foregroundColor: header ? UIColor.gray : UIColor.black])
-                y += rowH
+        _ = try? await menus.context?.load()
+        log += "models: \(menus.context?.models().count ?? 0) in \(Set(menus.context?.models().map(\.provider) ?? []).count) providers\n"
+        let foldedBefore = menus.prefs?.foldedProviders ?? []
+        // Four starred models, as the design drew them (put back as they were at the end).
+        let favoritesBefore = menus.prefs?.favorites ?? []
+        var starred: [ModelChoice] = []
+        for wanted in ["Sonnet 5", "Kimi K2 Thinking", "GPT-5.5", "Grok 5"] {
+            if let model = menus.context?.models().first(where: { $0.name == wanted || ModelNames.displayModelName($0.id) == wanted }),
+               menus.prefs?.isFavorite(model) == false {
+                menus.prefs?.toggleFavorite(provider: model.provider, model: model.id)
+                starred.append(model)
             }
         }
-        let png = folder.appending(path: "\(name)-switchmenu.png")
-        try? image.pngData()?.write(to: png)
-        post(png)
-        try? await Task.sleep(for: .seconds(2))
+        defer {
+            for model in starred where !favoritesBefore.contains(model.key) { menus.prefs?.toggleFavorite(provider: model.provider, model: model.id) }
+        }
+        chat.composer.text = "A draft line the panels must leave in view"
+        chat.composer.modelChip.sendActions(for: .touchUpInside)   // the name's click
+        if panel() == nil { menus.presentModelPanel() }
+        try? await Task.sleep(for: .seconds(2.5))
+        snap("just opened")
+        let driver = panel()?.driver as? MacModelsPanel
+        log += "facts: \(ModelPanelModel.factParts(driver?.debugFoot?.state.facts ?? []).map { $0.figure + $0.words })\n"
+        panel()?.move(by: 1)
+        panel()?.move(by: 1)
+        try? await Task.sleep(for: .seconds(0.4))
+        snap("two rows down")
+        panel()?.pickMarked()   // Return
+        try? await Task.sleep(for: .seconds(3.5))
+        snap("picked still open")
+        panel()?.debugTab()   // the list
+        panel()?.debugTab()   // the thinking bar
+        try? await Task.sleep(for: .seconds(0.4))
+        snap("tab to thinking")
+        panel()?.debugFootKey(.right)
+        try? await Task.sleep(for: .seconds(1.8))
+        snap("thinking changed")
+        panel()?.debugTab()
+        panel()?.debugTab()
+        panel()?.debugTab()   // Approval Mode
+        try? await Task.sleep(for: .seconds(0.4))
+        snap("tab to approval mode")
+        if let foot = driver?.debugFoot { log += "approval mode: \(foot.state.approvalMode); its menu: \(foot.debugApprovalTitles())\n" }
+        if let p = panel() {
+            p.field.becomeFirstResponder()
+            p.field.text = "son"
+            p.field.sendActions(for: .editingChanged)
+        }
+        try? await Task.sleep(for: .seconds(0.8))
+        snap("search son")
+        if let p = panel() {
+            p.field.text = "zzzq"
+            p.field.sendActions(for: .editingChanged)
+        }
+        try? await Task.sleep(for: .seconds(0.8))
+        snap("search none")
+        if let p = panel() {
+            p.field.text = ""
+            p.field.sendActions(for: .editingChanged)
+            p.onFoldAll?(true)
+        }
+        try? await Task.sleep(for: .seconds(0.8))
+        snap("all folded")
+        panel()?.onFoldAll?(false)
+        menus.prefs?.setFoldedProviders(foldedBefore)
+        // A switch the gateway refuses: its alert over the panel, which stays.
+        menus.modelChangeFailed("This chat can’t change its model right now.")
+        try? await Task.sleep(for: .seconds(1.2))
+        snap("switch refused")
+        if let alert = window.rootViewController.flatMap(topPresented) as? UIAlertController { alert.dismiss(animated: false) }
+        try? await Task.sleep(for: .seconds(0.6))
+        panel()?.close()
+        try? await Task.sleep(for: .seconds(1))
+        snap("escape")
+        log += "after close: composer focused \(chat.composer.textView.isFirstResponder)\n"
+        // Narrow: 1000 × 700 with the inspector open, opened by Chat › Choose Model… (⌃⌘M's action).
+        let frame = window.windowScene?.effectiveGeometry.systemFrame ?? CGRect(x: 80, y: 80, width: 1280, height: 800)
+        window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: CGRect(origin: frame.origin, size: CGSize(width: 1000, height: 700)))) { _ in }
+        try? await Task.sleep(for: .seconds(1.5))
+        if let inspector = MacInspector.beside(chat), !inspector.isVisible { inspector.toggle() }
+        try? await Task.sleep(for: .seconds(1.5))
+        UIApplication.shared.sendAction(ChatMenuBar.chooseModel, to: UIApplication.shared.delegate, from: nil, for: nil)
+        try? await Task.sleep(for: .seconds(2.5))
+        snap("narrow choose model")
+        panel()?.close()
+        try? await Task.sleep(for: .seconds(0.8))
+        chat.composer.text = ""
+        window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
+        try? await Task.sleep(for: .seconds(1.5))
+        // The stand-in gateway's chat back as it was (its model and thinking were changed above): the menus stand-in's
+        // own reset; any other gateway answers it with an error and keeps its state.
+        if let base = menus.live?.account.baseURL, base.host == "127.0.0.1" {
+            var request = URLRequest(url: base.appending(path: "__menus/reset"))
+            request.httpMethod = "POST"
+            request.httpBody = Data("{}".utf8)
+            let answer = try? await URLSession.shared.data(for: request)
+            log += "stand-in reset: \((answer?.1 as? HTTPURLResponse)?.statusCode ?? 0)\n"
+        }
+        let file = folder.appending(path: "\(name)-modelmenu.txt")
+        try? log.write(to: file, atomically: true, encoding: .utf8)
+        post(file)
+        try? await Task.sleep(for: .seconds(1.5))
     }
 
     /// [mac-audit G] `-HQDebugMacShotsNav YES` (Mac audit 2026-11-02 #14, #15, #18, #19): every tab as a sidebar click

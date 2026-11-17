@@ -247,6 +247,12 @@ import UIKit
         init() {
             super.init(frame: .zero)
             accessibilityIdentifier = "connection.banner"
+            #if targetEnvironment(macCatalyst)
+            // [Mac glass 2026-11-17] A veil under the glass, as the pop-overs' (`ChatPalette.popupVeil`): it drops over
+            // the chat's title and messages, which read through the glass alone.
+            backgroundColor = ChatPalette.popupVeil
+            layer.cornerCurve = .continuous
+            #endif
             // A status, never in the way: every touch goes to what is under it (the bar's buttons). [mac] Only the ✕
             // takes a click (`hitTest`); the rest still passes through.
             isUserInteractionEnabled = DeviceWord.isMac
@@ -304,6 +310,13 @@ import UIKit
                 label.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -padding),
             ])
         }
+
+        #if targetEnvironment(macCatalyst)
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layer.cornerRadius = bounds.height / 2   // [Mac glass 2026-11-17] the veil in the glass capsule's shape
+        }
+        #endif
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 

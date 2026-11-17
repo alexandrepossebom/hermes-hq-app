@@ -1,5 +1,5 @@
 // Sessions groups that fold (tester ivy, Nous Research Discord, 2026-10-26): under Group By Project a project draws its
-// newest five chats and "Show More (X)", which opens it in place ("Show Less" after); a tap on a header (Pinned, a project,
+// newest five chats and "Show X More", which opens it in place ("Show Less" after); a tap on a header (Pinned, a project,
 // a date) closes the group to its name, count and chevron, kept across launches; a status filter shows every match anyway.
 // [sessions-layout] A project starts folded to its summary row and opens on a tap (owner, 2026-10-31).
 
@@ -50,7 +50,7 @@ extension SessionsTests {
         closeFilter(app)
 
         // [sessions-layout] Website starts folded to its row, counting all eight (the unread budget chat is in New for
-        // You above, and counted here too). Open, it draws its newest five, then Show More (3). [project-cards] The
+        // You above, and counted here too). Open, it draws its newest five, then Show 3 More. [project-cards] The
         // budget chat, its oldest, waits there: a chat in New for You is in its project too.
         let website = header(app, "Website")
         XCTAssertTrue(website.waitForExistence(timeout: 8), "the Website header")

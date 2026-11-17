@@ -10,6 +10,8 @@ import UIKit
     unowned let chat: ChatViewController
     let shelf = ActivityShelfView()
     private var shelfHeight: NSLayoutConstraint?
+    /// The shelf's foot over what it sits on (`shelfGap`).
+    private var shelfBottom: NSLayoutConstraint?
     private var jumpBottom: NSLayoutConstraint?
     private weak var queueCard: UIView?
     /// What the shelf sits on (its top is the shelf's bottom + the gap).
@@ -154,10 +156,9 @@ import UIKit
         sideInset = chat.dockSideInset
         shelfSides = [shelf.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: sideInset),
                       view.trailingAnchor.constraint(equalTo: shelf.trailingAnchor, constant: sideInset)]
-        NSLayoutConstraint.activate(shelfSides + [
-            shelf.bottomAnchor.constraint(equalTo: (shelfBase ?? queueCard).topAnchor, constant: -ActivityShelfView.gap),
-            height,
-        ])
+        let bottom = shelf.bottomAnchor.constraint(equalTo: (shelfBase ?? queueCard).topAnchor, constant: -shelfGap)
+        shelfBottom = bottom
+        NSLayoutConstraint.activate(shelfSides + [bottom, height])
         // In Header: the status line takes taps (a 44 pt area hugging the capsule; the capsule itself stays a picture).
         statusTap.translatesAutoresizingMaskIntoConstraints = false
         statusTap.isHidden = true
@@ -1020,7 +1021,7 @@ import UIKit
         let view = chat.view!
         guard let base = shelfBase, base.frame.maxY > 0 else { return .greatestFiniteMagnitude }
         let limit = view.safeAreaInsets.top - 4 + ChatMetrics.statusLineHeight + 6 + Self.minTranscript
-        return max(0, base.frame.minY - ActivityShelfView.gap - limit)
+        return max(0, base.frame.minY - shelfGap - limit)
     }
 
     /// About three lines of the transcript's text (at most 160 pt): with several live pieces, large text or the keyboard
@@ -1096,7 +1097,23 @@ import UIKit
         // Use the new width, not the previous frame (especially when collapsing an expanded overview).
         let crowded = estimatedChipsCrowd(jumpLeading: jumpLeading)
         let above = shelfHeight > 0 && (shelf.hasOpenCard || queueShown || ShelfText.isLarge || crowded)
-        jumpBottom.constant = -ChatMetrics.jumpAboveComposer - (above ? shelfHeight + ActivityShelfView.gap : 0) - jumpLift
+        if abs((shelfBottom?.constant ?? 0) + shelfGap) > 0.25 { shelfBottom?.constant = -shelfGap }
+        guard DeviceWord.isMac else {
+            jumpBottom.constant = -ChatMetrics.jumpAboveComposer - (above ? shelfHeight + ActivityShelfView.gap : 0) - jumpLift
+            return
+        }
+        // [Mac AAA 2026-11-17] The arrow's circle stands the pill's 8 pt over the box (they share one foot line), and 8 pt
+        // over the pill's glass (not its tap area) when it goes above it.
+        let pill = above ? shelfGap + shelfHeight - (shelf.expanded ? 0 : ActivityShelfView.pillMargin) : 0
+        jumpBottom.constant = -(ChatMetrics.macFloatGap - chat.jumpCircleInset) - pill - jumpLift
+    }
+
+    /// The shelf's foot over what it sits on. [Mac AAA 2026-11-17] On the Mac the pill's glass (5 pt inside its 44 pt
+    /// tap area) and an opened card both stand 8 pt clear of the message box, as the Commands panel and the arrow do:
+    /// the pill stood 10 pt over the box and the arrow 15.
+    private var shelfGap: CGFloat {
+        guard DeviceWord.isMac else { return ActivityShelfView.gap }
+        return ChatMetrics.macFloatGap - (shelf.expanded ? 0 : ActivityShelfView.pillMargin)
     }
 
     /// Before the pieces are laid out: the widest chip's estimated trailing edge.

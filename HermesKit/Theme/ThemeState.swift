@@ -121,7 +121,17 @@ nonisolated struct ThemeState: Sendable, Hashable {
     var appliedTintedBubbles: Bool { appliedBubbleStyle == .tinted }
     var appliedCardBubbles: Bool { appliedBubbleStyle == .card }
     /// [message-colour] The Desktop Look keeps its skin's own box for your messages.
-    var appliedMessageColour: MessageColour { desktopLook ? .theme : messageColour }
+    var appliedMessageColour: MessageColour {
+        #if DEBUG
+        // [Mac glass 2026-11-17] `-HQDebugHostile YES`: the chosen colour in the Desktop Look too, so its bars can be
+        // photographed with a black (light) or white (dark) message under them (App/Debug/HostileContent.swift).
+        if ThemeState.debugHostile { return messageColour }
+        #endif
+        return desktopLook ? .theme : messageColour
+    }
+    #if DEBUG
+    private static let debugHostile = UserDefaults.standard.bool(forKey: "HQDebugHostile")
+    #endif
     /// [plain-replies] Replies drawn with no bubble: always in the Desktop Look (unless High Contrast boxes them), and in
     /// the iOS look when Reply Bubbles is off.
     var appliedPlainReplies: Bool { desktopLook ? !contrastApplies : plainReplies }

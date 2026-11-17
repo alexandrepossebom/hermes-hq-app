@@ -84,6 +84,29 @@ nonisolated enum ChatWalk {
     }
 }
 
+/// [Mac AAA 2026-11-17] Owner's call Q1 (as Messages): a key typed while a chat is open and nothing has the keyboard
+/// goes into that chat's message box. Which key presses are typing, from the AppKit key-down: a printable key with no
+/// ⌘ or ⌃ (Shift and Option are typing: ⌥E starts an accent), never a key the window already uses with nothing
+/// focused (Return, Enter, Tab, Space, Delete, Escape, the arrows, Page Up/Down, Home, End, the function keys). ⌃⌘Space
+/// (Emoji & Symbols) counts too, so the picker opens on the box. Key codes are the Mac's virtual key codes.
+nonisolated enum TypeToChat {
+    /// Return, Tab, Space, Delete, Escape, Clear, Enter, Help, Home, Page Up, Forward Delete, End, Page Down, the arrows.
+    static let windowKeys: Set<UInt16> = [36, 48, 49, 51, 53, 71, 76, 114, 115, 116, 117, 119, 121, 123, 124, 125, 126]
+    /// F1 to F20.
+    static let functionKeys: Set<UInt16> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90]
+
+    /// `characters`: the key's characters with no modifier applied (AppKit's `charactersIgnoringModifiers`).
+    static func takes(keyCode: UInt16, characters: String?, command: Bool, control: Bool) -> Bool {
+        if command && control { return keyCode == 49 }   // ⌃⌘Space: Emoji & Symbols
+        guard !command, !control, !windowKeys.contains(keyCode), !functionKeys.contains(keyCode),
+              let scalar = characters?.unicodeScalars.first else { return false }
+        switch scalar.value {
+        case 0..<0x20, 0x7F, 0xF700...0xF8FF: return false   // control characters, AppKit's function-key range
+        default: return scalar != " "
+        }
+    }
+}
+
 /// ⌘1…⌘9, View's tab items: which place each number picks (`KeyCommands.tabIndex`).
 nonisolated enum TabShortcut {
     /// The place ⌘(`index` + 1) picks, as an index into the places with these tab tags, for `keys` numbers: the numbers

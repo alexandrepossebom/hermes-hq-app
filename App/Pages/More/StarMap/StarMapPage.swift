@@ -125,7 +125,7 @@ struct StarMapPage: View {
         case .loading:
             MoreSkeleton(retry: { model.retry() })
         case .failed(let reason):
-            MoreErrorState(title: "Couldn’t Load Star Map", reason: reason) { model.retry() }
+            MoreErrorState(title: "Couldn’t Load Star Map", reason: reason, unavailableSymbol: "star") { model.retry() }   // Mac calls Q15
         case .loaded:
             if model.isEmpty {
                 MoreEmptyState(symbol: "sparkles", title: "Nothing Learned Yet",   // [Mac AAA 2026-11-16] Title Case, as every empty title

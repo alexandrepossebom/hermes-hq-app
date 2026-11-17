@@ -12,6 +12,11 @@
 //   menus <name>    the menu bar as AppKit has it after an update: titles, keys, enabled, ticks
 //   state <name>    the windows, the root's panes and what is presented
 //   cursor <name>   which system cursor shows now
+//   keys <name>     [Mac AAA 2026-11-17] what the keys act on: the message box's words and whether it has the
+//                   keyboard, the / list's marked row, the list the arrows walk (its order, the row open, whether its
+//                   marked row is in view), the Terminal's tabs
+//   shortcuts <name> Help › Keyboard Shortcuts' sections and rows, as the sheet would list them now
+//   set <key> <value> a launch default changed while the app runs (`HQDebugTypeToChat insert`; "-" removes it)
 //   quit            ends the app (the tour's wait is long)
 
 #if DEBUG && targetEnvironment(macCatalyst)
@@ -42,6 +47,11 @@ import UIKit
                 case "menus": write(menus(), to: file, "txt")
                 case "state": write(state(window), to: file, "txt")
                 case "cursor": write(cursor(), to: file, "txt")
+                case "keys": write(keys(), to: file, "txt")
+                case "shortcuts": write(shortcuts(), to: file, "txt")
+                case "set":
+                    let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
+                    if bits.count == 2 { UserDefaults.standard.set(bits[1] == "-" ? nil : bits[1], forKey: bits[0]) }
                 case "press":
                     // press <file> <label>
                     let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
@@ -392,6 +402,61 @@ import UIKit
             walk(window.rootViewController, 0)
         }
         return out
+    }
+
+    /// [Mac AAA 2026-11-17] What the keys act on now (calls-keys: Q1, Q2, Q3, Q10).
+    private static func keys() -> String {
+        var out = ""
+        guard let root = KeyCommands.root else { return "no main page\n" }
+        let first = root.view.window?.hqFirstResponder
+        out += "main window AppKit key: \(root.view.window?.hqIsAppKitKey == true)\n"
+        out += "first responder: \(first.map { String(describing: type(of: $0)) } ?? "none")\n"
+        out += "presented: \(KeyCommands.presented(root).map { String(describing: type(of: $0)) } ?? "none")\n"
+        if let chat = root.chatOnShow {
+            out += "chat on show: '\(chat.title ?? "")'\n"
+            out += "message box: '\(chat.composer.text)' (has keyboard: \(chat.composer.textView.isFirstResponder), "
+                + "marked text: \(chat.composer.textView.markedTextRange != nil))\n"
+            if let drawer = chat.drawer {
+                out += "/ list: \(drawer.isOpen ? "open" : "closed"), marked row: \(drawer.debugMarkedTitle.map { "'\($0)'" } ?? "none")\n"
+            }
+        } else {
+            out += "chat on show: none\n"
+        }
+        out += "list on show: \(KeyCommands.listOnShow(root).map { String(describing: type(of: $0)) } ?? "none")\n"
+        if let detail = root.split?.detail.topViewController {
+            var line = "right pane: \(type(of: detail))"
+            if let job = detail as? JobDetailViewController { line += " job \(job.jobKey)" }
+            if let task = TodoSheet.model(of: detail)?.taskID { line += " task \(task)" }
+            out += line + "\n"
+        }
+        if let walk = KeyCommands.walkList(root) {
+            let shown = walk.order.prefix(12).map { $0 == walk.current ? "[\($0)]" : $0 }
+            out += "arrows walk \(walk.order.count) rows: \(shown.joined(separator: " · "))\(walk.order.count > 12 ? " …" : "")\n"
+            out += "open now: \(walk.current ?? "none") (row \(walk.current.flatMap { walk.order.firstIndex(of: $0) }.map { "\($0 + 1)" } ?? "-"))\n"
+        } else {
+            out += "arrows walk: nothing\n"
+        }
+        if let list = (KeyCommands.listOnShow(root)?.viewIfLoaded).flatMap(findList), let path = list.indexPathsForSelectedItems?.first,
+           let row = list.layoutAttributesForItem(at: path) {
+            let visible = list.bounds.inset(by: list.adjustedContentInset)
+            out += "marked row \(path.section).\(path.item): \(visible.contains(row.frame) ? "in view" : "OUT OF VIEW") (row y \(Int(row.frame.minY)), view \(Int(visible.minY))–\(Int(visible.maxY)))\n"
+        }
+        if let (list, path) = KeyCommands.focusedRow(root) { out += "keyboard focus ring on row \(path.section).\(path.item) of \(type(of: list))\n" }
+        out += "Terminal in front: \(TerminalViewController.front.map(\.debugTabs) ?? "no")\n"
+        return out
+    }
+
+    private static func findList(_ view: UIView) -> UICollectionView? {
+        if let list = view as? UICollectionView { return list }
+        for child in view.subviews { if let found = findList(child) { return found } }
+        return nil
+    }
+
+    private static func shortcuts() -> String {
+        KeyShortcutsSheet.sections().map { section in
+            "\(section.title)\n" + section.rows.map { "  \($0.title)   \($0.keys.joined(separator: "  "))" }.joined(separator: "\n")
+                + (section.footer.map { "\n  (\($0))" } ?? "")
+        }.joined(separator: "\n") + "\n"
     }
 
     private static func cursor() -> String {
