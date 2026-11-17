@@ -80,7 +80,8 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     private var pinnedHeaderCount = -1
     /// Owner 2026-11-17 (Mac calls Q13): on the Mac the Tiles page has no row under the bar ("5 Items … + ⊞"): its New
     /// Tile + and its View As switch are bar items, as Jobs' and Tasks' + are, and Edit Tiles' Done takes their place.
-    private var tilesInBar: Bool { DeviceWord.isMac && pinnedOnly }
+    /// [tile-soft] And on the iPhone and iPad once the Grid is the tiles alone (`gridIsBare`): + is in the bar there too.
+    private var tilesInBar: Bool { pinnedOnly && (DeviceWord.isMac || gridIsBare) }
     private lazy var newTileItem: UIBarButtonItem = {
         let item = UIBarButtonItem(image: UIImage(systemName: "plus"), primaryAction: UIAction { [weak self] _ in self?.newTile() })
         item.accessibilityLabel = "New Tile"
@@ -108,6 +109,8 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         guard tilesInBar, services != nil else { return [] }
         if editingTiles { return [tilesDoneItem] }
         if listShowsState, query.pgTrim.isEmpty { return [] }
+        // [tile-soft] A phone's bar has room for one more: New Tile. View As is in the filter's menu (`updateBarItems`).
+        if !DeviceWord.isMac { return [newTileItem] }
         let symbol = PinActions.viewSymbol
         if tilesViewItem.image != UIImage(systemName: symbol) { tilesViewItem.image = UIImage(systemName: symbol) }
         return [newTileItem, tilesViewItem]
@@ -155,7 +158,8 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     private var currentScope: String { fixedProfile ?? scope.effective(bots: services?.bots ?? []) }
 
     /// The bar's trailing items: the scope menu (none for one fixed bot), search, and `extra`.
-    private func updateBarItems(extra: [UIBarButtonItem] = []) {
+    private func updateBarItems(extra given: [UIBarButtonItem] = []) {
+        let extra = given
         // [mac-audit G] Owner 2026-11-02 (Mac audit #18, mac2/3): a page with nothing in it shows no controls with
         // nothing to act on. While the list is empty with no search, filter or one bot narrowing it, its Filter (All
         // Bots) and Search leave the bar; the empty state's own button is the one thing to do. They come back with the
@@ -169,7 +173,10 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             navigationItem.rightBarButtonItems = extra + [searchCapsule?.searchItem ?? navigationItem.searchBarPlacementBarButtonItem]
             return
         }
-        scopeItem.update(scope: scope, bots: services?.bots ?? [], on: navigationItem, extra: extra, search: searchCapsule?.searchItem)
+        scopeItem.update(scope: scope, bots: services?.bots ?? [], on: navigationItem, extra: extra, search: searchCapsule?.searchItem,
+                         // [tile-soft] The bare Grid's View As: under the bots in the filter's menu (a ⋯ of its own with one bot).
+                         menuExtra: gridIsBare ? tilesViewElement(openAll: false) : nil,
+                         alone: gridIsBare && !editingTiles && !listShowsState ? tilesMoreItem : nil)
     }
 
     nonisolated static func filterKey(_ account: GatewayAccount) -> String { "pages.artifactsFilter.\(account.id)" }
@@ -503,7 +510,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 let next = self.dataSource?.sectionIdentifier(for: index + 1)
                 if !self.pinnedOnly {
                     BackdropCards.card(pinned, on: BackdropCards.on(self), header: true, keepWidth: true, join: next == .allPins ? .below : [])
-                } else if ArtifactPins.view != .cards {
+                } else if !self.tilesStandAlone {
                     // The grid's names stand under its tiles, on the page: a card behind it too (it keeps its own width).
                     // Under the grid's names, as much as over "6 Items" (they bring 6 pt; a list's last row its own).
                     BackdropCards.card(pinned, on: BackdropCards.on(self), header: !self.tilesInBar, keepWidth: ArtifactPins.view == .grid,
@@ -869,6 +876,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         guard isViewLoaded else { return }
         if ArtifactPins.view != .grid { editingTiles = false }
         pinnedHeaderCount = -1
+        scopeItem.forgetMenu()   // [tile-soft] View As joins or leaves the filter's menu with the count line
         collectionView.collectionViewLayout.invalidateLayout()
         reload(animated: false)
         // The header's button shows the new choice.
@@ -1050,7 +1058,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 // "Tiles" over the shelf, "6 Items" over the Tiles page's list and grid (its cards stand alone: the
                 // count is a line of its own there).
                 // (The shelf's foot, See All, keeps 19 pt under its words: 1 pt more over "Tiles" there.)
-                case .pinned? where !(self.pinnedOnly && ArtifactPins.view == .cards): content.directionalLayoutMargins.top = self.pinnedOnly ? 14 : 15
+                case .pinned? where !self.tilesStandAlone: content.directionalLayoutMargins.top = self.pinnedOnly ? 14 : 15
                 default: break
                 }
             }
@@ -1079,7 +1087,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 var view: UIView = tiles ? self.newTileAndViewButtons() : self.pinsHeaderButton(openAll: !self.pinnedOnly)
                 // [soft-cards] On a card the name stands lower in its header (more room over it than under): the
                 // buttons stay on its line.
-                if BackdropCards.on(self), !(self.pinnedOnly && ArtifactPins.view == .cards) {
+                if BackdropCards.on(self), !self.tilesStandAlone {
                     let box = UIView(frame: view.bounds)
                     view.frame.origin.y = 4
                     box.addSubview(view)
@@ -1095,7 +1103,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             // [soft-cards] On a soft card the date is the card's first line: no band of the page colour across it.
             background.backgroundColor = BackdropCards.on(self) ? .clear : HQPalette.page
             // The Tiles page as cards is tiles alone, each its own card: only its count line needs a backing.
-            if BackdropCards.on(self), self.pinnedOnly, ArtifactPins.view == .cards,
+            if BackdropCards.on(self), self.tilesStandAlone,
                case .pinned? = self.dataSource.sectionIdentifier(for: path.section) {
                 background.customView = SoftCardSurface()
                 background.backgroundInsets = NSDirectionalEdgeInsets(top: 2, leading: BackdropCards.side, bottom: 4, trailing: BackdropCards.side)
@@ -1333,8 +1341,10 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     }
 
     /// View As's menu (the header's button, or the Mac's bar item): the views, Edit Tiles, New Page….
-    private func tilesViewMenu(openAll: Bool) -> UIMenu {
-        UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] done in
+    private func tilesViewMenu(openAll: Bool) -> UIMenu { UIMenu(children: [tilesViewElement(openAll: openAll)]) }
+
+    private func tilesViewElement(openAll: Bool) -> UIDeferredMenuElement {
+        UIDeferredMenuElement.uncached { [weak self] done in
             var children = PinActions.viewMenu(openAll: openAll ? { self?.openPinnedPage() } : nil,
                                                editTiles: { self?.setEditingTiles(true) }).children
             // [dashboard] New Page: the way to a second page while there is one (the names show from two).
@@ -1344,8 +1354,30 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 children.append(UIMenu(options: .displayInline, children: [new]))
             }
             done(children)
-        }])
+        }
     }
+
+    /// [tile-soft] On the Tiles page each tile is a card of its own on the picture: as Cards, and as the Grid once its
+    /// names are off (the default). The Grid with names under its tiles keeps one card behind them, for the names
+    /// (as the Mac's Grid does either way: its Tiles page is as it was).
+    private var tilesStandAlone: Bool {
+        pinnedOnly && (ArtifactPins.view == .cards || ArtifactPins.view == .grid && !ArtifactPins.showsNames && !DeviceWord.isMac)
+    }
+
+    /// [tile-soft] Owner 2026-11-17, on the count line over the soft tiles ("6 Items" on a strip of its own, wider than
+    /// the tiles and tight against the first): "Padding is very odd here". The Tiles page's Grid with its names off
+    /// (the default) is the tiles alone: no count line. What stood on it is in the bar (`tilesInBar`), as on the Mac.
+    private var gridIsBare: Bool {
+        pinnedOnly && fixedProfile == nil && !DeviceWord.isMac && ArtifactPins.view == .grid && !ArtifactPins.showsNames
+    }
+
+    /// With one bot the bar has no filter to hold View As: a ⋯ of its own.
+    private lazy var tilesMoreItem: UIBarButtonItem = {
+        let item = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: tilesViewMenu(openAll: false))
+        item.accessibilityIdentifier = "pins.view"
+        item.accessibilityLabel = "View As"
+        return item
+    }()
 
     // MARK: Dashboard pages
 
@@ -2416,7 +2448,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         var picture = cell.bounds
         if ArtifactPins.showsNames { picture.size.height -= PinTileView.nameHeight }
         let parameters = UIDragPreviewParameters()
-        parameters.visiblePath = UIBezierPath(roundedRect: picture, cornerRadius: HQShape.radius(18, .card))
+        parameters.visiblePath = UIBezierPath(roundedRect: picture, cornerRadius: PinTileView.radius)
         parameters.backgroundColor = .clear
         return parameters
     }

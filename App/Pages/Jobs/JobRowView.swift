@@ -306,6 +306,9 @@ final class ScopeBarItem {
         if item.customView !== lookButton { item.customView = lookButton }
     }
 
+    /// The page's own commands in the menu changed (`menuExtra` came or went): the next `update` builds it again.
+    func forgetMenu() { signature = nil }
+
     /// [Mac full pass 2026-11-14] A page that keeps its own bot choice (Sessions' bot filter): its words and menu, drawn
     /// as every other page's "All Bots ⌄". Rebuilt only when `signature` changes, so an open menu is never replaced.
     func show(title: String, menu: UIMenu, signature: String) {

@@ -383,6 +383,34 @@ extension PagesTabs {
             try? await Task.sleep(for: .seconds(1))
         }
     }
+
+    /// [tile-soft] `-HQDebugTour tiles`: the Tiles page with a few tiles pinned. `-HQDebugTourItem empty` leaves the
+    /// tiles out; `soft` pins the kit's tiles the stand-in hands over.
+    func debugTiles(root: MainTabController) async {
+        guard let store = artifactsStore, let stack = more?.navigationController else { return }
+        let item = UserDefaults.standard.string(forKey: "HQDebugTourItem") ?? ""
+        ArtifactPins.view = .grid
+        ArtifactPins.showsNames = true
+        root.select(.more)
+        if item != "empty" {
+            stack.pushViewController(makeArtifacts(), animated: false)
+            await store.index.ready()
+            try? await Task.sleep(for: .seconds(4))
+            let pins = ArtifactPins.of(accountId: store.account.id)
+            let newest = ArtifactCollector.unique(store.index.entries.values.flatMap(\.artifacts)).sorted { $0.timestamp > $1.timestamp }
+            let visual = newest.filter { $0.kind == .image || BotArtifactsModel.isPage($0) }
+            // [tile-soft] `soft`: the kit's tiles the stand-in hands over (HQN_FIXTURE_TILES), in a dashboard's sizes.
+            let kit = newest.filter { $0.sessionId == "s-tiles" }
+            let soft = item == "soft" && !kit.isEmpty
+            for record in (soft ? kit : visual + newest).prefix(soft ? 6 : 4) where !pins.isPinned(record) { _ = pins.toggle(record) }
+            let sizes: [PinTileSize] = soft ? [.medium, .small, .small, .medium, .large, .small] : [.small, .small, .medium, .small]
+            for (pin, size) in zip(pins.pins, sizes) { pins.setSize(size, id: pin.id) }
+            if soft { ArtifactPins.showsNames = false }
+            stack.popViewController(animated: false)
+        }
+        let page = makePinned()
+        stack.pushViewController(page, animated: false)
+    }
 }
 #endif
 
