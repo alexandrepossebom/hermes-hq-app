@@ -154,6 +154,10 @@ final class MacRailHead: UIControl {
     /// [mac-layout] The row's trailing word while the bot works: its running step, else "Working…" (as the Bots rows say).
     private let status = UILabel()
     private var hovered = false
+    #if DEBUG
+    /// [Mac AAA 2026-11-16] The frame tour: drawn as under the pointer.
+    func debugHover() { hovered = true; recolor() }
+    #endif
     /// [rail-tile] The soft tile behind the face: the open chat's mark, fainter under the pointer.
     private let tile = UIView()
     var isMarked = false { didSet { if isMarked != oldValue { recolor() } } }
@@ -174,6 +178,9 @@ final class MacRailHead: UIControl {
             }
         }
         isAccessibilityElement = true
+        // [Mac AAA 2026-11-16] Its own tile or row fill is its hover: on the rail (72 pt wide) the window's hover scout
+        // took it for an icon button and drew a capsule round the tile as well.
+        MacHover.drawsOwnHover(self)
         layer.cornerCurve = .continuous
         face.translatesAutoresizingMaskIntoConstraints = false
         face.isUserInteractionEnabled = false
@@ -322,6 +329,8 @@ final class MacRailHead: UIControl {
             }
             let working = status.text != nil
             toolTip = working ? status.text : nil   // the whole step, where the line is still too long for the row
+            stepTip = toolTip
+            setNeedsLayout()   // an idle row's tooltip follows whether its name fits (`layoutSubviews`)
             if MacSidebar.tidy {
                 if working, !waits { status.text = "Working…" }   // [sidebar-tidy] the step itself is the tooltip above
                 status.isHidden = !working
@@ -330,7 +339,7 @@ final class MacRailHead: UIControl {
                 nameCentre?.constant = working ? -Self.workingLine / 2 : 0
                 rowHeight?.constant = MacBotsRail.sidebarRowHeight + (working ? Self.workingLine - 4 : 0)
                 if window != nil, !HQMotion.reduced {
-                    UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                    UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
                         self.superview?.layoutIfNeeded()
                     }
                 }
@@ -344,17 +353,33 @@ final class MacRailHead: UIControl {
         }
     }
 
+    /// The working step's tooltip (`describe`); nil while the bot is idle.
+    private var stepTip: String?
+
+    /// [Mac AAA 2026-11-16] A name cut short in the open sidebar ("Maple Revenue…" in a narrow sidebar) had no way to
+    /// be read whole: an idle row names its bot under the pointer when its name doesn't fit, as Finder's and Mail's
+    /// sidebars do (a place's row always has its tooltip, Mac polish #50). A working row keeps its step there.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard inRow, stepTip == nil else { return }
+        let cut = name.bounds.width > 0 && name.intrinsicContentSize.width > name.bounds.width + 0.5
+        let tip = cut ? item.name : nil
+        if toolTip != tip { toolTip = tip }
+    }
+
     @objc private func hover(_ recognizer: UIHoverGestureRecognizer) {
         hovered = recognizer.state == .began || recognizer.state == .changed
         recolor()
     }
 
-    override var isHighlighted: Bool { didSet { face.alpha = isHighlighted && !inRow ? 0.72 : 1; if inRow { recolor() } } }   // a tile's press
+    // [Mac AAA 2026-11-16] A head's press is its tile in the sidebar's press grey, as a row's press is (the face dimmed
+    // to 72 %, the one control on the rail that darkened under a click while the places beside it filled).
+    override var isHighlighted: Bool { didSet { if isHighlighted != oldValue { recolor() } } }
 
     /// [rail-tile] Neutral, a step lighter than the glass in dark and darker in light (Slack's), whatever the accent: the
     /// head's own colours stay the loudest thing in it.
     private static let tileFill = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.14) : UIColor(white: 0, alpha: 0.09) }
-    private static let hoverFill = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.06) : UIColor(white: 0, alpha: 0.04) }
+    private static var hoverFill: UIColor { MacHover.rowFill }   // [Mac AAA 2026-11-16] the shared hover (was 6 % / 4 % of its own)
 
     @objc private func botColourChanged() { recolor() }
 
@@ -368,7 +393,7 @@ final class MacRailHead: UIControl {
             if case .bot(let bot) = item { colour = BotChatColour.colour(profile: bot.id, head: bot.head) }
             _ = ChatColourTrait.set(colour, on: &traitOverrides)
             // The places' own mark (`MacSelection`): one kind of selection down the whole sidebar.
-            backgroundColor = MacSelection.fill(selected: isMarked, pressed: isHighlighted, in: .sidebar) ?? (hovered ? Self.rowHover : .clear)
+            backgroundColor = MacSelection.fill(selected: isMarked, pressed: isHighlighted, in: .sidebar) ?? (hovered ? MacSidebar.rowHover : .clear)
             layer.cornerRadius = MacSelection.radius
             name.font = MacSidebar.font(MacBotsRail.nameSize, weight: unread ? .semibold : isMarked ? MacSidebar.scheme.markedWeight : .regular)
             status.font = MacSidebar.font(MacSidebar.tidy ? MacSidebar.scheme.status : 13)
@@ -376,13 +401,11 @@ final class MacRailHead: UIControl {
             status.textColor = isMarked ? HQPalette.label : waits ? HQPalette.orange : HQPalette.tint
             return
         }
-        tile.backgroundColor = isMarked ? Self.tileFill : hovered ? Self.hoverFill : .clear
+        tile.backgroundColor = isMarked ? Self.tileFill : isHighlighted ? MacSelection.grey : hovered ? Self.hoverFill : .clear
         let type = MacSidebar.scheme
         name.font = MacSidebar.font(type.railHead, weight: isMarked ? type.markedWeight : .regular)
         name.minimumScaleFactor = MacSidebar.shrink(name.font, least: type.railHeadLeast / type.railHead)   // Mac polish #54
     }
-
-    private static let rowHover = UIColor { traits in UIColor.label.resolvedColor(with: traits).withAlphaComponent(0.05) }
 
     /// An unread chat's name is bold in the open sidebar, as Slack's and Mail's are. A bot's by the list's own rule
     /// (`BotList.showsUnread`): not while it works, when what moved its chat is the turn's own steps, not a reply.
@@ -598,7 +621,7 @@ final class MacRailGateway: UIButton {
         glyph.tintColor = HQPalette.tint
         name.textColor = HQPalette.label
         arrows.tintColor = HQPalette.label2
-        backing.backgroundColor = UIColor.label.withAlphaComponent(0.06)
+        backing.backgroundColor = MacHover.rowFill   // [Mac AAA 2026-11-16] the shared hover (was 6 % of its own)
     }
 }
 
@@ -616,7 +639,7 @@ final class MacRailLine: UIView {
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 9),
             line.centerYAnchor.constraint(equalTo: centerYAnchor),
-            line.heightAnchor.constraint(equalToConstant: 1),
+            line.heightAnchor.constraint(equalToConstant: HQShape.hairline),
         ])
         // [sidebar-feel] Wide: from the faces' left edge to where the chevrons end, the lines the headings keep.
         NSLayoutConstraint.activate(wide
@@ -670,13 +693,15 @@ final class MacSidebarHeading: UIControl {
     private var hovered = false
     var isFolded: Bool { Self.folded.contains(key) }
 
-    init(title: String, key: String, toggled: @escaping () -> Void) {
+    /// `below`: room added under the words (Tools' heading over the shorter place rows, `MacSidebar.addTools`).
+    init(title: String, key: String, below: CGFloat = 0, toggled: @escaping () -> Void) {
         self.title = title
         self.key = key
         super.init(frame: .zero)
         Self.carryOver(title: title, key: key)
         accessibilityIdentifier = "mac-sidebar.heading.\(title)"
         isAccessibilityElement = true
+        MacHover.drawsOwnHover(self)   // [Mac AAA 2026-11-16] its words brighten under the pointer: no fill of the scout's
         accessibilityTraits = [.header, .button]
         label.text = title
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -684,12 +709,12 @@ final class MacSidebarHeading: UIControl {
         chevron.contentMode = .center
         for view in [label, chevron] { view.isUserInteractionEnabled = false; addSubview(view) }
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: MacSidebar.headingHeight),
+            heightAnchor.constraint(equalToConstant: MacSidebar.headingHeight + below),
             // [sidebar-feel] On the faces' left edge: at 10 the name started 2 px in from the faces under it.
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MacSidebar.contentLeading),
             // 3 under it where it was 5: the name sat exactly midway between the group above and its own (9 px
             // each way); it now leans to its own.
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3 - below),
             label.trailingAnchor.constraint(lessThanOrEqualTo: chevron.leadingAnchor, constant: -6),
             chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MacSidebar.edgeInset),
             chevron.centerYAnchor.constraint(equalTo: label.centerYAnchor),
@@ -733,7 +758,7 @@ final class MacSidebarHeading: UIControl {
 
     private func tint() {
         label.textColor = hovered ? HQPalette.label : HQPalette.label2
-        chevron.tintColor = hovered ? HQPalette.label2 : HQPalette.label3
+        chevron.tintColor = hovered ? HQPalette.label2 : MacSidebar.quietInk   // [Mac AAA 2026-11-16] label 3 was 2.1:1
         let dim: CGFloat = isHighlighted ? 0.55 : 1
         label.alpha = dim
         chevron.alpha = dim
@@ -770,6 +795,10 @@ final class MacSidebarTools: UIView {
     private let search = UIButton(type: .system)
     private let compose = UIButton(type: .system)
     private let folded: Bool
+    /// [Mac AAA 2026-11-16] How much taller the open sidebar's Search row is than at 100 %: the sidebar starts it that
+    /// much higher, so its foot stays level with the chat's bar and the inspector's rule beside it at every UI Scale
+    /// (at 150 % it ended 17 pt under them).
+    private(set) var levelShift: CGFloat = 0
 
     /// `named`: the folded rail wide enough for names puts Search and New Chat side by side, one line instead of two.
     init(folded: Bool, named: Bool = false) {
@@ -798,6 +827,7 @@ final class MacSidebarTools: UIView {
             }
         }
         let side = ((folded ? 38 : 34) * MacSidebar.chrome).rounded()
+        levelShift = folded ? 0 : side - 34
         if folded, named {
             NSLayoutConstraint.activate([
                 search.topAnchor.constraint(equalTo: topAnchor), search.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
@@ -861,7 +891,7 @@ final class MacSidebarTools: UIView {
             word.textColor = HQPalette.label2
             shortcut.text = "⌘K"
             shortcut.font = MacSidebar.font(MacSidebar.sized(13, MacSidebar.scheme.shortcut))
-            shortcut.textColor = HQPalette.label3
+            shortcut.textColor = MacSidebar.quietInk   // [Mac AAA 2026-11-16] label 3 was 2.1:1 in light
             if shortcut.superview == nil {
                 for view in [glass, word, shortcut] as [UIView] {
                     view.translatesAutoresizingMaskIntoConstraints = false
@@ -883,6 +913,7 @@ final class MacSidebarTools: UIView {
                     let ink: CGFloat = button.isHighlighted ? 0.5 : 1
                     self?.glass.alpha = ink
                     self?.word.alpha = ink
+                    self?.shortcut.alpha = ink   // [Mac AAA 2026-11-16] the ⌘K stayed lit while the rest dimmed
                 }
             }
             wordLeading?.constant = MacBotsRail.nameLeading   // UI Scale moves the column
@@ -945,6 +976,7 @@ final class MacSidebarChat: UIControl {
         content = Self.configuration(look).makeContentView()
         super.init(frame: .zero)
         isAccessibilityElement = true
+        MacHover.drawsOwnHover(self)   // [Mac AAA 2026-11-16] its backing is its hover
         backing.translatesAutoresizingMaskIntoConstraints = false
         backing.isUserInteractionEnabled = false
         backing.layer.cornerCurve = .continuous
@@ -993,9 +1025,13 @@ final class MacSidebarChat: UIControl {
         switch look.kind {
         case .chat(let session):
             accessibilityIdentifier = "mac-rail.chat.\(session.id)"
-            accessibilityLabel = BotChatRowView.label(session, time: ListTime.string(session.lastActive))
+            // [Mac AAA 2026-11-16] A chat with no title yet said nothing (its row was a bare time): it is named as
+            // its Sessions row names it (`SessionRowView.title`: the title, else the preview, else "Untitled Chat").
+            var shown = session
+            shown.title = SessionRowView.title(session)
+            accessibilityLabel = BotChatRowView.label(shown, time: ListTime.string(session.lastActive))
             accessibilityHint = nil
-            toolTip = session.title
+            toolTip = shown.title
         case .more(let count):
             accessibilityIdentifier = "mac-rail.more.\(bot)"
             accessibilityLabel = "\(count) more chats with \(look.botName)"
@@ -1011,12 +1047,10 @@ final class MacSidebarChat: UIControl {
 
     override var isHighlighted: Bool { didSet { recolor() } }
 
-    private static let rowHover = UIColor { traits in UIColor.label.resolvedColor(with: traits).withAlphaComponent(0.05) }
-
     func recolor() {
         accessibilityTraits = isMarked ? [.button, .selected] : .button
         // The places' own mark (`MacSelection`), as the bot rows take it.
-        backing.backgroundColor = MacSelection.fill(selected: isMarked, pressed: isHighlighted, in: .sidebar) ?? (hovered ? Self.rowHover : .clear)
+        backing.backgroundColor = MacSelection.fill(selected: isMarked, pressed: isHighlighted, in: .sidebar) ?? (hovered ? MacSidebar.rowHover : .clear)
         backing.layer.cornerRadius = MacSelection.radius
     }
 }
@@ -1032,7 +1066,7 @@ private struct MacSidebarChatContent: View {
                 if session.pinned {
                     Image(systemName: "pin.fill").font(Font(MacSidebar.font(MacSidebar.tidy ? 12 : 10.5) as CTFont)).foregroundStyle(Color.hqLabel3)
                 }
-                Text(session.title)
+                Text(SessionRowView.title(session))   // [Mac AAA 2026-11-16] never a blank title
                     .font(Font(MacSidebar.font(MacSidebarChat.titleSize, weight: session.unread ? .semibold : .regular) as CTFont))
                     .foregroundStyle(Color.hqLabel)
                     .lineLimit(1)
@@ -1064,7 +1098,7 @@ private struct MacSidebarChatContent: View {
         .frame(maxWidth: .infinity, minHeight: MacSidebarChat.rowHeight, maxHeight: MacSidebarChat.rowHeight)
         .overlay(alignment: .bottom) {
             if look.style == .dividers, !look.last, case .chat = look.kind {
-                Rectangle().fill(Color.hqStroke).frame(height: 0.5).padding(.leading, MacBotsRail.nameLeading)
+                Rectangle().fill(Color.hqStroke).frame(height: HQShape.line(0.5)).padding(.leading, MacBotsRail.nameLeading)
             }
         }
         .padding(.bottom, look.last ? BotChatsMetrics.tail : 0)
@@ -1102,7 +1136,7 @@ final class MacSidebarEmptyHint: UIView {
 
     func recolor() {
         label.font = MacSidebar.font(MacSidebar.sized(12.5, MacSidebar.scheme.hint))
-        label.textColor = HQPalette.label3
+        label.textColor = MacSidebar.quietInk   // [Mac AAA 2026-11-16] label 3 was 2.1:1 in light
     }
 }
 #endif

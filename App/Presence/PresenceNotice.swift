@@ -75,7 +75,7 @@ import UIKit.UIGestureRecognizerSubclass
         current = alert
         let notice = replacing ? view! : makeView(in: window)
         if replacing && !sameBot {
-            UIView.transition(with: notice.contentStack, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction]) { notice.fill(alert) }   // motion-ok: cross-dissolve, nothing moves
+            UIView.transition(with: notice.contentStack, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction]) { notice.fill(alert) }   // motion-ok: cross-dissolve, nothing moves
         } else {
             notice.fill(alert)
         }
@@ -229,7 +229,7 @@ import UIKit.UIGestureRecognizerSubclass
         if HQMotion.reduced {
             notice.alpha = 0
             notice.materialize(true)
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction]) { notice.alpha = 1 }
+            UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.allowUserInteraction]) { notice.alpha = 1 }
             return
         }
         notice.alpha = 0
@@ -508,7 +508,7 @@ import UIKit.UIGestureRecognizerSubclass
         private func settle() {
             guard transform != .identity else { return }
             if HQMotion.reduced { transform = .identity; return }
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0,
+            UIView.animate(withDuration: HQMotion.move, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) { self.transform = .identity }
         }
     }

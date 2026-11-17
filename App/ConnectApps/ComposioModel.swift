@@ -142,7 +142,13 @@ final class ComposioModel {
             _ = await (home, states)
             AppLog.trace("connect", "composio start ok in \(AppLog.ms(since: startedAt)) ms")
         } catch let error {
-            if error.kind == .badKey || error.kind == .noKey { phase = .setup; setupNotice = Notice(title: "Key Not Accepted", message: error.message, isError: true) }
+            // [Mac AAA 2026-11-16] Here it is the key saved earlier that was refused, while the field below is empty:
+            // "didn't accept this API key" pointed at nothing on the page.
+            if error.kind == .badKey || error.kind == .noKey {
+                phase = .setup
+                setupNotice = Notice(title: "Key Not Accepted",
+                                     message: "Composio didn’t accept the key saved on this \(DeviceWord.name). Paste a new one below.", isError: true)
+            }
             else if error.kind == .network { phase = .failed("\(error.message). Check your connection, then try again.") }
             else { phase = .failed(error.message) }
             AppLog.note("connect", "composio start failed after \(AppLog.ms(since: startedAt)) ms: \(error.kind)")

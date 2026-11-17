@@ -28,7 +28,7 @@ import UIKit
         super.init()
         stroke.name = "hq.desktop.outline"
         stroke.fillColor = nil
-        stroke.lineWidth = 1
+        stroke.lineWidth = HQShape.hairline
         stroke.zPosition = 50
         stroke.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
         list.layer.addSublayer(stroke)
@@ -305,7 +305,7 @@ struct DesktopBareRowMarker: UIViewRepresentable {
         super.init()
         stroke.name = "hq.desktop.outline"
         stroke.fillColor = nil
-        stroke.lineWidth = 1
+        stroke.lineWidth = HQShape.hairline
         stroke.zPosition = 50
         stroke.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
         table.layer.addSublayer(stroke)

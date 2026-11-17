@@ -18,7 +18,7 @@ import UIKit
     }
 
     /// The Settings window is the one in front (⌘W closes it, not the main window's chat).
-    static var isKey: Bool { scene?.keyWindow?.isKeyWindow == true }
+    static var isKey: Bool { scene?.keyWindow?.hqIsAppKitKey == true }
 
     /// ⌘, the sidebar's gear and every Settings link: the Settings window, opened or brought forward. Owner 2026-11-09
     /// ("ignore my message from yesterday … set it up the way that it should be set up"): a window of its own again, as
@@ -270,6 +270,7 @@ final class SettingsSceneDelegate: UIResponder, UIWindowSceneDelegate {
         #if DEBUG
         // `-HQDebugSettingsWindow <name>`: the window as <name>.png (POSTed with -HQDebugMacShotsPost) 4 s after it opens.
         if let name = UserDefaults.standard.string(forKey: "HQDebugSettingsWindow"), !name.isEmpty {
+            SettingsWindowTour.startIfAsked(window: window, name: name)   // [Mac AAA 2026-11-16]
             DispatchQueue.main.asyncAfter(deadline: .now() + max(4, UserDefaults.standard.double(forKey: "HQDebugSettingsWindowWait"))) { [weak window] in
                 guard let window else { return }
                 MacShots.shoot(window, to: URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "\(name).png"))
@@ -324,6 +325,23 @@ extension UIWindow {
     /// [macpass-settings2] This window's AppKit window to the front with the keyboard (and the app forward when
     /// `activating`). A scene activation request alone leaves an open window behind the one in front, and a window
     /// opened while the app is hidden came up behind the main window. False when AppKit's window isn't found.
+    /// [Mac AAA 2026-11-16] Whether AppKit's key window is this one (or a sheet over it). A scene's `isKeyWindow` stayed
+    /// true for the Settings window after ⌘2 brought the main window forward with the keyboard, so the menus still
+    /// read as Settings': ⌘W closed Settings instead of the chat, ⌘R and Hide Sidebar were off (seen in the running
+    /// app). With the app in the background (no key window) the scene's own answer stands.
+    var hqIsAppKitKey: Bool {
+        guard let app = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
+              let key = app.value(forKey: "keyWindow") as? NSObject else { return isKeyWindow }
+        var window: NSObject? = key
+        while let here = window {
+            if here.responds(to: NSSelectorFromString("uiWindows")), (here.value(forKey: "uiWindows") as? [UIWindow])?.contains(self) == true {
+                return true
+            }
+            window = here.value(forKey: "sheetParent") as? NSObject
+        }
+        return false
+    }
+
     @discardableResult func hqMacOrderFront(activating: Bool) -> Bool {
         guard let app = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
               let windows = app.value(forKey: "windows") as? [NSObject],

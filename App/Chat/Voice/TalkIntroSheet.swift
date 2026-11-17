@@ -64,6 +64,12 @@ final class TalkIntroSheet: UIViewController {
         guard presenter.viewIfLoaded?.window != nil, presenter.presentedViewController == nil else { return false }
         let sheet = TalkIntroSheet(form: form, name: name, onStart: onStart)
         sheet.modalPresentationStyle = .pageSheet
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] The Mac ignores detents: the page sheet kept the system's size, and How Voice Works ran
+        // past it with Done cut off by the sheet's foot. A form sheet as tall as its words (`viewDidLayoutSubviews`).
+        sheet.modalPresentationStyle = .formSheet
+        sheet.preferredContentSize = CGSize(width: 620, height: 600)
+        #endif
         sheet.sheetPresentationController?.hqGlassTrait()   // [glass-design] the rows go on a card while it sits on glass
         presenter.present(sheet, animated: true)
         return true
@@ -121,7 +127,7 @@ final class TalkIntroSheet: UIViewController {
                     rule.trailingAnchor.constraint(equalTo: line.trailingAnchor),
                     rule.topAnchor.constraint(equalTo: line.topAnchor),
                     rule.bottomAnchor.constraint(equalTo: line.bottomAnchor),
-                    rule.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)),
+                    rule.heightAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale)),
                 ])
                 rules.append(line)
                 card.content.addArrangedSubview(line)
@@ -174,7 +180,7 @@ final class TalkIntroSheet: UIViewController {
             scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 28),
             leading, trailing,
-            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -Self.foot),
         ])
         // [glass-design] On the glass the card takes the grouped cards' edges (the view's margins, as Chat Info's rows),
         // the words inside it; off it, the page's 24 pt as before. The fitted height follows.
@@ -190,6 +196,22 @@ final class TalkIntroSheet: UIViewController {
         configureSheet()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (sheet: TalkIntroSheet, _) in sheet.configureSheet() }
     }
+
+    /// Room under the last button: on the Mac as much as beside it (the sheet is sized to its words there).
+    private static var foot: CGFloat { DeviceWord.isMac ? 24 : 12 }
+
+    #if targetEnvironment(macCatalyst)
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard view.bounds.width > 0 else { return }
+        let width = max(200, view.bounds.width - 2 * sideInset)
+        let fitted = stack.systemLayoutSizeFitting(CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+                                                   withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
+        let room = (presentingViewController?.view.window?.bounds.height ?? 800) - 120
+        let want = CGSize(width: 620, height: min(room, ceil(fitted + 28 + Self.foot)))
+        if abs(preferredContentSize.height - want.height) > 0.5 { preferredContentSize = want }
+    }
+    #endif
 
     /// One detent that fits the content, and large; only large at accessibility sizes, where the content scrolls.
     private func configureSheet() {
@@ -207,7 +229,7 @@ final class TalkIntroSheet: UIViewController {
             let width = max(200, whole - 2 * self.sideInset)
             let height = self.stack.systemLayoutSizeFitting(CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
                                                             withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
-            return min(context.maximumDetentValue, height + 28 + 12)
+            return min(context.maximumDetentValue, height + 28 + Self.foot)
         }
         sheet.detents = [fit, .large()]
     }

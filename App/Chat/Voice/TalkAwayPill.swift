@@ -248,7 +248,7 @@ nonisolated enum TalkPillContent: Equatable, Sendable {
             let reduce = HQMotion.reduced
             capsule.alpha = 0
             capsule.transform = reduce ? .identity : CGAffineTransform(translationX: 0, y: 18)
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
                 self.capsule.alpha = 1
                 self.capsule.transform = .identity
             }
@@ -266,7 +266,7 @@ nonisolated enum TalkPillContent: Equatable, Sendable {
         watch?.invalidate()
         watch = nil
         let reduce = HQMotion.reduced
-        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+        UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
             self.capsule.alpha = 0
             if !reduce { self.capsule.transform = CGAffineTransform(translationX: 0, y: 18) }
         } completion: { _ in
@@ -335,7 +335,7 @@ nonisolated enum TalkPillContent: Equatable, Sendable {
             self.capsule.transform = transform
         }
         if animated, !HQMotion.reduced {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState], animations: apply)
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState], animations: apply)
         } else {
             apply()
         }

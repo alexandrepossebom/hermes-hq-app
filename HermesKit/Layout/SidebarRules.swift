@@ -10,12 +10,50 @@ nonisolated enum SidebarRules {
     /// Mac polish #51: where a list's mask turns solid from its top and starts to fade at its foot, as shares of its
     /// `height`, with `above` and `below` points of rows past its edges. A fade grows with the rows past it, up to
     /// `fadeHeight`, and never past half the list. nil: all in view, no mask.
-    static func fadeStops(above: CGFloat, below: CGFloat, height: CGFloat) -> (top: CGFloat, bottom: CGFloat)? {
+    /// `footFade`: the foot fade's own height (`peekFade`), in place of `fadeHeight`.
+    /// `headFade`: the top fade's own height (`peekHeadFade`) where it must reach past the rows above.
+    static func fadeStops(above: CGFloat, below: CGFloat, height: CGFloat, footFade: CGFloat? = nil,
+                          headFade: CGFloat? = nil) -> (top: CGFloat, bottom: CGFloat)? {
         guard height > 0, above > 1 || below > 1 else { return nil }
-        let top = above > 1 ? min(above, fadeHeight) / height : 0
-        let bottom = below > 1 ? 1 - min(below, fadeHeight) / height : 1
+        let head = headFade.map { $0 > fadeHeight ? $0 : min(above, $0) } ?? min(above, fadeHeight)
+        let top = above > 1 ? head / height : 0
+        let bottom = below > 1 ? 1 - min(below, footFade ?? fadeHeight) / height : 1
         return (min(top, 0.5), max(bottom, 0.5))
     }
+
+    /// [Mac AAA 2026-11-16] How tall a list's foot fade is so that it always shows there is more below. The list's
+    /// foot often fell just past a row, cutting the next one near its top: the fade then lay over the blank room
+    /// between them and the list looked finished (at 1280 × 800 three Tools hid under Usage with no sign of them; a
+    /// bot's "2 more" under its last chat). Then the fade reaches up over the last whole row
+    /// instead, so that row reads faded. `rows`: the list's rows top to bottom, in its visible part's points (0 its
+    /// top); `below`: points of rows past its foot. `fadeHeight` when the cut row shows enough of itself (`peek`).
+    static func peekFade(rows: [ListRow], height: CGFloat, below: CGFloat, peek: CGFloat = Self.peek) -> CGFloat {
+        guard height > 0, below > 1 else { return fadeHeight }
+        let cut = rows.first { $0.bottom > height + 0.5 && $0.top < height - 0.5 }
+        if let cut, height - cut.top >= peek * (cut.bottom - cut.top) { return fadeHeight }
+        guard let above = rows.last(where: { $0.bottom <= height + 0.5 && $0.bottom - $0.top >= 12 }) else { return fadeHeight }
+        let start = above.top + (above.bottom - above.top) * peekStart
+        return min(max(fadeHeight, height - start), height / 2)
+    }
+    /// [Mac AAA 2026-11-16] The same at the list's top (sidebar S3): scrolled to its end, the foot's list stopped part
+    /// way into a row, right under the line, its words cut through their tops ("Terminal" at 640 pt tall). A row cut by
+    /// the top is let go into the fade unless nearly all of it shows (`headPeek`), and the fade reaches down over the
+    /// first whole row, so that row reads faded as more above. `above`: points of rows past the top. The rows
+    /// mirrored, `peekFade`'s rule.
+    /// `strict`: the foot's list (it moves on its own to show a place, and stops where its end puts it); the bots'
+    /// list, scrolled by hand, keeps the foot's 40 % so its top does not fade two rows deep at every few points.
+    static func peekHeadFade(rows: [ListRow], height: CGFloat, above: CGFloat, strict: Bool = true) -> CGFloat {
+        let mirrored = rows.reversed().map { ListRow(top: height - $0.bottom, bottom: height - $0.top, heading: $0.heading) }
+        return peekFade(rows: mirrored, height: height, below: above, peek: strict ? headPeek : peek)
+    }
+    /// The share of a row cut by the list's top that must show for the usual fade: its words are cut at their tops
+    /// under the line above, which reads broken at any less.
+    static let headPeek: CGFloat = 0.9
+    /// Where on that row the longer fade starts: near its top, so its whole name reads faded (from its middle only
+    /// the lower half of the letters lightened, too little to see).
+    static let peekStart: CGFloat = 0.2
+    /// The share of a row the foot must leave in view for its fade alone to show it (its name is in its middle).
+    static let peek: CGFloat = 0.4
 
     /// A row of the bots' list for `headingFade`: its top and foot in the list, and whether it is a group's heading.
     struct ListRow: Equatable, Sendable {

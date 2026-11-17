@@ -225,6 +225,8 @@ nonisolated enum ThemeResolver {
             if let own {
                 paint(&t, own, ink: ink)
                 t.ownLook = own
+                // [Mac AAA 2026-11-16] Paper's chosen row is its own warm grey, not its ink (a message colour still wins).
+                if let row = own.chosenRow { t.rowAccent = row }
             }
         }
         t.onTint = t.tint.labL >= 60 ? .black : .white

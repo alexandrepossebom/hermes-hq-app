@@ -1210,7 +1210,38 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
             config = empty
         }
         emptyConfiguration = config
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] The pane's offline state follows the connection (`macOfflineState`).
+        let offlineWords = macOfflineState?.text
+        if offlineWords != macOfflineShown {
+            macOfflineShown = offlineWords
+            NotificationCenter.default.post(name: DetailPlaceholderViewController.listStateChanged, object: self)
+        }
+        #endif
     }
+
+    #if targetEnvironment(macCatalyst)
+    private var macOfflineShown: String?
+    /// [Mac AAA 2026-11-16] Launched with a saved gateway that doesn't answer, the Mac showed the saved bots and
+    /// "No Chat Open" with nothing but a red dot at the sidebar's foot: the list's stale card (§4.2) and the iPhone's
+    /// "Offline" header stand on the Bots list, which the Mac folds into its sidebar. The pane beside it says what is
+    /// wrong and what the app is doing, in the offline screen's words, with Try Again (the stale card's own retry), as
+    /// it shows the folded list's other states (Mac polish #4). Nil while connected, connecting or with no bots.
+    var macOfflineState: UIContentUnavailableConfiguration? {
+        guard case .offline(let reason) = services.connection, !services.bots.isEmpty, query.isEmpty,
+              contentUnavailableConfiguration == nil else { return nil }
+        let screen = OfflineCopy.screen(reason: reason, hasAddress: true)
+        var state = UIContentUnavailableConfiguration.empty().hqScaled()
+        state.image = UIImage(systemName: ReconnectNotice.symbol(for: ""))
+        state.text = screen.title
+        state.secondaryText = screen.recovery
+        var retry = UIButton.Configuration.hqPush()
+        retry.title = RosterStateCopy.tryAgain
+        state.button = retry
+        state.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.retryFromNotice("stale") }
+        return state
+    }
+    #endif
 
     /// A link problem shows under the title only once it has lasted this long: the line changes the bar's height, and
     /// a blip (a gateway restart now reconnects in about a second) must not bounce the whole list.
@@ -1258,7 +1289,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
             return
         }
         navigation.view.layoutIfNeeded()
-        UIView.animate(withDuration: 0.3, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: Reduce Motion returned in the guard above
+        UIView.animate(withDuration: HQMotion.move, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: Reduce Motion returned in the guard above
             self.navigationItem.subtitle = subtitle
             navigation.navigationBar.setNeedsLayout()
             navigation.view.setNeedsLayout()

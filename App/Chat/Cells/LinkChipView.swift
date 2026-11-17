@@ -6,7 +6,9 @@
 import UIKit
 
 final class LinkChipView: UIControl {
-    nonisolated static let iconSize: CGFloat = 16
+    /// [Mac AAA 2026-11-16] The Mac's 15 pt words (19.5 in the app's points) beside the iPhone's 16 pt icon left the site
+    /// icon and the globe a small grey dot: the iPhone's proportion to the title, 18 pt.
+    nonisolated static let iconSize: CGFloat = DeviceWord.isMac ? 18 : 16
     nonisolated static let padH: CGFloat = 12
     nonisolated static let padV: CGFloat = 10
 
@@ -89,7 +91,7 @@ final class LinkChipView: UIControl {
             icon.image = image
             icon.accessibilityIdentifier = "chat.link-chip.icon"
         } else {
-            icon.image = UIImage(systemName: "globe", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+            icon.image = UIImage(systemName: "globe", withConfiguration: UIImage.SymbolConfiguration(pointSize: DeviceWord.isMac ? 15 : 13, weight: .regular))
             icon.accessibilityIdentifier = "chat.link-chip.globe"
         }
         accessibilityLabel = hostLabel.isHidden ? "Link, \(title)" : "Link, \(title), \(hostLabel.text ?? url.map(LinkPreviewParsing.displayHost) ?? "")"

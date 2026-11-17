@@ -208,7 +208,7 @@ final class TerminalArrowPad: UIControl {
             cap.layer.cornerCurve = .continuous
             if desktop {
                 cap.layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)).cgColor
-                cap.layer.borderWidth = 1
+                cap.layer.borderWidth = HQShape.hairline
             } else {
                 cap.backgroundColor = TerminalKeyBar.capColor
             }

@@ -637,7 +637,7 @@ final class ModelPanelView: UIView {
             card.frame = rest
             scroll.frame = CGRect(origin: .zero, size: rest.size)
         }, completion: { [weak self] _ in self?.updateFade() })
-        HQMotion.animate(0.3) { [self] in
+        HQMotion.animate(HQMotion.move) { [self] in
             dim.alpha = 1
             if !DeviceWord.isMac { blur.effect = UIBlurEffect(style: .systemUltraThinMaterial) }   // [Mac UI check 2026-11-13] L10
         }
@@ -684,7 +684,7 @@ final class ModelPanelView: UIView {
             return
         }
         let size = card.bounds.size
-        HQMotion.animate(0.14) { [self] in
+        HQMotion.animate(HQMotion.quick) { [self] in
             for view in blocks.flatMap({ $0 }) { view.alpha = 0 }
         }
         HQMotion.spring(duration: 0.46, damping: 0.9, changes: { [self] in
@@ -1354,7 +1354,7 @@ final class ThinkingBar: UIControl {
             setNeedsLayout()
             return
         }
-        UIView.transition(with: valueLabel, duration: 0.16, options: [.transitionCrossDissolve, .allowUserInteraction, .beginFromCurrentState]) {   // motion-ok: a cross-fade, guarded above
+        UIView.transition(with: valueLabel, duration: HQMotion.quick, options: [.transitionCrossDissolve, .allowUserInteraction, .beginFromCurrentState]) {   // motion-ok: a cross-fade, guarded above
             self.valueLabel.attributedText = text
         }
         setNeedsLayout()
@@ -1979,7 +1979,7 @@ final class FactColumn: UIControl {
     override var isHighlighted: Bool {
         didSet {
             guard isHighlighted != oldValue, leadsTo != nil else { return }
-            HQMotion.animate(0.12) { self.alpha = self.isHighlighted ? 0.5 : 1 }
+            HQMotion.animate(HQMotion.quick) { self.alpha = self.isHighlighted ? 0.5 : 1 }
         }
     }
 
@@ -2285,7 +2285,7 @@ final class PanelGroup: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         var y: CGFloat = 0
-        let hair = 1 / max(1, traitCollection.displayScale)
+        let hair = HQShape.pixel(traitCollection.displayScale)
         for (i, row) in rows.enumerated() {
             let h = row.sizeThatFits(bounds.size).height
             row.frame = CGRect(x: 0, y: y, width: bounds.width, height: h)

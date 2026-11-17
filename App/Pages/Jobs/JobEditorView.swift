@@ -82,7 +82,16 @@ struct JobEditorView: View {
 
     /// The cards' distance from the sheet's edges, set on every section, so a strip running edge to edge starts in line
     /// with the cards: iOS's own 16 pt (20 on the widest phones); the Desktop Look's 20.
-    private var gutter: CGFloat { Theme.isDesktop || pageWidth >= 414 ? 20 : 16 }
+    /// [Mac AAA 2026-11-16] On the Mac a sheet is never a phone's width: its 600 pt page took the widest phones' 20 and
+    /// the cards stood 4 pt further in than every other form sheet's (New Tile, Bot Info: the list's own 16 + the sheet's
+    /// edge, in line with Cancel). The Mac's iOS look keeps iOS's 16.
+    private var gutter: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        Theme.isDesktop ? 20 : 16
+        #else
+        Theme.isDesktop || pageWidth >= 414 ? 20 : 16
+        #endif
+    }
     /// The cards' section margins. [Mac full pass 2026-11-14] A Mac sheet's page sits a little further in
     /// (`MacSheetEdges`): the strips' rows and headers follow that inset, a card's section margins don't, so the bots,
     /// the frequency chips and the Bot and Schedule headings stood 8 px further in than the cards and the Prompt and
@@ -391,7 +400,9 @@ struct JobEditorView: View {
         if DeviceWord.isMac {
             // [Mac UI check 2026-11-13] Every choice in sight: the chips wrap to a second line where the sheet is too
             // narrow for them all ("Every 15 Min" stood cut flat at the sheet's edge, a scroll a Mac gives no cue for).
-            PagesFlowLayout(spacing: 8, lineSpacing: 8) { frequencyChips }
+            // [Mac AAA 2026-11-16] No line gap of its own: each chip's 44 pt touch already leaves ~9 pt between the
+            // lines' pills, as between two pills on a line (the two lines stood 18 pt apart), as Tasks' views do.
+            PagesFlowLayout(spacing: 8, lineSpacing: 0) { frequencyChips }
                 .hqPickGlassRow()
                 // [Mac UI check 2026-11-13] Solid pills, as Tasks' views: wrapped, "Every 15 Min" sat under the chosen
                 // chip and its glass took the chosen chip's blue into its rim.
@@ -791,7 +802,7 @@ struct JobChip: View {
                 .padding(.horizontal, desk ? 14 : 16)
                 .frame(minHeight: desk ? 34 : min(height, 52))
                 .background(shape.fill(desk && selected ? Color(uiColor: HQPalette.cellPressed) : .clear))
-                .overlay(shape.strokeBorder(desk ? (selected ? Color.hqLabel3 : Color.hqStroke) : Color.clear, lineWidth: 1))
+                .overlay(shape.strokeBorder(desk ? (selected ? Color.hqLabel3 : Color.hqStroke) : Color.clear, lineWidth: HQShape.hairline))
                 .hqPickGlass(selected, in: shape, prominent: true)
                 .contentShape(shape)
                 // Touched over 44 pt at least.
@@ -898,7 +909,7 @@ struct JobWeekdayPicker: View {
                         .foregroundStyle(on && !desk ? Color.hqOnTint : (on ? Color.hqLabel : Color.hqLabel2))
                         .frame(width: side, height: side)
                         .background(shape.fill(on ? (desk ? Color(uiColor: HQPalette.cellPressed) : Color.hqTint) : (desk ? Color.clear : Color.hqFill3)))
-                        .overlay(shape.strokeBorder(desk ? (on ? Color.hqLabel3 : Color.hqStroke) : Color.clear, lineWidth: 1))
+                        .overlay(shape.strokeBorder(desk ? (on ? Color.hqLabel3 : Color.hqStroke) : Color.clear, lineWidth: HQShape.hairline))
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
                 }

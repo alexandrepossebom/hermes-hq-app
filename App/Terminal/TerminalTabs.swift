@@ -81,9 +81,9 @@ final class TerminalTabStrip: UIView {
         addSubview(rule)
         // [mac] Mac polish 2026-11-06 #121: a pixel of the window's own display, kept right when the window moves to a
         // display of another scale (as the Helpers divider, Mac audit #12); UIScreen.main's scale was the main display's.
-        let ruleHeight = rule.heightAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1))
+        let ruleHeight = rule.heightAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale))
         registerForTraitChanges([UITraitDisplayScale.self]) { (strip: TerminalTabStrip, _) in
-            ruleHeight.constant = 1 / max(strip.traitCollection.displayScale, 1)
+            ruleHeight.constant = HQShape.pixel(strip.traitCollection.displayScale)
         }
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),

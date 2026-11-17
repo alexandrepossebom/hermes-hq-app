@@ -46,6 +46,17 @@ struct MoreSearchTests {
         #expect(MoreSearch.Kind.allCases.map(\.title) == ["Go To", "Bots", "Sessions", "Settings", "Actions"])
     }
 
+    /// [Mac AAA 2026-11-16] Open Quickly's mark starts on the row named exactly what was typed ("New Chat" is an action,
+    /// after the Settings group), else on the first row.
+    @MainActor @Test func theMarkStartsOnAnExactName() {
+        let newChat = find("new chat")
+        let start = MoreSearch.startRow(newChat, query: "New Chat")
+        #expect(newChat[start.section].kind == .actions)
+        #expect(newChat[start.section].rows[start.row].id == "new-chat")
+        let web = MoreSearch.startRow(find("web"), query: "web")
+        #expect(web.section == 0 && web.row == 0)
+    }
+
     @Test func sessionsStopAtSixAndOfferTheRest() {
         let group = find("web").first { $0.kind == .sessions }
         #expect(group?.rows.count == 6)

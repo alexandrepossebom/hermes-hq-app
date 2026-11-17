@@ -223,6 +223,12 @@ final class MacFilesHeaderView: UIView {
             if let path = crumb.path {
                 button.toolTip = crumb.tip ?? path
                 button.addAction(UIAction { [weak self] _ in self?.onCrumb?(path) }, for: .primaryActionTriggered)
+                // [Mac AAA 2026-11-16] A crumb that goes somewhere answers the pointer, as a row does: a named folder is
+                // wider than the small buttons the window's hover reaches by itself, so "site" lay dead under the pointer
+                // (a census of the running app).
+                #if targetEnvironment(macCatalyst)
+                if button.isUserInteractionEnabled { PointerEffects.surface(button, radius: MacSelection.radius) }
+                #endif
             }
             button.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
             trail.addArrangedSubview(button)
@@ -255,7 +261,7 @@ final class MacFilesHeaderView: UIView {
         scroll.contentSize = CGSize(width: fitted.width, height: top)
         // A deep folder: the trail's end (where you are) stays in view.
         scroll.contentOffset.x = max(0, fitted.width - scroll.bounds.width)
-        let pixel = 1 / max(1, traitCollection.displayScale)
+        let pixel = HQShape.pixel(traitCollection.displayScale)
         line.frame = CGRect(x: 0, y: bounds.height - pixel, width: bounds.width, height: pixel)
         guard showsColumns else { return }
         let height = bounds.height - top

@@ -195,12 +195,12 @@ final class JumpButton: UIView {
             if animated && !HQMotion.reduced {
                 transform = Self.away(1.1)
                 let curve = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.22, y: 1), controlPoint2: CGPoint(x: 0.36, y: 1))
-                let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: curve)
+                let animator = UIViewPropertyAnimator(duration: HQMotion.fade, timingParameters: curve)
                 animator.addAnimations { self.alpha = 1; self.transform = .identity }
                 animator.startAnimation()
             } else if animated {
                 transform = .identity
-                UIView.animate(withDuration: 0.12, delay: 0, options: [.curveLinear, .beginFromCurrentState]) { self.alpha = 1 }   // motion-ok: Reduce Motion's fade
+                UIView.animate(withDuration: HQMotion.quick, delay: 0, options: [.curveLinear, .beginFromCurrentState]) { self.alpha = 1 }   // motion-ok: Reduce Motion's fade
             } else {
                 alpha = 1; transform = .identity
             }
@@ -377,15 +377,38 @@ final class ChatTitleView: UIView {
     /// The title's size changed (Dynamic Type): the bar re-reads it.
     var onSizeChange: (() -> Void)?
 
+    /// [Mac AAA 2026-11-16] The title's height and the face's side. The iPhone's glass is 44 pt with a 34 pt face; on
+    /// the Mac both follow UI Scale (View › Make Text Bigger) as the window's other bars do, up to the bar's own 54 pt
+    /// (at 150 % the name and the model line stayed at 100 % beside 22 pt sidebar rows).
+    static var rowHeight: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        min(54, (44 * macChrome).rounded())
+        #else
+        44
+        #endif
+    }
+    /// The UI Scale percent alone on the Mac (`MacSidebar.chrome`); 1 elsewhere.
+    static var macChrome: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        CGFloat(ThemeTable.current.state.uiScalePercent) / 100
+        #else
+        1
+        #endif
+    }
+    private var faceSide: CGFloat { min((34 * Self.macChrome).rounded(), Self.rowHeight - 4) }
+    private var desktopFaceSide: CGFloat { (22 * Self.macChrome).rounded() }
+
     private func updateFont() {
-        var size = min(HQFont.preferred(.headline, compatibleWith: traitCollection).pointSize, 22)
+        // [Mac AAA 2026-11-16] The caps grow with UI Scale on the Mac (22 and 18 at 100 %), or the name stopped at 22.
+        let grow = max(1, Self.macChrome)
+        var size = min(HQFont.preferred(.headline, compatibleWith: traitCollection).pointSize, 22 * grow)
         // [ui-sizing 2026-11-09] The footnote as UIKit sizes it (Dynamic Type and UI Scale once, capped at 18). It was
         // scaled for UI Scale a second time, and with the name over it the pair outgrew the 44 pt glass from about
         // 125 %: the bot's line hung under the pill. With a subtitle both shrink together until they fit; 17 + 13 at
         // 100 % already does.
-        var sub = min(HQFont.preferred(.footnote, compatibleWith: traitCollection).pointSize, 18)
+        var sub = min(HQFont.preferred(.footnote, compatibleWith: traitCollection).pointSize, 18 * grow)
         if subtitle != nil {
-            let room: CGFloat = 44 - 4, lines = (size + sub) * 1.2
+            let room: CGFloat = Self.rowHeight - 4, lines = (size + sub) * 1.2
             if lines > room { size *= room / lines; sub *= room / lines }
         }
         nameLabel.font = HQFont.face(ofSize: size, weight: .semibold)
@@ -405,21 +428,25 @@ final class ChatTitleView: UIView {
 
     private var maxWidth: CGFloat {
         let screen = window?.bounds.width ?? 402   // [m9/ipad] the window's width, not the screen's
+        // [Mac AAA 2026-11-16] The phone's 300 pt cut a session's title off at about 25 characters in a 1280 pt
+        // window with half its bar empty ("Compare three note-taking a…"). The Mac's title may take up to 480 pt of
+        // a wide window, still clear of the bar's buttons; a narrow window keeps the phone's cap.
+        if DeviceWord.isMac { return max(min(screen * 0.66, 300), min(screen * 0.28, 480)) }
         return min(screen * 0.66, 300)
     }
 
     override var intrinsicContentSize: CGSize {
         if Theme.isDesktop {   // [desktoplook2] 10 pt each side, a 22 pt face 7 pt before the name
-            let accessoryW: CGFloat = showsAccessory ? 22 + 7 : 0
+            let accessoryW: CGFloat = showsAccessory ? desktopFaceSide + 7 : 0
             var nameW = ceil(nameLabel.intrinsicContentSize.width)
             if subtitle != nil { nameW = max(nameW, ceil(subtitleLabel.intrinsicContentSize.width)) }
-            return CGSize(width: min(maxWidth, 10 + accessoryW + nameW + 10), height: 44)
+            return CGSize(width: min(maxWidth, 10 + accessoryW + nameW + 10), height: Self.rowHeight)
         }
-        let accessoryW: CGFloat = showsAccessory ? 34 + 10 : 0
+        let accessoryW: CGFloat = showsAccessory ? faceSide + 10 : 0
         let pad: CGFloat = showsAccessory ? 5 : 14
         var nameW = ceil(nameLabel.intrinsicContentSize.width)
         if subtitle != nil { nameW = max(nameW, ceil(subtitleLabel.intrinsicContentSize.width)) }
-        return CGSize(width: min(maxWidth, pad + accessoryW + nameW + 14), height: 44)
+        return CGSize(width: min(maxWidth, pad + accessoryW + nameW + 14), height: Self.rowHeight)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize { intrinsicContentSize }
@@ -439,8 +466,9 @@ final class ChatTitleView: UIView {
         var x: CGFloat = showsAccessory ? 5 : 14
         accessory?.isHidden = !showsAccessory
         if let accessory, showsAccessory {
-            accessory.frame = CGRect(x: x, y: (bounds.height - 34) / 2, width: 34, height: 34)
-            x += 34 + 10
+            let side = faceSide
+            accessory.frame = CGRect(x: x, y: (bounds.height - side) / 2, width: side, height: side)
+            x += side + 10
         }
         let width = max(0, bounds.width - x - 14)
         if subtitle != nil, let nameFont = nameLabel.font, let subFont = subtitleLabel.font {
@@ -497,8 +525,9 @@ final class ChatTitleView: UIView {
         var x: CGFloat = 10
         accessory?.isHidden = !showsAccessory
         if let accessory, showsAccessory {
-            accessory.frame = CGRect(x: x, y: (bounds.height - 22) / 2, width: 22, height: 22)
-            x += 22 + 7
+            let side = desktopFaceSide
+            accessory.frame = CGRect(x: x, y: (bounds.height - side) / 2, width: side, height: side)
+            x += side + 7
         }
         let width = max(0, bounds.width - x - 10)
         if subtitle != nil, let nameFont = nameLabel.font, let subFont = subtitleLabel.font {
@@ -526,8 +555,8 @@ final class ChatTitleView: UIView {
             PointerEffects.press(self, true)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in self.map { PointerEffects.press($0, false) } }
         } else {
-            UIView.animate(withDuration: 0.1, animations: { self.alpha = 0.6 }) { _ in   // motion-ok: opacity only
-                UIView.animate(withDuration: 0.15) { self.alpha = 1 }
+            UIView.animate(withDuration: HQMotion.quick, animations: { self.alpha = 0.6 }) { _ in   // motion-ok: opacity only
+                UIView.animate(withDuration: HQMotion.quick) { self.alpha = 1 }
             }
         }
         onTap?()
@@ -617,7 +646,7 @@ final class ChatStatusPill: UIView {
         setNeedsLayout()
         // [perf] The dots' repeating animations stop once the pill has faded out (or while the dots are hidden), so an
         // idle chat runs none; `animateDots` restarts them when the working words come back.
-        UIView.animate(withDuration: 0.2, animations: { self.alpha = text == nil ? 0 : 1 }, completion: { _ in   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade, animations: { self.alpha = text == nil ? 0 : 1 }, completion: { _ in   // motion-ok: opacity only
             if self.text == nil { self.stopDots() }
         })
         if text != nil && !(quiet || attention) { animateDots() } else if text != nil { stopDots() }
@@ -793,7 +822,7 @@ final class ChatNoticeToast: UIView {
         hideWork?.cancel()
         hideWork = nil
         layer.removeAllAnimations()
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState]) { self.alpha = 1 }   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState]) { self.alpha = 1 }   // motion-ok: opacity only
         if !isShowing { isShowing = true; onShowingChange?() }
         HQAnnounce.say(text)
         clock = nil
@@ -870,7 +899,7 @@ final class ChatNoticeToast: UIView {
         isUserInteractionEnabled = false
         accessibilityHint = nil
         action = nil
-        UIView.animate(withDuration: 0.3, delay: 0, options: [.beginFromCurrentState]) { self.alpha = 0 } completion: { [weak self] done in   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.move, delay: 0, options: [.beginFromCurrentState]) { self.alpha = 0 } completion: { [weak self] done in   // motion-ok: opacity only
             if done, self?.alpha == 0 { self?.spinner.stopAnimating() }
         }
         if isShowing { isShowing = false; onShowingChange?() }
@@ -968,7 +997,7 @@ final class ChatEdgeStandIn: UIView {
     /// The system's edge is up: fade out and go.
     func handOver() {
         guard superview != nil else { return }
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: opacity only
             self.alpha = 0
         } completion: { _ in self.removeFromSuperview() }
     }

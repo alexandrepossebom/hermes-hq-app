@@ -321,6 +321,12 @@ final class UpdateMemberCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         addGestureRecognizer(links)
         linkTap = links
         #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] A member is a button, but the pointer over it changed nothing (the transcript is left
+        // out of `PointerEffects`): its press highlight shows faintly under the pointer, fully while pressed.
+        button.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
+        // [Mac AAA 2026-11-16] A link in an opened member's words opens on a click, but showed the arrow: the Mac's
+        // pointing hand over it, as a bubble's links (ChatCells' `linkHover`).
+        piece.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(linkHover(_:))))
         // [mac] Mac audit 2026-11-02 #11: an opened member's words select with a drag, as a bubble's do
         // (ChatTextSelection.swift); a click still folds it.
         textSelector = ChatTextSelector(host: piece, owner: self, surfaces: { [weak self] in
@@ -450,6 +456,9 @@ final class UpdateMemberCell: ChatBaseCell, UIContextMenuInteractionDelegate {
             control.addSubview(meta)
             control.tag = stepViews.count
             control.addTarget(self, action: #selector(openStep(_:)), for: .touchUpInside)
+            #if targetEnvironment(macCatalyst)
+            PointerEffects.surface(control)   // [Mac AAA 2026-11-16] a step opens its sheet: it answers the pointer
+            #endif
             control.isAccessibilityElement = true
             control.accessibilityTraits = .button
             piece.addSubview(control)
@@ -566,6 +575,8 @@ final class UpdateMemberCell: ChatBaseCell, UIContextMenuInteractionDelegate {
     override func prepareForReuse() {
         super.prepareForReuse()
         textSelector?.clear()
+        hovering = false
+        highlight.alpha = 0
     }
 
     override var canBecomeFirstResponder: Bool { textSelector?.hasSelection ?? false }
@@ -589,5 +600,22 @@ final class UpdateMemberCell: ChatBaseCell, UIContextMenuInteractionDelegate {
 
     // The highlight stays inside the card, clipped to its corners.
     @objc private func pressDown() { highlight.alpha = 1 }
-    @objc private func pressUp() { UIView.animate(withDuration: 0.2) { self.highlight.alpha = 0 } }   // motion-ok: colour only
+    @objc private func pressUp() { UIView.animate(withDuration: HQMotion.fade) { self.highlight.alpha = self.hovering ? 0.5 : 0 } }   // motion-ok: colour only
+
+    private var hovering = false
+    #if targetEnvironment(macCatalyst)
+    private var pointerOnLink = false
+    @objc private func linkHover(_ recognizer: UIHoverGestureRecognizer) {
+        let inside = recognizer.state == .began || recognizer.state == .changed
+        let onLink = inside && link(at: recognizer) != nil
+        if onLink { MacWindow.cursor("pointingHandCursor") } else if pointerOnLink { MacWindow.cursor("arrowCursor") }
+        pointerOnLink = onLink
+    }
+
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        hovering = (recognizer.state == .began || recognizer.state == .changed) && button.isEnabled
+        guard !button.isTracking else { return }
+        UIView.animate(withDuration: hovering ? 0 : HQMotion.hover) { self.highlight.alpha = self.hovering ? 0.5 : 0 }   // motion-ok: colour only, as `MacHover`
+    }
+    #endif
 }

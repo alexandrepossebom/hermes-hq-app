@@ -134,7 +134,7 @@ private struct BackdropThumb: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)))
             .accessibilityHidden(true)
     }
 }
@@ -432,7 +432,7 @@ private struct BackdropTile<Face: View>: View {
                 .aspectRatio(9 / 16, contentMode: .fit)
                 .overlay { face }
                 .clipShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Self.radius, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: 0.5))
+                .overlay(RoundedRectangle(cornerRadius: Self.radius, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)))
                 .padding(3)
                 .overlay(RoundedRectangle(cornerRadius: Self.radius + 3, style: .continuous)
                     .strokeBorder(selected ? Color.hqTintText : Color.clear, lineWidth: 2))

@@ -219,7 +219,7 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
             edgeLine.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             edgeLine.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             edgeLine.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            edgeLine.heightAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1)),
+            edgeLine.heightAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale)),
         ])
         updateEdgeLine()
         #endif
@@ -548,13 +548,24 @@ final class MoreLinksFooter: UICollectionReusableView {
             config.cornerStyle = .capsule
             config.imagePadding = 6
             config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
-            config.image = UIImage(systemName: button === websiteButton ? "globe" : "chevron.left.forwardslash.chevron.right",
-                                   withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote, scale: .small))
-            var text = AttributedString(title)
             let font = HQFont.preferred(.footnote)
+            // [Mac AAA 2026-11-16] The glyph from the words' own font: the system's footnote style is the iPhone's size,
+            // so on the Mac (text a step larger) the globe and </> came out about two-thirds of the words' height.
+            config.image = UIImage(systemName: button === websiteButton ? "globe" : "chevron.left.forwardslash.chevron.right",
+                                   withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .small))
+            var text = AttributedString(title)
             text.font = HQFont.system(ofSize: font.pointSize, weight: .medium)
             config.attributedTitle = text
             config.baseForegroundColor = HQPalette.label2
+            if Theme.isDesktop, DeviceWord.isMac, !soft {
+                // [Mac AAA 2026-11-16] The Desktop Look's own outlined button (4 pt corners, 1 pt line), not iOS's grey
+                // capsule, as its New Job… and every other button in the look.
+                config.background.backgroundColor = .clear
+                config.background.strokeColor = ChatPalette.strokeSecondary
+                config.background.strokeWidth = 1
+                config.cornerStyle = .fixed
+                config.background.cornerRadius = DesktopRows.radius
+            }
             button.configuration = config
         }
     }

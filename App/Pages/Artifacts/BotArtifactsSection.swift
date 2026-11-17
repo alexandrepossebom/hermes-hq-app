@@ -220,7 +220,7 @@ struct BotArtifactsSection: View {
                         }
                 }
                 .clipShape(shape)
-                .overlay { shape.strokeBorder(Color.hqStroke, lineWidth: Theme.isDesktop ? 1 : 0.5) }
+                .overlay { shape.strokeBorder(Color.hqStroke, lineWidth: HQShape.line(Theme.isDesktop ? 1 : 0.5)) }
                 .overlay(alignment: .bottomLeading) {
                     if page {
                         Image(systemName: "safari").hqSymbolFont(10, weight: .semibold, cap: 14).foregroundStyle(.white)

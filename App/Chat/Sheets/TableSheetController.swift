@@ -266,6 +266,10 @@ final class TableSheetController: UIViewController, UIScrollViewDelegate, UISear
         if inPane {
             // [mac] In the chat's pane: the commands in its bar, as a Mac window's toolbar (⋯ last), no bottom bar.
             copyItem.style = .plain
+            // [Mac AAA 2026-11-16] The label colour, as Share's and ⋯'s glyphs beside it: the chat bar's tint drew the
+            // words a dim grey that read as switched off (the file window's same words got the same fix). The Desktop
+            // Look keeps its own grey bar ink.
+            if DeviceWord.isMac, !Theme.isDesktop { copyItem.tintColor = HQPalette.label }
             navigationItem.rightBarButtonItems = [moreItem, shareItem, copyItem] + fileItems
             toolbarItems = nil
         }
@@ -320,7 +324,7 @@ final class TableSheetController: UIViewController, UIScrollViewDelegate, UISear
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.layer.cornerRadius = HQShape.radius(12, .card)
         scroll.layer.cornerCurve = .continuous
-        scroll.layer.borderWidth = 1 / max(1, traitCollection.displayScale)
+        scroll.layer.borderWidth = HQShape.pixel(traitCollection.displayScale)
         scroll.layer.borderColor = ChatPalette.separator.resolvedColor(with: traitCollection).cgColor
         scroll.clipsToBounds = true
         let width = scroll.widthAnchor.constraint(equalToConstant: 400), height = scroll.heightAnchor.constraint(equalToConstant: 300)
@@ -556,7 +560,7 @@ final class TableSheetController: UIViewController, UIScrollViewDelegate, UISear
         if scroll.contentInset.bottom != lane { scroll.contentInset.bottom = lane }
         fitCard(lane: lane)
         if animated && !HQMotion.reduced {
-            UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
+            UIView.animate(withDuration: HQMotion.move, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState], animations: move) { _ in settle() }
         } else {
             move()
@@ -579,7 +583,7 @@ final class TableSheetController: UIViewController, UIScrollViewDelegate, UISear
         let top = max(0, offset.y + inset.top)
         let left = frozen ? max(0, offset.x + inset.left) : 0
         let firstWidth = xs.count > 1 ? xs[1] : 0
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         headerLayer.frame = CGRect(x: 0, y: top, width: gridSize.width, height: headerHeight)
         cornerLayer.frame = CGRect(x: left, y: top, width: firstWidth, height: headerHeight)
@@ -736,7 +740,7 @@ final class TableSheetController: UIViewController, UIScrollViewDelegate, UISear
         if HQMotion.reduced {
             layoutGrid()
         } else {
-            UIView.transition(with: content, duration: 0.25, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+            UIView.transition(with: content, duration: HQMotion.pane, options: [.transitionCrossDissolve, .allowUserInteraction]) {
                 self.layoutGrid()
             }
         }
@@ -980,7 +984,7 @@ final class TableSheetRowsView: UIView {
             ChatPalette.tint.resolvedColor(with: traitCollection).withAlphaComponent(0.14).setFill()
             ctx.fill(CGRect(x: 0, y: start, width: bounds.width, height: lines[marked] - start))
         }
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         ChatPalette.separator.resolvedColor(with: traitCollection).setFill()
         for y in lines.dropLast() {
             ctx.fill(CGRect(x: 0, y: y - hairline / 2, width: bounds.width, height: hairline))

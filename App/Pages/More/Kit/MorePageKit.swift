@@ -293,7 +293,7 @@ struct MoreBotPicker: View {
                 .background(Theme.isDesktop ? Color.hqPage : Color(uiColor: HQPalette.card),
                             in: RoundedRectangle(cornerRadius: radius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(Theme.isDesktop ? Color.hqStroke : Color.clear, lineWidth: 1))
+                    .strokeBorder(Theme.isDesktop ? Color.hqStroke : Color.clear, lineWidth: HQShape.hairline))
         } else if row {
             // The cell's hosting margins are 0: the row's own sides.
             line.padding(.horizontal, Self.macSide)
@@ -330,7 +330,7 @@ struct MoreBotPicker: View {
             .background(Theme.isDesktop ? Color.hqPage : Color(uiColor: HQPalette.card),
                         in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
-                .strokeBorder(Theme.isDesktop ? Color.hqStroke : Color.clear, lineWidth: 1))
+                .strokeBorder(Theme.isDesktop ? Color.hqStroke : Color.clear, lineWidth: HQShape.hairline))
             .accessibilityElement(children: .contain)
         } else {
             picker

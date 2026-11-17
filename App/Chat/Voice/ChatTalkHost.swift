@@ -194,7 +194,7 @@ import UIKit
     @objc private func pillChanged() {
         guard isOnScreen, let screen, screen.isViewLoaded else { return }
         guard !HQMotion.reduced else { return screen.view.setNeedsLayout() }
-        UIView.animate(withDuration: 0.25) {
+        UIView.animate(withDuration: HQMotion.pane) {
             screen.view.setNeedsLayout()
             screen.view.layoutIfNeeded()
         }
@@ -263,7 +263,7 @@ import UIKit
     func showWords(_ words: LiveWordsText) {
         self.words = words
         guard let dock, let screen, dock.showWords(words), dock.window != nil else { return }
-        HQMotion.animate(0.2, changes: { screen.view.layoutIfNeeded() })
+        HQMotion.animate(HQMotion.fade, changes: { screen.view.layoutIfNeeded() })
     }
 
     private func makeDock() -> TalkBarView {

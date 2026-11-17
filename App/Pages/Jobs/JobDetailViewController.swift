@@ -336,7 +336,9 @@ struct JobDetailView: View {
                     .hqDesktopBareRow()
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 6, trailing: 4))
+                    // [Mac AAA 2026-11-16] On the Mac the name starts on the page's one edge, where "Schedule", "Repeats"
+                    // and "Run History" do (it stood 16 pt left of them, 4 pt inside the cards' edge).
+                    .listRowInsets(EdgeInsets(top: 0, leading: DeviceWord.isMac ? 20 : 4, bottom: 6, trailing: 4))
                 tiles(job, busy: busy, paused: paused)
                     .hqDesktopBareRow()
                     .listRowBackground(Color.clear)
@@ -565,23 +567,28 @@ struct JobDetailView: View {
                 ForEach(model.runs) { run in
                     let label = JobWords.cronRunLabel(run)
                     let opens = run.opens != .nothing && (run.opens == .chat || !(job.hermesHome ?? "").isEmpty)
-                    Button { model.open(run) } label: {
-                        HStack(spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(label.title).foregroundStyle(Color.hqLabel)
-                                if !label.detail.isEmpty {
-                                    Text(label.detail).font(Font.hq(.footnote))
-                                        .foregroundStyle(label.detail.hasPrefix("Failed") ? Color.hqRed : Color.hqLabel2)
-                                }
+                    let row = HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(label.title).foregroundStyle(Color.hqLabel)
+                            if !label.detail.isEmpty {
+                                Text(label.detail).font(Font.hq(.footnote))
+                                    .foregroundStyle(label.detail.hasPrefix("Failed") ? Color.hqRed : Color.hqLabel2)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            if opens { SettingsChevron() }
                         }
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if opens { SettingsChevron() }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!opens)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                    // [Mac AAA 2026-11-16] A run with nothing to open is a plain row: as a disabled button its date and
+                    // its red "Failed · …" were drawn dimmed, as if the run itself were switched off.
+                    Group {
+                        if opens {
+                            Button { model.open(run) } label: { row }.buttonStyle(.plain)
+                        } else {
+                            row.accessibilityElement(children: .combine)
+                        }
+                    }
                     .accessibilityIdentifier("job.run-row.\(run.id)")
                 }
             }

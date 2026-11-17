@@ -312,7 +312,7 @@ struct AddConnectorView: View {
                 HStack(spacing: 10) {
                     TextField("KEY", text: $pair.key).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .font(Font.hq(.body).monospaced()).frame(maxWidth: .infinity)
-                    Divider()
+                    HQHairline(axis: .vertical)   // [Mac AAA 2026-11-16] whole pixel
                     if secretValues, McpEntryMask.SECRET_KEY.test(pair.key) {
                         SecureField("value", text: $pair.value).textInputAutocapitalization(.never).autocorrectionDisabled().frame(maxWidth: .infinity)
                     } else {

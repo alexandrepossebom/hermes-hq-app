@@ -43,6 +43,19 @@ final class ModelChip: UIControl {
         return min(room, max(2 * height, words + 2 * Self.fittedPad)).rounded()
     }
 
+    /// [Mac AAA 2026-11-16] The narrowest bubble whose words keep their full size: the shortest of the name's forms
+    /// (`relabel`) and the label's 12 pt either side. The Mac's box hides the bubble when it has less room (a narrow chat
+    /// pane beside an open task drew the name at a fraction of its size), rather than shrinking or cutting the words.
+    func fullSizeWidth() -> CGFloat {
+        guard let title else { return 0 }
+        let font = HQFont.system(ofSize: Self.size)
+        var names = [title.name]
+        if let bare = title.bareName, !bare.isEmpty { names.append(bare) }
+        names.append(ModelNames.compactModelName(title.bareName.flatMap { $0.isEmpty ? nil : $0 } ?? title.name))
+        let narrowest = names.map { ceil(TextFit.oneLineWidth(attributed($0, font))) }.min() ?? 0
+        return narrowest + 24 + 2
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         plainFill.isUserInteractionEnabled = false
@@ -79,7 +92,7 @@ final class ModelChip: UIControl {
     override var isSelected: Bool { didSet { if isSelected != oldValue { recolor() } } }
 
     private func recolor() {
-        UIView.transition(with: label, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction]) {   // motion-ok: a cross-fade
+        UIView.transition(with: label, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction]) {   // motion-ok: a cross-fade
             self.relabel()
         }
     }
@@ -113,7 +126,9 @@ final class ModelChip: UIControl {
         let compact = ModelNames.compactModelName(plain)
         if compact != plain { tries.append(attributed(compact, font)) }
         var text = tries[tries.count - 1]
-        if room > 0, let fits = tries.first(where: { TextFit.oneLineWidth($0) * TextFit.oneLineFloor <= room }) { text = fits }
+        // [Mac AAA 2026-11-16] The Mac's box takes the first form that fits at full size (its bubble is never narrower).
+        let floor = self.plain ? 1 : TextFit.oneLineFloor
+        if room > 0, let fits = tries.first(where: { TextFit.oneLineWidth($0) * floor <= room }) { text = fits }
         label.attributedText = text
         accessibilityValue = [title.name, title.effort].compactMap { $0 }.joined(separator: ", ")
         largeContentTitle = [title.name, title.effort].compactMap { $0 }.joined(separator: " ")

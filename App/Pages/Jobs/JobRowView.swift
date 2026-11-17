@@ -161,11 +161,14 @@ struct JobSectionHeaderView: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // [Mac AAA 2026-11-16] The triangle and the spinner share one slot, so "Needs Attention" and "Running"
+            // start on one edge (the spinner's name stood 8 pt left of the triangle's).
             switch section {
             case .needsAttention:
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.hqRed).font(Font.hq(.subheadline))
+                    .frame(width: HQFont.scaled(18))
             case .running:
-                ProgressView().controlSize(.mini)
+                ProgressView().controlSize(.mini).frame(width: HQFont.scaled(18))
             default:
                 EmptyView()
             }
@@ -225,6 +228,16 @@ final class ScopeBarItem {
     /// A page pushed from More (Artifacts with Kanban in tab 3): the scope as a glyph, so the bar's trailing group is
     /// narrow enough for the small title to centre beside Back, as on the other pushed More pages (UX study #88).
     var compact = false
+    /// [Mac AAA 2026-11-16] Dimmed with nothing to filter (Tasks waiting on an add-on update): the bar item and the
+    /// look's own button (a custom view, which the item's own switch doesn't reach).
+    var isEnabled = true {
+        didSet {
+            guard isEnabled != oldValue else { return }
+            item.isEnabled = isEnabled
+            lookButton.isEnabled = isEnabled
+            applyLook()   // its words and chevron carry their own ink: dimmed there
+        }
+    }
 
     init() {
         item = UIBarButtonItem(title: "All Bots", menu: nil)
@@ -264,7 +277,7 @@ final class ScopeBarItem {
         // [mac] Stress test 2026-10-28 round 9: measured again, the + and magnifier beside it peak at (176,181,187), the
         // look's label 2, and the round 7 grey drew "All Bots" at 148, darker than they are. The Desktop Look's words
         // are label 2 on the Mac too, and the chevron (which came out brighter, 214) takes the same ink.
-        let ink: UIColor = !DeviceWord.isMac || Theme.isDesktop ? HQPalette.label2 : HQPalette.label
+        let ink: UIColor = !isEnabled ? HQPalette.label3 : !DeviceWord.isMac || Theme.isDesktop ? HQPalette.label2 : HQPalette.label
         if compact {
             config.image = item.image
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(textStyle: .subheadline)
@@ -410,6 +423,7 @@ enum ScopeMenu {
 struct JobsHeaderWords: View {
     var title: String
     var count: Int
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         if Theme.isDesktop {
@@ -418,6 +432,7 @@ struct JobsHeaderWords: View {
                 .hqDesktopLabel()
         } else {
             let number = Text("\(count)").font(Font.hq(.subheadline)).monospacedDigit()
+                .foregroundStyle(Color.hqHeadCount(contrast))   // [Mac AAA 2026-11-16] one count ink (L17)
             Text("\(Text(title).font(Font.hq(.subheadline).weight(.semibold))) \(number)")
                 .foregroundStyle(Color.hqLabel2)
         }

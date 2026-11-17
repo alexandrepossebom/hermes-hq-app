@@ -501,8 +501,8 @@ struct TileHalo: ViewModifier {
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
             }
-            .animation(.easeOut(duration: 0.18), value: press.pressed)   // motion-ok: opacity and colour only
-            .animation(.easeOut(duration: 0.06), value: press.hovered)   // motion-ok: colour only
+            .animation(.easeOut(duration: HQMotion.fade), value: press.pressed)   // motion-ok: opacity and colour only
+            .animation(.easeOut(duration: HQMotion.hover), value: press.hovered)   // motion-ok: colour only
     }
 
     @ViewBuilder private func ringShape(side: CGFloat) -> some View {
@@ -616,7 +616,7 @@ struct BotSectionHeaderView: View {
         }
         .foregroundStyle(Color.hqLabel3)
         .opacity(Self.softOpacity)
-        .animation(HQMotion.swiftUI(.easeInOut(duration: 0.2)), value: collapsed)
+        .animation(HQMotion.swiftUI(.easeInOut(duration: HQMotion.fade)), value: collapsed)
         .accessibilityHidden(true)
     }
 }

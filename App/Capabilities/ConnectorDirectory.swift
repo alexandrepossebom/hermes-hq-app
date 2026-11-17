@@ -531,7 +531,7 @@ struct CatalogLogo: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.24))
-        .overlay(RoundedRectangle(cornerRadius: size * 0.24).strokeBorder(Color.hqFill3, lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: size * 0.24).strokeBorder(Color.hqFill3, lineWidth: HQShape.line(0.5)))
         .accessibilityHidden(true)
         .task(id: key) { image = await CatalogLogoStore.shared.image(key: key, slugs: slugs, site: site) }
     }

@@ -955,7 +955,7 @@ on a knob (`POST /__fixture/delegation {...}`); refuses unknown params with 4000
 
 **Web.** `V/app/starmap/*` (canvas simulation), `S/starmap-touch.ts` (touch pan/zoom on the phone); strings
 `V/i18n/en.ts:2670-2696`: title "Memory Graph", subtitle "N skills across M categories", filters All / Used /
-Learned, "Memory", "Refresh", "Could not load memory graph", empty "Nothing learned yet" · "As Hermes builds skills
+Learned, "Memory", "Refresh", "Could not load memory graph", empty "Nothing Learned Yet" · "As Hermes builds skills
 and memories for your work, they appear here." More's row is "Star Map" (`S/ui-nav/more-model.ts:32`).
 
 **Wire (`AG/hermes_cli/web_routers/status.py:~700`; `V/api/skills.ts:49-66`, `V/types/hermes.ts:863-905`).**
@@ -995,7 +995,7 @@ and memories for your work, they appear here." More's row is "Star Map" (`S/ui-n
    sections.
 2. UI (`testU16_StarMap`): the map draws (screenshot looked at: clusters labelled, nothing clipped under the bars);
    pinch changes the scale; tapping a star opens its sheet with text; List shows the same count as the subtitle; the
-   empty graph shows "Nothing learned yet".
+   empty graph shows "Nothing Learned Yet".
 3. Probe: 2,000 nodes, a 5 s pan/zoom script, no frame over 25 ms after the first second (recorded in the report).
 
 ---

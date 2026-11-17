@@ -179,6 +179,15 @@ final class BlockView: UIView, UIScrollViewDelegate {
         toggleButton.configuration = toggle
         toggleButton.addTarget(self, action: #selector(toggleCode), for: .touchUpInside)
         addSubview(toggleButton)
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] The transcript is left out of `PointerEffects`' sweep, so a code card's Copy and its
+        // Show All toggle and a table's Expand footer looked dead under the pointer: each answers it now, and the two
+        // icon buttons name themselves when the pointer rests on them.
+        PointerEffects.button(copyButton)
+        PointerEffects.button(toggleButton)
+        PointerEffects.surface(expandButton)
+        copyButton.toolTip = "Copy Code"
+        #endif
         bottomMask.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: BlockView, _) in
             if view.desktopOutlined {
@@ -216,7 +225,7 @@ final class BlockView: UIView, UIScrollViewDelegate {
         let ring = HQPalette.tint.resolvedColor(with: traitCollection)
         layer.shadowColor = ring.cgColor
         layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: layer.cornerRadius).cgPath
-        layer.borderWidth = 1
+        layer.borderWidth = HQShape.hairline
         layer.borderColor = ring.withAlphaComponent(0.1).cgColor
         layer.shadowOpacity = 0.08
         layer.shadowOffset = CGSize(width: 0, height: 10)
@@ -267,11 +276,11 @@ final class BlockView: UIView, UIScrollViewDelegate {
 
     private func outlineForDesktop() {
         if bubbleOutlined {
-            layer.borderWidth = 1 / max(traitCollection.displayScale, 1)
+            layer.borderWidth = HQShape.pixel(traitCollection.displayScale)
             layer.borderColor = ChatPalette.separator.resolvedColor(with: traitCollection).cgColor
         }
         guard desktopOutlined else { return }
-        layer.borderWidth = 1
+        layer.borderWidth = HQShape.hairline
         layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: traitCollection).cgColor
     }
 
@@ -290,7 +299,7 @@ final class BlockView: UIView, UIScrollViewDelegate {
             if let alert {
                 isCard = true
                 backgroundColor = ChatPalette.fill4
-                layer.borderWidth = 1 / max(traitCollection.displayScale, 1)
+                layer.borderWidth = HQShape.pixel(traitCollection.displayScale)
                 layer.borderColor = ChatPalette.separator.resolvedColor(with: traitCollection).cgColor
                 layer.cornerRadius = HQShape.radius(8, .card)
                 showsLabel = true
@@ -433,6 +442,9 @@ final class BlockView: UIView, UIScrollViewDelegate {
                                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
             toggleButton.configuration = config
             toggleButton.accessibilityLabel = open ? "Show Less Code" : "Show All Code"
+            #if targetEnvironment(macCatalyst)
+            toggleButton.toolTip = toggleButton.accessibilityLabel
+            #endif
         } else {
             fadeView.isHidden = true
             toggleButton.isHidden = true
@@ -816,14 +828,21 @@ final class TableFooterControl: UIButton {
     }
 
     override var isHighlighted: Bool {
-        didSet { backgroundColor = isHighlighted ? ChatPalette.fill3 : .clear }
+        didSet {
+            #if targetEnvironment(macCatalyst)
+            return   // [Mac AAA 2026-11-16] the hover's fill, deeper while pressed (`PointerEffects.surface`), is the press
+            #else
+            backgroundColor = isHighlighted ? ChatPalette.fill3 : .clear
+            #endif
+        }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         rule.frame = CGRect(x: 0, y: 0, width: bounds.width, height: hairline)
-        let pad = ChatMetrics.tableCellPadH + 2
+        // [Mac AAA 2026-11-16] The cells' own inset: "7 rows" stood 2 pt right of the column of names above it.
+        let pad = ChatMetrics.tableCellPadH
         let mid = (footerHeight / 2).rounded()
         let wordSize = word.sizeThatFits(CGSize(width: bounds.width, height: footerHeight))
         let glyphSize = glyph.image?.size ?? .zero
@@ -867,7 +886,7 @@ final class TableGridView: UIView {
         let width = bounds.width
         ChatPalette.tableHead.resolvedColor(with: traitCollection).setFill()
         ctx.fill(CGRect(x: 0, y: grid.rows[0], width: width, height: grid.rows[1] - grid.rows[0]))
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         ChatPalette.separator.resolvedColor(with: traitCollection).setFill()
         for y in grid.rows.dropFirst().dropLast() {
             ctx.fill(CGRect(x: 0, y: y - hairline / 2, width: width, height: hairline))

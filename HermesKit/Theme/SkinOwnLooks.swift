@@ -45,6 +45,10 @@ nonisolated struct SkinOwnLook: Sendable, Hashable {
     /// picks) are drawn flat in this skin: unpicked on the card with a hairline, picked in the solid accent with its own
     /// ink, the same on every page. Otherwise iOS's Liquid Glass.
     var flatPills = false
+    /// [Mac AAA 2026-11-16] What the Mac's chosen row is tinted with (`ThemeTokens.chosenRow`, drawn see-through by
+    /// `MacSelection.accent`), where the skin's accent would shout: Paper's accent is its ink, so in dark the chosen row
+    /// (sidebar, Settings' column, every list) was a light grey slab. nil: the accent, as every other skin.
+    var chosenRow: RGBA? = nil
 
     nonisolated struct Pair: Sendable, Hashable {
         var light: SkinOwnLook
@@ -124,13 +128,13 @@ nonisolated extension SkinCatalog {
                                codeFill: Ivory.drawer, grey: Ivory.grey, fillAlphas: [0.2, 0.16, 0.12, 0.08],
                                separator: Ivory.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0), tableHead: Ivory.drawer,
                                replyGlassTint: 0.85, subtle: Ivory.subtle, muted: Ivory.muted, reply: Ivory.page,
-                               iconTile: Ivory.selected, flatPills: true),
+                               iconTile: Ivory.selected, flatPills: true, chosenRow: Ivory.grey),
             dark: SkinOwnLook(page: Charcoal.page, card: Charcoal.card, pressed: Charcoal.selected, meBubble: Charcoal.box,
                               codeFill: Charcoal.deep, grey: Charcoal.grey, fillAlphas: [0.36, 0.32, 0.24, 0.12],
                               separator: Charcoal.grey.alpha(0.3), replyEdge: RGBA(unit: 0, 0, 0, 0),
                               tableHead: Charcoal.grey.alpha(0.2), replyGlassTint: 0.85, subtle: Charcoal.subtle,
                               muted: Charcoal.muted, reply: Charcoal.page, iconTile: Charcoal.selected,
-                              flatPills: true)),
+                              flatPills: true, chosenRow: Charcoal.grey)),
         "rose-pine": SkinOwnLook.Pair(
             // Your box: the mockup's lavender, iris leaning to love.
             light: SkinOwnLook(page: Dawn.base, card: Dawn.surface, pressed: Dawn.overlay, meBubble: RGBA(hex: 0xEADCEF),

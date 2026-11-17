@@ -9,12 +9,22 @@ enum HQMotion {
     /// Reduce Motion (or the DEBUG `-HQA11yReduceMotion YES`). Safe from any thread.
     nonisolated static var reduced: Bool { HQAccessibility.reduceMotion }
 
+    // [Mac AAA 2026-11-16] Feel list C27: the one scale of durations, shortest first. Every plain curve in the app uses
+    // one of these five (a spring keeps its own, which is a feel, not a time); the fourteen literals found between
+    // 0.06 and 0.35 s were moved to the nearest step, nothing else about what moves changed.
+    //   hover 0.06  the pointer's fill coming and going
+    //   quick 0.12  a thing that swaps in place, a press, a small fade (a place, a panel over the window)
+    //   fade  0.2   a thing that shows or hides; also Reduce Motion's stand-in for anything that would move
+    //   pane  0.22  an edge that travels a short way (the inspector, a list folding away, a bar sliding)
+    //   move  0.3   a thing that crosses a larger distance or changes size a lot (a card, a drawer, a page band)
+    nonisolated static let hover: TimeInterval = 0.06
     nonisolated static let fade: TimeInterval = 0.2
 
     /// [mac-feel] The shared scale for new motion: `quick` for a thing that swaps in place or fades (a place, a panel
     /// over the window), `pane` for an edge that travels (the inspector, a list folding away).
     nonisolated static let quick: TimeInterval = 0.12
     nonisolated static let pane: TimeInterval = 0.22
+    nonisolated static let move: TimeInterval = 0.3
 
     /// [settings] Decorative loops (skeleton shimmer and pulse, idle heads) stop under Reduce Motion and while the
     /// phone saves power: Low Power Mode or heat (docs/spec/3x-settings.md §3; the web's `power-saver.css`).

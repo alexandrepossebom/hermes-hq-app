@@ -622,7 +622,7 @@ final class StepsListViewController: UITableViewController {
         let host = UIView()
         host.addSubview(label)
         NSLayoutConstraint.activate([
-            label.centerYAnchor.constraint(equalTo: host.centerYAnchor, constant: -40),
+            label.titleCentre.constraint(equalTo: host.centerYAnchor, constant: -MacInset.emptyLift),   // [Mac AAA 2026-11-16]
             label.centerXAnchor.constraint(equalTo: host.centerXAnchor),
             label.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 24),
             label.trailingAnchor.constraint(lessThanOrEqualTo: host.trailingAnchor, constant: -24),
@@ -965,7 +965,7 @@ final class StepLineCell: UITableViewCell {
         let edge = ink.flatMap { $0.alpha > 0 ? $0 : nil }
         // 20: the code block's 8 plus the 12 pt between; the Desktop Look's cards are 10 (a project's on Sessions).
         card.layer.cornerRadius = GlassSheetKit.designed ? 20 : Theme.isDesktop ? 10 : 12
-        card.layer.borderWidth = edge == nil ? 0 : 1
+        card.layer.borderWidth = edge == nil ? 0 : HQShape.hairline
         card.layer.borderColor = edge
         badge.backgroundColor = fill
         // A running step's badge rings in the tint; a still one has the cards' edge.

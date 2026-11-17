@@ -114,7 +114,7 @@ struct TaskPlainView: View {
             }
             .buttonStyle(.plain)
             .disabled(model.gone)
-            .accessibilityLabel(task.isDone ? "Done. Open it again" : "Mark Done")
+            .hqIconLabel(task.isDone ? "Done. Open it again" : "Mark Done")
             .accessibilityIdentifier("task.check")
         } text: {
             Text(task.title.isEmpty ? "Untitled Task" : task.title)
@@ -658,7 +658,7 @@ struct TaskPlainView: View {
                     .contentShape(Rectangle().inset(by: -8))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(step.done ? "Done" : "Not done")
+            .hqIconLabel(step.done ? "Done" : "Not done")
         } text: {
             HStack(alignment: .center, spacing: 8) {
                 Text(step.title)
@@ -811,7 +811,7 @@ struct TaskMessageLine: View {
                     RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3)
                 } else {
                     Capsule().fill(Color(uiColor: TaskPanel.card))
-                        .overlay { Capsule().strokeBorder(Color(uiColor: TaskPanel.edge), lineWidth: 1) }
+                        .overlay { Capsule().strokeBorder(Color(uiColor: TaskPanel.edge), lineWidth: HQShape.hairline) }
                 }
             }
             .contentShape(Rectangle())
@@ -1133,6 +1133,6 @@ struct TaskBand: View {
 struct TaskPlainHairline: View {
     @Environment(\.displayScale) private var scale
     var body: some View {
-        Rectangle().fill(Color(uiColor: TaskPanel.edge)).frame(height: 1 / max(scale, 1)).accessibilityHidden(true)
+        Rectangle().fill(Color(uiColor: TaskPanel.edge)).frame(height: HQShape.pixel(scale)).accessibilityHidden(true)
     }
 }

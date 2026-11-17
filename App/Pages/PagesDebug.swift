@@ -20,6 +20,7 @@
 // - `-HQPagesOpenArtifact <label>` …and open that artifact (Artifacts, wherever it lives)
 // - `-HQPagesTileVersions YES`   …and open Versions of the first page tile, with three made-up versions (Tiles)
 // - `-HQPagesTileRollBack YES`   …and ask Roll Back's question on Version 1
+// - `-HQPagesNewTile YES`        …and open New Tile (Tiles) [Mac AAA 2026-11-16]
 // - `-HQPagesReadOnly YES`       refuse every page write, as a read-only gateway does (PagesTabs)
 // - `-HQPagesOpenSession <id>`   open that stored chat as a tapped alert does (NotificationHub.open), 4 s after the tabs show
 // - `-HQPagesBotsCopyOpen <id>` [more-bots] the hidden Bots list's copy (More › Bots; the Mac's Tools › Bots, `-HQPagesTab 1000`)
@@ -142,6 +143,9 @@ enum PagesDebug {
                 ])
                 TileVersionsModel.debugAsk = defaults.bool(forKey: "HQPagesTileRollBack")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { artifacts.debugShowVersions() }
+            }
+            if defaults.bool(forKey: "HQPagesNewTile") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { artifacts.newTile() }
             }
             if let label = defaults.string(forKey: "HQPagesOpenArtifact") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

@@ -70,7 +70,7 @@ final class RootSplitController: UIViewController {
         #endif
         let panes = Self.panesSize(Self.debugSize(size))
         layout = decideLayout(for: panes, window: Self.debugSize(size).width)
-        noteOpeningSize(layout, panes: panes, window: Self.debugSize(size), pixel: 1 / max(1, UITraitCollection.current.displayScale))
+        noteOpeningSize(layout, panes: panes, window: Self.debugSize(size), pixel: HQShape.pixel(UITraitCollection.current.displayScale))
         if layout.isDouble { sweepTabsIntoDetail() }
         _ = Self.keysWatch   // [ipad-polish] where the keyboard is, for `guideIsDead`
         let center = NotificationCenter.default
@@ -275,7 +275,7 @@ final class RootSplitController: UIViewController {
             if AppRoot.foldable, lastSize != .zero { setNeedsUpdateOfSupportedInterfaceOrientations() }
             lastSize = rect.size
         }
-        noteOpeningSize(next, panes: rect.size, window: windowRect.size, pixel: 1 / max(1, traitCollection.displayScale))
+        noteOpeningSize(next, panes: rect.size, window: windowRect.size, pixel: HQShape.pixel(traitCollection.displayScale))
         if next != layout {
             let was = layout
             layout = next
@@ -305,7 +305,7 @@ final class RootSplitController: UIViewController {
     private func placePanes() {
         guard isViewLoaded else { return }
         let rect = contentRect
-        let pixel = 1 / max(1, traitCollection.displayScale)
+        let pixel = HQShape.pixel(traitCollection.displayScale)
         var tabsFrame = rect, detailFrame = rect, lineFrame = CGRect.zero
         if case .double(0) = layout {
             // [bots-rail] The Bots list folded into the sidebar's heads: the chat takes the whole room. The list keeps a
@@ -460,7 +460,7 @@ final class RootSplitController: UIViewController {
         settleMoves()
         let swap = { self.detail.setViewControllers(screens, animated: false) }
         if animated, detail.viewIfLoaded?.window != nil, !HQMotion.reduced {
-            UIView.transition(with: detail.view, duration: 0.12, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+            UIView.transition(with: detail.view, duration: HQMotion.quick, options: [.transitionCrossDissolve, .allowUserInteraction]) {
                 UIView.performWithoutAnimation(swap)
             }
         } else {
@@ -476,7 +476,7 @@ final class RootSplitController: UIViewController {
         settleMoves()
         let swap = { self.detail.setViewControllers([DetailPlaceholderViewController()], animated: false) }
         if animated, isDouble, detail.viewIfLoaded?.window != nil, !HQMotion.reduced {
-            UIView.transition(with: detail.view, duration: 0.12, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+            UIView.transition(with: detail.view, duration: HQMotion.quick, options: [.transitionCrossDissolve, .allowUserInteraction]) {
                 UIView.performWithoutAnimation(swap)
             }
         } else {
@@ -611,7 +611,7 @@ final class RootSplitController: UIViewController {
         view.setNeedsLayout()
         guard animated, view.window != nil, !HQMotion.reduced else { view.layoutIfNeeded(); return }
         slidingList = hidden
-        HQMotion.animate(0.25, options: [.curveEaseInOut, .beginFromCurrentState], changes: { self.view.layoutIfNeeded() }, completion: { _ in
+        HQMotion.animate(HQMotion.pane, options: [.curveEaseInOut, .beginFromCurrentState], changes: { self.view.layoutIfNeeded() }, completion: { _ in
             self.slidingList = false
             let folded = self.layout == .double(sidebar: 0)
             if self.tabs.view.isHidden != folded { self.tabs.view.isHidden = folded }
@@ -759,7 +759,7 @@ final class RootSplitController: UIViewController {
         fadePanes()   // [mac-feel] one cross-fade: the list no longer pops out while the chat's edge glides over cut-off rows
         UIView.performWithoutAnimation { view.layoutIfNeeded() }
         #else
-        HQMotion.animate(0.22, options: [.curveEaseInOut, .beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
+        HQMotion.animate(HQMotion.pane, options: [.curveEaseInOut, .beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
         #endif
     }
 

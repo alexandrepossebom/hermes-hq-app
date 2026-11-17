@@ -223,7 +223,7 @@ import UIKit
         // [macpass] 2026-11-14: in the iOS look the glass under a 94 % page-coloured veil had no edge at all on a dark
         // page (black on black): the results seemed to float, a heading at the foot hung in the air. The sidebar's
         // glass panel has the same hairline (`MacSidebar`, `cardEdge`).
-        panel.layer.borderWidth = desktop ? 1 : 1 / max(1, traitCollection.displayScale)
+        panel.layer.borderWidth = desktop ? 1 : HQShape.pixel(traitCollection.displayScale)
         panel.layer.borderColor = (desktop ? ChatPalette.strokePrimary : HQPalette.cardEdge).resolvedColor(with: traitCollection).cgColor
         panel.layer.shadowOpacity = desktop ? (dark ? 0.6 : 0.25) : 0   // under see-through glass a drawn shadow would darken it
         fieldBox.backgroundColor = desktop ? ChatPalette.editor : Self.well
@@ -242,7 +242,7 @@ import UIKit
     private func ring() {
         let desktop = Theme.isDesktop
         fieldBox.layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: traitCollection).cgColor
-        fieldBox.layer.borderWidth = desktop ? 1 : 0
+        fieldBox.layer.borderWidth = desktop ? HQShape.hairline : 0
     }
 
     // MARK: Results
@@ -250,13 +250,16 @@ import UIKit
     private func typed() {
         let query = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         groups = query.isEmpty ? search.recent() : search.results(for: query)
-        marked = IndexPath(row: 0, section: 0)
+        let start = MoreSearch.startRow(groups, query: query)   // [Mac AAA 2026-11-16] an exact name first
+        marked = IndexPath(row: start.row, section: start.section)
         table.reloadData()
         table.backgroundView = groups.isEmpty ? emptyNote(query) : nil
         let room = min(max(view.bounds.height - Self.topRoom(view.bounds.height) - 80, 120), 460)
-        tableHeight.constant = groups.isEmpty ? 80 : min(room, table.contentSize.height + 12)
+        // [Mac AAA 2026-11-16] The last row's mark 12 pt from the foot, as the field is from the top and the mark from
+        // the sides (it was 17 px under the mark against 11 over the field).
+        tableHeight.constant = groups.isEmpty ? 80 : min(room, table.contentSize.height + 6)
         view.layoutIfNeeded()
-        tableHeight.constant = groups.isEmpty ? 80 : min(room, table.contentSize.height + 12)
+        tableHeight.constant = groups.isEmpty ? 80 : min(room, table.contentSize.height + 6)
         if !groups.isEmpty { table.scrollToRow(at: marked, at: .none, animated: false) }
     }
 

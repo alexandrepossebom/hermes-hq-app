@@ -160,7 +160,7 @@ final class ArtifactImageViewer: UIViewController, UIPageViewControllerDataSourc
             if dy > 120 || pan.velocity(in: view).y > 900 {
                 dismiss(animated: true)
             } else {
-                HQMotion.animate(0.25) {
+                HQMotion.animate(HQMotion.pane) {
                     self.pages.view.transform = .identity
                     self.view.backgroundColor = .black
                 }

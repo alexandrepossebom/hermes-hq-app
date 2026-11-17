@@ -339,7 +339,7 @@ struct EditHeadView: View {
             // colours sees why the buzz came (audit 05-23).
             .onChange(of: model.notice) { _, notice in
                 guard let notice else { return }
-                withAnimation(HQMotion.swiftUI(.easeOut(duration: 0.25))) { scroller.scrollTo(Self.noticeID, anchor: .top) }
+                withAnimation(HQMotion.swiftUI(.easeOut(duration: HQMotion.pane))) { scroller.scrollTo(Self.noticeID, anchor: .top) }
                 HQAnnounce.say(notice, priority: .high)
             }
             .safeAreaInset(edge: .top, spacing: 0) { stage }
@@ -579,7 +579,7 @@ struct EditHeadView: View {
                         Circle()
                             .fill(Self.swatch(colour))
                             .frame(width: 38, height: 38)
-                            .overlay(Circle().strokeBorder(Color.hqLabel3.opacity(colour == "paper" ? 0.6 : 0), lineWidth: 1))
+                            .overlay(Circle().strokeBorder(Color.hqLabel3.opacity(colour == "paper" ? 0.6 : 0), lineWidth: HQShape.hairline))
                             .padding(4)
                             .overlay(Circle().strokeBorder(selected ? Color.hqTint : Color.clear, lineWidth: 2.5))
                             .frame(maxWidth: .infinity)

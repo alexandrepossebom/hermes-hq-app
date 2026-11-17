@@ -219,7 +219,7 @@ enum MenusHUD {
         ])
         current = glass
         glass.alpha = 0
-        UIView.animate(withDuration: 0.2) { glass.alpha = 1 }   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade) { glass.alpha = 1 }   // motion-ok: opacity only
         HQAnnounce.say(text)
         guard var seconds else { return glass }
         #if DEBUG
@@ -233,7 +233,7 @@ enum MenusHUD {
 
     static func hide(_ hud: UIView?) {
         guard let hud, hud.superview != nil else { return }
-        UIView.animate(withDuration: 0.25, animations: { hud.alpha = 0 }) { _ in hud.removeFromSuperview() }   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.pane, animations: { hud.alpha = 0 }) { _ in hud.removeFromSuperview() }   // motion-ok: opacity only
     }
 }
 

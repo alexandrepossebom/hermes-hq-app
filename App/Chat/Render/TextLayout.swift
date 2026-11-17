@@ -767,8 +767,13 @@ nonisolated enum TextLayout {
         case .notice(let text):
             let w = width - 2 * 32
             let tk = TextKitLayout(line(text, font: style.notice, color: ChatPalette.lineInk, align: .center), width: w)
-            return RowLayout(height: ceil(gap + 6 + tk.size.height + 6),
-                             content: .line(LineLayout(text: tk, frame: CGRect(x: 32, y: gap + 6, width: w, height: tk.size.height))))
+            // [Mac AAA 2026-11-16] On the Mac a notice ("Model changed to …") takes a centred update line's row (40 pt,
+            // its words in the middle): between two turns it sat 5 pt tighter than "Edited 2 files" or "Background task
+            // finished" a screen away, two rhythms for one kind of line.
+            let rowH = DeviceWord.isMac ? max(ChatMetrics.toolRowMin, tk.size.height + 12) : tk.size.height + 12
+            return RowLayout(height: ceil(gap + rowH),
+                             content: .line(LineLayout(text: tk, frame: CGRect(x: 32, y: gap + ((rowH - tk.size.height) / 2).rounded(),
+                                                                                width: w, height: tk.size.height))))
         case .caption(let text):
             let tk = TextKitLayout(line(text, font: style.caption, color: ChatPalette.lineInk, align: .natural), width: width - 32)
             return RowLayout(height: ceil(gap + tk.size.height + 2),

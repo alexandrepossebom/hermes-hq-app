@@ -196,7 +196,7 @@ final class ActivityShelfView: UIView {
             if p.superview !== parent { parent.addSubview(p) }
             if let frame = frames[p.kind] { p.place(frame) }
         }
-        let hair = 1 / max(1, traitCollection.displayScale)
+        let hair = HQShape.pixel(traitCollection.displayScale)
         headerRule.isHidden = !expanded
         headerRule.frame = CGRect(x: 14, y: headerH - hair, width: max(0, actualW - 28), height: hair)
         let rows = detail == nil ? frames.values.map(\.minY).sorted().dropFirst() : []
@@ -368,7 +368,7 @@ final class ShelfPieceView: UIView {
             if motion {
                 alpha = 0
                 transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-                UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: `motion` is false under Reduce Motion
+                UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: `motion` is false under Reduce Motion
                     self.alpha = 1
                     self.transform = .identity
                 }
@@ -377,7 +377,7 @@ final class ShelfPieceView: UIView {
                 transform = .identity
             }
         } else if motion {
-            UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseIn, .allowUserInteraction]) {   // motion-ok: `motion` is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.curveEaseIn, .allowUserInteraction]) {   // motion-ok: `motion` is false under Reduce Motion
                 self.alpha = 0
             } completion: { _ in if !self.isPresent { self.isHidden = true; self.leavingFromBottom = nil } }
         } else {
@@ -407,7 +407,7 @@ final class ShelfPieceView: UIView {
             scroll.contentOffset = .zero
             if animated && !HQMotion.reduced {
                 scroll.alpha = 0
-                UIView.animate(withDuration: 0.15, delay: 0.2, options: [.allowUserInteraction]) { self.scroll.alpha = 1 }
+                UIView.animate(withDuration: HQMotion.quick, delay: 0.2, options: [.allowUserInteraction]) { self.scroll.alpha = 1 }
             } else {
                 scroll.alpha = 1
             }
@@ -549,7 +549,7 @@ final class ShelfHeader: UIControl {
         accessibilityValue = open ? "expanded" : "collapsed"
         let angle: CGFloat = switch chevronStyle { case .disclosure: open ? .pi / 2 : 0; case .expand: open ? .pi : 0; case .back: 0 }
         let turn = { self.chevron.transform = CGAffineTransform(rotationAngle: angle) }
-        if animated && !HQMotion.reduced { UIView.animate(withDuration: 0.25, animations: turn) } else { turn() }
+        if animated && !HQMotion.reduced { UIView.animate(withDuration: HQMotion.pane, animations: turn) } else { turn() }
         setNeedsLayout()
     }
 

@@ -363,6 +363,12 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             cell.contentView.alpha = self.dusted.contains(id) ? 0 : 1   // [task-check-off]
             cell.accessibilityIdentifier = "task-row-\(row.title)"
             cell.accessibilityTraits = row.picked ? [.button, .selected] : .button
+            #if targetEnvironment(macCatalyst)
+            // [Mac AAA 2026-11-16] On the Mac a cell with a trait is an element of its own: each task was a button with
+            // no name holding the row's own named button, two stops for VoiceOver (read in the running app's
+            // accessibility tree). The row inside is the button; the cell keeps only "selected".
+            cell.accessibilityTraits = row.picked ? .selected : []
+            #endif
             cell.configurationUpdateHandler = { cell, state in Self.rowBackground(cell as! UICollectionViewListCell, state) }
         }
         let ideaRowCell = UICollectionView.CellRegistration<SoftCardListCell, String> { [weak self] cell, _, id in
@@ -595,7 +601,14 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         var nextRows: [String: TodoRowModel] = [:]
         // A task ticked here stays where it was until it moves (a moment later), so the tick shows first.
         for group in made {
-            for task in group.tasks { nextRows[task.id] = rowModel(task, kind: group.kind, now: now, heads: heads) }
+            // [Mac AAA 2026-11-16] A group with a bot's face on any row keeps the face's room on every row, so the
+            // times stand in one column (a row without a face had its "5:00 PM" 36 pt right of the one over it).
+            let faceSlot = DeviceWord.isMac && group.tasks.contains { $0.helper != nil }
+            for task in group.tasks {
+                var model = rowModel(task, kind: group.kind, now: now, heads: heads)
+                model.faceSlot = faceSlot
+                nextRows[task.id] = model
+            }
         }
 
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
@@ -676,6 +689,13 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                                  MainActor.assumeIsolated { done(self?.menuItems() ?? []) }
                              }, alone: moreItem, me: true)
         }
+        // [Mac AAA 2026-11-16] Waiting on an add-on update the page shows that one state and no list: nothing to filter,
+        // search, sort, select or import, so the bar's Filter (or ⋯) and Search dim with + and the state's own Update
+        // Add-on is the one thing to press. They come back with the list.
+        let live = !store.needsAddOn
+        scopeItem.isEnabled = live
+        moreItem.isEnabled = live
+        searchCapsule?.searchItem?.isEnabled = live
         updateEmptyState(matches: !groups.isEmpty)
         scheduleSkeleton()
         if let started = refreshStarted, !store.loading {
@@ -973,7 +993,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                 try? await Task.sleep(for: .seconds(0.35))
                 self.dusted.remove(id)
                 if let path = self.dataSource.indexPath(for: .task(id)), let cell = self.collectionView.cellForItem(at: path) {
-                    UIView.animate(withDuration: 0.25) { cell.contentView.alpha = 1 }
+                    UIView.animate(withDuration: HQMotion.pane) { cell.contentView.alpha = 1 }   // motion-ok: opacity only
                 }
             }
         }

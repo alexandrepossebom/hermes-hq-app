@@ -21,6 +21,8 @@ final class SettingsRootModel {
     /// sidebar its own (the More list folds away: its setup pages are rows of Bots & Tools here). Off in a sheet, in a
     /// narrow window and on the iPhone and iPad, where it stays the one list.
     var twoColumn = false
+    /// [Mac AAA 2026-11-16] Two columns: the right side's page stack, hosted beside the column (`SettingsPaneHost`).
+    var pane: UINavigationController?
     /// ⌘F in the Settings window: raised to put the caret in the column's Search Settings field.
     var focusSearch = 0
     /// The category on show in two columns; nil shows every section (a search result's row being scrolled to).
@@ -112,6 +114,9 @@ final class SettingsRootModel {
     @ObservationIgnored private var revealTask: Task<Void, Never>?
     /// Ends the search (set by the controller that owns the search field).
     @ObservationIgnored var endSearch: ((_ then: @escaping () -> Void) -> Void)?
+    /// [Mac AAA 2026-11-16] Opens a search result as clicking it does (set by the list): Return in the column's field
+    /// opens the first one, as System Settings' search does.
+    @ObservationIgnored var openResult: ((SettingsSearchEntry.Target) -> Void)?
 
     @ObservationIgnored let services: any AppServices
     @ObservationIgnored private var token: UUID?
@@ -467,14 +472,16 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
                 stack.navigationBar.prefersLargeTitles = false
                 stack.delegate = PushedPageTitles.shared
                 stack.view.backgroundColor = HQPalette.groupedPage
-                addChild(stack)
-                view.addSubview(stack.view)
-                stack.didMove(toParent: self)
+                // [Mac AAA 2026-11-16] Hosted by the SwiftUI page beside the column (`SettingsPaneHost`), not added to
+                // this hosting controller's own view: UIKit warned it does not support that ("Adding … as a subview
+                // of UIHostingController.view is not supported").
                 paneStack = stack
+                model.pane = stack
                 paneRoot = page
                 model.columnChanged = { [weak self] in self?.columnChanged() }
                 model.openGateway = { [weak self] in self?.showGateway() }
                 router.jump = { [weak self] category in self?.jump(to: category) }
+                router.openGateway = { [weak self] in self?.model.query = ""; self?.showGateway() }   // [Mac AAA 2026-11-16]
                 namePane()
                 MacWindow.pageBar(page)
             }
@@ -483,28 +490,22 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
             if navigationController?.topViewController === self, navigationController?.isNavigationBarHidden == false {
                 navigationController?.setNavigationBarHidden(true, animated: false)
             }
-        } else if let stack = paneStack {
-            stack.willMove(toParent: nil)
-            stack.view.removeFromSuperview()
-            stack.removeFromParent()
+        } else if paneStack != nil {
+            model.pane = nil
             paneStack = nil
             paneRoot = nil
             model.gatewayMarked = false
             model.columnChanged = nil
             model.openGateway = nil
             router.jump = nil
+            router.openGateway = nil
             router.navigation = navigationController
             navigationController?.setNavigationBarHidden(false, animated: false)
         }
     }
 
-    private func placePane() {
-        guard let stack = paneStack else { return }
-        let column = SettingsCategoryColumn.width + 1 / max(1, traitCollection.displayScale)
-        let rightToLeft = view.effectiveUserInterfaceLayoutDirection == .rightToLeft
-        let frame = CGRect(x: rightToLeft ? 0 : column, y: 0, width: max(0, view.bounds.width - column), height: view.bounds.height)
-        if stack.view.frame != frame { stack.view.frame = frame }
-    }
+    /// [Mac AAA 2026-11-16] The pane is laid out by the SwiftUI page beside the column (`SettingsPaneHost`).
+    private func placePane() {}
 
     private func namePane() {
         let searching = !model.query.trimmingCharacters(in: .whitespaces).isEmpty
@@ -606,6 +607,14 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
     }
 }
 
+/// [Mac AAA 2026-11-16] The right side of two columns: the pane's page stack as a child of the SwiftUI page, beside
+/// the category column (it was added straight to the hosting controller's view, which UIKit does not support).
+struct SettingsPaneHost: UIViewControllerRepresentable {
+    let stack: UINavigationController
+    func makeUIViewController(context: Context) -> UINavigationController { stack }
+    func updateUIViewController(_ controller: UINavigationController, context: Context) {}
+}
+
 /// [mac-layout] The Settings window's list (2026-11-03): at rest its soft top edge blurred the gateway card, the first
 /// row, under the bar. SwiftUI shows a list's edge again on each update, so the list itself says when it shows.
 struct SoftEdgeOnlyScrolled: ViewModifier {
@@ -649,8 +658,18 @@ struct SettingsRootView: View {
             // pushed page (Notifications, Theme) slides in there and the categories never leave.
             HStack(spacing: 0) {
                 SettingsCategoryColumn(model: model, router: router)
-                Rectangle().fill(Color.hqStroke).frame(width: 1 / UIScreen.main.scale).ignoresSafeArea()
-                Color.clear
+                // [Mac AAA 2026-11-16] The Mac's pane line, as between the sidebar and the chat: the stroke token drew
+                // the column's edge darker than the page in dark (it could not be seen at all).
+                #if targetEnvironment(macCatalyst)
+                Rectangle().fill(Color(uiColor: HQPalette.paneLine)).frame(width: HQShape.pixel(UIScreen.main.scale)).ignoresSafeArea()
+                #else
+                Rectangle().fill(Color.hqStroke).frame(width: HQShape.pixel(UIScreen.main.scale)).ignoresSafeArea()
+                #endif
+                if let pane = model.pane {
+                    SettingsPaneHost(stack: pane).ignoresSafeArea()
+                } else {
+                    Color.clear
+                }
             }
             .background(Color.hqGroupedPage.ignoresSafeArea())
         } else {
@@ -676,6 +695,8 @@ struct SettingsRootView: View {
             .listStyle(.insetGrouped)
             .accessibilityIdentifier("settings.list")
             .modifier(SoftEdgeOnlyScrolled(on: model.ownWindow))
+            .hqMacListHeight()   // [Mac AAA 2026-11-16] the search's empty state centred in the pane
+            .onAppear { model.openResult = { open($0) } }   // [Mac AAA 2026-11-16] Return in the column's search
             .onChange(of: model.revealed) { _, row in
                 guard let row else { return }
                 // A beat for the list to come back from the search results before it scrolls.
@@ -727,10 +748,26 @@ struct SettingsRootView: View {
     private var searchSection: some View {
         let results = model.searchResults
         if results.isEmpty {
+            if DeviceWord.isMac {
+                // [Mac AAA 2026-11-16] The app's empty state, as Tools' and Voice's no-result pages draw it (and System
+                // Settings' search), not one grey line in a card at the top of a blank pane.
+                Section {
+                    ContentUnavailableView {
+                        UnavailableTitle("No Results for “\(model.query.trimmingCharacters(in: .whitespaces))”", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("Check the spelling or try other words.").hqMacFont(MacType.emptyBodyFont)
+                    }
+                    .listRowBackground(Color.clear)
+                    .hqMacEmptyPlacement()
+                    .hqMacListedEmptyState(above: 40)
+                    .accessibilityIdentifier("settings.search-empty")
+                }
+            } else {
             Section {
                 Text("No Results for “\(model.query.trimmingCharacters(in: .whitespaces))”")
                     .foregroundStyle(Color.hqLabel2)
                     .accessibilityIdentifier("settings.search-empty")
+            }
             }
         } else {
             Section {
@@ -747,6 +784,7 @@ struct SettingsRootView: View {
                             SettingsChevron()  // [mac] Stress test 2026-10-28 #51: no › on the Mac
                         }
                         .contentShape(Rectangle())
+                        .hqMacRowHover()   // [Mac AAA 2026-11-16]
                     }
                     .accessibilityIdentifier("settings.result.\(result.id)")
                 }
@@ -777,6 +815,7 @@ struct SettingsRootView: View {
                         }
                     }
                     .contentShape(Rectangle())
+                    .hqMacRowHover()   // [Mac AAA 2026-11-16]
                 }
                 .hqMacFormRowHeight()
                 .accessibilityAddTraits(.isButton)
@@ -808,6 +847,7 @@ struct SettingsRootView: View {
                         }
                     }
                     .contentShape(Rectangle())
+                    .hqMacRowHover()   // [Mac AAA 2026-11-16]
                 }
                 .hqMacFormRowHeight()
                 .accessibilityAddTraits(.isButton)
@@ -1483,7 +1523,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 /// [mac-ten] Owner 2026-11-11 ("weird UI issues"): it was filled in the full tint with white words, as System
 /// Settings' sidebar marks its own: the one saturated row in the app, a few points from the sidebar's soft mark, and
 /// it stayed blue when Chat Bubbles › Colour (a page of this very list) gave the Mac's chosen row another colour.
-/// It is the sidebar's mark now (`MacSelection.accent`): the same fill, the name in semibold, the symbol in the tint.
+/// It is the sidebar's mark now (`MacSelection.accent`): the same fill, the symbol in the tint; on the Mac the name
+/// keeps its regular weight (owner decision, as the sidebar's rows).
 struct SettingsCategoryColumn: View {
     @Bindable var model: SettingsRootModel
     let router: SettingsRouter
@@ -1529,6 +1570,19 @@ struct SettingsCategoryColumn: View {
                                 .accessibilityIdentifier("settings.search")
                                 .focused($searching)
                                 .onChange(of: model.focusSearch) { _, _ in searching = true }
+                                // [Mac AAA 2026-11-16] Return opens the first result and Escape empties the field, as
+                                // in System Settings' search; they did nothing.
+                                .onSubmit {
+                                    guard let first = model.searchResults.first else { return }
+                                    searching = false
+                                    model.openResult?(first.target)
+                                }
+                                .onKeyPress(.escape) {
+                                    guard !model.query.isEmpty else { return .ignored }
+                                    model.query = ""
+                                    model.columnChanged?()
+                                    return .handled
+                                }
                         }
                     // Always laid out, shown only with words in the field (it is laid out the same either way).
                     Button { model.query = ""; model.columnChanged?() } label: {
@@ -1610,7 +1664,10 @@ struct SettingsCategoryColumn: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 14)
+            // [Mac AAA 2026-11-16] The search field on the sidebar's search line (its middle 79 pt down in both
+            // windows): beside the sidebar it stood 6 pt higher than the sidebar's own field.
+            .padding(.top, 20)
+            .padding(.bottom, 14)
         }
         .frame(width: Self.width)
     }
@@ -1811,6 +1868,7 @@ struct NavRow: View {
                 }
             }
             .contentShape(Rectangle())
+            .hqMacRowHover()   // [Mac AAA 2026-11-16] a row that opens a page answers the pointer
         }
         .hqMacFormRowHeight()   // [mac] Stress test 2026-10-28 round 8: the form's one row height (53 on About, 58 with a symbol)
         .accessibilityAddTraits(.isButton)
@@ -1883,8 +1941,18 @@ struct SettingsRowLabel: View {
                 if let systemImage {
                     if DeviceWord.isMac {
                         // #93: one box for every glyph, so a row's height doesn't follow its symbol's.
-                        Image(systemName: systemImage).font(Self.fittedFont(systemImage, column: width))
-                            .foregroundStyle(desktop ? Color.hqLabel2 : Color.hqLabel).frame(width: width, height: width)
+                        // [Mac AAA 2026-11-16] The Label placed its title by the glyph's own metrics, which differ
+                        // from glyph to glyph (mic, person.badge.key, app.badge), so titles stood 15 to 19 pt under
+                        // their row's top. The glyph is drawn over a plain box of the column's size, which alone sets
+                        // the title's place: the box's middle is the title's capital middle on every row.
+                        let capHalf = HQFont.preferred(.body).capHeight / 2
+                        Color.clear.frame(width: width, height: width)
+                            .overlay {
+                                Image(systemName: systemImage).font(Self.fittedFont(systemImage, column: width))
+                                    .foregroundStyle(desktop ? Color.hqLabel2 : Color.hqLabel)
+                            }
+                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + capHalf }
+                            .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] + capHalf }
                     } else if desktop {
                         Image(systemName: systemImage).font(Font.hqSystem(size: 15)).foregroundStyle(Color.hqLabel2).frame(width: width)
                     } else if let ink = Theme.inkIcons {
@@ -2092,7 +2160,7 @@ struct RevealMark: ViewModifier {
                 .fill(Color.hqTint.opacity(on ? 0.18 : 0))
                 .padding(.horizontal, -10)
                 .padding(.vertical, -6)
-                .animation(HQMotion.swiftUI(.easeInOut(duration: 0.35)), value: on)
+                .animation(HQMotion.swiftUI(.easeInOut(duration: HQMotion.move)), value: on)
                 .accessibilityHidden(true)
         }
     }

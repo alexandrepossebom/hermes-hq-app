@@ -63,7 +63,7 @@ nonisolated enum DesktopRows {
         stroke.path = UIBezierPath(roundedRect: view.bounds.insetBy(dx: inset + 0.5, dy: 0.5), cornerRadius: DesktopRows.radius).cgPath
         stroke.fillColor = nil
         stroke.strokeColor = ChatPalette.strokeSecondary.resolvedColor(with: view.traitCollection).cgColor
-        stroke.lineWidth = 1
+        stroke.lineWidth = HQShape.hairline
         stroke.zPosition = 1000
         view.layer.addSublayer(stroke)
     }
@@ -112,7 +112,7 @@ extension View {
     @ViewBuilder func hqDesktopBox(_ on: Bool = Theme.isDesktop, fill: Color = .hqPage) -> some View {
         if on {
             self.background(fill, in: RoundedRectangle(cornerRadius: DesktopRows.radius))
-                .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
         } else {
             self
         }
@@ -143,7 +143,7 @@ struct DesktopOutlinedButtonStyle: ButtonStyle {
             .padding(.vertical, 7)
             .background(configuration.isPressed ? Color(uiColor: HQPalette.cellPressed) : Color.clear,
                         in: RoundedRectangle(cornerRadius: DesktopRows.radius))
-            .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
             .opacity(enabled ? 1 : 0.45)
             .contentShape(RoundedRectangle(cornerRadius: DesktopRows.radius))
     }
@@ -267,7 +267,7 @@ struct DesktopSegmentStrip<Value: Hashable>: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                if index > 0 { Rectangle().fill(Color.hqStroke).frame(width: 1) }
+                if index > 0 { HQHairline(axis: .vertical, color: .hqStroke) }
                 let first = index == 0, last = index == options.count - 1, radius = DesktopRows.radius
                 Button {
                     if ticks, selection != option.value { Haptics.play(.selection) }
@@ -299,7 +299,7 @@ struct DesktopSegmentStrip<Value: Hashable>: View {
                 .accessibilityAddTraits(selection == option.value ? [.isSelected] : [])
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
         .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -407,7 +407,7 @@ extension View {
     /// [paper-solid] Paper's stand-in for a glass panel: its raised card inside a hairline, in the panel's own shape.
     func hqPaperPanel<S: Shape>(in shape: S) -> some View {
         self.background(Color(uiColor: ChatPalette.promptCard), in: shape)
-            .overlay(shape.stroke(Color.hqStroke, lineWidth: 0.5))
+            .overlay(shape.stroke(Color.hqStroke, lineWidth: HQShape.line(0.5)))
     }
 }
 
@@ -419,7 +419,7 @@ extension View {
     @ViewBuilder func hqGlassEffect<S: Shape>(in shape: S) -> some View {
         if Theme.isDesktop {
             self.background(Color(uiColor: ChatPalette.editor), in: RoundedRectangle(cornerRadius: DesktopRows.radius))
-                .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
         } else if Theme.solidChrome {
             self.hqPaperPanel(in: shape)   // [paper-solid]
         } else {

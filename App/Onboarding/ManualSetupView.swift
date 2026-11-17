@@ -24,7 +24,7 @@ struct ManualSetupView: View {
                 GuideTintedButton(title: copy.copyAll, id: "onboarding.manual.copy-all") { feedback.copy() }
                 GuideStatusLine(text: feedback.status, id: "onboarding.manual.status")
             }
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: feedback.status)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: feedback.status)
             section(1, copy.title1) {
                 GuideBlock(text: setup.serve, id: "onboarding.manual.serve")
                 GuideParagraph(copy.text1, font: .subheadline)

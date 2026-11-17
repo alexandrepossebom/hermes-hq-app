@@ -303,6 +303,10 @@ nonisolated enum MacMessageBox {
     static let line = UIColor { @Sendable traits in
         ChatPalette.label.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.10 : 0.12)
     }
+    /// [Mac AAA 2026-11-16] Under the pointer: half a step up from the resting line, short of typing's.
+    static let lineHover = UIColor { @Sendable traits in
+        ChatPalette.label.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.15 : 0.17)
+    }
     static let lineTyping = UIColor { @Sendable traits in
         ChatPalette.label.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.20 : 0.24)
     }

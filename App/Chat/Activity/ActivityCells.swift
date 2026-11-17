@@ -267,7 +267,7 @@ final class DelegateCardCell: ChatBaseCell {
         override init(frame: CGRect) {
             super.init(frame: frame)
             border.fillColor = nil
-            border.lineWidth = 0.5
+            border.lineWidth = HQShape.line(0.5)
             layer.addSublayer(border)
             status.contentMode = .scaleAspectFit
             dot.layer.cornerRadius = 3
@@ -612,7 +612,7 @@ final class ChangedFilesCell: ChatBaseCell {
         guard case .activity(.changedFiles(let c)) = layout.content else { return }
         card.frame = c.cardFrame
         card.backgroundColor = Self.contentCardFill   // [backdrop]
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         header.frame = c.headerFrame
         PointerEffects.fit(header, card: c.cardFrame, radius: ChatMetrics.insetCardRadius)
         header.title.font = c.font
@@ -1146,7 +1146,7 @@ final class TasksAddedCell: ChatBaseCell {
         guard case .activity(.tasksAdded(let t)) = layout.content else { return }
         card.frame = t.cardFrame
         card.backgroundColor = Self.contentCardFill   // [backdrop]
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         undone = t.undone
         helping = t.helping
         botName = t.botName
@@ -1435,7 +1435,7 @@ final class TasksOfferCell: ChatBaseCell {
         } else {
             more.isHidden = true
         }
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         mainButton.frame = t.mainFrame
         let mark = ceil(t.font.pointSize * 1.1)
         statusMark.frame = CGRect(x: t.mainFrame.minX, y: t.mainFrame.midY - mark / 2, width: mark, height: mark)

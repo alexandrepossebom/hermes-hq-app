@@ -497,7 +497,7 @@ struct KanbanTaskView: View {
                     .accessibilityIdentifier("kanban.task.notice")
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.notice)   // motion-ok: the notice fades (opacity transition)
+        .animation(.easeInOut(duration: HQMotion.fade), value: model.notice)   // motion-ok: the notice fades (opacity transition)
         .onChange(of: model.feed) { model.restartLog() }
         .environment(\.kanbanTaskPanel, panel)
         .ignoresSafeArea(.keyboard)   // the host controller turns the keyboard into a bottom safe-area inset
@@ -757,7 +757,7 @@ struct KanbanTaskView: View {
                 ProgressView().controlSize(.small)
             }
             if let summary = Self.latestUpdate(task) {
-                Divider()
+                HQHairline()   // [Mac AAA 2026-11-16] whole pixels
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Latest Update").font(Font.hq(.footnote).weight(.semibold)).foregroundStyle(Color.hqLabel2)
                     FoldedMarkdown(text: summary, lines: 6)
@@ -980,7 +980,7 @@ struct KanbanTaskView: View {
         guard let field else { return }
         let id = field == .comment ? Self.commentBoxId : Self.bodyEditorId
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            if animated { HQMotion.withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .bottom) } }
+            if animated { HQMotion.withAnimation(.easeOut(duration: HQMotion.pane)) { proxy.scrollTo(id, anchor: .bottom) } }
             else { proxy.scrollTo(id, anchor: .bottom) }
         }
     }
@@ -1014,7 +1014,7 @@ struct KanbanTaskView: View {
             .background {
                 // [desktoplook] the look's chips are outlined (4 pt), never filled: the faint capsule vanished on its page.
                 if Theme.isDesktop {
-                    RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(tone.opacity(0.6), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: DesktopRows.radius).strokeBorder(tone.opacity(0.6), lineWidth: HQShape.hairline)
                 } else {
                     Capsule().fill(tone.opacity(0.14))
                 }
@@ -1208,7 +1208,7 @@ struct KanbanTaskView: View {
                     Image(systemName: "arrow.up.circle.fill").hqSymbolFont(panel ? 22 : 28, cap: 40)
                 }
                 .disabled(model.comment.pgTrim.isEmpty || model.busy.contains("comment") || model.busy.contains("requeue"))
-                .accessibilityLabel(running ? "Send" : "Comment")
+                .hqIconLabel(running ? "Send" : "Comment")
                 .accessibilityIdentifier("kanban.task.send")
             }
             // Only once there is a comment to post: greyed out under an empty field it read as more placeholder text.
@@ -1351,7 +1351,7 @@ private struct TaskPanelField: ViewModifier {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(MacField.fill))
-                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(MacField.stroke, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(MacField.stroke, lineWidth: HQShape.hairline))
         } else {
             content
         }
@@ -1366,14 +1366,14 @@ private struct TaskCard: ViewModifier {
             let shape = RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : panel ? 8 : 16, style: .continuous)
             if let tint {
                 shape.fill(tint.opacity(0.1))
-                    .overlay { if Theme.isDesktop { shape.strokeBorder(tint.opacity(0.35), lineWidth: 1) } }
+                    .overlay { if Theme.isDesktop { shape.strokeBorder(tint.opacity(0.35), lineWidth: HQShape.hairline) } }
             } else if Theme.isDesktop {
-                shape.fill(Color.hqGroupedCard).overlay { shape.strokeBorder(Color.hqStroke, lineWidth: 1) }
+                shape.fill(Color.hqGroupedCard).overlay { shape.strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline) }
             } else {
                 // The list's own row colour, so a card sits on the page as the boxes below it do (the skin's card
                 // colour is the page's own grey in the standard look).
                 shape.fill(Color(uiColor: HQPalette.card))
-                    .overlay { if panel { shape.strokeBorder(Color(uiColor: HQPalette.cardEdge), lineWidth: 1) } }
+                    .overlay { if panel { shape.strokeBorder(Color(uiColor: HQPalette.cardEdge), lineWidth: HQShape.hairline) } }
             }
         }
     }

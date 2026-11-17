@@ -128,7 +128,7 @@ final class MediaViewerController: UIViewController, UIPageViewControllerDataSou
         arrows?.update(index: index, count: items.count, hidden: chromeHidden)
         navigationController?.setNavigationBarHidden(chromeHidden, animated: true)
         navigationController?.setToolbarHidden(chromeHidden, animated: true)
-        UIView.animate(withDuration: 0.2) { self.setNeedsStatusBarAppearanceUpdate() } // motion-ok: the status bar fades
+        UIView.animate(withDuration: HQMotion.fade) { self.setNeedsStatusBarAppearanceUpdate() } // motion-ok: the status bar fades
     }
 
     // MARK: Paging

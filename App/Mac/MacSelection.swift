@@ -55,7 +55,22 @@ import UIKit
     /// colours; a Mac's white-on-accent would need every row redrawn).
     static let accent = UIColor { traits in
         // [message-colour] The message colour where one is picked (owner 2026-11-11), else the tint.
-        HQPalette.chosenRow.resolvedColor(with: traits).withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.42 : 0.24)
+        let tint = HQPalette.chosenRow.resolvedColor(with: traits)
+        let dark = traits.userInterfaceStyle == .dark
+        return tint.withAlphaComponent(dark ? (inkTint(tint) ? inkDarkShare : 0.42) : 0.24)
+    }
+    /// [Mac AAA 2026-11-16] A skin whose accent is its ink (Paper; a grey message colour): in dark that ink is near
+    /// white, and 42 % of it made the chosen row a loud light-grey slab (measured 119 on the black strip) far louder
+    /// than any other theme's. A fifth of it reads as chosen, a step past the unfocused grey (`grey`, 14 %), with the
+    /// row's white words at about 9:1.
+    nonisolated static let inkDarkShare: CGFloat = 0.2
+    /// A colour with no hue to speak of AND near white (an ink in dark). Paper's own chosen-row grey
+    /// (`SkinOwnLook.chosenRow`, mid grey) is not one: it keeps the usual 42 %, which is what it was picked for; a
+    /// fifth of it left Paper's chosen row barely past the unfocused grey.
+    nonisolated static func inkTint(_ colour: UIColor) -> Bool {
+        var saturation: CGFloat = 0, brightness: CGFloat = 0
+        guard colour.getHue(nil, saturation: &saturation, brightness: &brightness, alpha: nil) else { return false }
+        return saturation < 0.12 && brightness > 0.75
     }
     /// The unfocused mark and a press: the sidebar's grey.
     static let grey = UIColor { traits in
@@ -72,10 +87,13 @@ import UIKit
     /// A plain list's row (Bots, Sessions, Jobs, Artifacts, Kanban; More in the Desktop Look).
     static func listRow(_ state: UICellConfigurationState) -> UIBackgroundConfiguration {
         var background = UIBackgroundConfiguration.clear()
+        // [Mac AAA 2026-11-16] The shape even with no fill: the pointer's hover reads it (`MacHover.show`), so the hover
+        // is the selection's inset rounded box, not a square band across the whole list that became the box on the
+        // click.
+        background.backgroundInsets = insets
+        background.cornerRadius = radius
         if let fill = fill(selected: state.isSelected, pressed: state.isHighlighted, in: .list) {
             background.backgroundColor = fill
-            background.backgroundInsets = insets
-            background.cornerRadius = radius
         }
         return background
     }

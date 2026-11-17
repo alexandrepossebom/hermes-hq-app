@@ -67,7 +67,7 @@ struct PinCardView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay { if let working { TileChangingVeil(words: working) } }
                 .clipped()
-            .overlay(alignment: .bottom) { Rectangle().fill(Color.hqStroke).frame(height: 0.5) }
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.hqStroke).frame(height: HQShape.line(0.5)) }
             .overlay(alignment: .topTrailing) { TileHealthMark(health: health).padding(8) }
             HStack(spacing: 8) {
                 // At the accessibility sizes the name has the row (the picture above says what it is).
@@ -229,7 +229,7 @@ struct PinTileView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(shape)
                 .overlay { PinHoverFill(hover: hover, shape: shape) }
-                .overlay { shape.strokeBorder(Color.hqStroke, lineWidth: Theme.isDesktop ? 1 : 0.5) }
+                .overlay { shape.strokeBorder(Color.hqStroke, lineWidth: HQShape.line(Theme.isDesktop ? 1 : 0.5)) }
                 .overlay(alignment: .topLeading) {
                     if editing, let unpin {
                         Button(action: unpin) {
@@ -238,13 +238,13 @@ struct PinTileView: View {
                                 .foregroundStyle(Color.hqLabel)
                                 .frame(width: 26, height: 26)
                                 .background(.regularMaterial, in: Circle())
-                                .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: 0.5) }
+                                .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
                         .offset(x: -16, y: -16)   // on the corner, as Home Screen's, off the tile's content
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Unpin \(pin.name)")
+                        .hqIconLabel("Unpin \(pin.name)")
                         .accessibilityIdentifier("pin.unpin-badge")
                         .transition(.hqMotion(.scale.combined(with: .opacity)))
                     }
@@ -288,7 +288,7 @@ private struct ResizeHandleMark: View {
     var body: some View {
         ZStack {
             Circle().fill(.regularMaterial).frame(width: 28, height: 28)
-                .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: 0.5) }
+                .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
             Path { path in
                 path.move(to: CGPoint(x: 18, y: 8))
                 path.addQuadCurve(to: CGPoint(x: 8, y: 18), control: CGPoint(x: 18, y: 18))
@@ -325,7 +325,7 @@ struct TileHealthMark: View {
                 .foregroundStyle(.white)
                 .frame(width: Self.size, height: Self.size)
                 .background(Color.red, in: Circle())
-                .overlay { Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1) }
+                .overlay { Circle().strokeBorder(.white.opacity(0.6), lineWidth: HQShape.hairline) }
                 .accessibilityIdentifier("tile.health.failed")
         case .late:
             disc(Image(systemName: "clock").font(.system(size: 11, weight: .semibold)), id: "late")   // a11y-font-ok: badge
@@ -341,7 +341,7 @@ struct TileHealthMark: View {
             .foregroundStyle(Color.hqLabel)
             .frame(width: Self.size, height: Self.size)
             .background(.regularMaterial, in: Circle())
-            .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: 0.5) }
+            .overlay { Circle().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
             .accessibilityIdentifier("tile.health.\(id)")
     }
 

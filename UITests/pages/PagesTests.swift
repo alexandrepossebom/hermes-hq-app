@@ -382,7 +382,7 @@ final class PagesTests: XCTestCase {
         let document = app.buttons["job.run-row.cron_output:j-script:2026-10-09_08-00-00"]
         for _ in 0..<5 where !document.isHittable { app.swipeUp() }
         XCTAssertTrue(document.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["job.run-row.cron_output:j-script:exec:2"].isEnabled, "the exec row opens nothing")
+        XCTAssertFalse(app.buttons["job.run-row.cron_output:j-script:exec:2"].exists, "the exec row opens nothing: a plain row, not a dimmed button")
         shot("job-script-detail")
         document.tap()
         let body = app.textViews["artifact.text.body"]

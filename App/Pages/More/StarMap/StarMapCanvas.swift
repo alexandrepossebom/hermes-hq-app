@@ -148,7 +148,7 @@ final class StarMapStage {
 
     private func move(to next: StarMapCamera) {
         // Reduce Motion: the map is simply at its new place (HQMotion gives no animation then).
-        HQMotion.withAnimation(.easeInOut(duration: 0.35)) { camera = next }
+        HQMotion.withAnimation(.easeInOut(duration: HQMotion.move)) { camera = next }
         settled = next
     }
 }
@@ -210,7 +210,7 @@ struct StarMapStyle {
     static func current() -> StarMapStyle {
         StarMapStyle(label: .hqLabel, secondary: .hqLabel2, page: .hqGroupedPage,
                      clusterFont: Font.hq(.caption).weight(.semibold), starFont: Font.hq(.caption2),
-                     hairline: 1 / max(1, UITraitCollection.current.displayScale))
+                     hairline: HQShape.pixel(UITraitCollection.current.displayScale))
     }
 }
 
@@ -312,7 +312,7 @@ struct StarMapDrawing: View, @MainActor Animatable {
             if !halos[slot].isEmpty { context.fill(halos[slot], with: .color(color.opacity(0.16 * appear))) }
             context.fill(dots[slot], with: .color(color.opacity(appear)))
         }
-        if !rings.isEmpty { context.stroke(rings, with: .color(style.label.opacity(0.7 * appear)), lineWidth: 1) }
+        if !rings.isEmpty { context.stroke(rings, with: .color(style.label.opacity(0.7 * appear)), lineWidth: HQShape.hairline) }
 
         // Cluster names, on the outer side of each cluster (the far side from the middle of the ring).
         var taken: [CGRect] = []
@@ -370,9 +370,9 @@ struct StarMapZoomButtons: View {
     var body: some View {
         VStack(spacing: 0) {
             button("plus.magnifyingglass", "Zoom In", "starmap.zoomIn", .zoomIn)
-            Divider().frame(width: 28)
+            Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 28, height: HQShape.hairline)   // [Mac AAA 2026-11-16] whole pixel
             button("minus.magnifyingglass", "Zoom Out", "starmap.zoomOut", .zoomOut)
-            Divider().frame(width: 28)
+            Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 28, height: HQShape.hairline)
             button("arrow.up.left.and.arrow.down.right", "Whole Map", "starmap.whole", .fit)
         }
         .hqGlassEffect(in: Capsule())

@@ -353,7 +353,7 @@ final class PromptEditorViewController: UIViewController, UITextViewDelegate {
             rule.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2),
             rule.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             rule.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            rule.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)),
+            rule.heightAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale)),
             textView.topAnchor.constraint(equalTo: rule.bottomAnchor),
             textView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             textView.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
@@ -371,7 +371,7 @@ final class PromptEditorViewController: UIViewController, UITextViewDelegate {
         card.backgroundColor = desktop ? .clear : HQPalette.sheetCard
         card.layer.cornerRadius = desktop ? DesktopRows.radius : GlassSheetKit.cardRadius
         card.layer.cornerCurve = .continuous
-        card.layer.borderWidth = desktop ? 1 : 0
+        card.layer.borderWidth = desktop ? HQShape.hairline : 0
         card.layer.borderColor = desktop ? HQPalette.stroke.resolvedColor(with: traitCollection).cgColor : nil
     }
     #endif

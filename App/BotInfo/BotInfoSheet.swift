@@ -547,7 +547,7 @@ final class BotInfoController: UIHostingController<HQScaledRoot<BotInfoView>> {
             }
         }
         guard let bar = navigationController?.navigationBar, !HQMotion.reduced else { swap(); return }
-        UIView.transition(with: bar, duration: 0.18, options: [.transitionCrossDissolve, .allowUserInteraction], animations: swap)
+        UIView.transition(with: bar, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction], animations: swap)
     }
 
     @MainActor required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }

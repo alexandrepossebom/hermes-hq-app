@@ -696,7 +696,7 @@ struct AccountRow: View {
                         .frame(minWidth: 32, minHeight: 32).contentShape(Rectangle())
                 }
                 .disabled(busy)
-                .accessibilityLabel("Actions for \(account.name)")
+                .hqIconLabel("Actions for \(account.name)")
                 .accessibilityIdentifier("managed-account-menu-\(account.name)")
             }
         }

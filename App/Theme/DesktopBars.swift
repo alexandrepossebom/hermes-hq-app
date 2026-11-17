@@ -261,8 +261,10 @@ enum DesktopBars {
 
     /// `glyphSize` at the text size the person picked: it grows with the bar's title, as the iOS look's glyphs do
     /// (`PageBarCapsule.barGlyph`, a body text style).
+    /// [Mac AAA 2026-11-16] On the Mac × UI Scale (View › Make Text Bigger) too, as the iOS look's chat bar glyphs now
+    /// are: at 150 % the chat's ⋯, speaker and panel button stayed at 100 % in the Desktop Look.
     static func pointSize(_ traits: UITraitCollection) -> CGFloat {
-        UIFontMetrics(forTextStyle: .body).scaledValue(for: glyphSize, compatibleWith: traits).rounded()
+        (UIFontMetrics(forTextStyle: .body).scaledValue(for: glyphSize, compatibleWith: traits) * ChatTitleView.macChrome).rounded()
     }
 
     /// The size the last bar laid out with, for an item given a new image or set before it is in a bar.
@@ -314,7 +316,7 @@ extension DesktopBars {
             if saved == nil { objc_setAssociatedObject(bar, doneKey, NSNumber(value: field.borderStyle.rawValue), .OBJC_ASSOCIATION_RETAIN) }
             field.backgroundColor = ChatPalette.editor
             field.layer.cornerRadius = DesktopRows.radius
-            field.layer.borderWidth = 1
+            field.layer.borderWidth = HQShape.hairline
             field.layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: bar.traitCollection).cgColor
             field.layer.cornerCurve = .continuous
             field.borderStyle = .none
@@ -466,7 +468,7 @@ extension UIBarButtonItem {
             return UIGraphicsImageRenderer(size: size).image { _ in
                 let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), cornerRadius: DesktopRows.radius)
                 fill.resolvedColor(with: traits).setFill(); path.fill()
-                ChatPalette.strokeSecondary.resolvedColor(with: traits).setStroke(); path.lineWidth = 1; path.stroke()
+                ChatPalette.strokeSecondary.resolvedColor(with: traits).setStroke(); path.lineWidth = HQShape.hairline; path.stroke()
             }.resizableImage(withCapInsets: UIEdgeInsets(top: 5, left: 5, bottom: 5, right: 5), resizingMode: .stretch)
         }
     }

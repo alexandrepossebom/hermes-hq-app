@@ -1532,7 +1532,9 @@ enum TerminalConsentWords {
         let out = NSMutableAttributedString()
         for (index, point) in points.enumerated() {
             let ink: UIColor = point.warning ? .systemOrange : UIColor(white: 0.75, alpha: 1)
-            if let image = UIImage(systemName: point.symbol, withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .small))?
+            // [Mac AAA 2026-11-16] The marks at the words' own size (`.medium`): small, the shield and the lock came out
+            // at about two-thirds of the text's height beside a full-size warning triangle.
+            if let image = UIImage(systemName: point.symbol, withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .medium))?
                 .withTintColor(ink, renderingMode: .alwaysOriginal) {
                 out.append(NSAttributedString(attachment: NSTextAttachment(image: image)))
             }

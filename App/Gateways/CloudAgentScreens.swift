@@ -73,7 +73,7 @@ struct CloudAgentMenu: View {
                 // [ui-sizing] A 44 pt touch around the drawn ⋯ (it was 30 pt at the default size).
                 .contentShape(Rectangle().inset(by: -max(0, 44 - min(side, 44)) / 2))
         }
-        .accessibilityLabel(CloudCopy.moreWord)
+        .hqIconLabel(CloudCopy.moreWord)
         .accessibilityIdentifier("cloud-agent-more-\(agent.name)")
     }
 }
@@ -135,12 +135,12 @@ private struct CloudAgentDetail: View {
                             .disabled(!model.can(.stop) || agent.isFailed)
                     }
                     if up, model.can(.restart) {
-                        Divider().padding(.leading, 64)
+                        SettingsHairline().padding(.leading, 64)
                         CloudActionRow(symbol: "arrow.clockwise", tint: Color.hqTint, title: CloudCopy.restartWord, detail: CloudCopy.restartDetail,
                                        id: "cloud-agent.restart") { model.askRestart(agent) }
                     }
                     if model.can(.updateImage) {
-                        Divider().padding(.leading, 64)
+                        SettingsHairline().padding(.leading, 64)
                         CloudActionRow(symbol: "arrow.down", tint: Color.hqTint, title: CloudCopy.updateWord, detail: CloudCopy.updateDetail(agent),
                                        id: "cloud-agent.update") { model.askUpdate(agent) }
                     }
@@ -156,7 +156,7 @@ private struct CloudAgentDetail: View {
                     .buttonStyle(CloudPressStyle())
                     .disabled(!model.can(.rename))
                     .accessibilityIdentifier("cloud-agent.rename")
-                    Divider().padding(.leading, 16)
+                    SettingsHairline().padding(.leading, 16)
                     Button { model.onRoute?(.resize(agent.id)) } label: {
                         CloudValueLabel(title: CloudCopy.size, value: sizeValue, chevron: true)
                     }
@@ -164,13 +164,13 @@ private struct CloudAgentDetail: View {
                     .disabled(!model.can(.resize) || agent.canResize == false)
                     .accessibilityIdentifier("cloud-agent.size")
                     if let screen = CloudScreen.included(memoryMB: agent.memoryMB) {
-                        Divider().padding(.leading, 16)
+                        SettingsHairline().padding(.leading, 16)
                         CloudValueLabel(title: CloudCopy.screen, value: CloudCopy.screenValue(screen))
                             .accessibilityIdentifier("cloud-agent.screen")
                     }
-                    Divider().padding(.leading, 16)
+                    SettingsHairline().padding(.leading, 16)
                     disk
-                    Divider().padding(.leading, 16)
+                    SettingsHairline().padding(.leading, 16)
                     Button { model.onRoute?(.variables(agent.id)) } label: {
                         let count = model.envNames(agent).count
                         CloudValueLabel(title: CloudCopy.variables, value: count == 0 ? "" : "\(count)", chevron: true)
@@ -179,7 +179,7 @@ private struct CloudAgentDetail: View {
                     .disabled(!model.can(.updateEnv))
                     .accessibilityIdentifier("cloud-agent.variables")
                     if model.can(.setFeature) {
-                        Divider().padding(.leading, 16)
+                        SettingsHairline().padding(.leading, 16)
                         teamGateway
                     }
                 }
@@ -191,7 +191,7 @@ private struct CloudAgentDetail: View {
                     CloudLabel(text: CloudCopy.detailsLabel).padding(.top, 22)
                     VStack(spacing: 0) {
                         ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                            if index > 0 { Divider().padding(.leading, 16) }
+                            if index > 0 { SettingsHairline().padding(.leading, 16) }
                             CloudValueLabel(title: row.title, value: row.value, selectable: true)
                         }
                     }
@@ -243,8 +243,8 @@ private struct CloudAgentDetail: View {
                 }
             }
         }
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: busy)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: agent)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: busy)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: agent)
     }
 
     private var sizeValue: String {
@@ -561,7 +561,7 @@ struct CloudResizePage: View {
                 .disabled(chosen == current || model.busy[agent.id] != nil)
             }
         }
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.25), fades: true), value: chosen)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.pane), fades: true), value: chosen)
     }
 }
 
@@ -623,7 +623,7 @@ struct CloudVariablesPage: View {
                             .padding(.horizontal, 16)
                     }
                     ForEach(Array(names.enumerated()), id: \.element) { index, key in
-                        if index > 0 { Divider().padding(.leading, 16) }
+                        if index > 0 { SettingsHairline().padding(.leading, 16) }
                         HStack(spacing: 10) {
                             Text(key).font(Font.hq(.body).monospaced()).foregroundStyle(Color.hqLabel).lineLimit(1).truncationMode(.middle)
                             Spacer(minLength: 8)
@@ -635,7 +635,7 @@ struct CloudVariablesPage: View {
                                     .contentShape(Rectangle().inset(by: -10))   // [ui-sizing] a 44 pt touch (was ~22)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Remove \(key)")
+                            .hqIconLabel("Remove \(key)")
                             .accessibilityIdentifier("cloud-variable-remove-\(key)")
                         }
                         .padding(.horizontal, 16)
@@ -663,7 +663,7 @@ struct CloudVariablesPage: View {
                         .padding(.horizontal, 16)
                         .frame(minHeight: 50)
                         .accessibilityIdentifier("cloud-variable-name")
-                    Divider().padding(.leading, 16)
+                    SettingsHairline().padding(.leading, 16)
                     TextField(CloudCopy.variableValue, text: $value, prompt: Text(CloudCopy.variableValuePlaceholder))
                         .font(Font.hq(.body).monospaced())
                         .textInputAutocapitalization(.never)

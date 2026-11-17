@@ -30,6 +30,10 @@ final class ConnectAppsController: UIHostingController<HQScaledRoot<ConnectAppsR
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // [Mac AAA 2026-11-16] The page's own colour behind it from the first frame: the Mac's bar takes the colour of
+        // what it finds under it (`MacWindow.pageBar`), and while the page was still loading that was the hosting
+        // view's plain background, so Composio's bar was a lighter band over the grouped page.
+        view.backgroundColor = HQPalette.groupedPage
         Task { await model.start() }
     }
 
@@ -156,7 +160,7 @@ struct AppLogo: View {
             }
         }
         .frame(width: size, height: size)
-        .overlay(RoundedRectangle(cornerRadius: size * 0.24).strokeBorder(Color.hqFill3, lineWidth: 0.5))
+        .overlay(RoundedRectangle(cornerRadius: size * 0.24).strokeBorder(Color.hqFill3, lineWidth: HQShape.line(0.5)))
         .accessibilityHidden(true)
         .task(id: slug) { image = await ComposioLogoStore.shared.image(slug: slug, logo: logo) }
     }
@@ -1038,7 +1042,7 @@ struct ConnectAppView: View {
                     Image(systemName: "ellipsis.circle").font(Font.hq(.title3)).foregroundStyle(Color.hqTint)
                         .frame(minWidth: 30, minHeight: 30).contentShape(Rectangle())
                 }
-                .accessibilityLabel("\(title) options")
+                .hqIconLabel("\(title) Options")
                 .accessibilityIdentifier("connect-app.account-menu-\(number)")
             }
             SettingsChevron()

@@ -599,7 +599,7 @@ struct NoticeRow: View {
             if let close {
                 Button(action: close) { Image(systemName: "xmark").font(Font.hq(.footnote).weight(.semibold)) }
                     .buttonStyle(.plain).foregroundStyle(Color.hqLabel2).frame(minWidth: 44, minHeight: 44)
-                    .accessibilityLabel("Close")
+                    .hqIconLabel("Close")   // [Mac AAA 2026-11-16] its name as the pointer's tip too
             }
         }
         .padding(.vertical, 3)

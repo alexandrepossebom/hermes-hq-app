@@ -175,7 +175,7 @@ private struct ChangeTileHeader: View {
                 }
                 .frame(width: width, height: height)
                 .clipShape(shape)
-                .overlay { shape.strokeBorder(Color.hqStroke, lineWidth: Theme.isDesktop ? 1 : 0.5) }
+                .overlay { shape.strokeBorder(Color.hqStroke, lineWidth: HQShape.line(Theme.isDesktop ? 1 : 0.5)) }
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.name)
@@ -229,7 +229,7 @@ private struct ChangeTileChip: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(Capsule().fill(on ? Color.hqTint.opacity(0.16) : Color.hqFill3))
-            .overlay { Capsule().strokeBorder(on ? Color.hqTint.opacity(0.5) : Color.clear, lineWidth: 1) }
+            .overlay { Capsule().strokeBorder(on ? Color.hqTint.opacity(0.5) : Color.clear, lineWidth: HQShape.hairline) }
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -260,7 +260,7 @@ struct TileChangingVeil: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(.regularMaterial, in: Capsule())
-            .overlay { Capsule().strokeBorder(Color.hqStroke, lineWidth: 0.5) }
+            .overlay { Capsule().strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)) }
             .padding(8)
         }
         .overlay {

@@ -161,7 +161,7 @@ nonisolated enum AttachmentDrop {
             shown.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             host.addSubview(shown)
             shown.alpha = 0
-            UIView.animate(withDuration: 0.15) { shown.alpha = 1 }   // motion-ok: opacity only
+            UIView.animate(withDuration: HQMotion.quick) { shown.alpha = 1 }   // motion-ok: opacity only
             overlay = shown
         }
         host.bringSubviewToFront(shown)
@@ -171,7 +171,7 @@ nonisolated enum AttachmentDrop {
     private func hideOverlay() {
         guard let shown = overlay else { return }
         overlay = nil
-        UIView.animate(withDuration: 0.15, animations: { shown.alpha = 0 }, completion: { _ in shown.removeFromSuperview() })   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.quick, animations: { shown.alpha = 0 }, completion: { _ in shown.removeFromSuperview() })   // motion-ok: opacity only
     }
 
     #if DEBUG

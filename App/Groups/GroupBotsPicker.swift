@@ -329,7 +329,7 @@ struct GroupBotsPickerView: View {
                         }
                             .buttonStyle(.plain)
                             .padding(.vertical, -10)
-                            .accessibilityLabel("Clear search")
+                            .hqIconLabel("Clear search")
                     }
                 }
                 if model.loading {

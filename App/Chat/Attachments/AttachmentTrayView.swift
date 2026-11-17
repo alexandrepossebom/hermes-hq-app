@@ -96,7 +96,7 @@ final class AttachmentTrayView: UIView {
         for id in removed {
             guard let tile = tiles.removeValue(forKey: id) else { continue }
             if animated && !HQMotion.reduced {
-                UIView.animate(withDuration: 0.25, animations: { tile.alpha = 0; tile.transform = CGAffineTransform(scaleX: 0.6, y: 0.6) },
+                UIView.animate(withDuration: HQMotion.pane, animations: { tile.alpha = 0; tile.transform = CGAffineTransform(scaleX: 0.6, y: 0.6) },
                                completion: { _ in tile.removeFromSuperview() })
             } else {
                 tile.removeFromSuperview()
@@ -120,7 +120,7 @@ final class AttachmentTrayView: UIView {
         if animated && !HQMotion.reduced {
             layoutTiles(placing: inserted)
             for t in inserted { t.alpha = 0; t.transform = CGAffineTransform(scaleX: 0.6, y: 0.6) }
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
+            UIView.animate(withDuration: HQMotion.move, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) {
                 for t in inserted { t.alpha = 1; t.transform = .identity }
                 self.layoutTiles(placing: [])
@@ -234,7 +234,7 @@ final class TrayTileView: UIView {
         clipsToBounds = false
         card.clipsToBounds = true
         card.backgroundColor = ChatPalette.page
-        card.layer.borderWidth = 0.5
+        card.layer.borderWidth = HQShape.line(0.5)
         card.layer.cornerCurve = .continuous
         addSubview(card)
         thumb.contentMode = .scaleAspectFill

@@ -44,8 +44,9 @@ enum ChatDemo {
 
     /// `-HQDemoPhotos`: the folder's sets, in name order (each set's pictures in name order, and its words).
     static let photoSets: [(name: String, mine: Bool, files: [String], words: String)] = {
-        guard let folder = argument("-HQDemoPhotos"),
-              let names = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return [] }
+        guard var folder = argument("-HQDemoPhotos") else { return [] }
+        if folder == "generated" { folder = generatedPhotos() }   // [Mac AAA 2026-11-16] the sandboxed Mac app can't read a folder of ours
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return [] }
         var sets: [String: [String]] = [:]
         for name in names.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }) {
             let ext = (name as NSString).pathExtension.lowercased()
@@ -57,6 +58,40 @@ enum ChatDemo {
             return (key, key.hasPrefix("me"), sets[key] ?? [], words.trimmingCharacters(in: .whitespacesAndNewlines))
         }
     }()
+
+    /// `-HQDemoPhotos generated`: drawn stand-in photos in the app's own temporary folder (a bot's single photo, a
+    /// bot's two, your three with words, a bot's six with words, your four), so a sandboxed Mac build can show them.
+    private static func generatedPhotos() -> String {
+        let folder = (NSTemporaryDirectory() as NSString).appendingPathComponent("demo-photos")
+        try? FileManager.default.removeItem(atPath: folder)
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let sets: [(String, [CGSize], String?)] = [
+            ("a1", [CGSize(width: 1600, height: 1200)], "Here is the view from the deck."),
+            ("b2", [CGSize(width: 1200, height: 1600), CGSize(width: 1200, height: 1600)], nil),
+            ("me3", Array(repeating: CGSize(width: 1600, height: 1200), count: 3), "Three from the trip"),
+            ("p4", (0..<6).map { CGSize(width: 1400, height: $0 % 2 == 0 ? 1000 : 1400) }, "All six from the walk."),
+            ("me5", Array(repeating: CGSize(width: 1200, height: 1200), count: 4), nil),
+        ]
+        for (setIndex, (key, sizes, words)) in sets.enumerated() {
+            for (i, size) in sizes.enumerated() {
+                let hue = CGFloat((setIndex * 5 + i) % 12) / 12
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                    let colors = [UIColor(hue: hue, saturation: 0.55, brightness: 0.9, alpha: 1).cgColor,
+                                  UIColor(hue: hue + 0.08, saturation: 0.6, brightness: 0.45, alpha: 1).cgColor] as CFArray
+                    if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                        context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+                    }
+                    UIColor(white: 0.97, alpha: 1).setFill()
+                    UIBezierPath(ovalIn: CGRect(x: size.width * 0.3, y: size.height * 0.25, width: size.width * 0.4, height: size.height * 0.4)).fill()
+                }
+                try? image.pngData()?.write(to: URL(fileURLWithPath: (folder as NSString).appendingPathComponent("\(key)-\(i + 1).png")))
+            }
+            if let words { try? words.write(toFile: (folder as NSString).appendingPathComponent(key + ".txt"), atomically: true, encoding: .utf8) }
+        }
+        return folder
+    }
 
     /// `-HQDemoPhotos`: your messages' photos by message id (a reply's are `MEDIA:` lines in its words).
     static let photoAttachments: [String: [MessageAttachment]] = {

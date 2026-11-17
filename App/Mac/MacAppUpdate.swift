@@ -855,7 +855,8 @@ struct MacAppUpdateView: View {
                 .padding(.bottom, 16)
                 .transition(.hqMotion(.opacity))
             }
-            Divider().overlay(Color.hqStroke)
+            // [Mac AAA 2026-11-16] On whole screen pixels: `Divider()` fell between pixels at the Mac's 77 % and blurred.
+            MacUpdateHairline()
             buttons
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
@@ -863,8 +864,8 @@ struct MacAppUpdateView: View {
         .frame(width: 540)
         .fixedSize(horizontal: false, vertical: true)
         .background(Color.hqGroupedPage.ignoresSafeArea())
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: update.phase)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: update.steps)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: update.phase)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: update.steps)
         .accessibilityIdentifier("mac-update")
     }
 
@@ -927,16 +928,18 @@ struct MacAppUpdateView: View {
 
     // MARK: The steps
 
+    // [Mac AAA 2026-11-16] The cards take the look's corner (`HQShape.radius`): the Desktop Look's 4 pt, not 10 pt
+    // beside its square-cornered buttons and sheets.
     private var steps: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(update.steps.enumerated()), id: \.element.id) { index, step in
-                if index > 0 { Divider().overlay(Color.hqStroke).padding(.leading, 44) }
+                if index > 0 { MacUpdateHairline().padding(.leading, 44) }
                 MacAppUpdateStepRow(step: step)
             }
         }
         .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.hqGroupedCard))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: 0.5))
+        .background(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).fill(Color.hqGroupedCard))
+        .overlay(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)))
         .accessibilityIdentifier("mac-update.steps")
     }
 
@@ -971,8 +974,8 @@ struct MacAppUpdateView: View {
                     list
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.hqGroupedCard))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: 0.5))
+            .background(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).fill(Color.hqGroupedCard))
+            .overlay(RoundedRectangle(cornerRadius: HQShape.radius(10, .card), style: .continuous).strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)))
         }
         .accessibilityIdentifier("mac-update.whats-new")
     }
@@ -1050,7 +1053,7 @@ struct MacAppUpdateView: View {
         }
         .font(Font.hq(.footnote))
         .foregroundStyle(Color.hqLabel2)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.25)), value: update.countdown)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.pane)), value: update.countdown)
     }
 
     /// [macpass-sidebar] A button title never wraps: with four buttons (Copy Details, Open Website, Done, Try Again on
@@ -1105,10 +1108,18 @@ private struct MacAppUpdateStepRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: step.state)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: step.state)
         .accessibilityElement(children: .combine)
         .accessibilityValue(step.state == .done ? "Done" : step.state == .active ? "In progress" : step.state == .failed ? "Failed" : "Waiting")
         .accessibilityIdentifier("mac-update.step.\(step.id.rawValue)")
+    }
+}
+
+/// [Mac AAA 2026-11-16] The update window's rules: the stroke colour on whole screen pixels (`HQShape.hairline`), as
+/// `SettingsHairline` draws Settings' (SwiftUI's `Divider()` drew a soft 0.77 px line here).
+private struct MacUpdateHairline: View {
+    var body: some View {
+        HQHairline(color: .hqStroke)
     }
 }
 #endif

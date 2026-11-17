@@ -399,7 +399,7 @@ import UIKit
         #endif
         faded += cells.map { (view: $0.contentView, cell: $0, rowId: $0.rowId) }
         let curve = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.4, y: 0), controlPoint2: CGPoint(x: 1, y: 1))
-        let animator = UIViewPropertyAnimator(duration: 0.2, timingParameters: curve)
+        let animator = UIViewPropertyAnimator(duration: HQMotion.fade, timingParameters: curve)
         animator.addAnimations {
             for v in cells.map(\.contentView) {
                 v.alpha = 0
@@ -494,7 +494,7 @@ import UIKit
             if !HQMotion.reduced {
                 for cell in stepCells(of: id) {
                     cell.contentView.alpha = 0
-                    UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction]) { cell.contentView.alpha = 1 }
+                    UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.allowUserInteraction]) { cell.contentView.alpha = 1 }
                 }
             }
         }
@@ -706,6 +706,15 @@ import UIKit
         }
     }
 
+    /// [Mac AAA 2026-11-16] The helpers row's count: a queued helper was counted as running ("3 running" over a list
+    /// with one Queued, beside the inspector's "2 working"). "2 running · 1 queued · 1 done".
+    static func helperCounts(live: [SubagentStatus], done: Int) -> String {
+        let queued = live.filter { $0 == .queued }.count
+        let running = live.count - queued
+        return [running > 0 ? "\(running) running" : nil, queued > 0 ? "\(queued) queued" : nil, done > 0 ? "\(done) done" : nil]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
     private func toggle(_ kind: ShelfPieceKind) {
         if kind == .browser { onBrowserChip?(); return }    // [browser]
         acknowledgeOpenHelperFailure()
@@ -828,7 +837,7 @@ import UIKit
             } else {
                 let words = SubagentRules.chipWords(liveCount: live.count)
                 piece.header.set(words: live.count == 1 && done == 0 ? "Helper" : "Helpers",
-                                 value: done > 0 ? "\(live.count) running · \(done) done" : "\(live.count) running",
+                                 value: Self.helperCounts(live: live.map(\.status), done: done),
                                  spoken: done > 0 ? "\(words) · \(done) done" : words,
                                  spinner: GlyphFrames.purple)
             }
@@ -978,7 +987,7 @@ import UIKit
         }
         if motion && changed {
             let spring = UISpringTimingParameters(dampingRatio: 1)
-            let animator = UIViewPropertyAnimator(duration: 0.3, timingParameters: spring)   // motion-ok: `motion` is false under Reduce Motion
+            let animator = UIViewPropertyAnimator(duration: HQMotion.move, timingParameters: spring)   // motion-ok: `motion` is false under Reduce Motion
             animator.addAnimations(apply)
             animator.startAnimation()
         } else if changed {

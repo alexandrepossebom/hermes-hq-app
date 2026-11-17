@@ -137,11 +137,19 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
 /// [mac] The hover the Mac doesn't draw: one fill view per list, moved to the row under the pointer.
 @MainActor final class MacHover: NSObject {
     /// Faint enough that a row's text and the selected row's own colour read through it, light and dark.
-    static let rowFill = UIColor.label.withAlphaComponent(0.05)
-    static let buttonFill = UIColor.label.withAlphaComponent(0.08)
+    static let rowFill = tone(0.05)
+    static let buttonFill = tone(0.08)
     /// While the mouse button is down: the same fill, deeper (a row's, a card's; a small button's).
-    static let rowPressFill = UIColor.label.withAlphaComponent(0.1)
-    static let buttonPressFill = UIColor.label.withAlphaComponent(0.14)
+    static let rowPressFill = tone(0.1)
+    static let buttonPressFill = tone(0.14)
+
+    /// [Mac AAA 2026-11-16] Under Increase Contrast a 5 % fill is all but invisible: the fills there are twice as deep.
+    private static func tone(_ alpha: CGFloat) -> UIColor {
+        UIColor { traits in
+            let high = traits.accessibilityContrast == .high || HQAccessibility.overrides.contrast
+            return UIColor.label.resolvedColor(with: traits).withAlphaComponent(high ? alpha * 2 : alpha)
+        }
+    }
     private static var key = 0
 
     /// What a control's fill is cut to: a disc round an icon button (a capsule when it is clearly wider than tall), the
@@ -160,6 +168,14 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
         let hover = MacHover(list: list)
         objc_setAssociatedObject(list, &key, hover, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
+
+    #if DEBUG
+    /// [Mac AAA 2026-11-16] Tours: the hover on `row` as the pointer would put it there (tours can't move the pointer).
+    static func debugHover(_ list: UIScrollView, row: UIView?) {
+        rows(list)
+        (objc_getAssociatedObject(list, &key) as? MacHover)?.show(row)
+    }
+    #endif
 
     private static var ownKey = 0
 
@@ -261,7 +277,7 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
             return
         }
         guard let row else {
-            UIView.animate(withDuration: 0.06, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: hover fill fades opacity only
+            UIView.animate(withDuration: HQMotion.hover, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: hover fill fades opacity only
                 self.fill.alpha = 0
             } completion: { [weak self] done in if done, self?.hovered == nil { self?.fill.removeFromSuperview() } }
             return
@@ -274,6 +290,15 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
         let shape = row.subviews.first { $0 !== fill && $0.layer.cornerRadius > 0 }?.layer
         fill.layer.cornerRadius = shape?.cornerRadius ?? 0
         fill.layer.maskedCorners = shape?.maskedCorners ?? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        // [Mac AAA 2026-11-16] A plain list's row whose selection is an inset rounded box (`MacSelection.listRow`): the
+        // hover is that box too (it was a square band across the list, which the click then turned into the box).
+        if let background = (row as? UICollectionViewCell)?.backgroundConfiguration, background.cornerRadius > 0,
+           background.backgroundInsets != .zero {
+            let inset = background.backgroundInsets
+            fill.frame = row.bounds.inset(by: UIEdgeInsets(top: inset.top, left: inset.leading, bottom: inset.bottom, right: inset.trailing))
+            fill.layer.cornerRadius = background.cornerRadius
+            fill.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        }
         fill.layer.cornerCurve = .continuous
         // Over the row's background, under its text.
         if let content = (row as? UICollectionViewCell)?.contentView ?? (row as? UITableViewCell)?.contentView {
@@ -391,7 +416,7 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
         let down = pressed || control?.isHighlighted == true
         guard over || down, control?.isEnabled != false, !view.isHidden, view.isUserInteractionEnabled else {
             guard fill.alpha > 0 else { return }
-            UIView.animate(withDuration: 0.06, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { self.fill.alpha = 0 }   // motion-ok: hover fill fades opacity only
+            UIView.animate(withDuration: HQMotion.hover, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { self.fill.alpha = 0 }   // motion-ok: hover fill fades opacity only
             return
         }
         let holder = host ?? view
@@ -459,6 +484,13 @@ extension View {
     /// row of a column, which has its own mark). Nothing on the iPhone and the iPad.
     func hqPointerFill(_ radius: CGFloat = 8, on: Bool = true) -> some View {
         hqPointerFill(RoundedRectangle(cornerRadius: radius, style: .continuous), on: on)
+    }
+
+    /// [Mac AAA 2026-11-16] An icon-only SwiftUI button's name: what VoiceOver says, and on the Mac the tip shown under
+    /// the pointer. A UIKit button gets its tip from its label by itself (`MacToolTips`), but a SwiftUI button is not a
+    /// view the window can find, so an `accessibilityLabel` alone showed no tip.
+    func hqIconLabel(_ label: String) -> some View {
+        accessibilityLabel(label).help(label)
     }
 
     @ViewBuilder func hqPointerFill<Outline: Shape>(_ shape: Outline, on: Bool = true) -> some View {

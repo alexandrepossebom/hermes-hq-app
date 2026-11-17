@@ -57,7 +57,7 @@ import UIKit
             return
         }
         navigation.view.layoutIfNeeded()
-        UIView.animate(withDuration: 0.3, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: Reduce Motion returned in the guard above
+        UIView.animate(withDuration: HQMotion.move, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: Reduce Motion returned in the guard above
             item.subtitle = subtitle
             navigation.navigationBar.setNeedsLayout()
             navigation.view.setNeedsLayout()

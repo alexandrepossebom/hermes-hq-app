@@ -37,7 +37,7 @@ private struct IdeaButtonStyle: ButtonStyle {
             label
                 .foregroundStyle(prominent ? Color.hqOnTint : Color.hqLabel)
                 .background(shape.fill(prominent ? Color.hqTint : rest))
-                .overlay { if !prominent { shape.strokeBorder(edge, lineWidth: 1) } }
+                .overlay { if !prominent { shape.strokeBorder(edge, lineWidth: HQShape.hairline) } }
                 .contentShape(shape)
         } else {
             label
@@ -54,7 +54,7 @@ private struct IdeaCardBackground: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : 14, style: .continuous)
         content.background {
             if Theme.isDesktop {
-                shape.fill(Color.hqGroupedCard).overlay { shape.strokeBorder(Color.hqStroke, lineWidth: 1) }
+                shape.fill(Color.hqGroupedCard).overlay { shape.strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline) }
             } else {
                 shape.fill(Color.hqLabel.opacity(0.06))
             }
@@ -150,7 +150,7 @@ struct TaskIdeaCard: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!enabled || card.busy)
-                .accessibilityLabel("Dismiss")
+                .hqIconLabel("Dismiss")
                 .accessibilityIdentifier("tasks.idea.dismiss.\(idea.title)")
             }
             if !idea.why.isEmpty {
@@ -354,7 +354,7 @@ struct TaskIdeaRow: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!enabled || card.busy)
-                .accessibilityLabel("Dismiss")
+                .hqIconLabel("Dismiss")
                 .accessibilityIdentifier("tasks.idea.dismiss.\(idea.title)")
             }
             if !second.isEmpty {

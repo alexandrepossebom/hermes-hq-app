@@ -298,7 +298,9 @@ struct MacSwitch: View {
     var body: some View {
         let _ = Theme.touch()
         let height = MacForm.switchHeight
-        let on = Theme.isDesktop ? Color.hqTintText : Color.hqTint
+        // [Mac AAA 2026-11-16] An ink skin (Paper) gives its switches their own on colour (`Theme.inkSwitch`), as the
+        // iPhone's do: the ivory ink in dark left the white knob on a near-white track.
+        let on = Theme.isDesktop ? Color.hqTintText : Theme.inkSwitch.map { Color(uiColor: $0) } ?? Color.hqTint
         // [mac] Stress test 2026-10-28 #51 (review): dimmed, the whole switch at 45 % was a grey knob on a navy track in
         // the Desktop Look dark, neither on nor off. Now a dimmed switch keeps its state's shape: on is a paler accent
         // track with the white knob at the trailing end, off an outlined empty track with a grey knob at the leading end.
@@ -313,7 +315,7 @@ struct MacSwitch: View {
                 .fill(track)
                 .overlay {
                     if !isOn, !enabled || !desktop {
-                        Capsule().strokeBorder(Color.hqLabel3.opacity(enabled ? 0.5 : 0.6), lineWidth: 1)
+                        Capsule().strokeBorder(Color.hqLabel3.opacity(enabled ? 0.5 : 0.6), lineWidth: HQShape.hairline)
                     }
                 }
             Circle()
@@ -325,7 +327,7 @@ struct MacSwitch: View {
         .contentShape(Capsule())
         .onTapGesture {
             guard enabled else { return }
-            HQMotion.withAnimation(.snappy(duration: 0.18)) { isOn.toggle() }
+            HQMotion.withAnimation(.snappy(duration: HQMotion.fade)) { isOn.toggle() }
         }
     }
 }
@@ -460,6 +462,42 @@ private struct MacSettingsControl: ViewModifier {
         content.padding(.vertical, settings ? -MacForm.controlOverhang : 0)
     }
 }
+
+extension View {
+    /// [Mac AAA 2026-11-16] A Settings row that opens a page answers the pointer: the Mac's soft row fill under it, a
+    /// few points inside the card and clear of its lines, as the category column's rows do. On the row's content;
+    /// the fill reaches out to the row's edges behind it and takes no clicks. Nothing off the Mac.
+    @ViewBuilder func hqMacRowHover() -> some View {
+        #if targetEnvironment(macCatalyst)
+        modifier(MacRowHover())
+        #else
+        self
+        #endif
+    }
+}
+
+#if targetEnvironment(macCatalyst)
+private struct MacRowHover: ViewModifier {
+    @Environment(\.macSettingsForm) private var settings
+    @Environment(\.isEnabled) private var enabled
+    @State private var over = false
+
+    func body(content: Content) -> some View {
+        // A Settings row has the list's `settingsRowInset` above and under it; More's form rows none (`rowPad` inside).
+        let vertical = settings ? MacForm.settingsRowInset - 2 : 2
+        content
+            .background {
+                RoundedRectangle(cornerRadius: MacSelection.radius, style: .continuous)
+                    .fill(Color(uiColor: MacHover.rowFill))
+                    .padding(.horizontal, -12)
+                    .padding(.vertical, -vertical)
+                    .opacity(over && enabled ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+            .onHover { over = $0 }
+    }
+}
+#endif
 
 /// [mac] `hqMacFormRowHeight` on the Mac: More's form rows (the list's insets off, `MacForm.rowPad` round the content,
 /// `MacForm.rowHeight` at the least); on a Settings page the row as it is (round 9).
@@ -761,7 +799,7 @@ struct MacPushButtonStyle: ButtonStyle {
             .padding(.horizontal, MacPush.insets.leading)
             .padding(.vertical, MacPush.insets.top)
             .background(shape.fill(prominent ? Color.hqTint : MacPush.fillColor))
-            .overlay { if !prominent { shape.strokeBorder(MacPush.strokeColor, lineWidth: 1) } }
+            .overlay { if !prominent { shape.strokeBorder(MacPush.strokeColor, lineWidth: HQShape.hairline) } }
             .overlay { if configuration.isPressed { shape.fill(Color.hqLabel.opacity(0.1)) } }
             .opacity(enabled ? 1 : 0.45)
             .contentShape(shape)
@@ -811,7 +849,7 @@ struct MacAddRemoveButtons: View {
                 .help(addHelp)
                 .accessibilityLabel(addLabel)
                 .accessibilityIdentifier(addIdentifier)
-            Rectangle().fill(MacPush.strokeColor).frame(width: 1, height: side)
+            HQHairline(axis: .vertical, color: MacPush.strokeColor, length: side)
             cell("minus", enabled: canRemove, side: side, action: remove)
                 .disabled(!canRemove)
                 .help(removeHelp)
@@ -819,7 +857,7 @@ struct MacAddRemoveButtons: View {
                 .accessibilityIdentifier(removeIdentifier)
         }
         .background(shape.fill(MacPush.fillColor))
-        .overlay(shape.strokeBorder(MacPush.strokeColor, lineWidth: 1))
+        .overlay(shape.strokeBorder(MacPush.strokeColor, lineWidth: HQShape.hairline))
         .clipShape(shape)
         .fixedSize()
     }
@@ -920,7 +958,7 @@ extension View {
             .padding(.horizontal, 7)
             .frame(minHeight: MacForm.controlHeight)
             .background(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).fill(MacField.fill))
-            .overlay(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).strokeBorder(MacField.stroke, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).strokeBorder(MacField.stroke, lineWidth: HQShape.hairline))
         }
     }
 }
@@ -979,7 +1017,7 @@ struct MacPopUpFace: View {
         .padding(.vertical, 4)
         .frame(minHeight: MacForm.controlHeight)   // [mac] Stress test 2026-10-28 round 8: one height with the fields
         .background(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).fill(MacField.fill))
-        .overlay(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).strokeBorder(MacField.stroke, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).strokeBorder(MacField.stroke, lineWidth: HQShape.hairline))
         .contentShape(Rectangle())
     }
 }

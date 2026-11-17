@@ -43,6 +43,8 @@ struct TodoRowModel: Hashable {
     /// The bot on the task (its own, or one you share): its face at the row's end.
     var face: String?
     var head: JSONValue?
+    /// [Mac AAA 2026-11-16] Another row of the group has a face: this row keeps its room, so the times line up.
+    var faceSlot = false
     /// Select: the lead is a pick circle (filled when `picked`), the whole row toggles it.
     var selecting = false
     var picked = false
@@ -98,6 +100,10 @@ struct TodoRowView: View {
                 if let profile = row.face {
                     HeadImage(raw: row.head, profile: profile, size: 18).frame(width: 18, height: 18)
                         .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(.subheadline).capHeight / 2 }
+                } else {
+                    // [Mac AAA 2026-11-16] The face's room kept: "You" starts where "You & Hermes" does, as a column's
+                    // words do (it stood 25 pt left of them).
+                    Color.clear.frame(width: 18, height: 1)
                 }
                 Text(row.who).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).lineLimit(1)
             }
@@ -146,7 +152,11 @@ struct TodoRowView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            if let profile = row.face { face(profile) }
+            if let profile = row.face {
+                face(profile)
+            } else if row.faceSlot {
+                Color.clear.frame(width: min(30, faceSize).rounded(), height: 1).accessibilityHidden(true)
+            }
         }
         .padding(.vertical, Theme.isDesktop ? 10 : 8)
         .padding(.leading, 20)
@@ -312,6 +322,7 @@ struct TodoGroupHeaderView: View {
         var detail: String?
         var count: Int?
         var red: Bool
+        @Environment(\.colorSchemeContrast) private var contrast
 
         var body: some View {
             if Theme.isDesktop {
@@ -324,7 +335,7 @@ struct TodoGroupHeaderView: View {
                 if rest.isEmpty {
                     name
                 } else {
-                    Text("\(name)  \(Text(rest).font(Font.hq(.subheadline)).monospacedDigit().foregroundStyle(Color.hqLabel2))")
+                    Text("\(name)  \(Text(rest).font(Font.hq(.subheadline)).monospacedDigit().foregroundStyle(Color.hqHeadCount(contrast)))")
                 }
             }
         }

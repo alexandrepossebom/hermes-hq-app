@@ -28,7 +28,7 @@ struct CloudGatewayView: View {
             case .failed: CloudFailedView(model: model)
             }
         }
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: model.phase)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: model.phase)
         .onAppear { model.appear() }
         .accessibilityIdentifier("cloud-gateway")
     }
@@ -58,7 +58,7 @@ private struct CloudWelcomeView: View {
                     .padding(.top, 10)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(CloudCopy.points.enumerated()), id: \.offset) { index, point in
-                        if index > 0 { Divider().padding(.leading, 64) }
+                        if index > 0 { SettingsHairline().padding(.leading, 64) }
                         HStack(alignment: .top, spacing: 14) {
                             CloudTile(symbol: point.symbol)
                             VStack(alignment: .leading, spacing: 2) {
@@ -109,7 +109,7 @@ private struct CloudHomeView: View {
                 CloudLabel(text: CloudCopy.yourAgents)
                 VStack(spacing: 0) {
                     ForEach(Array(model.agents.enumerated()), id: \.element.id) { index, agent in
-                        if index > 0 { Divider().padding(.leading, 68) }
+                        if index > 0 { SettingsHairline().padding(.leading, 68) }
                         CloudAgentRow(model: model, agent: agent)
                     }
                 }
@@ -502,7 +502,7 @@ struct CloudSizeCard: View {
         }
         .buttonStyle(CloudPressStyle())
         .cloudCard(selected: selected)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.2)), value: selected)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade)), value: selected)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("cloud-size-\(key)")
@@ -522,7 +522,7 @@ struct CloudScreenSizeCard: View {
         Button(action: choose) { content }
             .buttonStyle(CloudPressStyle())
             .cloudCard(selected: selected)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.2)), value: selected)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade)), value: selected)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("cloud-size-\(key)")
@@ -636,7 +636,7 @@ private struct CloudProgressView: View {
                 .accessibilityIdentifier("cloud-gateway.status")
             VStack(spacing: 0) {
                 ForEach(Array(model.steps.enumerated()), id: \.element.id) { index, step in
-                    if index > 0 { Divider().padding(.leading, 54) }
+                    if index > 0 { SettingsHairline().padding(.leading, 54) }
                     CloudStepRow(step: step)
                 }
             }
@@ -709,8 +709,8 @@ private struct CloudStepRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: step.state)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: step.detail)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: step.state)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: step.detail)
         .accessibilityElement(children: .combine)
         .accessibilityValue(step.state == .done ? "Done" : step.state == .active ? "In progress" : "Waiting")
     }
@@ -779,7 +779,7 @@ private struct CloudReadyView: View {
             VStack(spacing: 0) {
                 let rows = details(agent)
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    if index > 0 { Divider().padding(.leading, 16) }
+                    if index > 0 { SettingsHairline().padding(.leading, 16) }
                     // A long value (the agent's address) goes under its title instead of breaking beside it.
                     let layout = row.value.count > 22 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
                         : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
@@ -1029,6 +1029,6 @@ struct CloudPressStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 0.65 : 1)
             .scaleEffect(configuration.isPressed && !HQMotion.reduced ? 0.985 : 1)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.15)), value: configuration.isPressed)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.quick)), value: configuration.isPressed)
     }
 }

@@ -88,11 +88,16 @@ extension MoreViewController: KeySearchable {}
         #if targetEnvironment(macCatalyst)
         // [mac] Owner's call (polish sweep 2026-10-24): ⌘W closes the chat while one is open and the window when none
         // is (the item then reads Close Window); ⇧⌘W always closes the window, as in Safari.
-        [command("New Chat", newChat, "n", .command), command("New Chat Here", newChatHere, "n", [.command, .alternate]),
-         command("New Chat With…", newChatWith, "n", [.command, .shift]),
-         command("Close Chat", closeChat, "w", .command), command("Close Window", closeWindow, "w", [.command, .shift]),
-         command("Archive Chat", archiveChat, "a", [.command, .control]),
-         command("Delete Chat…", deleteChat, UIKeyCommand.inputDelete, .command)]
+        // [Mac AAA 2026-11-16] Three groups with a line between, as a Mac app's File menu has (New…, Close…, then what
+        // acts on the chat itself): the seven items ran as one block. Same items, same order, same keys.
+        [UIMenu(title: "", options: .displayInline, children: [
+            command("New Chat", newChat, "n", .command), command("New Chat Here", newChatHere, "n", [.command, .alternate]),
+            command("New Chat With…", newChatWith, "n", [.command, .shift])]),
+         UIMenu(title: "", options: .displayInline, children: [
+            command("Close Chat", closeChat, "w", .command), command("Close Window", closeWindow, "w", [.command, .shift])]),
+         UIMenu(title: "", options: .displayInline, children: [
+            command("Archive Chat", archiveChat, "a", [.command, .control]),
+            command("Delete Chat…", deleteChat, UIKeyCommand.inputDelete, .command)])]
         #else
         [command("New Chat", newChat, "n", .command), command("New Chat Here", newChatHere, "n", [.command, .alternate]),
          command("New Chat With…", newChatWith, "n", [.command, .shift]),
@@ -111,9 +116,12 @@ extension MoreViewController: KeySearchable {}
         #if targetEnvironment(macCatalyst)
         // [mac-audit K] Owner 2026-11-02: Send, Message Actions and Go to Message Field act on the chat; they are in the
         // Chat menu (`chatItems`), not Edit.
-        return [command("Find", find, "f", .command)] + steps + [
-         command("Search Sessions", searchSessions, "f", [.command, .shift]),
-         command("Open Quickly…", openQuickly, "k", .command)]
+        // [Mac AAA 2026-11-16] "Find…" as in Safari, Mail and Notes (it opens a bar to type in), and the in-page Find
+        // steps apart from the two searches of the whole app by a line.
+        return [UIMenu(title: "", options: .displayInline, children: [command("Find…", find, "f", .command)] + steps),
+                UIMenu(title: "", options: .displayInline, children: [
+                    command("Search Sessions", searchSessions, "f", [.command, .shift]),
+                    command("Open Quickly…", openQuickly, "k", .command)])]
         #else
         return [command("Find", find, "f", .command)] + steps + [
          command("Search Sessions", searchSessions, "f", [.command, .shift]),
@@ -665,6 +673,15 @@ extension MoreViewController: KeySearchable {}
         return first is UIKeyInput
     }
 
+    /// [Mac AAA 2026-11-16] The list row the keyboard's focus is on in the main window (a grey mark after ↓ or Tab).
+    static func focusedRow(_ root: MainTabController) -> (UICollectionView, IndexPath)? {
+        guard let window = root.view.window, let cell = UIFocusSystem.focusSystem(for: window)?.focusedItem as? UICollectionViewCell else { return nil }
+        var up = cell.superview
+        while let view = up, !(view is UICollectionView) { up = view.superview }
+        guard let list = up as? UICollectionView, let path = list.indexPath(for: cell) else { return nil }
+        return (list, path)
+    }
+
     /// [macpass] The plain arrow walks a chat list now (see `keyCommands`).
     static func arrowsWalk(forward: Bool) -> Bool {
         guard let root, presented(root) == nil, !MacSettingsWindow.isKey, !MacFileWindow.isKey,
@@ -802,6 +819,10 @@ extension AppDelegate {
             #if targetEnvironment(macCatalyst)
             // [macpass] The plain arrows (with priority over the system's own, `alternates`) leave a text field's caret be.
             if (command as? UIKeyCommand)?.modifierFlags.isEmpty == true, KeyCommands.typing(root) { enabled = false }
+            // [Mac AAA 2026-11-16] Nor ⌘↑ / ⌘↓ while a field holds words: they are the caret's (start / end of the text),
+            // as `walkFromEmptyField` says. The menu's item went first, so ⌘↓ in a half-typed message switched the chat
+            // (seen in the running app); an empty field still walks the chats.
+            if KeyCommands.typing(root), (root.view.window?.hqFirstResponder as? UIKeyInput)?.hasText == true { enabled = false }
             #endif
         case KeyCommands.selectTab:
             let place = KeyCommands.namePlace(command, root)
@@ -837,6 +858,11 @@ extension AppDelegate {
             enabled = enabled && root.pages?.more != nil
         case KeyCommands.messageField:
             enabled = enabled && root.chatOnShow.map { !$0.composer.textView.isFirstResponder } == true
+            #if targetEnvironment(macCatalyst)
+            // [Mac AAA 2026-11-16] With no chat on show, Return opens the list row the keyboard has reached (↓ in Jobs or
+            // Tasks marked a row, and Return then did nothing; checked in the running app).
+            if root.chatOnShow == nil, KeyCommands.focusedRow(root) != nil, !KeyCommands.typing(root) { enabled = !covered }
+            #endif
         #if targetEnvironment(macCatalyst)
         case KeyCommands.scrollChat:   // [mac-feel D30]
             enabled = enabled && root.chatOnShow != nil
@@ -902,7 +928,9 @@ extension AppDelegate {
     // the chain, which had no undo of its own. The pill's Undo is it now ("Undo Archive"); a field's own typing undo,
     // earlier in the chain, still comes first.
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == Self.undoAction, UndoPill.menuUndo != nil { return true }
+        // [Mac AAA 2026-11-16] Only while the pill offers it: `super` answers yes for any action this class has, so
+        // Edit › Undo stayed lit (and ⌘Z did nothing) with nothing to undo.
+        if action == Self.undoAction { return UndoPill.menuUndo != nil }
         return super.canPerformAction(action, withSender: sender)
     }
 
@@ -1348,6 +1376,14 @@ extension AppDelegate {
     #endif
 
     @objc func hqMessageField(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        if let root = uncovered, root.chatOnShow == nil, let (list, path) = KeyCommands.focusedRow(root) {
+            AppLog.note("keys", "return: open the focused row")
+            list.selectItem(at: path, animated: false, scrollPosition: [])
+            list.delegate?.collectionView?(list, didSelectItemAt: path)
+            return
+        }
+        #endif
         guard let chat = uncovered?.chatOnShow else { return }
         AppLog.note("keys", "message field")
         chat.focusComposer()

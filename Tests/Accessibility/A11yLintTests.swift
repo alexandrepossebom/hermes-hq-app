@@ -110,7 +110,11 @@ import Testing
                 // A read of a running animation, and a plain fade, move nothing.
                 let harmless = text.replacingOccurrences(of: ".animation(forKey:", with: "").replacingOccurrences(of: ".transition(.opacity)", with: "")
                 if regex.firstMatch(in: harmless, range: NSRange(harmless.startIndex..., in: harmless)) == nil { continue }
-                let window = lines[max(0, index - 6)...index]
+                // [Mac AAA 2026-11-16] A duration from the scale (`HQMotion.pane`) says how long, not what Reduce Motion
+                // does: it does not count as the guard.
+                let window = lines[max(0, index - 6)...index].map { line in
+                    line.replacingOccurrences(of: #"HQMotion\.(hover|quick|fade|pane|move)\b"#, with: "", options: .regularExpression)
+                }
                 if window.contains(where: { line in motionWords.contains(where: line.contains) }) { continue }
                 found.append("\(file):\(index + 1): \(trimmed.prefix(100))")
             }

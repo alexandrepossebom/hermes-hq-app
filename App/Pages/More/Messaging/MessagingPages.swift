@@ -268,7 +268,9 @@ struct MessagingRow: View {
             SettingsChevron()
                 .accessibilityHidden(true)
         }
-        .padding(.vertical, 6)
+        // [Mac AAA 2026-11-16] The list's own row margins are room enough on the Mac: with 6 more each two-line row
+        // stood 70 pt tall, a third taller than Jobs' two-line rows beside it.
+        .padding(.vertical, DeviceWord.isMac ? 0 : 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(platform.name), \(platform.status.text)")

@@ -263,7 +263,7 @@ final class PhotoFramerController: UIViewController, UIGestureRecognizerDelegate
         if atEnd, next.zoom != placement.zoom { Haptics.play(.selection) }
         placement = next
         if animated, !HQMotion.reduced {
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) { self.applyPlacement() }
+            UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) { self.applyPlacement() }
         } else {
             applyPlacement()
         }
@@ -439,7 +439,7 @@ private final class FramerWindowView: UIView {
         path.append(shape)
         dim.path = path.cgPath
         line.path = shape.cgPath
-        line.lineWidth = 1 / max(1, traitCollection.displayScale)
+        line.lineWidth = HQShape.pixel(traitCollection.displayScale)
     }
 }
 

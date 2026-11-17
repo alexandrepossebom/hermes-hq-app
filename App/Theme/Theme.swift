@@ -236,6 +236,6 @@ final class Theme {
             apply()
             return
         }
-        UIView.transition(with: window, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction]) { apply() }
+        UIView.transition(with: window, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction]) { apply() }
     }
 }

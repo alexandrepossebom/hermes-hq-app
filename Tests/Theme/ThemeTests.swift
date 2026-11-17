@@ -1533,6 +1533,16 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(ThemeResolver.resolve(state).light.rowAccent == nil, "the Desktop Look keeps its own")
     }
 
+    /// Mac AAA 2026-11-16: Paper's chosen row is its own warm grey, not its ivory ink (a light slab in dark).
+    @Test func papersChosenRowIsItsGrey() {
+        let paper = ThemeResolver.resolve(ThemeState(skinID: "paper"))
+        for tokens in [paper.light, paper.dark] {
+            #expect(tokens.rowAccent != nil && tokens.chosenRow != tokens.tint)
+            #expect(abs(tokens.chosenRow.r - tokens.chosenRow.b) < 0.06, "a grey")
+        }
+        #expect(paper.dark.chosenRow.labL < paper.dark.tint.labL - 20, "quieter than the ink in dark")
+    }
+
     @Test func searchFindsIt() {
         let row = SettingsSearch.appRows.first { $0.id == "app:message-colour" }
         #expect(row?.label == "Message Color" && row?.target == .root("chat-bubbles"))

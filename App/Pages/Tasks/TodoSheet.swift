@@ -734,7 +734,7 @@ struct TodoSheetView: View {
                     .accessibilityIdentifier("task.notice")
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.notice)   // motion-ok: the notice fades (opacity transition)
+        .animation(.easeInOut(duration: HQMotion.fade), value: model.notice)   // motion-ok: the notice fades (opacity transition)
         .ignoresSafeArea(.keyboard)
     }
 

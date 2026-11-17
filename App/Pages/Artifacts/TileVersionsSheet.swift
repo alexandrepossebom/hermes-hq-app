@@ -301,7 +301,7 @@ private struct TileVersionRow: View {
                         }
                         .frame(width: width, height: height)
                         .clipShape(shape)
-                        .overlay { shape.strokeBorder(current ? Color.hqTint : Color.hqStroke, lineWidth: current ? 2 : (Theme.isDesktop ? 1 : 0.5)) }
+                        .overlay { shape.strokeBorder(current ? Color.hqTint : Color.hqStroke, lineWidth: HQShape.line(current ? 2 : (Theme.isDesktop ? 1 : 0.5))) }
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {

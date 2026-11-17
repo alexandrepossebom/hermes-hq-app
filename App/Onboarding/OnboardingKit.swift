@@ -174,7 +174,7 @@ struct GuidePage<Content: View, Footer: View>: View {
             .padding(.top, 8)
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: error)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: error)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if pinsFooter {
@@ -301,7 +301,7 @@ struct GuideDisclosure<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
                 Haptics.play(.selection)   // a fold, as folds elsewhere
-                HQMotion.withAnimation(.smooth(duration: 0.25)) { open.toggle() }
+                HQMotion.withAnimation(.smooth(duration: HQMotion.pane)) { open.toggle() }
             } label: {
                 HStack(spacing: 8) {
                     Text(title).font(Font.hq(.body)).multilineTextAlignment(.leading)
@@ -345,7 +345,7 @@ struct CommandCard<Extra: View>: View {
             GuideStatusLine(text: feedback.status, id: id + ".status")
             extra
         }
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: feedback.status)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: feedback.status)
     }
 
     @ViewBuilder private var buttons: some View {

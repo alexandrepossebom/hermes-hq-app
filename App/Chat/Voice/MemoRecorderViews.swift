@@ -115,7 +115,7 @@ final class MemoHoldRow: UIView {
         if armed != self.armed || slideLabel.text == nil {
             self.armed = armed
             chevron.isHidden = armed
-            UIView.transition(with: slideLabel, duration: 0.15, options: [.transitionCrossDissolve, .beginFromCurrentState]) {   // motion-ok: cross-fade
+            UIView.transition(with: slideLabel, duration: HQMotion.quick, options: [.transitionCrossDissolve, .beginFromCurrentState]) {   // motion-ok: cross-fade
                 self.slideLabel.text = armed ? "Release to Cancel" : "Slide to cancel"
                 self.slideLabel.font = MemoRecorderStyle.capped(.subheadline, 20, weight: armed ? .semibold : .regular)
                 self.slideLabel.textColor = armed ? ChatPalette.red : ChatPalette.label2
@@ -667,7 +667,7 @@ final class MemoRecorderOverlay: UIView {
             circle.transform = CGAffineTransform(scaleX: 44 / 64, y: 44 / 64)
             halo.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
             lock.alpha = 0
-            UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.62, initialSpringVelocity: 0,   // motion-ok: the else branch of the Reduce Motion check above
+            UIView.animate(withDuration: HQMotion.move, delay: 0, usingSpringWithDamping: 0.62, initialSpringVelocity: 0,   // motion-ok: the else branch of the Reduce Motion check above
                            options: [.beginFromCurrentState, .allowUserInteraction]) {
                 self.circle.transform = .identity
                 self.halo.transform = .identity
@@ -680,7 +680,7 @@ final class MemoRecorderOverlay: UIView {
         guard shown else { return }
         shown = false
         ripples.sublayers?.forEach { $0.removeFromSuperlayer() }
-        UIView.animate(withDuration: 0.18, delay: 0, options: [.beginFromCurrentState]) {   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState]) {   // motion-ok: opacity only
             self.alpha = 0
         }
     }

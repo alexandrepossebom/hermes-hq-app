@@ -265,7 +265,7 @@ final class SoftCardSurface: UIView {
         blur.frame = bounds
         tint.frame = bounds
         // The edge runs off an open side, where the card's own clipping cuts it.
-        let line = 1 / max(traitCollection.displayScale, 2)
+        let line = HQShape.line(1 / max(traitCollection.displayScale, 2))   // [Mac AAA 2026-11-16] one whole pixel on the Mac
         var frame = bounds
         if open.contains(.top) { frame.origin.y -= radius + 2; frame.size.height += radius + 2 }
         if open.contains(.bottom) { frame.size.height += radius + 2 }

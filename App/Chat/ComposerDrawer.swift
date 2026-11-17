@@ -699,7 +699,21 @@ final class ComposerDrawerPanel: UIView, KeepsKeyboardOnTap {
             if let first { unit = max(DeviceWord.isMac ? 30 : 44, table.rectForRow(at: IndexPath(row: 0, section: first)).height) }
         }
         // [mac-popups] The Mac's one-line rows are short: more of them before the list scrolls.
-        let height = ceil(min(content, unit * (DeviceWord.isMac ? 8.5 : 5.5)))
+        var height = ceil(min(content, unit * (DeviceWord.isMac ? 8.5 : 5.5)))
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] A list that scrolls ends on a whole row, as the ☰ and Models panels do: the half-row cap
+        // left the last row's words 3 px off the drawer's foot, cut by its edge.
+        if content > height + 0.5 {
+            var fits: CGFloat = 0
+            for s in 0..<table.numberOfSections {
+                for r in 0..<table.numberOfRows(inSection: s) {
+                    let bottom = table.rectForRow(at: IndexPath(row: r, section: s)).maxY
+                    if bottom <= height { fits = max(fits, bottom) }
+                }
+            }
+            if fits > unit { height = ceil(fits) }
+        }
+        #endif
         table.isScrollEnabled = content > height + 0.5
         if abs(heightConstraint.constant - height) > 0.5 { heightConstraint.constant = height }
     }

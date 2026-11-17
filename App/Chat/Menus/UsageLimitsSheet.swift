@@ -549,7 +549,7 @@ struct UsageLimitsView: View {
                         // Mac row has), turned down while open; DisclosureGroup's own arrow was full black (white in the
                         // Desktop Look) and larger, whatever its tint. The rows under it are the list's own, as before.
                         Button {
-                            withAnimation(HQMotion.swiftUI(.smooth(duration: 0.25))) { quietOpen.toggle() }
+                            withAnimation(HQMotion.swiftUI(.smooth(duration: HQMotion.pane))) { quietOpen.toggle() }
                         } label: {
                             HStack(spacing: 8) {
                                 quietLabel.frame(maxWidth: .infinity, alignment: .leading)

@@ -389,7 +389,9 @@ extension UIResponder {
 // selection comes first, as it is earlier in the chain.
 extension ChatViewController {
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(copy(_:)), let active = ChatTextSelector.active, active.hasSelection { return true }
+        // [Mac AAA 2026-11-16] No selected words, no Copy: `super` said yes because this class has `copy(_:)`, so Edit ›
+        // Copy was lit with an empty message box (or Find's field) holding the keyboard and copied nothing.
+        if action == #selector(copy(_:)) { return ChatTextSelector.active?.hasSelection == true }
         return super.canPerformAction(action, withSender: sender)
     }
 

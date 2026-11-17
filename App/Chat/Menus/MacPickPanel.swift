@@ -262,9 +262,12 @@ import UIKit
     /// [macpass-popups] The field's and the rows' inset from the panel's edges, as Open Quickly's: at 8 pt (the field)
     /// and 6 pt (the rows' marked box) they ran 5 to 6 px from the rounded edge.
     static let inset: CGFloat = 12
+    /// [Mac AAA 2026-11-16] Under the last row as much as beside it, so a marked last row sits in an even frame: at 6 pt
+    /// its box stood twice as close to the foot as to the sides and the field to the top.
+    static let foot: CGFloat = inset
     /// One row: 38 pt with the Mac's body text (≈ 29 pt on screen, a macOS table's large row).
     static var rowHeight: CGFloat { (HQFont.preferred(.body).lineHeight + 16).rounded() }
-    static var headerHeight: CGFloat { (HQFont.preferred(.footnote).lineHeight + 14).rounded() }
+    static var headerHeight: CGFloat { (MacType.sectionHeader.lineHeight + 14).rounded() }   // [Mac AAA 2026-11-16]
     private static var fieldHeight: CGFloat { (HQFont.preferred(.body).lineHeight + 14).rounded() }
     /// The iOS look's corners: the field's 8 pt box 8 pt inside them, concentric.
     private static let glassRadius: CGFloat = 16
@@ -283,7 +286,7 @@ import UIKit
         // [Mac UI check 2026-11-13] L2, L9: the glass alone let the chat's words show through as ghost text.
         panel.backgroundColor = desktop ? ChatPalette.elevated : ChatPalette.popupVeil
         panel.layer.cornerRadius = radius
-        panel.layer.borderWidth = desktop ? 1 : 0
+        panel.layer.borderWidth = desktop ? HQShape.hairline : 0
         panel.layer.borderColor = ChatPalette.strokePrimary.resolvedColor(with: traitCollection).cgColor
         // Under see-through glass a drawn shadow would darken it; the glass has its own.
         panel.layer.shadowOpacity = desktop ? (dark ? 0.55 : 0.22) : 0
@@ -311,7 +314,11 @@ import UIKit
         // accent at 1.5 pt and 60 %. The Desktop Look keeps its flat 2 pt ring.
         let soft = on && !isDesktop
         fieldBox.layer.borderColor = colour.resolvedColor(with: traitCollection).withAlphaComponent(soft ? 0.6 : 1).cgColor
-        fieldBox.layer.borderWidth = on ? (soft ? 1.5 : 2) : 1
+        fieldBox.layer.borderWidth = on ? HQShape.line(soft ? 1.5 : 2) : HQShape.hairline
+        // [Mac AAA 2026-11-16] The iOS look's field is the well alone, as its sibling Open Quickly's is (Mac UI check
+        // V35: the ring was the hardest line on the window, and the caret already says where typing goes). The two
+        // panels drew their fields two ways.
+        if !isDesktop { fieldBox.layer.borderWidth = 0 }
     }
 
     // MARK: Layout
@@ -336,10 +343,17 @@ import UIKit
         // [macpass-chat r5] The panel stays over the column its composer is in: at a 900-wide window the 500-wide
         // Commands panel reached 23 px into the inspector and covered its Copy Chat Info. `lane` is the composer's
         // column (the composer spans it; a pad in from either side), or the window's without one.
-        let clearFrame = clearOf.flatMap { $0.window != nil ? $0.convert($0.bounds, to: view) : nil }
+        // [Mac AAA 2026-11-16] Against the message box itself where there is one: the panel's edge lines up with the
+        // box's (it stood 5 px outside it) and it stands as far clear of it as the slash drawer does.
+        let clearBox = (clearOf as? ComposerView).flatMap { composer in
+            composer.window != nil ? composer.macBoxFrame.map { composer.convert($0, to: view) } : nil
+        }
+        let clearFrame = clearBox ?? clearOf.flatMap { $0.window != nil ? $0.convert($0.bounds, to: view) : nil }
         let window = bounds.insetBy(dx: pad, dy: 0)
-        let column = clearFrame.map { CGRect(x: $0.minX + pad, y: 0, width: $0.width - 2 * pad, height: bounds.height) }
-            .map { $0.intersection(window) }
+        let column = clearFrame.map { frame in
+            clearBox != nil ? CGRect(x: frame.minX, y: 0, width: frame.width, height: bounds.height)
+                            : CGRect(x: frame.minX + pad, y: 0, width: frame.width - 2 * pad, height: bounds.height)
+        }.map { $0.intersection(window) }
         let lane = column.flatMap { $0.width >= 240 ? $0 : nil } ?? window
         let w = min(width, lane.width)
         var y = inset
@@ -366,7 +380,7 @@ import UIKit
             y += ceil(size.height)
         }
         y += pad
-        rule.frame = CGRect(x: 0, y: y, width: w, height: 1 / max(1, traitCollection.displayScale))
+        rule.frame = CGRect(x: 0, y: y, width: w, height: HQShape.pixel(traitCollection.displayScale))
         let listTop = y
 
         // Room: the space on the anchor's roomier side, less a margin.
@@ -375,8 +389,8 @@ import UIKit
         // [mac-audit] Owner 2026-11-02 (Mac audit #3): in the iOS look the ☰ sits on the composer's bottom row, so a panel
         // hung 6 pt above the ☰ covered the field's first line (the typed text, blurred bubbles through it). The panel
         // clears the whole composer instead, in both looks; its leading edge still follows the ☰.
-        let edges = clearOf.flatMap { $0.window != nil ? anchorFrame.union($0.convert($0.bounds, to: view)) : nil } ?? anchorFrame
-        let gap: CGFloat = 6
+        let edges = clearFrame.map { anchorFrame.union($0) } ?? anchorFrame
+        let gap: CGFloat = clearBox != nil ? 8 : 6   // [Mac AAA 2026-11-16] the drawer's 8 pt clear of the box
         let roomAbove = edges.minY - gap - view.safeAreaInsets.top - pad * 2
         let roomBelow = bounds.maxY - edges.maxY - gap - pad * 2
         let above = roomAbove >= roomBelow
@@ -390,8 +404,11 @@ import UIKit
             table.isHidden = true
             let fit = stateView.systemLayoutSizeFitting(CGSize(width: w - 6 * pad, height: UIView.layoutFittingCompressedSize.height),
                                                        withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
-            listH = min(maxList, ceil(fit.height) + 2 * 22)
-            stateView.frame = CGRect(x: 3 * pad, y: listTop + 22, width: w - 6 * pad, height: listH - 44)
+            // [Mac AAA 2026-11-16] With no field above it (nothing to search) the message stands as far from the top
+            // as from the foot: the field's own gap was left over, 30 pt above against 22 below.
+            let lift = fieldBox.isHidden ? pad : 0
+            listH = min(maxList, ceil(fit.height) + 2 * 22 - lift)
+            stateView.frame = CGRect(x: 3 * pad, y: listTop - lift + 22, width: w - 6 * pad, height: listH + lift - 44)
         case .loading:
             stateView.isHidden = true
             table.isHidden = false
@@ -402,9 +419,23 @@ import UIKit
             if sections.isEmpty {
                 listH = min(maxList, 72)
             } else {
-                var total: CGFloat = 4 + 6   // the gap over the first row and the foot under the last
+                var total: CGFloat = 4 + Self.foot   // the gap over the first row and the foot under the last
                 for section in sections { total += (section.title.isEmpty ? 0 : Self.headerHeight) + CGFloat(section.rows.count) * Self.rowHeight }
                 listH = min(maxList, total)
+                // [Mac AAA 2026-11-16] A list that scrolls ends on a whole row: the cap cut the next heading in half
+                // at the panel's foot ("Configuration" under Commands' last row).
+                if total > maxList {
+                    var y: CGFloat = 0
+                    var fits: CGFloat = 0
+                    for section in sections {
+                        y += section.title.isEmpty ? 0 : Self.headerHeight
+                        for _ in section.rows {
+                            y += Self.rowHeight
+                            if y <= maxList - 4 - Self.foot { fits = y }
+                        }
+                    }
+                    if fits > 0 { listH = fits + 4 + Self.foot }
+                }
             }
         }
         // While it is up the panel never shrinks: a search that finds fewer rows leaves the field where it was (the
@@ -413,7 +444,7 @@ import UIKit
             listH = max(listH, min(maxList, tallestList))
             tallestList = listH
         }
-        let foot: CGFloat = 6
+        let foot = Self.foot
         table.frame = CGRect(x: inset, y: listTop + 4, width: w - 2 * inset, height: max(0, listH - 4 - foot))
         table.isScrollEnabled = table.contentSize.height > table.bounds.height + 1 || listH >= maxList
         let h = listTop + listH
@@ -440,7 +471,9 @@ import UIKit
         self.content = content
         if case .rows(let s) = content { sections = s } else { sections = [] }
         marked = nil
-        if let markedKey, let path = path(of: markedKey.1, in: markedKey.0) { marked = path }
+        // [Mac AAA 2026-11-16] A row that changed section (⌘D moves a command into Favorites and out of its own) keeps
+        // the mark: it was dropped, so ↓ started over from the top.
+        if let markedKey, let path = path(of: markedKey.1, in: markedKey.0) ?? firstPath(of: markedKey.1) { marked = path }
         if markFirst { marked = firstEnabled() }
         guard isViewLoaded else { return }
         apply()
@@ -554,6 +587,11 @@ import UIKit
     private func path(of key: String, in section: String) -> IndexPath? {
         guard let s = sections.firstIndex(where: { $0.title == section }), let r = sections[s].rows.firstIndex(where: { $0.key == key }) else { return nil }
         return IndexPath(row: r, section: s)
+    }
+
+    private func firstPath(of key: String) -> IndexPath? {
+        for s in sections.indices { if let r = sections[s].rows.firstIndex(where: { $0.key == key }) { return IndexPath(row: r, section: s) } }
+        return nil
     }
 
     private var flat: [IndexPath] {
@@ -783,7 +821,9 @@ final class MacPickRowCell: UITableViewCell {
         star.isHidden = row.starred == nil || !(starred || marked)
         star.configuration?.image = UIImage(systemName: starred ? "star.fill" : "star",
                                             withConfiguration: UIImage.SymbolConfiguration(font: HQFont.preferred(.subheadline)))
-        star.tintColor = starred ? ChatPalette.tint : HQPalette.label2
+        // [Mac AAA 2026-11-16] On the accent mark a filled star takes the row's own colour, as its title does: the
+        // accent star on the accent mark all but vanished.
+        star.tintColor = starred ? (marked ? HQPalette.label : ChatPalette.tint) : HQPalette.label2
         star.accessibilityLabel = "Favorite \(row.title)"
         star.accessibilityTraits = starred ? [.button, .selected] : .button
         star.accessibilityIdentifier = row.starIdentifier
@@ -844,6 +884,23 @@ final class MacPickHeader: UITableViewHeaderFooterView, UIContextMenuInteraction
         accessibilityTraits = .header
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         addInteraction(UIContextMenuInteraction(delegate: self))
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
+    }
+
+    /// [Mac AAA 2026-11-16] A heading that folds answers the pointer: its name and caret step up to the row's colour,
+    /// as a Mac sidebar's section heading does. It looked as dead as a plain heading.
+    private var hovering = false
+    private var lastConfig: (title: String, indent: CGFloat, canFoldAll: Bool, canOpenAll: Bool)?
+    @objc private func hovered(_ recognizer: UIHoverGestureRecognizer) {
+        let on = fold != nil && (recognizer.state == .began || recognizer.state == .changed)
+        guard on != hovering, let last = lastConfig else { return }
+        hovering = on
+        configure(last.title, indent: last.indent, fold: fold, canFoldAll: last.canFoldAll, canOpenAll: last.canOpenAll)
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        hovering = false
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -856,6 +913,8 @@ final class MacPickHeader: UITableViewHeaderFooterView, UIContextMenuInteraction
         self.fold = fold
         self.canFoldAll = canFoldAll
         self.canOpenAll = canOpenAll
+        lastConfig = (title, indent, canFoldAll, canOpenAll)
+        let lit = hovering && fold != nil
         let words: NSMutableAttributedString
         let font: UIFont
         if Theme.isDesktop {
@@ -863,17 +922,19 @@ final class MacPickHeader: UITableViewHeaderFooterView, UIContextMenuInteraction
             words = NSMutableAttributedString(string: title.uppercased(), attributes: attributes)
             font = attributes[.font] as? UIFont ?? HQFont.preferred(.footnote)
         } else {
-            font = HQFont.preferred(.footnote).pagesWeight(.semibold)
-            words = NSMutableAttributedString(string: title, attributes: [.font: font, .foregroundColor: HQPalette.label2])
+            // [Mac AAA 2026-11-16] The Mac's section-heading size (`MacType.sectionHeader`), as the slash drawer's and
+            // every list's headings: here they were a step smaller (footnote).
+            font = MacType.sectionHeader
+            words = NSMutableAttributedString(string: title, attributes: [.font: font, .foregroundColor: lit ? HQPalette.label : HQPalette.label2])
         }
         if let fold {
             // As the iPhone's heading: the count while folded, then the caret.
-            if fold.folded { words.append(NSAttributedString(string: "  \(fold.count)", attributes: [.font: font, .foregroundColor: HQPalette.label3])) }
+            if fold.folded { words.append(NSAttributedString(string: "  \(fold.count)", attributes: [.font: font, .foregroundColor: lit ? HQPalette.label2 : HQPalette.label3])) }
             let caret = UIImage(systemName: fold.folded ? "chevron.forward" : "chevron.down",
                                 withConfiguration: UIImage.SymbolConfiguration(font: HQFont.system(ofSize: font.pointSize * 0.7, weight: .semibold)))
             if let caret {
                 words.append(NSAttributedString(string: "  "))
-                words.append(NSAttributedString(attachment: NSTextAttachment(image: caret.withTintColor(HQPalette.label3, renderingMode: .alwaysOriginal))))
+                words.append(NSAttributedString(attachment: NSTextAttachment(image: caret.withTintColor(lit ? HQPalette.label : HQPalette.label3, renderingMode: .alwaysOriginal))))
             }
         }
         label.attributedText = words

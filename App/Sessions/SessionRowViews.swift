@@ -622,6 +622,7 @@ struct SessionDateHeaderView: View {
     /// [project-unfold] A group opening or closing: what changes across its header (a caret, a count) moves on this.
     var motion: Animation? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorSchemeContrast) private var contrast
     private var large: Bool { typeSize.isAccessibilitySize }
     private var desk: Bool { Theme.isDesktop && !large }
     /// [mac] Feel list B (2026-11-13): a heading that folds its group brightens under the pointer, as the sidebar's
@@ -727,7 +728,7 @@ struct SessionDateHeaderView: View {
                                 .contentShape(.interaction, RaisedHitShape(above: Self.hitAbove))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("New Chat in \(title)")
+                        .hqIconLabel("New Chat in \(title)")
                         .accessibilityIdentifier("sessions.header.newChat")
                     }
                     if showsCaptionMenu { menuButton(height: Self.captionHeight, above: Self.hitAbove) }
@@ -817,7 +818,7 @@ struct SessionDateHeaderView: View {
             if let tally {
                 Text("\(tally)")
                     .font(Font.hq(.subheadline))
-                    .foregroundStyle(Color.hqLabel3)
+                    .foregroundStyle(Color.hqHeadCount(contrast, phone: .hqLabel3))   // [Mac AAA 2026-11-16] one count ink (L17)
                     .monospacedDigit()
                     .accessibilityIdentifier("sessions.header.tally")
             }
@@ -829,7 +830,7 @@ struct SessionDateHeaderView: View {
                 if fold.collapsed, tally == nil, badge == nil {
                     Text(fold.unread > 0 ? "\(fold.total) · \(fold.unread) new" : "\(fold.total)")
                         .font(Font.hq(.subheadline))
-                        .foregroundStyle(Color.hqLabel3)
+                        .foregroundStyle(Color.hqHeadCount(contrast, phone: .hqLabel3))
                         .monospacedDigit()
                         .lineLimit(1)
                 }

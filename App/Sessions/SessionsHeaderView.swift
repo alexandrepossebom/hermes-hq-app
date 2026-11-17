@@ -348,7 +348,7 @@ struct SessionsHeaderView: View {
     }
 
     private var railRule: some View {
-        Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 1, height: 22)
+        HQHairline(axis: .vertical, length: 22)
             .accessibilityHidden(true)
     }
 
@@ -423,13 +423,13 @@ struct SessionsHeaderView: View {
                     let index = picked.flatMap { id in model.bots.firstIndex { $0.id == id }.map { $0 + 1 } } ?? 0
                     let most = max(0, contentWidth - clampedWidth)
                     let x = min(most, max(0, (CGFloat(index) - CGFloat(shown - 1) / 2).rounded(.down) * chipStep))
-                    if reduceMotion { position.scrollTo(x: x) } else { withAnimation(.easeInOut(duration: 0.25)) { position.scrollTo(x: x) } }
+                    if reduceMotion { position.scrollTo(x: x) } else { withAnimation(.easeInOut(duration: HQMotion.pane)) { position.scrollTo(x: x) } }
                     return
                 }
                 if reduceMotion {
                     proxy.scrollTo(picked ?? Self.allId, anchor: .center)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(picked ?? Self.allId, anchor: .center) }
+                    withAnimation(.easeInOut(duration: HQMotion.pane)) { proxy.scrollTo(picked ?? Self.allId, anchor: .center) }
                 }
             }
         }
@@ -448,14 +448,14 @@ struct SessionsHeaderView: View {
             // [mac] Round 7: a clamped rail moves a page of whole chips.
             let step = clamped ? CGFloat(shown) * chipStep : max(80, railWidth - 120)
             let target = forward ? min(railOffset + step, max(0, contentWidth - railWidth)) : max(0, railOffset - step)
-            if reduceMotion { position.scrollTo(x: target) } else { withAnimation(.easeInOut(duration: 0.25)) { position.scrollTo(x: target) } }
+            if reduceMotion { position.scrollTo(x: target) } else { withAnimation(.easeInOut(duration: HQMotion.pane)) { position.scrollTo(x: target) } }
         } label: {
             Image(systemName: forward ? "chevron.forward" : "chevron.backward")
                 .font(Font.hq(.footnote).weight(.semibold))
                 .foregroundStyle(Color.hqLabel2)
                 .frame(width: 24, height: 24)
                 .background(Circle().fill(Color.hqPage))
-                .overlay(Circle().strokeBorder(Color.hqStroke, lineWidth: 1))
+                .overlay(Circle().strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
                 .frame(width: clamped ? 24 + 2 * Self.pagerSlack : 32, height: 44)   // [mac] Stress test 2026-10-28 round 9: was 28 clamped
                 .contentShape(Rectangle())
         }

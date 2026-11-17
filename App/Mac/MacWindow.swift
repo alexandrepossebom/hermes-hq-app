@@ -23,6 +23,9 @@ nonisolated(unsafe) private var pageBarKey: UInt8 = 0
         MacDockIcon.apply()     // [app-icons] the icon picked in Settings › App Icon
         DesktopBars.hookBars()  // stress test 2026-10-28 #50: plain toolbar items in the iOS look too
         DesktopBack.install()   // stress test 2026-10-28 #104: the plain named Back in the iOS look too
+        // [Mac AAA 2026-11-16] What the lines are sized against (`HQShape.pixel`), for the tours' log.
+        AppLog.note("mac", "scale: screen \(HQShape.macBacking) px/pt, UIKit \(scene.traitCollection.displayScale), "
+            + "pixel line \(HQShape.pixel(1)) pt")
     }
 
     /// [macpass] 2026-11-14: the app's windows are never tabs, but AppKit's automatic tabbing put Show Tab Bar and

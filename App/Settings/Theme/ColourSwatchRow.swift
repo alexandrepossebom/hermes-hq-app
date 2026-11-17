@@ -110,6 +110,9 @@ struct ColourSwatchRow: View {
         } label: {
             Circle().fill(look.fill)
                 .frame(width: Self.size, height: Self.size)
+                // [Mac AAA 2026-11-16] A choice with no one colour (Bot's Face) is the reply bubble's own fill, which in
+                // dark is the card's: it read as a stray speck. A hairline gives it the swatch's shape.
+                .overlay { if swatch.colour == nil { Circle().strokeBorder(Color.hqLabel3, lineWidth: 1) } }
                 .overlay {
                     Image(systemName: on ? "checkmark" : swatch.symbol ?? "checkmark")
                         .font(.system(size: 12, weight: .bold))

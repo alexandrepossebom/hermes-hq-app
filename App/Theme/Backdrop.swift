@@ -632,7 +632,7 @@ final class BackdropView: UIView {
             isHidden = false
             if imageView.image !== image {
                 if holding, window != nil {
-                    UIView.transition(with: imageView, duration: 0.25, options: [.transitionCrossDissolve, .allowUserInteraction]) {   // motion-ok: a cross-fade, nothing moves
+                    UIView.transition(with: imageView, duration: HQMotion.pane, options: [.transitionCrossDissolve, .allowUserInteraction]) {   // motion-ok: a cross-fade, nothing moves
                         self.imageView.image = image
                     }
                 } else {
@@ -703,7 +703,7 @@ final class BackdropView: UIView {
     private func begin() {
         guard link == nil, Self.running === self else { return }
         hold(presented: false)
-        let link = CADisplayLink(target: self, selector: #selector(tick))
+        let link = CADisplayLink(target: self, selector: #selector(tick))   // motion-ok: follows the system's page slide frame by frame, which Reduce Motion already shortens
         link.add(to: .main, forMode: .common)
         self.link = link
     }

@@ -94,7 +94,26 @@ final class MacInspector: UIViewController {
     private let band = UIView()
     private let bandFrost = DesktopFrostView()
     private lazy var bandHeight = band.heightAnchor.constraint(equalToConstant: 0)
-    var bandBottom: CGFloat = 0 { didSet { if isViewLoaded, bandHeight.constant != bandBottom { bandHeight.constant = bandBottom } } }
+    var bandBottom: CGFloat = 0 {
+        didSet {
+            guard isViewLoaded, bandBottom != oldValue else { return }
+            bandHeight.constant = bandBottom
+            placeRule()
+        }
+    }
+    /// [Mac AAA 2026-11-16] The rule under the tabs ends the window's top row where the chat's bar does (the bar's
+    /// own line in the iOS look light, the frosted band's edge in the Desktop Look): it stood 7 pt above them, so the
+    /// top row had two lines at two heights. With no bar beside it, 10 pt under the tabs as before.
+    private let rule = UIView()
+    private lazy var ruleUnderTabs = rule.topAnchor.constraint(equalTo: tabsRow.bottomAnchor, constant: 10)
+    private lazy var ruleOnBar = rule.topAnchor.constraint(equalTo: view.topAnchor, constant: 0)   // just under the bar, where its line is drawn
+    private func placeRule() {
+        let onBar = bandBottom > 0
+        ruleOnBar.constant = bandBottom
+        if !onBar { ruleOnBar.isActive = false }
+        ruleUnderTabs.isActive = !onBar
+        ruleOnBar.isActive = onBar
+    }
     /// [mac-ten] Owner 2026-11-11 ("weird UI issues"): the tabs stood 4 pt lower than the buttons of the chat's bar
     /// beside them (12 pt under the window's toolbar height, whatever the bar's own middle was), so the window's top
     /// row had two baselines. They are centred on the middle of the bar's row of buttons (from the split, in the
@@ -122,6 +141,10 @@ final class MacInspector: UIViewController {
     /// The split lays the panes out again (shown, hidden).
     var onShownChange: (() -> Void)?
 
+    /// [Mac AAA 2026-11-16] The edge's grip straddles the line, as the list's divider does (4 pt each side): it only
+    /// reached inside the panel, so the arrows and the drag began only right of the line, never on the chat's side.
+    override func loadView() { view = InspectorRootView(grip: grip) }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = HQPalette.groupedPage
@@ -137,10 +160,7 @@ final class MacInspector: UIViewController {
         tabs.apportionsSegmentWidthsByContent = true
         tabsRow.axis = .vertical
         tabsRow.addArrangedSubview(tabs)
-        taskTitle.font = {
-            let base = HQFont.preferred(.subheadline)
-            return UIFont.systemFont(ofSize: base.pointSize, weight: .semibold)
-        }()
+        taskTitle.font = HQFont.preferred(.subheadline).pagesWeight(.semibold)   // [Mac AAA 2026-11-16] the theme's face, not the system's
         taskTitle.textColor = HQPalette.label
         taskTitle.textAlignment = .center
         taskTitle.isHidden = true
@@ -157,17 +177,16 @@ final class MacInspector: UIViewController {
         band.addSubview(bandFrost)
         bandHeight.constant = bandBottom
         // [inspector] Owner 2026-11-09: a rule under the tabs, so the tab's rows start under a line, not under air.
-        let rule = UIView()
         rule.backgroundColor = HQPalette.paneLine
         rule.isUserInteractionEnabled = false
         for sub in [band, holder, tabsRow, rule, edge, empty, grip] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(sub)
         }
-        let pixel = 1 / max(1, traitCollection.displayScale)
+        let pixel = HQShape.pixel(traitCollection.displayScale)
         // The Desktop Look's segments otherwise drew 10 pt tall, their titles cut (sweep 2026-11-03). Just under
         // required: hidden in the stack while the strip shows, they give way.
-        let segments = tabs.heightAnchor.constraint(equalToConstant: 28)
+        let segments = segmentsHeight
         segments.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             band.topAnchor.constraint(equalTo: view.topAnchor),
@@ -182,7 +201,6 @@ final class MacInspector: UIViewController {
             tabsRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: InspectorLook.margin),
             tabsRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -InspectorLook.margin),
             segments,
-            rule.topAnchor.constraint(equalTo: tabsRow.bottomAnchor, constant: 10),
             rule.leadingAnchor.constraint(equalTo: edge.trailingAnchor),
             rule.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             rule.heightAnchor.constraint(equalToConstant: pixel),
@@ -190,17 +208,18 @@ final class MacInspector: UIViewController {
             holder.leadingAnchor.constraint(equalTo: edge.trailingAnchor),
             holder.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             holder.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            empty.centerYAnchor.constraint(equalTo: holder.centerYAnchor, constant: -40),
+            empty.titleCentre.constraint(equalTo: holder.centerYAnchor, constant: -MacInset.emptyLift),   // [Mac AAA 2026-11-16]
             empty.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
             empty.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
             empty.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
             // The edge's grip: 9 pt over the line, the panel's whole height.
             grip.topAnchor.constraint(equalTo: view.topAnchor),
             grip.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            grip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            grip.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: -InspectorRootView.gripOutside),
             grip.widthAnchor.constraint(equalToConstant: 9),
         ])
         alignTabs()
+        placeRule()
         followLook()
         NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.followLook() }
@@ -208,8 +227,18 @@ final class MacInspector: UIViewController {
         fill()
     }
 
+    private lazy var segmentsHeight = tabs.heightAnchor.constraint(equalToConstant: 28)
+    /// [Mac AAA 2026-11-16] The segments follow UI Scale (View › Make Text Bigger) as the chat's bar beside them does:
+    /// their titles were sized once, when the panel was made (`DesktopSegments.macTitles`), and the control stayed 28 pt,
+    /// so at 150 % Info / Steps / Files / Helpers stayed at 100 %. Sized again on every theme change; never under 28 pt.
+    private func sizeTabs() {
+        DesktopSegments.macTitles(tabs)
+        segmentsHeight.constant = (28 * max(1, ChatTitleView.macChrome)).rounded()
+    }
+
     /// The segments in the iOS look, the outlined strip in the Desktop Look (made the first time it's wanted).
     private func followLook() {
+        sizeTabs()
         let desktop = Theme.isDesktop
         if desktop, strip == nil {
             stripChoice.index = shownTab.rawValue
@@ -401,6 +430,38 @@ extension MacInspector: UINavigationControllerDelegate {
         let root = viewController === navigationController.viewControllers.first
         if !root { fitPage(viewController, root: false) }
         navigationController.setNavigationBarHidden(root && rootHidesBar, animated: animated)
+    }
+}
+
+/// [Mac AAA 2026-11-16] The panel's own view: the few points of its grip that stand over the chat, left of the line,
+/// are the panel's too.
+private final class InspectorRootView: UIView {
+    static let gripOutside: CGFloat = 4
+    private weak var grip: UIView?
+
+    init(grip: UIView) {
+        self.grip = grip
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if super.point(inside: point, with: event) { return true }
+        return !isHidden && outside(point)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if !isHidden, alpha > 0.01, outside(point), let grip, !grip.isHidden { return grip }
+        return super.hitTest(point, with: event)
+    }
+
+    /// Left of the line (right of it in a right-to-left layout), within the grip's reach.
+    private func outside(_ point: CGPoint) -> Bool {
+        guard point.y >= 0, point.y <= bounds.height else { return false }
+        let rightToLeft = effectiveUserInterfaceLayoutDirection == .rightToLeft
+        return rightToLeft ? (point.x > bounds.width && point.x <= bounds.width + Self.gripOutside)
+                           : (point.x < 0 && point.x >= -Self.gripOutside)
     }
 }
 

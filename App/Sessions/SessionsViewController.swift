@@ -2171,7 +2171,7 @@ extension SessionsViewController {
         old.isUserInteractionEnabled = false
         collectionView.superview?.insertSubview(old, aboveSubview: collectionView)
         change()
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: a fade
+        UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: a fade
             old.alpha = 0
         } completion: { _ in
             old.removeFromSuperview()
@@ -2407,7 +2407,7 @@ extension SessionsViewController {
             self.additionalSafeAreaInsets.top = height
         }
         if animated {
-            UIView.animate(withDuration: 0.2) {   // motion-ok: `animated` above is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.fade) {   // motion-ok: `animated` above is false under Reduce Motion
                 change()
                 self.view.layoutIfNeeded()
             }

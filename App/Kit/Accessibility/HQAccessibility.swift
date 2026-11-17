@@ -14,6 +14,8 @@ enum HQAccessibility {
         var buttonShapes = false
         var voiceOver = false
         var switchControl = false
+        /// [Mac AAA 2026-11-16] Differentiate Without Colour: a state shown by a dot's colour alone gets a shape too.
+        var differentiateWithoutColour = false
         var contentSize: UIContentSizeCategory = .large
         var isAccessibilitySize: Bool { contentSize.isAccessibilityCategory }
         /// AX2 and larger: the chat title drops its face, rows stack (spec 06 §10).
@@ -86,6 +88,13 @@ enum HQAccessibility {
     }
     nonisolated static var voiceOver: Bool { overrides.voiceOver || live.voiceOver }
     static var increaseContrast: Bool { overrides.contrast || UIAccessibility.isDarkerSystemColorsEnabled }
+    /// [Mac AAA 2026-11-16] Differentiate Without Colour (`-HQA11yWithoutColour YES` in DEBUG builds).
+    static var differentiateWithoutColour: Bool {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "HQA11yWithoutColour") { return true }
+        #endif
+        return UIAccessibility.shouldDifferentiateWithoutColor
+    }
     /// VoiceOver or Switch Control: someone who cannot swipe needs every gesture as an action.
     static var assistiveTouching: Bool { voiceOver || UIAccessibility.isSwitchControlRunning }
 
@@ -106,6 +115,7 @@ enum HQAccessibility {
                  buttonShapes: o.buttonShapes || UIAccessibility.buttonShapesEnabled,
                  voiceOver: o.voiceOver || UIAccessibility.isVoiceOverRunning,
                  switchControl: UIAccessibility.isSwitchControlRunning,
+                 differentiateWithoutColour: differentiateWithoutColour,
                  contentSize: size)
     }
 
@@ -127,6 +137,7 @@ enum HQAccessibility {
             UIAccessibility.buttonShapesEnabledStatusDidChangeNotification,
             UIAccessibility.voiceOverStatusDidChangeNotification,
             UIAccessibility.switchControlStatusDidChangeNotification,
+            UIAccessibility.differentiateWithoutColorDidChangeNotification,
             UIContentSizeCategory.didChangeNotification,
             UIApplication.didBecomeActiveNotification,
         ]

@@ -225,7 +225,7 @@ private struct KanbanChipShape: ViewModifier {
         if Theme.isDesktop {
             content
                 .background(selected ? Color(uiColor: HQPalette.cellPressed) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
-                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(selected ? Color.hqTintText : Color.hqStroke, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(selected ? Color.hqTintText : Color.hqStroke, lineWidth: HQShape.hairline))
                 .contentShape(RoundedRectangle(cornerRadius: 3))
         } else if let paper = Theme.paperPills, paper != .glass {
             // [paper-pills] As every pill in a flat-pill skin (`Theme.PaperPills`).
@@ -317,7 +317,8 @@ struct KanbanStatusView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, 12).padding(.horizontal, 16)
-                Divider().padding(.leading, 16)
+                // [Mac AAA 2026-11-16] A whole-pixel line (a Divider drew blurry at the Mac's scale).
+                HQHairline().padding(.leading, 16)
                 Button(retrying ? "Trying…" : "Try Again", action: retry)
                     .disabled(retrying)
                     .padding(.vertical, 12).padding(.horizontal, 16)

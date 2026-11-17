@@ -232,7 +232,7 @@ final class PromptSheetController: UIViewController, UITextFieldDelegate, UIAdap
             if i > 0 {
                 let line = UIView()
                 line.backgroundColor = .separator
-                line.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)).isActive = true
+                line.heightAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale)).isActive = true
                 group.addArrangedSubview(line)
             }
             let field = makeField(kind)

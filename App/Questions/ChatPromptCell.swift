@@ -85,6 +85,10 @@ final class ChatPromptCell: ChatBaseCell {
             self.handler?.clarifyCardAnswer(card)
         }, for: .primaryActionTriggered)
         contentView.addSubview(answerNow)
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] The card's buttons answer the pointer: the transcript is left out of `PointerEffects`' sweep.
+        PointerEffects.button(answerNow)
+        #endif
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (cell: ChatPromptCell, _) in
             cell.updateBorder()
             cell.placeSymbols(cell.symbols)   // the picked mark's palette colours are resolved into its image
@@ -207,7 +211,7 @@ final class ChatPromptCell: ChatBaseCell {
         // Answered: the card fades out (200 ms) before its row goes.
         if a.leaving && !wasLeaving {
             if HQMotion.reduced { contentView.alpha = 0 } else {
-                UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState]) { self.contentView.alpha = 0 }
+                UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState]) { self.contentView.alpha = 0 }
             }
         } else if !a.leaving {
             contentView.alpha = 1
@@ -231,7 +235,7 @@ final class ChatPromptCell: ChatBaseCell {
     }
 
     private func updateBorder() {
-        let hair = 1 / max(1, traitCollection.displayScale)
+        let hair = HQShape.pixel(traitCollection.displayScale)
         // [paper-cards] No edge, except where the cards stand on the page (Paper): a hairline sets them apart.
         let edge = ChatPalette.promptEdge.resolvedColor(with: traitCollection)
         card.layer.borderColor = edge.cgColor
@@ -284,7 +288,7 @@ final class ChatPromptCell: ChatBaseCell {
             contentView.insertSubview(v, aboveSubview: card)
             ruleViews.append(v)
         }
-        let hair = 1 / max(1, traitCollection.displayScale)
+        let hair = HQShape.pixel(traitCollection.displayScale)
         for (i, v) in ruleViews.enumerated() {
             v.isHidden = i >= rules.count
             if i < rules.count { v.frame = CGRect(x: rules[i].minX, y: rules[i].minY, width: rules[i].width, height: hair) }
@@ -300,6 +304,9 @@ final class ChatPromptCell: ChatBaseCell {
             button.addAction(UIAction { [weak self] _ in self?.tapped(kind) }, for: .primaryActionTriggered)
         }
         contentView.addSubview(button)
+        #if targetEnvironment(macCatalyst)
+        PointerEffects.button(button)   // [Mac AAA 2026-11-16] the transcript is left out of `PointerEffects`' sweep
+        #endif
         return button
     }
 
@@ -426,6 +433,9 @@ final class ChatPromptCell: ChatBaseCell {
             self.handler?.draftCard(draft, tapped: kind)
         }, for: .primaryActionTriggered)
         contentView.addSubview(button)
+        #if targetEnvironment(macCatalyst)
+        PointerEffects.button(button)   // [Mac AAA 2026-11-16] as the approval's buttons
+        #endif
         return button
     }
 

@@ -151,11 +151,18 @@ final class MacSidebar: UIView {
     static let edgeInset: CGFloat = 10
     /// The nearest half point, the finest step UIKit lays out on here.
     static func half(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
+    /// [Mac AAA 2026-11-16] The sidebar's quietest words and marks (the ⌘K hint, a heading's chevron at rest, an empty
+    /// section's hint). Label 3 measured 2.1:1 on the iOS look's light panel (2.6:1 dark), short of the owner's "well
+    /// above 2:1" for the sidebar's dim text; half the label's ink is about 3.3:1 light and 3.9:1 dark, still a clear
+    /// step under label 2 (5.7:1), which "Search" and the headings keep.
+    static let quietInk = UIColor { traits in HQPalette.label.resolvedColor(with: traits).withAlphaComponent(0.5) }
     /// The faint fill under the pointer, on every row of the sidebar.
-    static let rowHover = UIColor { traits in UIColor.label.resolvedColor(with: traits).withAlphaComponent(0.05) }
+    /// [Mac AAA 2026-11-16] The app's shared row hover (`MacHover.rowFill`: the same 5 %, twice as deep under Increase
+    /// Contrast), not a copy of its own.
+    static var rowHover: UIColor { MacHover.rowFill }
     /// [sidebar-feel] How long the sidebar's own moves take: a group's rows closing up, Tools folding, the list
     /// scrolling to the open row. They all snapped.
-    static let glide: TimeInterval = 0.22
+    static let glide: TimeInterval = HQMotion.pane   // [Mac AAA 2026-11-16] the app's one timing for a travelling edge
     static var headingHeight: CGFloat { (30 * chrome).rounded() }
     /// 5 px on the screen (the Mac draws this app at 77 %): rows whose tops are a whole number of these apart are
     /// drawn exactly alike. A place row and its gap take six (39 pt, 30 px), a bot row seven (45.5 pt, 35 px).
@@ -207,6 +214,8 @@ final class MacSidebar: UIView {
     /// rows were drawn over each other.
     private let footScroll = UIScrollView()
     private var botsRoom: NSLayoutConstraint!
+    /// The foot's list drawn whole (Mac polish #5); in the folded rail it outranks the bots' room (`rebuild`).
+    private var footWhole: NSLayoutConstraint!
     /// The foot's line, fixed between the two lists: the foot's rows scroll under it, not the line with them (a
     /// sliver of Sessions showed under New Bot with no line once the foot had scrolled).
     private let footEdge = UIView()
@@ -473,7 +482,7 @@ final class MacSidebar: UIView {
         toggleCentre = toggle.centerXAnchor.constraint(equalTo: centerXAnchor)
         // [mac-audit #12] Owner 2026-11-02: one pixel of the window's own display (traitCollection), not the main
         // screen's: a Mac window on a 1x external display next to a 2x built-in one drew a blurred two-pixel line.
-        edgeWidth = edge.widthAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale))
+        edgeWidth = edge.widthAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale))
         footBottom = footScroll.bottomAnchor.constraint(equalTo: toggle.topAnchor, constant: -6)
         // The gear: beside the + open, centred above the toggle folded (the foot's rows then end above the gear).
         settingsBesideAdd = [settingsButton.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -2),
@@ -483,7 +492,7 @@ final class MacSidebar: UIView {
         footAboveSettings = footScroll.bottomAnchor.constraint(equalTo: settingsButton.topAnchor, constant: -6)
         // Mac polish #5: the foot is drawn whole when it fits (its own height, short of required), and the bots keep
         // their least (all but required, so a window shorter than every minimum breaks nothing).
-        let footWhole = footScroll.heightAnchor.constraint(equalTo: foot.heightAnchor)
+        footWhole = footScroll.heightAnchor.constraint(equalTo: foot.heightAnchor)
         footWhole.priority = .defaultHigh
         botsRoom = scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
         botsRoom.priority = .required - 1
@@ -544,7 +553,7 @@ final class MacSidebar: UIView {
             (bar: MacSidebar, _) in bar.rebuild()
         }
         registerForTraitChanges([UITraitDisplayScale.self]) { (bar: MacSidebar, _) in
-            bar.edgeWidth.constant = 1 / max(1, bar.traitCollection.displayScale)
+            bar.edgeWidth.constant = HQShape.pixel(bar.traitCollection.displayScale)
         }
         // [sidebar-intent] The window went behind another (or another app came in front), or came back: its accent
         // mark goes grey and comes back (`MacSelection.windowActive`).
@@ -709,6 +718,13 @@ final class MacSidebar: UIView {
         // not one of the rows above it.
         footBottom.constant = -6 - (folded ? 0 : Self.sectionBreak)
         botsRoom.constant = showsBots ? Self.botsMinHeight : 0   // Mac polish #5
+        // [Mac AAA 2026-11-16] Folded, the foot is four buttons (Sessions, Jobs, Artifacts, Tools), pinned there by the
+        // owner's rule: at the smallest window the bots' least room pushed Tools out of sight under Artifacts (the
+        // foot scrolled) and left half a face at the bots' foot. Folded, the foot is whole first and the bots scroll
+        // in what is left; open, the bots keep their least as before (the Tools list is long and scrolls).
+        let footFirst = folded && showsBots
+        footWhole.priority = footFirst ? .required - 1 : .defaultHigh
+        botsRoom.priority = footFirst ? .required - 2 : .required - 1
         placeToggle()
         recolor()
         superview?.setNeedsLayout()   // the width follows UI Scale (RootSplitController places it)
@@ -728,11 +744,17 @@ final class MacSidebar: UIView {
             let named = Self.railNamed
             let row = Row(item: item, shortcut: nil, folded: true, named: named)
             row.heightAnchor.constraint(equalToConstant: named ? Self.namedRowHeight : Self.rowHeight).isActive = true
+            // [Mac AAA 2026-11-16] The menu button over it is the control: the row itself spoke for it (so VoiceOver
+            // and Full Keyboard Access pressed a row with no action and the Tools menu never opened), and both named
+            // themselves under the pointer.
+            row.isAccessibilityElement = false
+            row.toolTip = nil
             let button = UIButton(type: .custom)
             button.accessibilityIdentifier = "mac-sidebar.tools-menu"
             button.accessibilityLabel = "Tools"
             button.toolTip = "Tools"
             button.showsMenuAsPrimaryAction = true
+            MacHover.drawsOwnHover(button)   // [Mac AAA 2026-11-16] the row under it draws the hover (as every rail row)
             button.menu = UIMenu(title: "Tools", children: toolRows.map { tool in
                 UIAction(title: tool.item.title ?? "", image: tool.item.image) { [weak tool] _ in tool?.sendActions(for: .touchUpInside) }
             })
@@ -748,8 +770,14 @@ final class MacSidebar: UIView {
             foldedTools = row
             return
         }
-        if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(Self.aboveHeading, after: last) }   // as over the bots' headings
-        let heading = MacSidebarHeading(title: "Tools", key: "tools") { [weak self] in self?.foldTools() }
+        // [Mac AAA 2026-11-16] The places' rows are 6.5 pt shorter than the bots', so "Tools" sat 3 pt nearer the
+        // place above it and the Tool under it than every bots' heading sits to its rows (their names measured 46
+        // and 32 apart where the bots' are 49 and 35). Half the difference over the heading and half under it, so
+        // every heading's words keep one distance to the names round them; the rows under it stay on the grid.
+        let lift = ((MacBotsRail.sidebarRowHeight - Self.openRowHeight) / 2).rounded(.down)
+        let even = max(0, Self.half(MacBotsRail.sidebarRowHeight - Self.openRowHeight) - lift)
+        if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(Self.aboveHeading + lift, after: last) }   // as over the bots' headings
+        let heading = MacSidebarHeading(title: "Tools", key: "tools", below: even) { [weak self] in self?.foldTools() }
         toolsHeading = heading
         stack.addArrangedSubview(heading)
         toolRows.forEach { $0.isHidden = heading.isFolded; stack.addArrangedSubview($0) }
@@ -1169,7 +1197,7 @@ final class MacSidebar: UIView {
         toolsTop?.isActive = false
         if let tools {
             toolsTop = railGateway.map { tools.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 4) }
-                ?? tools.topAnchor.constraint(equalTo: topAnchor, constant: Self.topRoom)
+                ?? tools.topAnchor.constraint(equalTo: topAnchor, constant: Self.topRoom - tools.levelShift)
             toolsTop?.isActive = true
         }
         gatewaysChanged()
@@ -1217,17 +1245,32 @@ final class MacSidebar: UIView {
         // the gateway's name was 10.8 pt, the one word in the sidebar under the 11 pt floor `sized` keeps.
         gatewayName.font = Self.font(Self.sized(14, Self.scheme.gatewayName))
         gatewayName.textColor = Self.scheme.gatewaySecondary ? HQPalette.label2 : HQPalette.label.withAlphaComponent(0.74)
-        switch state {
-        case .ready: gatewayDot.backgroundColor = .systemGreen
-        case .connecting, .reconnecting: gatewayDot.backgroundColor = .systemOrange
-        case .offline, .signedOut: gatewayDot.backgroundColor = .systemRed
+        // [Mac AAA 2026-11-16] Differentiate Without Colour: the colour alone told the states apart. Then reaching the
+        // gateway is a ring and being cut off a square, beside the connected dot.
+        let shapes = HQAccessibility.differentiateWithoutColour
+        let (dotColour, ring, square): (UIColor, Bool, Bool) = switch state {
+        case .ready: (.systemGreen, false, false)
+        case .connecting, .reconnecting: (.systemOrange, shapes, false)
+        case .offline, .signedOut: (.systemRed, false, shapes)
         }
-        gatewayTip.defaultToolTip = "\(AccountView.status(state)): \(title)"
+        gatewayDot.backgroundColor = ring ? .clear : dotColour
+        gatewayDot.layer.borderColor = dotColour.cgColor
+        gatewayDot.layer.borderWidth = ring ? HQShape.line(1.5) : 0
+        gatewayDot.layer.cornerRadius = square ? 1.5 : 3.5
+        // [Mac AAA 2026-11-16] Two gateways with one name (both on this Mac): the tooltip adds the address, as the
+        // Gateways menu's rows do, or nothing at the foot said which of the two was in use.
+        let currentRow = rows.first(where: \.isCurrent)
+        let twin = currentRow.map { row in rows.contains { $0.id != row.id && $0.title == row.title } } ?? false
+        let address = twin && switching == nil ? currentRow.map { " (" + GatewayNaming.host($0.account.baseURL, port: true) + ")" } ?? "" : ""
+        gatewayTip.defaultToolTip = "\(AccountView.status(state)): \(title)\(address)"
         gatewayName.accessibilityLabel = "Gateway \(title), \(AccountView.status(state))"
         gatewayName.alpha = switching == nil ? 1 : 0.6
         gatewayArrows.isHidden = !switcher
         gatewayNews.isHidden = !news
         gatewayButton.isHidden = !switcher
+        // [Mac AAA 2026-11-16] With the switcher on, the button over the name speaks for it: VoiceOver read the gateway
+        // twice (the name, then the button with the same words).
+        gatewayName.isAccessibilityElement = !switcher
         guard switcher else { return }
         gatewayArrows.image = UIImage(systemName: "chevron.up.chevron.down",
                                       withConfiguration: UIImage.SymbolConfiguration(pointSize: Self.sized(14, Self.scheme.gatewayName) * 0.72, weight: .semibold))
@@ -1275,6 +1318,23 @@ final class MacSidebar: UIView {
     }
     func debugClick(_ index: Int) { if rows.indices.contains(index) { rows[index].sendActions(for: .touchUpInside) } }
     var debugScroll: UIScrollView { scroll }
+    /// [Mac AAA 2026-11-16] The frame tour: place row `index` and the second bot's row drawn as under the pointer.
+    func debugHover(place index: Int) {
+        if rows.indices.contains(index) { rows[index].debugHover() }
+        heads.values.sorted { $0.frame.minY < $1.frame.minY }.dropFirst().first?.debugHover()
+    }
+    /// [Mac AAA 2026-11-16] Each list's frame, offset, rows past its edges and fades, and the foot bar's top, for the frame tour.
+    var debugLists: String {
+        [("bots", scroll, fade), ("foot", footScroll, footFade)].map { label, list, mask in
+            let frame = list.convert(list.bounds, to: self)
+            let below = list.contentSize.height + list.contentInset.bottom - (list.contentOffset.y + list.bounds.height)
+            let stops = (mask.locations ?? []).map { String(format: "%.2f", $0.doubleValue) }.joined(separator: ",")
+            let cut = rowFrames(in: list).filter { $0.minY < list.contentOffset.y - 0.5 && $0.maxY > list.contentOffset.y + 0.5
+                || $0.minY < list.contentOffset.y + list.bounds.height - 0.5 && $0.maxY > list.contentOffset.y + list.bounds.height + 0.5 }
+                .map { String(format: "%.0f-%.0f", $0.minY - list.contentOffset.y, $0.maxY - list.contentOffset.y) }
+            return "  \(label) y \(Int(frame.minY))-\(Int(frame.maxY)) offset \(Int(list.contentOffset.y)) below \(Int(below)) mask \(list.layer.mask != nil ? stops : "none") cut \(cut)"
+        }.joined(separator: "\n") + "\n  foot bar top \(Int(toggle.convert(toggle.bounds, to: self).minY))"
+    }
     /// [sidebar-light] The glass's effect and tint, and the page and ink it is mixed from.
     var debugGlass: String {
         "glass \(glass.effect.map { String(describing: type(of: $0)) } ?? "none") hidden \(glass.isHidden) tint \(glassTint.map { "\($0)" } ?? "-") page \(HQPalette.page.resolvedColor(with: traitCollection)) ink \(HQPalette.label.resolvedColor(with: traitCollection)) style \(traitCollection.userInterfaceStyle.rawValue) desktop \(Theme.isDesktop)"
@@ -1357,7 +1417,7 @@ final class MacSidebar: UIView {
             window?.windowScene?.sizeRestrictions?.minimumSize = MacWindow.minimumSize
             guard let host = superview else { return }
             host.setNeedsLayout()
-            HQMotion.animate(0.18, options: [.curveEaseOut, .beginFromCurrentState], changes: { host.layoutIfNeeded() })
+            HQMotion.animate(Self.glide, options: [.curveEaseOut, .beginFromCurrentState], changes: { host.layoutIfNeeded() })   // [Mac AAA 2026-11-16] was 0.18
         }
     }
 
@@ -1388,7 +1448,7 @@ final class MacSidebar: UIView {
         Self.savedOpenWidth = Self.defaultOpenWidth
         guard let host = superview else { return }
         host.setNeedsLayout()
-        HQMotion.animate(0.18, options: [.curveEaseOut, .beginFromCurrentState], changes: { host.layoutIfNeeded() })
+        HQMotion.animate(Self.glide, options: [.curveEaseOut, .beginFromCurrentState], changes: { host.layoutIfNeeded() })
     }
 
     #if DEBUG
@@ -1448,9 +1508,11 @@ final class MacSidebar: UIView {
             clip.addSubview(ghost)
             addSubview(clip)
             UIView.performWithoutAnimation { settleLayout() }   // the new rows start in place, not from nowhere
-            HQMotion.animate(0.15, options: [.curveEaseOut], changes: { ghost.alpha = 0 }, completion: { _ in clip.removeFromSuperview() })
+            // [Mac AAA 2026-11-16] The app's timings (`HQMotion`): the old rows fade in its quick step while the strip
+            // travels in its pane step (0.15 and a literal 0.22 before).
+            HQMotion.animate(HQMotion.quick, options: [.curveEaseOut], changes: { ghost.alpha = 0 }, completion: { _ in clip.removeFromSuperview() })
         }
-        HQMotion.animate(0.22, options: [.curveEaseInOut, .beginFromCurrentState], changes: { host.layoutIfNeeded() })
+        HQMotion.animate(Self.glide, options: [.curveEaseInOut, .beginFromCurrentState], changes: { host.layoutIfNeeded() })
     }
 
     /// [mac] Stress test #13: the window's width folded or opened the sidebar; the rows follow and the window may shrink
@@ -1531,6 +1593,31 @@ final class MacSidebar: UIView {
         chatRows.values.forEach { $0.recolor() }   // [chats-under]
     }
 
+    /// [Mac AAA 2026-11-16] The rows and buttons alone, in order: as a tab bar every view under the sidebar was a "tab",
+    /// so the scroll views and stacks that hold the rows (and the gateway line's frame) reached VoiceOver as four
+    /// tabs with no name (read in the running app through the accessibility tree).
+    override var accessibilityElements: [Any]? {
+        get {
+            var found: [Any] = []
+            func walk(_ view: UIView) {
+                guard !view.isHidden, view.alpha > 0.01 else { return }
+                if view.isAccessibilityElement { found.append(view); return }
+                if let own = view.accessibilityElements, view !== self { found.append(contentsOf: own); return }
+                view.subviews.forEach(walk)
+            }
+            subviews.forEach(walk)
+            // In reading order (top to bottom, then left to right), not the order the views were added in.
+            func place(_ element: Any) -> CGRect {
+                (element as? UIView).map { $0.convert($0.bounds, to: self) } ?? .zero
+            }
+            return found.sorted { a, b in
+                let fa = place(a), fb = place(b)
+                return abs(fa.midY - fb.midY) > 4 ? fa.midY < fb.midY : fa.minX < fb.minX
+            }
+        }
+        set { _ = newValue }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let panel = CGRect(x: Self.glassInset, y: Self.glassTop, width: max(0, bounds.width - 2 * Self.glassInset),
@@ -1553,10 +1640,30 @@ final class MacSidebar: UIView {
             // its Tools button to the bots' list, and "+" showed where it hadn't).
             let startedAt = railGateway.map { $0.frame.maxY + 4 } ?? Self.glassTop + 8
             let lead = max(0, (tools?.frame.maxY ?? startedAt) + stack.spacing - startedAt)
-            let room = max(Self.botsMinHeight - lead, min(content, (bounds.height * 0.5).rounded() - lead))
+            var room = max(Self.botsMinHeight - lead, min(content, (bounds.height * 0.5).rounded() - lead))
+            // [Mac AAA 2026-11-16] Open, a list too long for its room ends on a whole bot's row, not part way into the
+            // next: a group's heading left alone at the foot faded out over a blank band (70 pt under "Unassigned" at
+            // 640 pt tall) that the foot's Tools could have had. The room the bots don't use goes to the foot.
+            if !Self.isCollapsed, content > room + 0.5, let end = botsRowEnd(within: room), end >= Self.botsMinHeight - lead {
+                room = end
+            }
             if abs(botsRoom.constant - room) > 0.5 { botsRoom.constant = room }
         }
         placeFade()
+    }
+
+    /// [Mac AAA 2026-11-16] The foot of the last bot's row (or chat) that ends within `room` points of the bots' list,
+    /// never a group's heading (its group would read empty): where an open list too long for its room should end.
+    private func botsRowEnd(within room: CGFloat) -> CGFloat? {
+        let top = -scroll.contentInset.top
+        let views = stack.arrangedSubviews.flatMap { $0 === botsStack ? botsStack.arrangedSubviews : [$0] }
+            .filter { !$0.isHidden && $0.bounds.height >= 12 }
+        let rows = views.map { (frame: $0.convert($0.bounds, to: scroll), heading: $0 is MacSidebarHeading) }
+        guard let last = rows.lastIndex(where: { $0.frame.maxY - top <= room + 0.5 }) else { return nil }
+        // A heading, or a group's first row under its heading (the two would fade out together at the foot, the
+        // heading-fade rule): the list ends on the row before the heading.
+        let pick = rows[last].heading ? last - 1 : last > 0 && rows[last - 1].heading ? last - 2 : last
+        return pick >= 0 ? (rows[pick].frame.maxY - top).rounded(.up) : nil
     }
 
     /// Each list's foot fades while rows lie below it, and its top while rows lie above it (Mac polish #51: a row
@@ -1565,8 +1672,43 @@ final class MacSidebar: UIView {
         // Owner 2026-11-09 on Mac 915: the Tools list "can scroll left to right a little - not just up and down".
         // The sidebar's lists only ever move up and down: a sideways nudge from the trackpad is put straight back.
         for list in [scroll, footScroll] where list.contentOffset.x != 0 { list.contentOffset.x = 0 }
-        Self.fadeEdges(of: scroll, with: fade, heading: loneHeading())
-        Self.fadeEdges(of: footScroll, with: footFade)
+        Self.fadeEdges(of: scroll, with: fade, heading: loneHeading() ?? railCutFace(), foot: peekFade(of: scroll),
+                       head: peekHeadFade(of: scroll))
+        Self.fadeEdges(of: footScroll, with: footFade, foot: peekFade(of: footScroll), head: peekHeadFade(of: footScroll))
+    }
+
+    /// [Mac AAA 2026-11-16] The folded rail: a face cut by the line under the faces is drawn not at all (a dim smudge
+    /// of two thirds of a face was left under the fade), the face above it fading out as the list's "more below".
+    private func railCutFace() -> (start: CGFloat, end: CGFloat)? {
+        guard Self.isCollapsed, showsBots else { return nil }
+        let top = scroll.contentOffset.y, height = scroll.bounds.height
+        let below = scroll.contentSize.height + scroll.contentInset.bottom - (top + height)
+        guard below > 1, let cut = rowFrames(in: scroll).first(where: { $0.maxY - top > height + 0.5 && $0.minY - top < height - 0.5 }),
+              height - (cut.minY - top) < SidebarRules.headPeek * cut.height else { return nil }
+        let start = height - peekFade(of: scroll)
+        return (start, max(start, cut.minY - top))
+    }
+
+    /// [Mac AAA 2026-11-16] sidebar S3: the list's top fade, tall enough that a sliver of a row cut by the top never
+    /// reads as a whole row cut in half (`SidebarRules.peekHeadFade`).
+    private func peekHeadFade(of list: UIScrollView) -> CGFloat {
+        let top = list.contentOffset.y
+        let rows = rowFrames(in: list).map { SidebarRules.ListRow(top: $0.minY - top, bottom: $0.maxY - top, heading: false) }
+        return SidebarRules.peekHeadFade(rows: rows, height: list.bounds.height, above: top + list.contentInset.top,
+                                         strict: list === footScroll)
+    }
+
+    /// [Mac AAA 2026-11-16] The list's foot fade, tall enough that a row always reads faded where more lies below
+    /// (`SidebarRules.peekFade`).
+    private func peekFade(of list: UIScrollView) -> CGFloat {
+        let top = list.contentOffset.y
+        let rows = rowFrames(in: list).map { SidebarRules.ListRow(top: $0.minY - top, bottom: $0.maxY - top, heading: false) }
+        // [Mac AAA 2026-11-16] The folded rail's faces: a face cut by the line under them read as half a face (two
+        // thirds of Ivy's at the smallest window) and is let go into the fade as the foot list's top rows are.
+        let strict = list === scroll && Self.isCollapsed
+        return SidebarRules.peekFade(rows: rows, height: list.bounds.height,
+                                     below: list.contentSize.height + list.contentInset.bottom - (top + list.bounds.height),
+                                     peek: strict ? SidebarRules.headPeek : SidebarRules.peek)
     }
 
     /// After Mac polish #33 (Marketplace made the Tools one row longer): in a standard window the bots' list stopped on
@@ -1583,12 +1725,13 @@ final class MacSidebar: UIView {
                                         below: scroll.contentSize.height - (scroll.contentOffset.y + scroll.bounds.height))
     }
 
-    private static func fadeEdges(of list: UIScrollView, with mask: CAGradientLayer, heading: (start: CGFloat, end: CGFloat)? = nil) {
+    private static func fadeEdges(of list: UIScrollView, with mask: CAGradientLayer, heading: (start: CGFloat, end: CGFloat)? = nil,
+                                  foot: CGFloat? = nil, head: CGFloat? = nil) {
         let height = list.bounds.height
         guard height > 0 else { return }
         let fades = SidebarRules.fadeStops(above: list.contentOffset.y + list.contentInset.top,
                                            below: list.contentSize.height + list.contentInset.bottom - (list.contentOffset.y + height),
-                                           height: height)
+                                           height: height, footFade: foot, headFade: head)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let fades {
@@ -1636,7 +1779,7 @@ final class MacSidebar: UIView {
         glass.contentView.layer.cornerRadius = Self.glassRadius
         glass.contentView.layer.cornerCurve = .continuous
         glass.contentView.layer.masksToBounds = true
-        glass.layer.borderWidth = desktop ? 0 : 1 / max(1, traitCollection.displayScale)
+        glass.layer.borderWidth = desktop ? 0 : HQShape.pixel(traitCollection.displayScale)
         glass.layer.borderColor = HQPalette.cardEdge.resolvedColor(with: traitCollection).cgColor
         glass.isHidden = desktop
         edge.isHidden = !desktop
@@ -2110,6 +2253,10 @@ private final class Row: UIControl {
     private let named: Bool
     let item: UITabBarItem
     private var hovered = false
+    #if DEBUG
+    /// [Mac AAA 2026-11-16] The frame tour: drawn as under the pointer.
+    func debugHover() { hovered = true; recolor() }
+    #endif
     private var labelBeforeCount: NSLayoutConstraint?
     private var labelBeforeEdge: NSLayoutConstraint?
 
@@ -2189,6 +2336,10 @@ private final class Row: UIControl {
         labelBeforeCount = count.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 8)
         labelBeforeEdge = label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6)
         addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hover(_:))))
+        // [Mac AAA 2026-11-16] It draws its own hover and press. Folded, a row is 72 pt wide, small enough that the
+        // window's hover scout took it for an icon button and laid its capsule over the row's own rounded fill: two
+        // shapes under the pointer on the rail.
+        MacHover.drawsOwnHover(self)
         badge = item.badgeValue
         showBadge()   // [mac] stress test #65: `didSet` doesn't run in init, so every row kept a dot and no count
         recolor()
@@ -2235,7 +2386,7 @@ private final class Row: UIControl {
         count.textColor = HQPalette.label2
         dot.backgroundColor = tintColor
         // [mac] Stress test 2026-10-28 #54: the window's one source-list mark (`MacSelection`), its corners too.
-        backgroundColor = MacSelection.fill(selected: isMarked, pressed: isHighlighted, in: .sidebar) ?? (hovered ? Self.hoverFill : .clear)
+        backgroundColor = MacSelection.fill(selected: isMarked, pressed: isHighlighted, in: .sidebar) ?? (hovered ? MacSidebar.rowHover : .clear)   // [Mac AAA 2026-11-16] one hover fill (four copies of it before)
         layer.cornerRadius = MacSelection.radius
         accessibilityTraits = isMarked ? [.button, .selected] : .button
     }
@@ -2245,7 +2396,6 @@ private final class Row: UIControl {
         recolor()
     }
 
-    static let hoverFill = UIColor { traits in UIColor.label.resolvedColor(with: traits).withAlphaComponent(0.05) }
 }
 
 #endif

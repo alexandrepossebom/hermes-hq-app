@@ -289,7 +289,7 @@ final class DesktopTabBar: UIView {
             hoverPill.alpha = 1
         } else {
             hoveredIndex = nil
-            UIView.animate(withDuration: 0.06, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: hover fill fades opacity only
+            UIView.animate(withDuration: HQMotion.hover, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: hover fill fades opacity only
                 self.hoverPill.alpha = 0
             }
         }

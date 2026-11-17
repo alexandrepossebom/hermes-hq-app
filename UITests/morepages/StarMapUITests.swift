@@ -196,7 +196,7 @@ final class StarMapUITests: MorePagesCase {
         try graph(["nodes": 0])
         launchSignedIn()
         openMore("star-map")
-        XCTAssertTrue(app.staticTexts["Nothing learned yet"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Nothing Learned Yet"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["As Hermes builds skills and memories for your work, they appear here."].exists)
         XCTAssertFalse(app.segmentedControls["starmap.mode"].exists, "no Map | List over an empty graph")
         XCTAssertFalse(app.buttons["starmap.filter"].isEnabled, "nothing to filter")

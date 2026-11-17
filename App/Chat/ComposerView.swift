@@ -88,7 +88,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// largest text sizes. A text-size change re-measures it through `recomputeHeight`.
     private var editBannerHeight: CGFloat {
         guard let editBanner else { return 0 }
-        let width = bounds.width > 0 ? max(0, bounds.width - 2 * currentSideInset) : 320
+        let width = bounds.width > 0 ? max(0, bounds.width - 2 * (currentSideInset - boxOutset)) : 320
         let fitted = editBanner.systemLayoutSizeFitting(CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
                                                         withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
         return max(44, ceil(fitted.height))
@@ -238,7 +238,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
             if !wide { leadingHeld = true }
             recorderContent?.frame = field.contentView.bounds
             recorderContent?.layoutIfNeeded()
-            UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {   // motion-ok: Reduce Motion returned in the guard above
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {   // motion-ok: Reduce Motion returned in the guard above
                 self.layoutIfNeeded()
             }
             if !wide { revealLeading(after: 0.15, token: leadingRevealToken) }
@@ -258,7 +258,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
                 let target = view.alpha          // ☰ dims itself while disabled
                 view.alpha = 0
                 view.isHidden = false
-                UIView.animate(withDuration: 0.15, delay: 0, options: [.allowUserInteraction, .curveEaseOut]) { view.alpha = target }   // motion-ok: opacity only
+                UIView.animate(withDuration: HQMotion.quick, delay: 0, options: [.allowUserInteraction, .curveEaseOut]) { view.alpha = target }   // motion-ok: opacity only
             }
         }
     }
@@ -408,7 +408,8 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         let word = ceil(("Message" as NSString).size(withAttributes: [.font: font]).width) + 4
         let left = fieldW - 2 * ChatMetrics.fieldPadH - micInset - 10 - word
         let w = modelChip.fittedWidth(in: min(240, fieldW * 0.4, max(0, left)), height: Self.macChipHeight)
-        return w >= 56 ? w : 0
+        // [Mac AAA 2026-11-16] Never narrower than its words at full size: it steps aside instead (⋯ › Model stays).
+        return w >= max(56, modelChip.fullSizeWidth()) ? w : 0
     }
 
     /// Reads the title again (after a switch, and each time the bar grows to two rows). A bubble on screen eases to
@@ -420,7 +421,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         modelChip.title = title
         setNeedsLayout()
         guard resizes else { return }
-        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {   // motion-ok: Reduce Motion skips it (above)
+        UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {   // motion-ok: Reduce Motion skips it (above)
             self.layoutIfNeeded()
         }
     }
@@ -593,6 +594,36 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         // At accessibility sizes the line cap follows the keyboard (`maxLines`): measure again once it has come or gone.
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardSettled), name: UIResponder.keyboardDidShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardSettled), name: UIResponder.keyboardDidHideNotification, object: nil)
+        #if targetEnvironment(macCatalyst)
+        addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(boxHovered(_:))))
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// [Mac AAA 2026-11-16] The plain box answers the pointer as a Mac text field does: its line steps up a little while
+    /// the pointer is over it (`MacMessageBox.lineHover`), and the I-beam is already there. It looked dead until clicked.
+    private var boxHovering = false
+    @objc private func boxHovered(_ recognizer: UIHoverGestureRecognizer) {
+        let inside = (recognizer.state == .began || recognizer.state == .changed)
+            && !desktopBox.isHidden && desktopBox.frame.contains(recognizer.location(in: self))
+        guard inside != boxHovering else { return }
+        boxHovering = inside
+        restrokeBox()
+    }
+    #endif
+
+    /// The one box's line for its state: at rest, under the pointer (Mac), typing.
+    private func restrokeBox() {
+        guard Self.oneBox, !desktopBox.isHidden else { return }
+        let focused = textView.isFirstResponder
+        #if targetEnvironment(macCatalyst)
+        let hover = boxHovering
+        #else
+        let hover = false
+        #endif
+        let line = Self.macPlainBox ? (focused ? MacMessageBox.lineTyping : hover ? MacMessageBox.lineHover : MacMessageBox.line)
+                                    : (focused || hover ? ChatPalette.composerBorder : ChatPalette.strokeSecondary)
+        desktopBox.layer.borderColor = line.resolvedColor(with: traitCollection).cgColor
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -649,7 +680,29 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     var boxOutset: CGFloat { Self.oneBox ? 4 : 0 }
     /// How far that box rises over the composer's own top (`layoutDesktopBox`: 3 pt above the row): a card resting on
     /// the composer keeps its gap from the box, not from the bounds hidden under it.
-    var boxRise: CGFloat { Self.oneBox ? 3 : 0 }
+    var boxRise: CGFloat { Self.oneBox ? 3 - boxTrim : 0 }
+
+    /// [Mac AAA 2026-11-16] The plain box's top comes down by what one line of text measures over the 54 pt control
+    /// row, so the box is even round the ☰, +, model name, mic and circle: one line measured 56, the box was centred on
+    /// the text's 56 while the buttons stand on the 54 at its foot, and the circle sat 13 px under the box's top edge
+    /// and 11 px over its bottom one.
+    var boxTrim: CGFloat {
+        guard Self.macPlainBox, !expanded else { return 0 }
+        let inset = textInsets
+        let font = textView.font ?? .preferredFont(forTextStyle: .body)
+        let key = "\(font.fontName)-\(font.pointSize)-\(inset.top)-\(inset.bottom)"
+        if oneLineFit?.key != key {
+            let probe = UITextView()
+            probe.font = font
+            probe.textContainerInset = inset
+            probe.textContainer.lineFragmentPadding = 0
+            probe.isScrollEnabled = false
+            probe.text = "Message"
+            oneLineFit = (key, ceil(probe.sizeThatFits(CGSize(width: 400, height: CGFloat.greatestFiniteMagnitude)).height))
+        }
+        return max(0, min(3, (oneLineFit?.height ?? 0) - ChatMetrics.control))
+    }
+    private var oneLineFit: (key: String, height: CGFloat)?
 
     /// The row moved without changing size (the keyboard layout guide carries it, so `layoutSubviews` doesn't run):
     /// lay it out again when its side inset changed, inside whatever animation moved it. The screen calls this from
@@ -688,7 +741,9 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         let chip = chipExtra
         let rowTop = max(0, bounds.height - fieldHeight - chip)
         topAccessory?.frame = CGRect(x: 0, y: editExtra, width: bounds.width, height: max(0, rowTop - editExtra))
-        editBanner?.frame = CGRect(x: side, y: 0, width: max(0, bounds.width - 2 * side), height: editBannerHeight)   // MENUS
+        // MENUS. [Mac AAA 2026-11-16] Edge to edge with the one box under it (it stood 4 pt inside the box's edges).
+        let bannerSide = side - boxOutset
+        editBanner?.frame = CGRect(x: bannerSide, y: 0, width: max(0, bounds.width - 2 * bannerSide), height: editBannerHeight)
         // [composer-bar] The bar's trailing end: the circle is drawn 4 pt in from the bar's edge.
         let pad = toolbarPad
         primaryButton.frame = CGRect(x: bounds.width - side - c - primaryInset - pad, y: bounds.height - c - pad, width: c, height: c)
@@ -741,7 +796,10 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         if chipShown, !barMode {
             // [mac] Before the mic's glyph (or the circle while Send shows), 8 pt clear, on the circle's line.
             let p = primaryButton.frame
-            let end = (micShown ? micCenter.x - 12 : p.midX - 14) - 8
+            // [Mac AAA 2026-11-16] Clear of the circle's own edge (its 36 pt, not 28): beside Send the chip stood 5 px
+            // from the circle, against 13 from the mic's glyph.
+            let circleHalf = Self.macPlainBox ? MacMessageBox.circle / 2 : 14
+            let end = (micShown ? micCenter.x - 12 : p.midX - circleHalf) - 8
             let h = Self.macChipHeight
             modelChip.frame = CGRect(x: (end - macChip).rounded(), y: (p.midY - h / 2).rounded(), width: macChip, height: h)
         } else if chipShown, let last = leadingViews.last {
@@ -849,7 +907,8 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         flatten(dictateButton, holdsGlass: !desktop)   // [composer-expand] a glyph on the bar
         if desktop {
             flatten(field)
-            let box = CGRect(x: side - boxOutset, y: rowTop - 3, width: bounds.width - 2 * side + 2 * boxOutset, height: fieldHeight + 6)
+            let trim = boxTrim
+            let box = CGRect(x: side - boxOutset, y: rowTop - 3 + trim, width: bounds.width - 2 * side + 2 * boxOutset, height: fieldHeight + 6 - trim)
             desktopBox.frame = box
             let plainBox = Self.macPlainBox
             layoutMacBacking(box: box)
@@ -859,14 +918,11 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
             // capsule at one line.
             desktopBox.layer.cornerRadius = Theme.isDesktop ? min(ChatMetrics.bubbleRadius, box.height / 2) : Self.macBoxRadius
             desktopBox.layer.cornerCurve = .continuous
-            desktopBox.layer.borderWidth = 1
+            desktopBox.layer.borderWidth = HQShape.hairline
             // The desktop's surface keeps its quiet line (styles.css:1997, stroke-secondary); typing steps it up to the
             // bar's own outline, never the accent (a blue ring read as a web form field, owner 2026-10-15).
             // [mac-message-box] The iOS look's box: one even line all round, a step stronger while typing.
-            let focused = textView.isFirstResponder
-            let line = plainBox ? (focused ? MacMessageBox.lineTyping : MacMessageBox.line)
-                                : (focused ? ChatPalette.composerBorder : ChatPalette.strokeSecondary)
-            desktopBox.layer.borderColor = line.resolvedColor(with: traitCollection).cgColor
+            restrokeBox()
         } else if field.effect == nil {
             macBacking.isHidden = true
             let glass = UIGlassEffect(style: .regular)
@@ -931,7 +987,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         recomputeHeight(notify: true)
         setNeedsLayout()
         guard animated, window != nil, !HQMotion.reduced else { return }
-        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {   // motion-ok: Reduce Motion returned in the guard above
+        UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {   // motion-ok: Reduce Motion returned in the guard above
             self.layoutIfNeeded()
         }
     }
@@ -1163,18 +1219,26 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         let next: Primary
         // VOICE: the recorder hides the primary while held and shows Send when locked or in review; a draft chip sends.
         let busy = dictating && dictationBusy   // [talk]
-        primaryButton.alpha = memoPrimary == .hidden ? 0 : busy ? 0.45 : 1
-        primaryButton.isUserInteractionEnabled = memoPrimary != .hidden && !busy
-        defer { if busy { primaryButton.accessibilityTraits.insert(.notEnabled) } else { primaryButton.accessibilityTraits.remove(.notEnabled) } }
         // [talk] The order of docs/spec/3x-talk.md §5.1, as one pure choice (`ComposerPrimaryTests`).
         let memoSend: Bool? = { if case .send(let enabled) = memoPrimary { return enabled } else { return nil } }()
         next = Self.choosePrimary(memoSend: memoSend, enabled: isEnabled, preparing: attachmentsPreparing, hasText: hasText,
                                   attachments: attachmentCount, memoChip: memoChip != nil, dictating: dictating, running: isRunning,
                                   talkAvailable: talkAvailable, editingQueued: editingQueued,
                                   allowsDeferredSend: allowsDeferredSend)
+        // [Mac AAA 2026-11-16] Reconnecting… with nothing typed there is nothing to send: the circle stays Talk, dimmed,
+        // as it will be once the chat is back (it turned into a dim send arrow). Still `.disabled` underneath: nothing
+        // starts from it, and the Talk tip and its listeners see no Talk.
+        let dimTalk = next == .disabled && !isEnabled && talkAvailable && !hasText && attachmentCount == 0 && memoChip == nil
+            && memoSend == nil && !editingQueued && !dictating
+        let drawn: Primary = dimTalk ? .talk : next
+        primaryButton.alpha = memoPrimary == .hidden ? 0 : busy || dimTalk ? 0.45 : 1
+        primaryButton.isUserInteractionEnabled = memoPrimary != .hidden && !busy && !dimTalk
+        defer {
+            if busy || dimTalk { primaryButton.accessibilityTraits.insert(.notEnabled) } else { primaryButton.accessibilityTraits.remove(.notEnabled) }
+        }
         // [composer] While a queued message is edited the circle is its Save (spec 3x-composer §15.5).
         defer {
-            if memoSend == nil, next == .send || next == .disabled {
+            if memoSend == nil, drawn == .send || drawn == .disabled {
                 primaryButton.accessibilityLabel = editingQueued ? "Save" : "Send"
             }
         }
@@ -1182,9 +1246,10 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         // A hold on Send while a reply runs picks Steer or Queue (owner 2026-10-31); typed text only, as only it steers.
         primaryButton.offersSendOptions = isEnabled && next == .send && isRunning && offersSteerQueue && hasText && attachmentCount == 0
             && memoPrimary == .normal && memoChip == nil && !editingQueued
-        guard next != primary || primaryButton.kind != next else { return }
+        guard next != primary || primaryButton.kind != drawn else { return }
         primary = next
-        primaryButton.set(next, animated: animated)
+        primaryButton.set(drawn, animated: animated)
+        if dimTalk { primaryButton.isEnabled = false }
         syncMicPlacement()   // [composer-voice]
         onPrimaryChange?()   // [talk]
     }
@@ -1397,9 +1462,9 @@ final class PrimaryButton: UIControl {
             let down = isHighlighted
             if HQMotion.reduced {
                 transform = .identity
-                UIView.animate(withDuration: 0.12) { self.alpha = down ? 0.6 : 1 }
+                UIView.animate(withDuration: HQMotion.quick) { self.alpha = down ? 0.6 : 1 }
             } else {
-                UIView.animate(withDuration: 0.12) { self.transform = down ? CGAffineTransform(scaleX: 0.92, y: 0.92) : .identity }
+                UIView.animate(withDuration: HQMotion.quick) { self.transform = down ? CGAffineTransform(scaleX: 0.92, y: 0.92) : .identity }
             }
         }
     }
@@ -1421,7 +1486,7 @@ final class PrimaryButton: UIControl {
         let oldFill = circle.presentation()?.fillColor ?? circle.fillColor
         if animated && changedShape, !HQMotion.reduced, !ComposerView.oneBox {
             let tint = discTint()
-            UIView.animate(withDuration: 0.15) { self.disc.tint = tint }   // motion-ok: guarded by HQMotion.reduced
+            UIView.animate(withDuration: HQMotion.quick) { self.disc.tint = tint }   // motion-ok: guarded by HQMotion.reduced
         }
         setNeedsLayout()
         layoutIfNeeded()

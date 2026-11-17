@@ -890,6 +890,29 @@ final class HermesUpdateController: UIHostingController<HQScaledRoot<HermesUpdat
                 guard let self else { return }
                 self.refit(shrink: true)
                 self.refitOnChange()
+                self.settleOnMac()
+            }
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        settleOnMac()
+    }
+
+    /// [Mac AAA 2026-11-16] The Mac's size again once the state has laid out: the buttons under the list come in after
+    /// its size was read, so a failed run's sheet stayed short and its last step sat under Copy Details.
+    private func settleOnMac() {
+        guard DeviceWord.isMac else { return }
+        for delay in [0.45, 1.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, !self.isBeingDismissed else { return }
+                #if DEBUG
+                if let list = self.list {
+                    AppLog.note("mac", "hermes-update fit: content \(list.contentSize.height) inset \(list.adjustedContentInset) list \(list.bounds.height) view \(self.view.bounds.height) preferred \(self.preferredContentSize.height)")
+                }
+                #endif
+                UpdateSheetFit.macFit(self, measured: self.measuredHeight())
             }
         }
     }
@@ -945,7 +968,10 @@ struct HermesUpdateView: View {
             // Mac polish #122, #124: on the page's colour with a soft fade above, and only when there is a button.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 UpdateSheetButtonBar(shown: hasButtons) {
-                    VStack(spacing: 10) { buttons }
+                    // [Mac AAA 2026-11-16] On the Mac a failure's buttons sit in one row, the filled one on the right
+                    // (the Mac's order, as the Mac app's own update sheet): stacked, the bar stood taller than the room
+                    // the list left it, so the last step sat under Show Update Output.
+                    Group { if DeviceWord.isMac { HStack(spacing: 10) { macButtons } } else { VStack(spacing: 10) { buttons } } }
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
                         .padding(.bottom, 12)
@@ -954,7 +980,7 @@ struct HermesUpdateView: View {
             .navigationTitle(update.kind == .cloud ? "Update Agent" : "Update Hermes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseToolbar(word: closeWord, id: "hermes-update.close") { update.close() } }   // [mac] Mac polish #123
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: update.phase)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: update.phase)
         }
         .hqGlassSheetPage()
         .accessibilityIdentifier("hermes-update")
@@ -1066,6 +1092,24 @@ struct HermesUpdateView: View {
         }
     }
 
+    /// The Mac's row: the same buttons, the filled one last (on the right).
+    @ViewBuilder
+    private var macButtons: some View {
+        switch update.phase {
+        case .ended(.failed) where update.checkFailed:
+            action("Copy Details", id: "hermes-update.copy", prominent: false, row: true) { update.copyDetails() }
+            action("Try Again", id: "hermes-update.retry", row: true) { update.check() }
+        case .ended(.failed):
+            if update.action?.lines.isEmpty == false {
+                action("Show Update Output", id: "hermes-update.output", prominent: false, row: true) { update.openOutput() }
+            }
+            action("Copy Details", id: "hermes-update.copy", prominent: !update.canTryAgain, row: true) { update.copyDetails() }
+            if update.canTryAgain { action("Try Again", id: "hermes-update.retry", row: true) { update.tryAgain() } }
+        default:
+            buttons
+        }
+    }
+
     @ViewBuilder
     private var buttons: some View {
         switch update.phase {
@@ -1094,12 +1138,13 @@ struct HermesUpdateView: View {
         }
     }
 
-    private func action(_ title: String, id: String, prominent: Bool = true, perform: @escaping () -> Void) -> some View {
+    /// `row`: one of the Mac's row of buttons (natural width, at least 120 pt), not the stack's full-width button.
+    private func action(_ title: String, id: String, prominent: Bool = true, row: Bool = false, perform: @escaping () -> Void) -> some View {
         Group {
             Group {
                 // [Mac UI check 2026-11-13] On the Mac one width for every button of the stack (Show Update Output
                 // over Copy Details were two sizes), so they read as one set under the steps.
-                let minWidth: CGFloat? = DeviceWord.isMac ? 200 : nil
+                let minWidth: CGFloat? = DeviceWord.isMac ? (row ? 120 : 200) : nil
                 if prominent {
                     Button(action: perform) { Text(title).frame(minWidth: minWidth).frame(maxWidth: GlassSheetKit.designed ? .infinity : nil) }
                         .hqProminentButtonStyle()
@@ -1109,8 +1154,11 @@ struct HermesUpdateView: View {
                 }
             }
             .controlSize(.large)
+            // [Mac AAA 2026-11-16] The filled button is the sheet's default on the Mac: Return presses it, as on the
+            // Mac app's own update sheet (Escape closes the sheet through the app's Stop or Close).
+            .keyboardShortcut(prominent && DeviceWord.isMac ? .defaultAction : nil)
             .accessibilityIdentifier(id)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: row ? nil : .infinity)
         }
     }
 }
@@ -1135,7 +1183,10 @@ private struct HermesUpdateStepRow: View {
                 }
             }
             .font(Font.hq(.title3))
-            .frame(width: 24, height: 24)
+            // [Mac AAA 2026-11-16] The glyph's box as Update Add-on sizes its own (`AddOnStepRow`): as big as the glyph it
+            // holds. The fixed 24 pt box put these titles 3 pt left of the add-on's, and let the glyph spill into the
+            // title at 150 %.
+            .frame(width: max(24, HQFont.preferred(.title3).lineHeight), height: max(24, HQFont.preferred(.title3).lineHeight))
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 6 }
             VStack(alignment: .leading, spacing: 2) {
                 Text(step.title)
@@ -1159,8 +1210,8 @@ private struct HermesUpdateStepRow: View {
             }
         }
         .padding(.vertical, 3)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: step.state)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: step.detail)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: step.state)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: step.detail)
         .accessibilityElement(children: .combine)
         .accessibilityValue(step.state == .done ? "Done" : step.state == .active ? "In progress" : step.state == .skipped ? "Not needed"
                             : step.state == .failed ? "Failed" : "Waiting")

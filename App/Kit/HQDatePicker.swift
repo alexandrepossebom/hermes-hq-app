@@ -26,7 +26,7 @@ struct HQDatePicker: View {
                     .padding(.horizontal, 4)
                     .frame(minHeight: MacForm.controlHeight)
                     .background(box.fill(MacField.fill))
-                    .overlay(box.strokeBorder(MacField.stroke, lineWidth: 1).allowsHitTesting(false))
+                    .overlay(box.strokeBorder(MacField.stroke, lineWidth: HQShape.hairline).allowsHitTesting(false))
             }
         } else {
             DatePicker(title, selection: $selection, displayedComponents: components)

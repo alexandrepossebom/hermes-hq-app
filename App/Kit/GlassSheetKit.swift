@@ -119,7 +119,7 @@ struct SheetActionButtonStyle: ButtonStyle {
             .padding(.vertical, GlassSheetKit.actionInsets.top)
             .frame(minHeight: GlassSheetKit.actionHeight)
             .background(Capsule().fill(fill))
-            .overlay { if glass && !onCard { Capsule().strokeBorder(Color(uiColor: HQPalette.cardEdge), lineWidth: 1) } }
+            .overlay { if glass && !onCard { Capsule().strokeBorder(Color(uiColor: HQPalette.cardEdge), lineWidth: HQShape.hairline) } }
             .opacity(configuration.isPressed ? 0.6 : enabled ? 1 : 0.45)
             .contentShape(Capsule())
     }
@@ -375,7 +375,7 @@ extension UIView {
     private func paintGlassEdge() {
         let always = objc_getAssociatedObject(self, GlassEdges.alwaysKey) as? Bool ?? false
         let edge = (always ? HQPalette.cardEdge : HQPalette.glassEdge).resolvedColor(with: traitCollection).cgColor
-        layer.borderWidth = edge.alpha > 0 ? 1 : 0
+        layer.borderWidth = edge.alpha > 0 ? HQShape.hairline : 0
         layer.borderColor = edge.alpha > 0 ? edge : nil
     }
 }
@@ -415,7 +415,7 @@ extension UITableViewCell {
         super.init()
         stroke.name = "hq.glass.edge"
         stroke.fillColor = nil
-        stroke.lineWidth = 1
+        stroke.lineWidth = HQShape.hairline
         stroke.zPosition = 50
         stroke.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull(), "strokeColor": NSNull()]
         list.layer.addSublayer(stroke)
@@ -594,7 +594,7 @@ private struct GlassCardModifier: ViewModifier {
                 .background(RoundedRectangle(cornerRadius: GlassSheetKit.cardRadius, style: .continuous)
                     .fill(Color(uiColor: HQPalette.sheetCard)))
                 .overlay(RoundedRectangle(cornerRadius: GlassSheetKit.cardRadius, style: .continuous)
-                    .strokeBorder(Color(uiColor: HQPalette.glassEdge), lineWidth: 1))   // rule 5
+                    .strokeBorder(Color(uiColor: HQPalette.glassEdge), lineWidth: HQShape.hairline))   // rule 5
         } else {
             content
         }

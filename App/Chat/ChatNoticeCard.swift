@@ -167,7 +167,7 @@ final class ChatEarlierPill: UIView {
         let changes = { self.alpha = shown ? 1 : 0 }
         let done: (Bool) -> Void = { _ in if self.state == .hidden { self.isHidden = true; self.spinner.stopAnimating() } }
         if window != nil, !HQMotion.reduced, before == .hidden || !shown {
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: skipped under Reduce Motion
+            UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: skipped under Reduce Motion
         } else {
             changes(); done(true)
         }

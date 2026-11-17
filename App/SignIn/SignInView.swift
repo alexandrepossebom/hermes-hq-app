@@ -106,7 +106,17 @@ final class SignInModel {
         self.address = address
         self.onOutcome = onOutcome
         if !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { ask() }
+        #if DEBUG
+        Self.debugLast = self
+        #endif
     }
+
+    #if DEBUG
+    /// [Mac AAA 2026-11-16] The form made last, for the Mac tours (`SettingsWindowTour`, `SheetsTour`): they press Sign
+    /// In through the same action the button runs (an accessibility press on the SwiftUI button did not land).
+    static weak var debugLast: SignInModel?
+    var debugError: String? { error }
+    #endif
 
     /// [onboarding] An address handed to the form (a connect link, the guide's kept address): filled in and asked about.
     func fill(address new: String) {
@@ -311,7 +321,9 @@ struct SignInView: View {
                     .padding(.bottom, 28)
                 VStack(alignment: .leading, spacing: 16) {
                     addressField
-                    if let note = model.note {
+                    // [Mac AAA 2026-11-16] Not under the red line that says the same about the address (the Mac's
+                    // failure at the field): "Can't reach this address" twice, in two colours.
+                    if let note = model.note, !(errorAtField && model.addressInvalid) {
                         // UX study #130: said where it is seen, before a password is typed for a host that isn't there.
                         Label { Text(note) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.hqOrange) }
                             .font(Font.hq(.callout))
@@ -341,16 +353,8 @@ struct SignInView: View {
                             .accessibilityIdentifier("sign-in-notice")
                             .transition(.opacity)
                     }
-                    if let error = model.error, !error.isEmpty {
-                        // Selectable: some errors name a setting to type on the computer running Hermes.
-                        Label { Text(error).textSelection(.enabled) } icon: { Image(systemName: "exclamationmark.circle.fill") }
-                            .font(Font.hq(.callout))
-                            .foregroundStyle(Color.hqRed)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityElement(children: .combine)
-                            .accessibilityFocused($errorSpoken)
-                            .accessibilityIdentifier("sign-in-error")
-                            .transition(.opacity)
+                    if let error = model.error, !error.isEmpty, !errorAtField {
+                        errorLine(error)
                     }
                     if model.ways != nil, !model.behindAccess {
                         Text(model.footnote)
@@ -405,11 +409,11 @@ struct SignInView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: model.ways)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: model.accessOpen)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: model.error)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: model.note)
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: model.notice)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: model.ways)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: model.accessOpen)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: model.error)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: model.note)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: model.notice)
         }
         .scrollDismissesKeyboard(.interactively)
         // [macpass-settings2] Return in the address before the address had been asked about left no field focused when
@@ -440,6 +444,24 @@ struct SignInView: View {
         .onChange(of: focus) { old, new in
             if old == .address, new != .address { model.ask() }
         }
+    }
+
+    /// [Mac AAA 2026-11-16] On the Mac a failure that marks a field (a wrong password, an address that isn't Hermes)
+    /// is said right under that field: under the form's foot it was below the window's edge in Add Gateway…, so a
+    /// wrong password showed only as a red edge.
+    private var errorAtField: Bool { DeviceWord.isMac && (model.addressInvalid || model.passwordInvalid) }
+
+    private func errorLine(_ error: String) -> some View {
+        // Selectable: some errors name a setting to type on the computer running Hermes.
+        Label { Text(error).textSelection(.enabled) } icon: { Image(systemName: "exclamationmark.circle.fill") }
+            .font(Font.hq(.callout))
+            .foregroundStyle(Color.hqRed)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)   // the field's width (it wrapped at two-thirds of it)
+            .accessibilityElement(children: .combine)
+            .accessibilityFocused($errorSpoken)
+            .accessibilityIdentifier("sign-in-error")
+            .transition(.opacity)
     }
 
     private var header: some View {
@@ -497,6 +519,7 @@ struct SignInView: View {
                 }
             }
             .fieldStyle(height: fieldHeight, invalid: model.addressInvalid)
+            if errorAtField, model.addressInvalid, let error = model.error, !error.isEmpty { errorLine(error).padding(.top, 4) }
         }
         .disabled(model.busy != nil)
     }
@@ -576,9 +599,9 @@ struct SignInView: View {
             }
             if ways == .both {
                 HStack(spacing: 10) {
-                    Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: 0.5)
+                    Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: HQShape.line(0.5))
                     Text("or with a password").font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2).fixedSize()
-                    Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: 0.5)
+                    Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: HQShape.line(0.5))
                 }
                 .padding(.vertical, 2)
                 .accessibilityHidden(true)
@@ -626,6 +649,9 @@ struct SignInView: View {
                     .hqFieldValidity(invalid: model.passwordInvalid, message: model.error)
                     .accessibilityFocused($spoken, equals: .password)
                     .accessibilityIdentifier("sign-in-password")
+                if errorAtField, model.passwordInvalid, !model.addressInvalid, let error = model.error, !error.isEmpty {
+                    errorLine(error).padding(.top, 4)
+                }
             }
         }
         .disabled(model.busy != nil)
@@ -717,6 +743,7 @@ private extension View {
 struct NousOtherAccountLink: View {
     let id: String
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -726,7 +753,8 @@ struct NousOtherAccountLink: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .foregroundStyle(Color.hqTintText)
+        // [Mac AAA 2026-11-16] Dimmed with the button above it while a sign-in runs (it stayed full blue, looking live).
+        .foregroundStyle(isEnabled ? Color.hqTintText : Color.hqLabel3)
         .accessibilityHint("Signs in to Nous without the login your browser remembers.")
         .accessibilityIdentifier(id)
     }

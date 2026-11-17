@@ -110,6 +110,17 @@ nonisolated enum MoreSearch {
         return groups
     }
 
+    /// [Mac AAA 2026-11-16] Where Open Quickly's mark starts: the row whose name is exactly what was typed, wherever its
+    /// group sits, else the first row. "New Chat" + Return opened Settings › Personality (Settings come before Actions,
+    /// and the first row was what Return took), checked in the running app.
+    static func startRow(_ groups: [Group], query: String) -> (section: Int, row: Int) {
+        let wanted = normalize(query)
+        for (section, group) in groups.enumerated() {
+            if let row = group.rows.firstIndex(where: { normalize($0.title) == wanted }) { return (section, row) }
+        }
+        return (0, 0)
+    }
+
     /// The first row Return opens.
     static func first(_ groups: [Group]) -> (kind: Kind, item: Item)? {
         groups.first.flatMap { group in group.rows.first.map { (group.kind, $0) } }

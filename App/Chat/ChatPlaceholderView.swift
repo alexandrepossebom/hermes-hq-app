@@ -169,7 +169,11 @@ final class ChatPlaceholderView: UIView {
         stack.setCustomSpacing(16, after: bodyLabel)
         stack.setCustomSpacing(4, after: capsules)
         stack.setCustomSpacing(18, after: nameButton)
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: ChatPlaceholderView, _) in view.setNeedsLayout() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: ChatPlaceholderView, _) in
+            view.fitCapsuleCorners()
+            view.setNeedsLayout()
+        }
+        fitCapsuleCorners()
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: ChatPlaceholderView, _) in view.arrangeCapsules() }
         arrangeCapsules()
         // [settings] Saving power stops the skeleton's shimmer; it starts again when saving ends (3x-settings §3).
@@ -182,6 +186,18 @@ final class ChatPlaceholderView: UIView {
     }
 
     private var powerWatch: NSObjectProtocol?
+
+    /// [Mac AAA 2026-11-16] Talk and Bot Info in the Desktop Look on the Mac: the look's 4 pt corners, not iOS's capsule
+    /// (the only round buttons left in a flat, square-cornered chat).
+    private func fitCapsuleCorners() {
+        let desktop = Theme.isDesktop && DeviceWord.isMac
+        for button in [talkButton, infoButton] {
+            guard var config = button.configuration else { continue }
+            config.cornerStyle = desktop ? .fixed : .capsule
+            config.background.cornerRadius = desktop ? DesktopRows.radius : 0
+            button.configuration = config
+        }
+    }
     /// [settings] Whether the skeleton's shimmer is running (tests).
     var isShimmering: Bool { shimmer.animation(forKey: "shimmer") != nil }
 
@@ -240,18 +256,25 @@ final class ChatPlaceholderView: UIView {
         super.layoutSubviews()
         let side = ChatMetrics.sideInset
         let column = bounds.width - 2 * side
+        // [Mac AAA 2026-11-16] The skeleton keeps to the reading column the rows will draw in (centred, at most
+        // `ReadableColumn.maxWidth`), its lines no wider than a reply and its bubble no wider than yours: in a wide
+        // window they ran from edge to edge of the pane, wider than anything that then took their place.
+        let reading = DeviceWord.isMac ? ReadableColumn.fit(pane: bounds.width) : (width: bounds.width, margin: 0)
+        let start = reading.margin + side, end = reading.margin + reading.width - side
+        let lineRoom = min(end - start, ChatMetrics.replyMaxWidth)
+        let bubbleRoom = DeviceWord.isMac ? min(end - start, ChatMetrics.userMaxWidth) : end - start
         // The skeleton sits at the transcript's bottom, where the newest messages will be.
         let lineH: CGFloat = 16, lineGap: CGFloat = 10
         let widths: [CGFloat] = [0.78, 0.64, 0.4]
         var y = bounds.height
         for (i, line) in lines.enumerated().reversed() {
             y -= lineH
-            line.frame = CGRect(x: side, y: y, width: (column * widths[i]).rounded(), height: lineH)
+            line.frame = CGRect(x: start, y: y, width: (lineRoom * widths[i]).rounded(), height: lineH)
             if i > 0 { y -= lineGap }
         }
         y -= 18 + 48
-        let bubbleW = (column * 0.56).rounded()
-        bubble.frame = CGRect(x: bounds.width - side - bubbleW, y: y, width: bubbleW, height: 48)
+        let bubbleW = (bubbleRoom * 0.56).rounded()
+        bubble.frame = CGRect(x: end - bubbleW, y: y, width: bubbleW, height: 48)
         bubble.layer.cornerRadius = ChatMetrics.bubbleRadius   // here, not once: it follows Theme › Bubble Corners
         skeleton.frame = bounds
         CATransaction.begin(); CATransaction.setDisableActions(true)

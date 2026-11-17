@@ -139,7 +139,7 @@ private struct TaskViewsBand: View {
                 if reduceMotion {
                     proxy.scrollTo(picked.key)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(picked.key) }
+                    withAnimation(.easeInOut(duration: HQMotion.pane)) { proxy.scrollTo(picked.key) }
                 }
             }
         }
@@ -266,7 +266,7 @@ final class TaskViewsHeader {
             controller.additionalSafeAreaInsets.top = target
         }
         if animated {
-            UIView.animate(withDuration: 0.2) {   // motion-ok: `animated` above is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.fade) {   // motion-ok: `animated` above is false under Reduce Motion
                 change()
                 view.layoutIfNeeded()
             }

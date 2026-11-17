@@ -272,7 +272,7 @@ struct BotChatRowView: View {
         .frame(minHeight: height)
         .overlay(alignment: .bottom) {
             if style == .dividers, !last {
-                Rectangle().fill(Color.hqStroke).frame(height: 0.5)
+                Rectangle().fill(Color.hqStroke).frame(height: HQShape.line(0.5))
                     .padding(.leading, BotChatsMetrics.textX).accessibilityHidden(true)
             }
         }

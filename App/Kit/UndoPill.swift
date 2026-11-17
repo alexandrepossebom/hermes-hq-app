@@ -340,7 +340,7 @@ final class UndoPill: UIView {
             clock.hold(.away, now: Self.now())
             timer?.invalidate(); timer = nil
             guard !HQMotion.reduced else { isHidden = true; return }
-            UIView.animate(withDuration: 0.2, animations: { self.alpha = 0 }, completion: { _ in   // motion-ok: a fade
+            UIView.animate(withDuration: HQMotion.fade, animations: { self.alpha = 0 }, completion: { _ in   // motion-ok: a fade
                 if self.clock.holds.contains(.away) { self.isHidden = true }
             })
         } else if !away, clock.holds.contains(.away) {
@@ -423,7 +423,7 @@ final class UndoPill: UIView {
         timer?.invalidate()
         timer = nil
         guard animated, !HQMotion.reduced, !isHidden else { removeFromSuperview(); return }
-        UIView.animate(withDuration: 0.2, animations: { self.alpha = 0 }, completion: { _ in self.removeFromSuperview() })
+        UIView.animate(withDuration: HQMotion.fade, animations: { self.alpha = 0 }, completion: { _ in self.removeFromSuperview() })
     }
 }
 

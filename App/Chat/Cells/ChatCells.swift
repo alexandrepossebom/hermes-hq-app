@@ -122,7 +122,7 @@ class ChatBaseCell: UITableViewCell {
         if on {
             backing.contentView.backgroundColor = ChatPalette.fill4
         } else {
-            UIView.animate(withDuration: 0.2) { backing.contentView.backgroundColor = .clear }   // motion-ok: colour only
+            UIView.animate(withDuration: HQMotion.fade) { backing.contentView.backgroundColor = .clear }   // motion-ok: colour only
         }
     }
 
@@ -420,7 +420,7 @@ final class BubbleShapeView: UIView {
         line.isHidden = false
         line.frame = bounds
         line.path = shapeLayer.path
-        line.lineWidth = contrast ? 1 : cardLine ? 1 / max(traitCollection.displayScale, 2) : replyLineWidth
+        line.lineWidth = contrast ? HQShape.hairline : cardLine ? HQShape.line(1 / max(traitCollection.displayScale, 2)) : replyLineWidth   // [Mac AAA 2026-11-16] whole pixels on the Mac
         line.strokeColor = colour.cgColor
     }
 
@@ -432,7 +432,7 @@ final class BubbleShapeView: UIView {
         return colour.cgColor.alpha > 0 ? colour : nil
     }
     /// Two device pixels: one (a code card's hairline) all but vanished against the glass's own rim.
-    private var replyLineWidth: CGFloat { 2 / max(traitCollection.displayScale, 1) }
+    private var replyLineWidth: CGFloat { 2 * HQShape.pixel(traitCollection.displayScale) }
 
     /// [tinted-bubbles] Whether the tint draws; the chat lines it up on every scroll step while it does.
     private func setTinted(_ on: Bool) {
@@ -533,7 +533,7 @@ final class BubbleShapeView: UIView {
         shapeLayer.fillColor = fill.resolvedColor(with: traitCollection).cgColor
         if traitCollection.accessibilityContrast == .high || HQAccessibility.overrides.contrast {
             // Increase Contrast: bubbles gain an edge (spec 06 §1.2).
-            shapeLayer.lineWidth = 1
+            shapeLayer.lineWidth = HQShape.hairline
             shapeLayer.strokeColor = (fill == ChatPalette.meBubble
                 ? UIColor(white: 0, alpha: 0.3) : ChatPalette.label3).resolvedColor(with: traitCollection).cgColor
         } else if let line = replyLine {
@@ -559,6 +559,8 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
     private let timeLabel = UILabel()
     private let showMore = UIControl()
     private let showMoreLabel = UILabel()
+    /// [Mac AAA 2026-11-16] "Show More"'s words as drawn, for the Mac's hover (its target spans the bubble's foot).
+    private let showMorePlate = UIView()
     private var copyText = ""
     private var mine = false
     /// What the spoken label is made from (set in configure); the label itself is built when asked for.
@@ -629,7 +631,11 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         showMore.isHidden = true
         showMore.isAccessibilityElement = false   // the bubble offers it as a custom action
         showMoreLabel.isUserInteractionEnabled = false
+        showMorePlate.isUserInteractionEnabled = false
+        showMorePlate.clipsToBounds = true
+        showMore.addSubview(showMorePlate)
         showMore.addSubview(showMoreLabel)
+        PointerEffects.surface(showMore, capsule: true, host: showMorePlate)
         bubble.addSubview(showMore)
         bubble.addInteraction(UIContextMenuInteraction(delegate: self))
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
@@ -719,6 +725,9 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
             showMoreLabel.attributedText = NSAttributedString(string: "Show More", attributes: showMoreLook)
             let lineH = style.timeLineHeight
             showMoreLabel.frame = CGRect(x: 10, y: frame.height - 5 - lineH, width: max(0, frame.width - 20), height: lineH)
+            let wordsW = min(showMoreLabel.frame.width, ceil(showMoreLabel.attributedText?.size().width ?? 0))
+            showMorePlate.frame = CGRect(x: 10 - 6, y: showMoreLabel.frame.minY - 2, width: wordsW + 12, height: lineH + 4)
+            showMorePlate.layer.cornerRadius = showMorePlate.frame.height / 2
         } else {
             showMore.isHidden = true
         }
@@ -1189,7 +1198,7 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
                 setReplyArmedLook(armed)
                 if armed { Haptics.play(.medium) }
                 if !HQMotion.reduced {
-                    UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.55, initialSpringVelocity: 0,
+                    UIView.animate(withDuration: HQMotion.pane, delay: 0, usingSpringWithDamping: 0.55, initialSpringVelocity: 0,
                                    options: [.allowUserInteraction, .beginFromCurrentState]) { self.setReplyOffset(-pull) }
                     break
                 }
@@ -1783,7 +1792,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
             stepViews.append((control, title, meta, sep, working))
         }
         firstStep = t.firstStep
-        let hairline = 1 / max(traitCollection.displayScale, 1)
+        let hairline = HQShape.pixel(traitCollection.displayScale)
         for (i, entry) in stepViews.enumerated() {
             let (control, title, meta, sep, working) = entry
             guard i < t.steps.count else { control.isHidden = true; working.isHidden = true; continue }
@@ -1883,7 +1892,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
     }
     @objc private func pressUp() {
         if showsBacking { pressBacking(false) }
-        UIView.animate(withDuration: 0.2) { self.rowButton.backgroundColor = self.restingFill }   // motion-ok: colour only
+        UIView.animate(withDuration: HQMotion.fade) { self.rowButton.backgroundColor = self.restingFill }   // motion-ok: colour only
     }
 
     /// [mac] Stress test 2026-10-31: a step, a group line or a delivery is a button, but nothing under the pointer said
@@ -1915,14 +1924,21 @@ final class ChatLineCell: ChatBaseCell {
     private let tap = UIControl()
     /// "Stopped before <Bot> replied" › Retry.
     private let retry = RetryCapsule()
+    /// [Mac AAA 2026-11-16] The tappable line's words as drawn, for the Mac's hover (its target is wider and taller).
+    private let tapPlate = UIView()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
+        tapPlate.isUserInteractionEnabled = false
+        tapPlate.clipsToBounds = true
+        tapPlate.layer.cornerCurve = .continuous
+        contentView.addSubview(tapPlate)
         contentView.addSubview(text)
         tap.addTarget(self, action: #selector(tapped), for: .touchUpInside)
         tap.addTarget(self, action: #selector(pressed), for: [.touchDown, .touchDragEnter])
         tap.addTarget(self, action: #selector(released), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
         contentView.addSubview(tap)
+        PointerEffects.surface(tap, capsule: true, host: tapPlate)
         retry.isHidden = true
         retry.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
         contentView.addSubview(retry)
@@ -1991,11 +2007,15 @@ final class ChatLineCell: ChatBaseCell {
         if let frame = l.tapFrame {
             tap.isHidden = false
             tap.frame = frame
+            tapPlate.isHidden = false
+            tapPlate.frame = Self.wordsFrame(l).insetBy(dx: -8, dy: -3)
+            tapPlate.layer.cornerRadius = tapPlate.frame.height / 2
             accessibilityTraits = .button
             accessibilityHint = "Checks whether \(HostWord.phrase) got this message"
             accessibilityIdentifier = "chat.delivery-check"
         } else {
             tap.isHidden = true
+            tapPlate.isHidden = true
             accessibilityTraits = .staticText
             accessibilityHint = nil
             accessibilityIdentifier = nil
@@ -2020,8 +2040,9 @@ final class ChatLineCell: ChatBaseCell {
         delegate?.chatCellCheckDelivery(rowId: rowId)
     }
 
-    @objc private func pressed() { text.alpha = 0.5 }
-    @objc private func released() { UIView.animate(withDuration: 0.15) { self.text.alpha = 1 } }   // motion-ok: opacity only
+    // [Mac AAA 2026-11-16] On the Mac the press is the hover's deeper fill (`PointerEffects.dim`), not a fade.
+    @objc private func pressed() { text.alpha = PointerEffects.dim(true, to: 0.5) }
+    @objc private func released() { UIView.animate(withDuration: HQMotion.quick) { self.text.alpha = 1 } }   // motion-ok: opacity only
 
     @objc private func retryTapped() {
         Haptics.play(.light)
@@ -2035,11 +2056,18 @@ final class RetryCapsule: UIControl {
     private let glyph = UIImageView()
     private let label = UILabel()
     private var capsuleInSelf = CGRect.zero
+    /// [Mac AAA 2026-11-16] The capsule as drawn, for the Mac's hover: the control's 44 pt target is bigger than it, so
+    /// a fill of the control's own shape lit a box round the capsule (round 1's C-52).
+    private let plate = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        plate.isUserInteractionEnabled = false
+        plate.clipsToBounds = true
+        addSubview(plate)
+        PointerEffects.surface(self, capsule: true, host: plate)
         border.fillColor = nil
-        border.lineWidth = 1
+        border.lineWidth = HQShape.hairline
         layer.addSublayer(border)
         glyph.contentMode = .scaleAspectFit
         glyph.isUserInteractionEnabled = false
@@ -2068,6 +2096,8 @@ final class RetryCapsule: UIControl {
         label.frame = CGRect(x: labelX, y: capsuleInSelf.minY, width: max(0, capsuleInSelf.maxX - RetryCapsuleMetrics.padH - labelX + 1),
                              height: capsuleInSelf.height)
         border.path = UIBezierPath(roundedRect: capsuleInSelf.insetBy(dx: 0.5, dy: 0.5), cornerRadius: capsuleInSelf.height / 2).cgPath
+        plate.frame = capsuleInSelf
+        plate.layer.cornerRadius = capsuleInSelf.height / 2
         recolor()
     }
 
@@ -2078,7 +2108,8 @@ final class RetryCapsule: UIControl {
         label.textColor = accent
     }
 
-    override var isHighlighted: Bool { didSet { alpha = isHighlighted ? 0.5 : 1 } }
+    // [Mac AAA 2026-11-16] The Mac's press is the hover's deeper fill (`PointerEffects.dim`), not a fade.
+    override var isHighlighted: Bool { didSet { alpha = PointerEffects.dim(isHighlighted, to: 0.5) } }
 }
 
 // MARK: - Error card
@@ -2151,6 +2182,12 @@ final class ChatErrorCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         retryButton.accessibilityIdentifier = "chat.error-retry"
         retryButton.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
         card.addSubview(retryButton)
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] The card's Close, Details and Retry answer the pointer (the transcript is left out of
+        // `PointerEffects`' sweep); the icon-only Close names itself.
+        [closeButton, detailsButton, retryButton].forEach { PointerEffects.button($0) }
+        closeButton.toolTip = "Close"
+        #endif
         card.addInteraction(UIContextMenuInteraction(delegate: self))
         card.isAccessibilityElement = false
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (cell: ChatErrorCell, _) in
@@ -2408,7 +2445,7 @@ final class ChatWaitingCell: ChatBaseCell {
             if fade {
                 widened = true
                 // The pill widens as the timer fades in.
-                UIView.animate(withDuration: 0.3) {                                // HQMotion.reduced checked above
+                UIView.animate(withDuration: HQMotion.move) {                                // HQMotion.reduced checked above
                     self.timerLabel.alpha = 1
                     self.placePill(force: false)
                 }
@@ -2644,7 +2681,7 @@ final class ChatActionsCell: ChatBaseCell {
     }
 
     @objc private func pressed(_ sender: UIButton) { sender.backgroundColor = ChatPalette.fill3 }
-    @objc private func released(_ sender: UIButton) { UIView.animate(withDuration: 0.15) { sender.backgroundColor = .clear } }   // motion-ok: colour only
+    @objc private func released(_ sender: UIButton) { UIView.animate(withDuration: HQMotion.quick) { sender.backgroundColor = .clear } }   // motion-ok: colour only
 
     @objc private func copyTapped() {
         UIPasteboard.general.string = copyText

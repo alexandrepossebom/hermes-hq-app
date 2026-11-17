@@ -467,7 +467,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         setNeedsLayout()
         host.setNeedsLayout()
         guard !HQMotion.reduced else { host.layoutIfNeeded(); return }
-        UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,
+        UIView.animate(withDuration: HQMotion.move, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,
                        options: [.beginFromCurrentState, .allowUserInteraction]) { host.layoutIfNeeded() }
     }
 
@@ -628,7 +628,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     /// The edge line follows the card's whole outline, its bottom corners too (verify round 1: it stopped where the
     /// screen-concentric corners begin, so the outline looked broken).
     private func updateHairline() {
-        hairline.lineWidth = 1 / max(1, traitCollection.displayScale)
+        hairline.lineWidth = HQShape.pixel(traitCollection.displayScale)
         hairline.strokeColor = ChatPalette.separator.resolvedColor(with: traitCollection).cgColor
         let r = bounds
         let half = min(r.width, r.height) / 2
@@ -1130,7 +1130,7 @@ final class Separator: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let h = 1 / max(1, traitCollection.displayScale)
+        let h = HQShape.pixel(traitCollection.displayScale)
         if hair.constant != h { hair.constant = h }
     }
 

@@ -254,7 +254,7 @@ final class TalkBarView: UIView, ComposerRowDock, UIContextMenuInteractionDelega
                 DesktopLayout.keepOwnLook(glass)
                 if glass.effect != nil { glass.effect = nil }
                 glass.backgroundColor = ChatPalette.editor
-                glass.layer.borderWidth = 1
+                glass.layer.borderWidth = HQShape.hairline
                 glass.layer.borderColor = ChatPalette.strokeSecondary.resolvedColor(with: traitCollection).cgColor
             } else {
                 if glass.effect == nil { glass.effect = UIGlassEffect(style: .regular) }

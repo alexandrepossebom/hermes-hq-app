@@ -62,16 +62,16 @@ enum TaskDust {
             path.addQuadCurve(to: CGPoint(x: start.x + reach.x, y: start.y + reach.y),
                               control: CGPoint(x: start.x + reach.x * CGFloat.random(in: 0.05...0.35, using: &rng),
                                                y: start.y + reach.y * CGFloat.random(in: 0.7...1.15, using: &rng)))
-            let move = CAKeyframeAnimation(keyPath: "position")
+            let move = CAKeyframeAnimation(keyPath: "position")   // motion-ok: never under Reduce Motion (`TasksViewController.blowAway` guards)
             move.path = path
             move.calculationMode = .paced
-            let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+            let turn = CABasicAnimation(keyPath: "transform.rotation.z")   // motion-ok: never under Reduce Motion (`TasksViewController.blowAway` guards)
             turn.fromValue = 0
             turn.toValue = CGFloat.random(in: -0.09...0.09, using: &rng)
-            let grow = CABasicAnimation(keyPath: "transform.scale")
+            let grow = CABasicAnimation(keyPath: "transform.scale")   // motion-ok: never under Reduce Motion (`TasksViewController.blowAway` guards)
             grow.fromValue = 1
             grow.toValue = CGFloat.random(in: 1.0...1.08, using: &rng)
-            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            let fade = CAKeyframeAnimation(keyPath: "opacity")   // motion-ok: never under Reduce Motion (`TasksViewController.blowAway` guards)
             fade.values = [1, 1, 0.6, 0]
             fade.keyTimes = [0, 0.35, 0.7, 1]
 

@@ -72,6 +72,7 @@ enum MacShots {
         guard let name = UserDefaults.standard.string(forKey: "HQDebugMacShots"), !name.isEmpty else { return }
         let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "mac-shots")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        MacProbe.startIfAsked(window)   // [Mac AAA 2026-11-16] `-HQDebugProbe <url>`: a script's checks while the tour waits
         // The same window every time (the size docs/mac.md measured at): 1280 × 800 on the Mac's screen.
         let frame = CGRect(x: 80, y: 80, width: 1280, height: 800)
         window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
@@ -95,6 +96,8 @@ enum MacShots {
             // [tinted-bubbles] `-HQDemoChat` has no tabs: it takes the waited picture alone. [nous-different-account]
             // Nor has `-HQDemoSignIn`.
             let demoChat = ChatDemo.argument("-HQDemoChat") != nil || ProcessInfo.processInfo.arguments.contains("-HQDemoSignIn")
+            // [Mac AAA 2026-11-16] `-HQDebugSignedOutTour`: the signed-out window, no tabs to wait for.
+            if await SettingsWindowTour.signedOutTourIfAsked(window, name: name, folder: folder) { exit(0) }
             var tabs = find(MainTabController.self, in: window.rootViewController)
             for _ in 0..<40 where tabs == nil && !demoChat {
                 try? await Task.sleep(for: .seconds(0.5))
@@ -102,6 +105,8 @@ enum MacShots {
             }
             guard tabs != nil || demoChat else { return }
             try? await Task.sleep(for: .seconds(2))
+            // [Mac AAA 2026-11-16] `-HQDebugSheetsTour <stops>`: update sheets, alerts, Add Gateway (SheetsTour.swift).
+            if let tabs, await SheetsTour.runIfAsked(window, tabs: tabs, name: name, folder: folder) { exit(0) }
             // Mac audit #11: `-HQDemoChat 12 -HQDemoAutoOpen -HQDebugMacShotsSelect YES` selects in the demo's rich replies.
             if demoChat, UserDefaults.standard.bool(forKey: "HQDebugMacShotsSelect") {
                 await selectTour(window, tabs: nil, name: name, folder: folder)
@@ -207,6 +212,44 @@ enum MacShots {
                 try? theme.write(to: folder.appending(path: "\(name)-theme.txt"), atomically: true, encoding: .utf8)
                 post(folder.appending(path: "\(name)-theme.txt"))
                 writeWindowButtons(window, to: folder.appending(path: "\(name)-buttons.txt"))
+                // [Mac AAA 2026-11-16] `-HQDebugBarViews <y>`: every view drawn across that height of the window in the
+                // middle of the right pane (a line or band under a bar: whose is it?).
+                let barY = UserDefaults.standard.double(forKey: "HQDebugBarViews")
+                if barY > 0 {
+                    var out = ""
+                    func walk(_ view: UIView, _ depth: Int) {
+                        guard !view.isHidden, view.alpha > 0.01 else { return }
+                        let f = view.convert(view.bounds, to: window)
+                        if f.minY <= barY + 1, f.maxY >= barY - 1, f.minX < 1000, f.maxX > 900 {
+                            let fill = view.backgroundColor.map { String(describing: $0) } ?? "-"
+                            out += String(repeating: " ", count: depth) + "\(type(of: view)) \(f.integral) alpha \(view.alpha) fill \(fill) layer \(view.layer.sublayers?.count ?? 0)\n"
+                        }
+                        view.subviews.forEach { walk($0, depth + 1) }
+                    }
+                    walk(window, 0)
+                    func all(_ view: UIView, _ depth: Int) {
+                        out += String(repeating: " ", count: depth) + "\(type(of: view)) \(view.convert(view.bounds, to: window).integral) hidden \(view.isHidden) alpha \(view.alpha) fill \(view.backgroundColor.map { String(describing: $0) } ?? "-")\n"
+                        view.subviews.forEach { all($0, depth + 1) }
+                    }
+                    func bars(_ view: UIView) {
+                        if String(describing: type(of: view)) == "_UIBarBackground" { out += "\nbar background:\n"; all(view, 1) }
+                        view.subviews.forEach(bars)
+                    }
+                    bars(window)
+                    if let chat = find(ChatViewController.self, in: window.rootViewController) {
+                        let item = chat.navigationItem
+                        func describe(_ a: UINavigationBarAppearance?) -> String {
+                            guard let a else { return "nil" }
+                            return "effect \(a.backgroundEffect.map { String(describing: $0) } ?? "-") colour \(a.backgroundColor.map { String(describing: $0) } ?? "-") shadow \(a.shadowColor.map { String(describing: $0) } ?? "-")"
+                        }
+                        out += "\nitem standard: \(describe(item.standardAppearance))\nitem edge: \(describe(item.scrollEdgeAppearance))\n"
+                        if let bar = chat.navigationController?.navigationBar {
+                            out += "bar standard: \(describe(bar.standardAppearance))\nbar edge: \(describe(bar.scrollEdgeAppearance))\n"
+                        }
+                    }
+                    try? out.write(to: folder.appending(path: "\(name)-bar.txt"), atomically: true, encoding: .utf8)
+                    post(folder.appending(path: "\(name)-bar.txt"))
+                }
                 if UserDefaults.standard.bool(forKey: "HQDebugMacShotsMenu") { dumpMoreMenu(window, name: name, folder: folder) }
                 // [page-tabs] A Mac sheet is a window of its own (Bot Info, Settings from `-HQDebugTour`): it too.
                 var top = window.rootViewController
@@ -285,6 +328,10 @@ enum MacShots {
                 await railTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
+            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsFrame") {   // [Mac AAA 2026-11-16] MacShotsFrame.swift
+                await frameTour(window, tabs: tabs, name: name, folder: folder)
+                exit(0)
+            }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsSidebar") {
                 await sidebarTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
@@ -337,12 +384,24 @@ enum MacShots {
                 await filesTableTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
+            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsLists") {   // [Mac AAA 2026-11-16] MacShotsLists.swift
+                await listsTour(window, tabs: tabs, name: name, folder: folder)
+                exit(0)
+            }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsKanban") {
                 await kanbanTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsResize") {
                 await resizeTour(window, tabs: tabs, name: name, folder: folder)
+                exit(0)
+            }
+            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsCore") {   // [Mac AAA 2026-11-16] MacShotsCore.swift
+                await coreTour(window, tabs: tabs, name: name, folder: folder)
+                exit(0)
+            }
+            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsChatSizes") {
+                await chatSizesTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsChats") {
@@ -609,7 +668,11 @@ enum MacShots {
         try? await Task.sleep(for: .seconds(0.8))
         if let first = tabs.services.bots.first?.id { tabs.botsViewController.open(first) }
         try? await Task.sleep(for: .seconds(2))
-        if let chat = find(ChatViewController.self, in: window.rootViewController), let menus = chat.menus {
+        // [Mac AAA 2026-11-16] The chat on screen: the first one found was the hidden Bots tab's copy, whose message box
+        // is in no window, so its Commands panel ("No Commands Available") hung off the stand-in corner over the
+        // sidebar's foot, which the app never does from a real ☰.
+        if let chat = findShown(ChatViewController.self, in: window.rootViewController) ?? find(ChatViewController.self, in: window.rootViewController),
+           let menus = chat.menus {
             func flatten(_ elements: [UIMenuElement], _ path: String) -> [(String, UIAction)] {
                 elements.flatMap { element -> [(String, UIAction)] in
                     if let action = element as? UIAction { return [(path + action.title, action)] }
@@ -1062,6 +1125,7 @@ enum MacShots {
     /// picked (where it lands, which tab is marked).
     @MainActor private static func navTour(_ window: UIWindow, tabs: MainTabController, name: String, folder: URL) async {
         var log = ""
+        var navTips = ""
         var step = 0
         func snap(_ label: String) {
             step += 1
@@ -1083,7 +1147,11 @@ enum MacShots {
             try? await Task.sleep(for: .seconds(1.5))
             let title = (controller.tabBarItem.title ?? "tab").lowercased().replacingOccurrences(of: " ", with: "-")
             snap("tab-\(title)")
+            // [Mac AAA 2026-11-16] Each place's buttons with no tooltip (`-nav-tips.txt`), as the base tour lists its own.
+            navTips += "[\(title)]\n" + toolTips(window).split(separator: "\n").filter { $0.contains("NONE") }.joined(separator: "\n") + "\n"
         }
+        try? navTips.write(to: folder.appending(path: "\(name)-nav-tips.txt"), atomically: true, encoding: .utf8)
+        post(folder.appending(path: "\(name)-nav-tips.txt"))
         // More's Pinned and Kanban pages, empty on the stand-in: their bars (Mac audit #18, mac2/3 and mac2/4).
         for row in ["pinned", "kanban"] {
             await click(.more)
@@ -1590,11 +1658,37 @@ enum MacShots {
             ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { views(type, in: $0) }
         }
         var chip: UIControl?
-        for _ in 0..<120 where chip == nil {
-            try? await Task.sleep(for: .seconds(0.5))
-            chip = views(UIControl.self, in: window).first { $0.accessibilityIdentifier == "chat.shelf.subagents" && $0.window != nil && !($0.superview?.superview?.isHidden ?? true) }
+        func shown(_ id: String) -> UIControl? {
+            views(UIControl.self, in: window).first { $0.accessibilityIdentifier == id && $0.window != nil && !$0.isHidden && !($0.superview?.isHidden ?? true) }
         }
-        guard let chip else { shoot(window, to: folder.appending(path: "\(name)-0-no-chip.png")); return }
+        // [Mac AAA 2026-11-16] The shelf is one summary pill ("3 helpers") until it is opened; the helpers' row is in
+        // the opened shelf. The tour looked for the row alone and never found it.
+        for _ in 0..<40 where chip == nil {
+            try? await Task.sleep(for: .seconds(0.5))
+            chip = shown("chat.shelf.subagents") ?? shown("chat.shelf.summary")
+        }
+        if let summary = chip, summary.accessibilityIdentifier == "chat.shelf.summary" {
+            try? await Task.sleep(for: .seconds(1))
+            shoot(window, to: folder.appending(path: "\(name)-0-pill.png"))
+            summary.sendActions(for: .touchUpInside)
+            try? await Task.sleep(for: .seconds(1.5))
+            shoot(window, to: folder.appending(path: "\(name)-0-shelf.png"))
+            chip = shown("chat.shelf.subagents")
+        }
+        // [Mac AAA 2026-11-16] The helpers also show in the inspector's Helpers tab: photograph it either way. A tour
+        // that ended at once after its last picture lost it (the upload had not gone): wait for it.
+        if let split = tabs.split {
+            split.inspector.show(.helpers)
+            try? await Task.sleep(for: .seconds(1.5))
+            shoot(window, to: folder.appending(path: "\(name)-0-inspector-helpers.png"))
+        }
+        guard let chip else {
+            let ids = views(UIView.self, in: window).compactMap(\.accessibilityIdentifier).filter { $0.hasPrefix("chat.shelf") }
+            AppLog.note("mac", "subagents tour: no helpers chip; shelf ids \(ids)")
+            shoot(window, to: folder.appending(path: "\(name)-0-no-chip.png"))
+            try? await Task.sleep(for: .seconds(2))
+            return
+        }
         try? await Task.sleep(for: .seconds(1))
         shoot(window, to: folder.appending(path: "\(name)-0-chip.png"))
         chip.sendActions(for: .touchUpInside)
@@ -1606,6 +1700,49 @@ enum MacShots {
             try? await Task.sleep(for: .seconds(1.5))
             shoot(window, to: folder.appending(path: "\(name)-2-second.png"))
         }
+        try? await Task.sleep(for: .seconds(2))
+    }
+
+    /// [Mac AAA 2026-11-16] `-HQDebugMacShotsChatSizes YES` (`-HQDebugScrollChat <points>` to start up the chat): the
+    /// first bot's chat scrolled up a little, then the inspector shut, the window wide, the inspector open again, the
+    /// window narrow and back. `<name>-sizes.txt` lists the rows on show after each step (the reading place must hold).
+    @MainActor private static func chatSizesTour(_ window: UIWindow, tabs: MainTabController, name: String, folder: URL) async {
+        var log = ""
+        var step = 0
+        tabs.selectedIndex = 0
+        try? await Task.sleep(for: .seconds(0.8))
+        guard let first = tabs.services.bots.first?.id, let split = tabs.split else { return }
+        tabs.botsViewController.open(first)
+        try? await Task.sleep(for: .seconds(3))
+        guard let chat = find(ChatViewController.self, in: window.rootViewController) else { return }
+        let up = UserDefaults.standard.double(forKey: "HQDebugScrollChat")
+        if up == 0 { chat.debugScroll(by: 600) }
+        try? await Task.sleep(for: .seconds(1.5))
+        func snap(_ label: String) async {
+            try? await Task.sleep(for: .seconds(2))
+            step += 1
+            shoot(window, to: folder.appending(path: "\(name)-\(step)-\(label).png"))
+            log += "\(step) \(label): window \(window.bounds.size), rows on show \(chat.debugVisibleRowIds.prefix(4))\n"
+        }
+        let frame = window.windowScene?.effectiveGeometry.systemFrame ?? CGRect(x: 80, y: 80, width: 1280, height: 800)
+        func size(_ w: CGFloat, _ h: CGFloat) {
+            window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: 0, y: 0, width: w, height: h))) { _ in }
+        }
+        await snap(MacInspector.isShown ? "inspector" : "no-inspector")
+        split.inspector.toggle()
+        await snap(MacInspector.isShown ? "inspector" : "no-inspector")
+        size(1900, 1040)
+        await snap("wide")
+        split.inspector.toggle()
+        await snap(MacInspector.isShown ? "wide-inspector" : "wide-no-inspector")
+        size(900, 700)
+        await snap("narrow")
+        window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
+        await snap("back")
+        let file = folder.appending(path: "\(name)-sizes.txt")
+        try? log.write(to: file, atomically: true, encoding: .utf8)
+        post(file)
+        try? await Task.sleep(for: .seconds(1))
     }
 
     /// `-HQDebugMacShotsChats YES` (Mac stress test round 4): what a chat draws on the Mac, against whichever stand-in
@@ -2266,6 +2403,17 @@ enum MacShots {
             return false
         }
         func openTerminal() async -> TerminalViewController? {
+            // [Mac AAA 2026-11-16] Terminal is a place of the sidebar's Tools now, not one of More's rows: opened as
+            // its sidebar row opens it (More's row id found nothing, so the first-time question was never shown).
+            if let place = tabs.placedTab(tagged: 115) {
+                tabs.show(place)
+                for _ in 0..<20 {
+                    try? await Task.sleep(for: .seconds(0.5))
+                    let page = find(TerminalViewController.self, in: window.rootViewController)
+                    if top() is UIAlertController || page?.state == .consent { break }
+                }
+                if let page = find(TerminalViewController.self, in: window.rootViewController) { return page }
+            }
             tabs.selectedIndex = moreIndex
             tabs.split?.followSelectedTab()
             try? await Task.sleep(for: .seconds(1))
@@ -2503,6 +2651,23 @@ enum MacShots {
             let frame = window.windowScene?.effectiveGeometry.systemFrame ?? CGRect(x: 80, y: 80, width: 1280, height: 800)
             window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: frame.minX, y: frame.minY, width: 1000, height: 760))) { _ in }
             try? await Task.sleep(for: .seconds(2.5))
+            // [Mac AAA 2026-11-16] (lists L12) what has keyboard focus when the square box shows behind the segments.
+            AppLog.note("mac", "grids narrow: focused \(String(describing: UIFocusSystem.focusSystem(for: window)?.focusedItem))")
+            // Every copy of the filter (the bar's and a stale row's): what each segmented control draws behind it.
+            func bars(in view: UIView) -> [ArtifactFilterBar] {
+                (view as? ArtifactFilterBar).map { [$0] } ?? view.subviews.flatMap { bars(in: $0) }
+            }
+            for bar in bars(in: window) {
+                let chain = sequence(first: bar as UIView, next: { $0.superview }).prefix(7).map { "\(type(of: $0))" }.joined(separator: " < ")
+                AppLog.note("mac", "grids narrow bar \(bar.convert(bar.bounds, to: window)) in \(chain)")
+                func controls(in view: UIView) -> [UISegmentedControl] {
+                    (view as? UISegmentedControl).map { [$0] } ?? view.subviews.flatMap { controls(in: $0) }
+                }
+                for control in controls(in: bar) {
+                    let fill = control.backgroundColor?.resolvedColor(with: control.traitCollection)
+                    AppLog.note("mac", "grids narrow control \(control.frame) bg \(String(describing: fill)) radius \(control.layer.cornerRadius) masks \(control.layer.masksToBounds) bar fill \(String(describing: bar.backgroundColor))")
+                }
+            }
             await snap("narrow")
             window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
             try? await Task.sleep(for: .seconds(2))
@@ -2698,6 +2863,14 @@ enum MacShots {
     static func findView<T: UIView>(_ type: T.Type, in view: UIView) -> T? {
         if let match = view as? T { return match }
         for child in view.subviews { if let match = findView(type, in: child) { return match } }
+        return nil
+    }
+
+    /// The first `T` whose view is in a window.
+    static func findShown<T: UIViewController>(_ type: T.Type, in controller: UIViewController?) -> T? {
+        guard let controller else { return nil }
+        if let match = controller as? T, match.viewIfLoaded?.window != nil { return match }
+        for child in controller.children { if let found = findShown(type, in: child) { return found } }
         return nil
     }
 

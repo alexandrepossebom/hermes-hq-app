@@ -38,7 +38,9 @@ struct KanbanBoardColumn: Equatable {
     private var columns: [KanbanBoardColumnView] = []
 
     static let gap: CGFloat = 10
-    static let margin: CGFloat = 16
+    /// [Mac AAA 2026-11-16] The page's one side inset (`MacInset.side`): the columns stood 4 pt left of "Kanban" over
+    /// them, where every other Tool's cards (Status, Usage, Spawn Tree) start on the title's edge.
+    static let margin: CGFloat = MacInset.side
     /// The narrowest a column gets before the board scrolls sideways instead.
     static var narrowest: CGFloat { HQFont.scaled(212) }
 
@@ -128,7 +130,7 @@ struct KanbanBoardColumn: Equatable {
         name.adjustsFontForContentSizeCategory = true
         name.accessibilityTraits = .header
         count.font = HQFont.preferred(.subheadline)
-        count.textColor = HQPalette.label2
+        count.textColor = HQPalette.headCount()   // [Mac AAA 2026-11-16] one count ink (L17)
         count.adjustsFontForContentSizeCategory = true
         lock.image = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(textStyle: .caption2))
         lock.tintColor = HQPalette.label3
@@ -349,7 +351,7 @@ struct KanbanCardView: View {
             }
         }
         .overlay(shape.strokeBorder(selected ? Color.hqTint.opacity(0.6) : Color(uiColor: desktop ? UIColor(Color.hqStroke) : HQPalette.cardEdge),
-                                    lineWidth: 1))
+                                    lineWidth: HQShape.hairline))
         .contentShape(shape)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.title). \(row.bits.map(\.text).joined(separator: ", "))")

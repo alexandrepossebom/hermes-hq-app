@@ -746,7 +746,10 @@ final class AddOnUpdateController: UIHostingController<HQScaledRoot<AddOnUpdateV
         // [addon-sheet-button] Not while it goes: the list's insets change as the sheet slides down, and a refit then
         // took the sheet back up (✕ didn't close it).
         guard !isBeingDismissed, presentedViewController == nil else { return }
-        UpdateSheetFit.macFit(self, measured: measuredHeight(), fills: update.fillsHeight)   // [Mac UI check 2026-11-13]
+        // [Mac AAA 2026-11-16] On the Mac the sheet follows its list with What's New too (it filled the window, so
+        // Updating… stood over ~110 pt of empty sheet); the window's room only until the list has measured.
+        let measured = measuredHeight()
+        UpdateSheetFit.macFit(self, measured: measured, fills: update.fillsHeight && measured == nil)   // [Mac UI check 2026-11-13]
         guard let sheet = sheetPresentationController else { return }
         let height = update.fillsHeight ? .greatestFiniteMagnitude : measuredHeight() ?? Self.fitHeight(update)
         guard settled || abs(height - fitted) > 1 else { return }
@@ -819,7 +822,7 @@ struct AddOnUpdateView: View {
                              : update.setUp ? (update.both ? "Set Up Add-ons" : "Set Up Add-on") : (update.both ? "Update Add-ons" : "Update Add-on"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetCloseToolbar(word: closeWord, id: "addon-update.close") { update.close() } }   // [mac] Mac polish #123
-            .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: update.phase)
+            .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: update.phase)
         }
         .hqGlassSheetPage()
         .accessibilityIdentifier("addon-update")
@@ -914,10 +917,13 @@ struct AddOnUpdateView: View {
     /// The sheet's one action, the same wide button in every state so it reads over any picture behind the glass.
     private func action(_ title: String, id: String, bottom: CGFloat = 12, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
-            Text(title).frame(maxWidth: GlassSheetKit.designed ? .infinity : nil)
+            // [Mac AAA 2026-11-16] Update Hermes's width on the Mac (200 pt): the two update sheets' one button was a
+            // wide capsule on one and a word-wide pill on the other.
+            Text(title).frame(minWidth: DeviceWord.isMac ? 200 : nil).frame(maxWidth: GlassSheetKit.designed ? .infinity : nil)
         }
         .hqProminentButtonStyle()
         .controlSize(.large)
+        .keyboardShortcut(DeviceWord.isMac ? .defaultAction : nil)   // [Mac AAA 2026-11-16] Return presses it on the Mac
         .accessibilityIdentifier(id)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
@@ -935,7 +941,9 @@ struct AddOnUpdateView: View {
                 .lineLimit(1).minimumScaleFactor(0.8)
         }
         .accessibilityIdentifier("addon-update.restart-choice")
-        .padding(.horizontal, 28)
+        // [Mac AAA 2026-11-16] On the Mac its words and switch take the cards' inner edges (the words stood 3 pt left
+        // of the steps' titles, the switch 5 pt right of their times).
+        .padding(.horizontal, DeviceWord.isMac ? 32 : 28)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -1095,7 +1103,9 @@ private struct AddOnChangesSection: View {
                         .font(Font.hq(.caption).weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(Color(uiColor: HQPalette.glassInk2))
-                        .frame(minWidth: 44, alignment: .leading)
+                        // [Mac AAA 2026-11-16] Room for "0.9.40": at 44 pt a five-character version ("3.8.0") started its
+                        // line 3 pt left of the card above's (one column across the cards).
+                        .frame(minWidth: 52, alignment: .leading)
                     Text(change.line)
                         .font(Font.hq(.subheadline))
                         .foregroundStyle(Color.hqLabel)
@@ -1166,8 +1176,8 @@ private struct AddOnStepRow: View {
             }
         }
         .padding(.vertical, 3)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3)), value: step.state)
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.3), fades: true), value: step.detail)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move)), value: step.state)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: step.detail)
         .accessibilityElement(children: .combine)
         .accessibilityValue(spokenState)
         .accessibilityIdentifier("addon-update.step.\(step.id.rawValue)")

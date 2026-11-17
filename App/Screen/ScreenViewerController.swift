@@ -665,7 +665,7 @@ final class ScreenViewerController: UIViewController {
         pill.text = text
         pill.accessibilityIdentifier = id
         pill.isHidden = false
-        UIView.animate(withDuration: 0.2) { self.pill.alpha = 1 }   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade) { self.pill.alpha = 1 }   // motion-ok: opacity only
         if announce { HQAnnounce.say(text) }
         pillTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.hidePill() }
@@ -675,7 +675,7 @@ final class ScreenViewerController: UIViewController {
     private func hidePill() {
         pillTimer?.invalidate()
         pillTimer = nil
-        UIView.animate(withDuration: 0.2, animations: { self.pill.alpha = 0 }, completion: { [weak self] _ in   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade, animations: { self.pill.alpha = 0 }, completion: { [weak self] _ in   // motion-ok: opacity only
             guard let self, pillTimer == nil else { return }
             pill.isHidden = true
         })

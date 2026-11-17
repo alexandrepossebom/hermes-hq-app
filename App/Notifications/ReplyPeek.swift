@@ -41,7 +41,7 @@ struct PeekAlert {
         peek.fill(alert, others: others)
         layout(peek, in: window)
         if replacing {
-            UIView.transition(with: peek.contentStack, duration: 0.2, options: .transitionCrossDissolve) {}   // motion-ok: cross-fade
+            UIView.transition(with: peek.contentStack, duration: HQMotion.fade, options: .transitionCrossDissolve) {}   // motion-ok: cross-fade
         } else {
             appear(peek)
         }
@@ -83,7 +83,7 @@ struct PeekAlert {
         if HQMotion.reduced {
             peek.alpha = 0
             peek.materialize(true)
-            UIView.animate(withDuration: 0.2) { peek.alpha = 1 }
+            UIView.animate(withDuration: HQMotion.fade) { peek.alpha = 1 }
             return
         }
         peek.alpha = 0

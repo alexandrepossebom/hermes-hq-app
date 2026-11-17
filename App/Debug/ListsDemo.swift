@@ -224,7 +224,7 @@ final class FakeAppServices: AppServices {
                 unread: unread, pinned: pinned, pinOrder: pinOrder, sectionName: section, hidden: hidden,
                 canonicalSessionId: "bot-chat-\(id)", head: head)
         }
-        return [
+        let baseRoster: [Bot] = [
             bot("default", "Hermes", preview: "Here’s today’s summary: three replies need you, the rest is filed.",
                 minutes: 4, unread: true, pinned: true, pinOrder: 0,
                 head: ["v": 4, "theme": "shape", "color": "ink", "form": "round", "look": "ovals", "mouth": "open", "tile": "color"]),
@@ -245,6 +245,17 @@ final class FakeAppServices: AppServices {
             bot("maple-revenue-operator", "Maple Revenue Operator", preview: "Q3 pipeline review is done.", minutes: 60 * 24 * 40,
                 hidden: true),
         ]
+        // [Mac AAA 2026-11-16] `-HQDemoManyBots <n>`: the roster padded to n bots (some with long names, some working
+        // or unread, across three sections), for the sidebar and rail at many bots.
+        let many = UserDefaults.standard.integer(forKey: "HQDemoManyBots")
+        let words = ["Research", "Quarterly Revenue Reconciliation Assistant", "Notes", "Calendar", "Recipes",
+                     "Customer Support Escalations and Follow-Ups", "Garden", "Photos", "Reading List", "Travel Desk"]
+        let extra: [Bot] = many > 12 ? (0..<(many - 12)).map { i in
+            bot("extra-\(i)", "\(words[i % words.count])\(i >= words.count ? " \(i / words.count + 1)" : "")",
+                preview: "Step \(i + 1) of the weekly review is done.", minutes: Double(30 * (i + 1)),
+                working: i % 7 == 3, unread: i % 5 == 1, section: ["Work", "Home", nil][i % 3])
+        } : []
+        return extra.isEmpty ? baseRoster : baseRoster + extra
     }
 
     static func sessionList(now: Date) -> [SessionSummary] {

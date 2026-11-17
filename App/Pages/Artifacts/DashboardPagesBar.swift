@@ -174,7 +174,7 @@ struct DashboardPagesBand: View {
                 if reduceMotion {
                     proxy.scrollTo(current)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(current) }
+                    withAnimation(.easeInOut(duration: HQMotion.pane)) { proxy.scrollTo(current) }
                 }
             }
         }
@@ -326,7 +326,7 @@ final class DashboardPagesHeader: NSObject, UIDropInteractionDelegate {
             controller.additionalSafeAreaInsets.top = target
         }
         if animated {
-            UIView.animate(withDuration: 0.2) {   // motion-ok: `animated` above is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.fade) {   // motion-ok: `animated` above is false under Reduce Motion
                 change()
                 view.layoutIfNeeded()
             }

@@ -403,7 +403,10 @@ private final class ChatInfoList: UITableViewController {
             header.addSubview(view)
         }
         NSLayoutConstraint.activate([
-            face.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: panel ? InspectorLook.margin : 20),
+            // [Mac AAA 2026-11-16] In the Chat Info sheet the rows sit inside the sheet's safe area (the table moves its
+            // cells' content in by it), so the face did too: it stood 11 pt left of every label under it.
+            face.leadingAnchor.constraint(equalTo: inSheet ? header.safeAreaLayoutGuide.leadingAnchor : header.leadingAnchor,
+                                          constant: panel ? InspectorLook.margin : 20),
             face.centerYAnchor.constraint(equalTo: header.centerYAnchor),
             face.widthAnchor.constraint(equalToConstant: 36),
             face.heightAnchor.constraint(equalToConstant: 36),
@@ -423,7 +426,8 @@ private final class ChatInfoList: UITableViewController {
         button.translatesAutoresizingMaskIntoConstraints = false
         footer.addSubview(button)
         NSLayoutConstraint.activate([
-            panel ? button.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: InspectorLook.margin)
+            panel ? button.leadingAnchor.constraint(equalTo: inSheet ? footer.safeAreaLayoutGuide.leadingAnchor : footer.leadingAnchor,
+                                                    constant: InspectorLook.margin)   // [Mac AAA 2026-11-16] the labels' edge
                 : button.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -20),
             button.topAnchor.constraint(equalTo: footer.topAnchor, constant: panel ? 14 : 4),
         ])
@@ -558,6 +562,13 @@ private final class ChatInfoList: UITableViewController {
     /// The header grows with the name (it wraps at the accessibility sizes instead of clipping).
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // [Mac AAA 2026-11-16] In the sheet the rules run from the labels' edge to the values' (inside the safe area,
+        // as the cells' content is), so the face, the rows, Copy Chat Info and Done share one left and one right edge.
+        if panel, inSheet {
+            let safe = tableView.safeAreaInsets
+            let inset = UIEdgeInsets(top: 0, left: InspectorLook.margin + safe.left, bottom: 0, right: InspectorLook.margin + safe.right)
+            if tableView.separatorInset != inset { tableView.separatorInset = inset }
+        }
         if !panel { DesktopTableOutliner.attach(to: tableView) }   // Stress test 2026-10-28 #56: the look's outlined box, not iOS's card
         guard let header = tableView.tableHeaderView, let title = headerTitle else { return }
         let width = tableView.bounds.width

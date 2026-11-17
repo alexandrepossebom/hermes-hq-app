@@ -1224,7 +1224,7 @@ final class KanbanCardBackground: UICollectionReusableView {
     private func paint() {
         let dark = traitCollection.userInterfaceStyle == .dark
         card.backgroundColor = dark ? HQPalette.groupedCard : HQPalette.page
-        card.layer.borderWidth = dark ? 0 : HQShape.hairline / max(traitCollection.displayScale, 1)
+        card.layer.borderWidth = dark ? 0 : HQShape.pixel(traitCollection.displayScale)
         card.layer.borderColor = dark ? nil : HQPalette.separator.resolvedColor(with: traitCollection).cgColor
     }
 }

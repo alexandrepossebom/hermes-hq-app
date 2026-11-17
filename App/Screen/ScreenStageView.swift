@@ -60,7 +60,7 @@ final class ScreenStageView: UIView {
         layer.addSublayer(dimLayer)
         ring.fillColor = UIColor.white.cgColor
         ring.strokeColor = UIColor.black.withAlphaComponent(0.6).cgColor
-        ring.lineWidth = 1
+        ring.lineWidth = HQShape.hairline
         ring.path = UIBezierPath(ovalIn: CGRect(x: -7, y: -7, width: 14, height: 14)).cgPath
         ring.opacity = 0
         ring.actions = ["position": NSNull()]

@@ -308,7 +308,7 @@ struct AudioPreviewView: View {
                 .fill(glass ? Color(uiColor: HQPalette.sheetCard) : Color.clear))
             .overlay {   // [glass-design] the cards' thin edge on the glass
                 if glass { RoundedRectangle(cornerRadius: GlassSheetKit.cardRadius, style: .continuous)
-                    .strokeBorder(Color(uiColor: HQPalette.cardEdge), lineWidth: 1) }
+                    .strokeBorder(Color(uiColor: HQPalette.cardEdge), lineWidth: HQShape.hairline) }
             }
             .padding(.horizontal, glass ? 20 : 0)
             .padding(.top, 4)

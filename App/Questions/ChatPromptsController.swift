@@ -533,7 +533,7 @@ import UIKit
             if !self.chipShown { self.chip.isHidden = true }
             self.chat?.promptChipChanged()
         }
-        if animate { UIView.animate(withDuration: 0.2, animations: change, completion: done) } else { change(); done(true) }   // motion-ok: `animate` is false under Reduce Motion
+        if animate { UIView.animate(withDuration: HQMotion.fade, animations: change, completion: done) } else { change(); done(true) }   // motion-ok: `animate` is false under Reduce Motion
     }
 
     private func chipTapped() {

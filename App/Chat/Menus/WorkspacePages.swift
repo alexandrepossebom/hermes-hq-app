@@ -77,7 +77,7 @@ final class WorkspacePage: UITableViewController {
         tableView.accessibilityIdentifier = kind == .files ? "workspace.files" : "workspace.changes"
         tableView.backgroundColor = HQPalette.sheetPage   // [desktoplook] the page follows the skin
         if panel { InspectorLook.dress(tableView) }
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "row")
+        tableView.register(panel ? InspectorFileCell.self : UITableViewCell.self, forCellReuseIdentifier: "row")   // [Mac AAA 2026-11-16]
         if let directory, kind == .files, navigationController?.viewControllers.first !== self {
             title = (directory as NSString).lastPathComponent
         }
@@ -255,7 +255,7 @@ final class WorkspacePage: UITableViewController {
     /// ("PowerPoint", "Environment"), and one still too long is cut at the end, so the name keeps the rest of the row.
     /// `keepsArrowRoom` false (`macKindFit`): a file row whose name needs it doesn't keep the hidden arrow's room.
     static func macKindAccessory(_ kind: String, room: CGFloat = 0, chevron: Bool, busy: Bool = false,
-                                 keepsArrowRoom: Bool = true, font: UIFont? = nil) -> UIView {
+                                 keepsArrowRoom: Bool = true, font: UIFont? = nil, trailing: CGFloat = 8) -> UIView {
         let label = UILabel()
         label.text = kind
         label.font = font ?? HQFont.preferred(.body)
@@ -284,7 +284,7 @@ final class WorkspacePage: UITableViewController {
         stack.alignment = .center
         stack.spacing = 16
         stack.isLayoutMarginsRelativeArrangement = true
-        stack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8)
+        stack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: trailing)
         stack.frame.size = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         return stack
     }
@@ -369,7 +369,7 @@ final class WorkspacePage: UITableViewController {
             let kindFont = panel ? InspectorLook.detailFont : nil
             let fit = Self.macKindFit(in: tableView, name: entry.name, kind: kind, chevron: entry.isDirectory, row: row, kindFont: kindFont)
             cell.accessoryView = Self.macKindAccessory(kind, room: fit.room, chevron: entry.isDirectory, keepsArrowRoom: fit.keepsArrowRoom,
-                                                       font: kindFont)
+                                                       font: kindFont, trailing: panel ? 0 : 8)
             cell.accessibilityLabel = "\(entry.name), \(kind)"
             cell.accessibilityIdentifier = "workspace.entry.\(entry.name)"
             cell.contentConfiguration = row
@@ -660,5 +660,18 @@ extension WorkspacePage: KeyRefreshing {
             control?.beginRefreshing()
             control?.sendActions(for: .valueChanged)
         }
+    }
+}
+
+/// [Mac AAA 2026-11-16] A Files row in the Mac's right panel: its kind and chevron end at the panel's margin, where the
+/// rule under it ends and where Helpers' chevrons and Info's values end (the table put the accessory about 24 pt short).
+final class InspectorFileCell: UITableViewCell {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let accessory = accessoryView, accessory.superview != nil, bounds.width > 0 else { return }
+        let shift = bounds.width - InspectorLook.margin - accessory.frame.maxX
+        guard shift > 0.5 else { return }
+        accessory.frame.origin.x += shift
+        contentView.frame.size.width += shift   // the name keeps the room the kind gave up
     }
 }

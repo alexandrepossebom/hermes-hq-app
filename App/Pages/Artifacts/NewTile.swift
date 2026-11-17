@@ -171,39 +171,23 @@ struct NewTileView: View {
                 } header: { HQSectionLabel { Text("Ideas") } }
             }
             Section {
+                Group {
+                #if targetEnvironment(macCatalyst)
+                // [Mac AAA 2026-11-16] A plain mouse's wheel can't turn a sideways strip: with more bots than the sheet
+                // is wide, the last ones were out of reach. On the Mac they wrap onto more lines, as Marketplace's chips.
+                PagesFlowLayout(spacing: 4, lineSpacing: 4) {
+                    ForEach(model.bots, id: \.id) { bot in botButton(bot) }
+                }
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 4) {
-                        ForEach(model.bots, id: \.id) { bot in
-                            Button {
-                                if model.bot != bot.id { PagesHaptics.selection() }
-                                model.bot = bot.id
-                            } label: {
-                                VStack(spacing: 6) {
-                                    HeadImage(raw: bot.head, profile: bot.id, size: HQFont.scaled(44))
-                                        .frame(width: HQFont.scaled(44), height: HQFont.scaled(44))
-                                        .allowsHitTesting(false)
-                                        .padding(3)
-                                    Text(bot.name)
-                                        .font(Font.hq(.caption))
-                                        .foregroundStyle(model.bot == bot.id ? Color.hqTintText : Color.hqLabel2)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.center)
-                                }
-                                .frame(width: HQFont.scaled(76))   // [ui-sizing] × UI Scale, as its caption: names broke mid-word at 150 %
-                                .padding(.vertical, 4)
-                                .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(model.bot == bot.id ? Color.hqTint.opacity(0.14) : .clear))
-                                // The whole card takes the tap: the face is a UIKit view that took it for itself, so
-                                // only the name chose the bot (owner 2026-11-03).
-                                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(bot.name)
-                            .accessibilityAddTraits(model.bot == bot.id ? .isSelected : [])
-                            .accessibilityIdentifier("tile.new.bot.\(bot.id)")
-                        }
+                        ForEach(model.bots, id: \.id) { bot in botButton(bot) }
                     }
                     .padding(.vertical, 6)
+                }
+                #endif
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
             } header: { HQSectionLabel { Text("Made By") } } footer: { HQSectionFooter {
@@ -212,6 +196,38 @@ struct NewTileView: View {
         }
         .hqGroupedPage()
         .onAppear { focused = true }
+    }
+
+    /// One bot of Made By: its face and name, the chosen one tinted.
+    private func botButton(_ bot: Bot) -> some View {
+        Button {
+            if model.bot != bot.id { PagesHaptics.selection() }
+            model.bot = bot.id
+        } label: {
+            VStack(spacing: 6) {
+                HeadImage(raw: bot.head, profile: bot.id, size: HQFont.scaled(44))
+                    .frame(width: HQFont.scaled(44), height: HQFont.scaled(44))
+                    .allowsHitTesting(false)
+                    .padding(3)
+                Text(bot.name)
+                    .font(Font.hq(.caption))
+                    .foregroundStyle(model.bot == bot.id ? Color.hqTintText : Color.hqLabel2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(width: HQFont.scaled(76))   // [ui-sizing] × UI Scale, as its caption: names broke mid-word at 150 %
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(model.bot == bot.id ? Color.hqTint.opacity(0.14) : .clear))
+            // The whole card takes the tap: the face is a UIKit view that took it for itself, so
+            // only the name chose the bot (owner 2026-11-03).
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(bot.name)
+        .accessibilityAddTraits(model.bot == bot.id ? .isSelected : [])
+        .accessibilityIdentifier("tile.new.bot.\(bot.id)")
+        .hqPointerFill(14, on: model.bot != bot.id)   // [Mac AAA 2026-11-16] answers the pointer as the app's cards do
     }
 }
 
@@ -682,7 +698,7 @@ final class TileMakingCell: UICollectionViewCell {
         // their edge, 1 pt in the Desktop Look).
         card.layer.cornerRadius = HQShape.radius(14, .card)
         card.layer.cornerCurve = .continuous
-        card.layer.borderWidth = Theme.isDesktop ? 1 : 0.5
+        card.layer.borderWidth = HQShape.line(Theme.isDesktop ? 1 : 0.5)
         card.layer.borderColor = HQPalette.stroke.resolvedColor(with: traitCollection).cgColor
         card.backgroundColor = isHighlighted ? HQPalette.fill3 : HQPalette.card
         icon.tintColor = HQPalette.tint

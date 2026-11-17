@@ -108,7 +108,7 @@ import UIKit
         #else
         let hold = 0.45
         #endif
-        UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: the peek never plays under Reduce Motion (`wanted`)
+        UIView.animate(withDuration: HQMotion.move, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: the peek never plays under Reduce Motion (`wanted`)
             // The content's own origin moves, not its transform: the list cell lays its content view out by frame, and a
             // frame set on a transformed view puts it straight back where it was (the peek then showed nothing).
             content.bounds.origin.x = 60
@@ -118,7 +118,7 @@ import UIKit
                 guard let self, let playing = self.playing, playing.run == run else { return }   // a touch already put it back
                 self.out = false
                 let content = playing.content                                   // the row's content now (a reload swaps it)
-                UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {   // motion-ok: the way back of the same peek
+                UIView.animate(withDuration: HQMotion.move, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {   // motion-ok: the way back of the same peek
                     content.bounds.origin.x = 0
                     playing.reveal.frame.origin.x = playing.cell.bounds.width
                 } completion: { [weak self] _ in

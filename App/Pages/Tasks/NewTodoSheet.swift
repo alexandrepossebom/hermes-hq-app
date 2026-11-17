@@ -292,7 +292,7 @@ struct NewTodoView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(model.saving)
-                    .accessibilityLabel("Close")
+                    .hqIconLabel("Close")
                     .accessibilityIdentifier("sheet.close")
                 }
             }

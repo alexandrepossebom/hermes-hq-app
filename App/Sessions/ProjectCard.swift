@@ -530,7 +530,7 @@ struct ProjectCardFill: View {
                     if highlight {
                         shape.strokeBorder(Color.hqTint.opacity(0.55), lineWidth: 1.5)
                     } else if fills, let edge = ProjectCard.edge {
-                        shape.strokeBorder(Color(uiColor: edge), lineWidth: 1)
+                        shape.strokeBorder(Color(uiColor: edge), lineWidth: HQShape.hairline)
                     }
                 }
                 .frame(width: box.width, height: box.height)
@@ -812,7 +812,7 @@ struct ProjectCardHeader: View {
             .overlay {
                 // The Desktop Look's page and card are close in light: its outline keeps the box.
                 if let edge = ProjectCard.edge {
-                    RoundedRectangle(cornerRadius: desk ? 6 : 8, style: .continuous).strokeBorder(Color(uiColor: edge), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: desk ? 6 : 8, style: .continuous).strokeBorder(Color(uiColor: edge), lineWidth: HQShape.hairline)
                 }
             }
             .accessibilityHidden(true)

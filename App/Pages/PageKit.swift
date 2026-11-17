@@ -5,6 +5,27 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Section heads
+
+extension Color {
+    /// [Mac AAA 2026-11-16] One ink for the count beside a section head's name on the Mac ("Scheduled 4", "Today 6",
+    /// a folded group's "3"): the owner's softer project tally (label 2 at three-quarters, full under Increase
+    /// Contrast; ProjectCard, owner 2026-11-01). Jobs drew theirs in label 2, Tasks too, Sessions' folded groups in
+    /// label 3: three greys for one thing. iPhone and iPad keep `phone`.
+    static func hqHeadCount(_ contrast: ColorSchemeContrast, phone: Color = .hqLabel2) -> Color {
+        guard DeviceWord.isMac else { return phone }
+        return Color.hqLabel2.opacity(contrast == .increased ? 1 : 0.75)
+    }
+}
+
+extension HQPalette {
+    /// [Mac AAA 2026-11-16] `Color.hqHeadCount` for UIKit heads (Kanban's columns, Artifacts' Unavailable).
+    @MainActor static func headCount(phone: UIColor = HQPalette.label2) -> UIColor {
+        guard DeviceWord.isMac else { return phone }
+        return HQAccessibility.increaseContrast ? label2 : label2.withAlphaComponent(0.75)
+    }
+}
+
 // MARK: - Header
 
 enum PageChrome {
@@ -265,7 +286,7 @@ final class PagesHUD: UIView {
         ])
         if detail != nil { hud.glass.cornerConfiguration = .uniformCorners(radius: .fixed(22)) }   // two lines: a rounded card
         current = hud
-        UIView.animate(withDuration: 0.2) { hud.alpha = 1 }   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.fade) { hud.alpha = 1 }   // motion-ok: opacity only
         HQAnnounce.say(detail.map { "\(text). \($0)" } ?? text)
         var shown = duration ?? 1.5
         #if DEBUG
@@ -282,7 +303,7 @@ final class PagesHUD: UIView {
     func dismiss(animated: Bool = true) {
         hideWork?.cancel()
         guard animated else { removeFromSuperview(); return }
-        UIView.animate(withDuration: 0.25, animations: { self.alpha = 0 }, completion: { _ in self.removeFromSuperview() })   // motion-ok: opacity only
+        UIView.animate(withDuration: HQMotion.pane, animations: { self.alpha = 0 }, completion: { _ in self.removeFromSuperview() })   // motion-ok: opacity only
     }
 }
 

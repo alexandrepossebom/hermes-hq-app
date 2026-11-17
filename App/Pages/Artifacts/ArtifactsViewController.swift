@@ -38,6 +38,8 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     let isGrid: Bool
     /// [mac-tools] The segments in the bar (the grid as a place's own page, with room for them), not a cell.
     private var barFilter: ArtifactFilterBar?
+    /// [Mac AAA 2026-11-16] The bar's one filter, made once (`placeBarFilter`); `barFilter` is it while it is on show.
+    private var barFilterView: ArtifactFilterBar?
     private var barFilterHost = false
     private var filterInBar: Bool { barFilterHost && view.bounds.width >= Self.barFilterLeast }
     private static let barFilterLeast: CGFloat = 660
@@ -615,17 +617,22 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         guard inBar != filterWasInBar else { return }
         let first = filterWasInBar == nil
         filterWasInBar = inBar
-        var bar: ArtifactFilterBar?
-        if inBar {
+        // [Mac AAA 2026-11-16] (lists L12) One filter in the bar for the page's life, shown or hidden: a new bar item
+        // each time the list came back wide (a file open beside it, then closed) stood on a square, lighter platter of
+        // the bar's own, behind the segments, for as long as the page was on show.
+        if barFilterView == nil {
             let made = ArtifactFilterBar { [weak self] index in self?.pickSegment(index) }
-            made.select([nil, .image, .file, .link].firstIndex(of: filter) ?? 0)
             made.translatesAutoresizingMaskIntoConstraints = false
-            made.widthAnchor.constraint(equalToConstant: 320).isActive = true
-            bar = made
+            let width = made.widthAnchor.constraint(equalToConstant: 320)
+            width.priority = .init(999)   // the stack's own zero width wins while it is hidden
+            width.isActive = true
+            barFilterView = made
+            navigationItem.leftBarButtonItem = MacToolBar.lead(title: title ?? "Artifacts", popUp: made)
+            navigationItem.titleView = UIView()   // the middle stays empty; `title` still names the page (VoiceOver)
         }
-        barFilter = bar
-        navigationItem.leftBarButtonItem = MacToolBar.lead(title: title ?? "Artifacts", popUp: bar)
-        navigationItem.titleView = UIView()   // the middle stays empty; `title` still names the page (VoiceOver)
+        barFilterView?.select([nil, .image, .file, .link].firstIndex(of: filter) ?? 0)
+        barFilterView?.isHidden = !inBar
+        barFilter = inBar ? barFilterView : nil
         if !first { reload(animated: false) }
     }
 
@@ -913,9 +920,23 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 content.textProperties.font = MacType.sectionHeader
                 if Theme.isDesktop {
                     content.attributedText = NSAttributedString(string: (content.text ?? "").uppercased(), attributes: DesktopLayout.labelAttributes())
+                } else {
+                    // [Mac AAA 2026-11-16] Drawn as every other folding head is (Sessions' "Recent ⌄", "Projects ⌄"):
+                    // the name on the headings' edge, its caret after it, the count after that while folded. It read
+                    // "› Unavailable (1)", the arrow first and the name 26 pt in from "Today" and "Friday" over it.
+                    content.attributedText = Self.unavailableHead(count: count, open: self?.unavailableOpen ?? false)
                 }
             }
             cell.contentConfiguration = content
+            if DeviceWord.isMac, !Theme.isDesktop {
+                cell.accessories = []
+                cell.accessibilityIdentifier = "artifacts.unavailable"
+                cell.accessibilityLabel = "Unavailable, \(count)"
+                cell.accessibilityTraits = [.button]
+                cell.accessibilityValue = (self?.unavailableOpen ?? false) ? "open" : "closed"
+                cell.backgroundConfiguration = .clear()
+                return
+            }
             // Mac pass round 3: an outline disclosure turns only for a section snapshot's own folding; this group folds
             // by its own flag, so the arrow kept pointing right with the group open. Its own arrow, turned by that flag.
             let arrow = UIImageView(image: UIImage(systemName: "chevron.right",
@@ -1327,7 +1348,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         AppLog.trace("pages", "dashboard page \(id == DashboardPage.mainId ? "main" : "own") shown")
         pins.currentPage = id   // didChange → reload
         if view.window != nil, !HQMotion.reduced {
-            UIView.transition(with: collectionView, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction], animations: nil)
+            UIView.transition(with: collectionView, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction], animations: nil)
         }
     }
 
@@ -1538,7 +1559,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
 
     #if DEBUG
     /// `-HQPagesTileVersions` (PagesDebug): Versions of the first page tile.
-    func debugShowVersions(tries: Int = 3) {
+    func debugShowVersions(tries: Int = 12) {   // [Mac AAA 2026-11-16] the stand-in's artifacts come late (tools T24)
         guard let pin = pins.pins.first(where: { $0.isPage && $0.gatewayPath != nil }) else {
             // None pinned yet (a tour starts clean): the first page artifact is pinned, then its Versions open.
             if let page = records.values.first(where: { ["html", "htm"].contains(ArtifactFiles.fileExtension($0.value)) }) { debugPin([page.label]) }
@@ -1662,13 +1683,34 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             ("photo.on.rectangle", DeviceWord.isMac ? "In Artifacts, Control\u{2011}click one and choose Pin as Tile." : "In Artifacts, swipe one to the right."),
         ]
         let symbol = UIImage.SymbolConfiguration(font: font, scale: .small)
-        for step in steps {
-            text.append(NSAttributedString(string: "\n", attributes: [.font: font.withSize(font.pointSize * 0.5)]))
-            if let image = UIImage(systemName: step.symbol, withConfiguration: symbol)?.withTintColor(HQPalette.tint, renderingMode: .alwaysOriginal) {
-                text.append(NSAttributedString(attachment: NSTextAttachment(image: image)))
-                text.append(NSAttributedString(string: "\u{2002}", attributes: [.font: font]))
+        // [Mac AAA 2026-11-16] (tools T21) The two steps were centred lines of different lengths, so their symbols
+        // stood 9 pt apart and their words started on two edges. Now the space after the narrower symbol is widened by the
+        // difference (kerning), so the words start on one edge, and the shorter step's last letter by what makes it as wide as the
+        // longer one, so both centre as one block with their symbols in one column. Only kerning: a drawn spacer or a
+        // re-drawn symbol (tried) shifted the lines off the sentence's centre.
+        let images = steps.map { UIImage(systemName: $0.symbol, withConfiguration: symbol)?.withTintColor(HQPalette.tint, renderingMode: .alwaysOriginal) }
+        let slot = ceil(images.compactMap { $0?.size.width }.max() ?? 0)
+        var lines: [NSMutableAttributedString] = []
+        for (step, image) in zip(steps, images) {
+            let line = NSMutableAttributedString()
+            if let image {
+                line.append(NSAttributedString(attachment: NSTextAttachment(image: image)))
+                // (On the space after it: kerning on the symbol itself is not drawn.)
+                line.append(NSAttributedString(string: "\u{2002}", attributes: [.font: font, .kern: slot - image.size.width]))
             }
-            text.append(NSAttributedString(string: step.words + "\n", attributes: [.font: font, .foregroundColor: colour]))
+            line.append(NSAttributedString(string: step.words, attributes: [.font: font, .foregroundColor: colour]))
+            lines.append(line)
+        }
+        let size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let widths = lines.map { $0.boundingRect(with: size, options: [.usesLineFragmentOrigin], context: nil).width }
+        let widest = widths.max() ?? 0
+        for (line, width) in zip(lines, widths) {
+            if widest - width >= 0.5, line.length > 0 {
+                line.addAttribute(.kern, value: widest - width, range: NSRange(location: line.length - 1, length: 1))
+            }
+            text.append(NSAttributedString(string: "\n", attributes: [.font: font.withSize(font.pointSize * 0.5)]))
+            text.append(line)
+            text.append(NSAttributedString(string: "\n", attributes: [.font: font]))
         }
         text.deleteCharacters(in: NSRange(location: text.length - 1, length: 1))
         return text
@@ -1965,7 +2007,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         guard gridNeedsLayout else { return }
         gridNeedsLayout = false
         guard view.window != nil, !HQMotion.reduced else { collectionView.collectionViewLayout.invalidateLayout(); return }
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+        UIView.animate(withDuration: HQMotion.move, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             self.collectionView.collectionViewLayout.invalidateLayout()
             self.collectionView.layoutIfNeeded()
         }
@@ -2015,6 +2057,9 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 // to pin, as well as how.
                 // [dashboard] New Tile first (the easy button, owner 2026-11-03), then the way to things already made.
                 var button = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)
+                // [Mac AAA 2026-11-16] New Tile is the page's one primary action: the Mac's accent push button (as
+                // Terminal's Turn On), not a grey twin of Open Artifacts under it.
+                if DeviceWord.isMac, services != nil { button = MacPush.configuration(.prominent) }
                 button.title = services == nil ? "Open Artifacts" : "New Tile"
                 config.button = button
                 config.buttonProperties.primaryAction = UIAction { [weak self] _ in
@@ -2176,6 +2221,26 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     /// The Unavailable group's arrow: right when folded, down when open.
     static func unavailableArrowTurn(open: Bool) -> CGAffineTransform {
         open ? CGAffineTransform(rotationAngle: .pi / 2) : .identity
+    }
+
+    /// [Mac AAA 2026-11-16] The Mac's Unavailable head, as Sessions' folding captions: "Unavailable ⌄" open,
+    /// "Unavailable › 1" folded (the caret in the third grey, the count after it).
+    static func unavailableHead(count: Int, open: Bool) -> NSAttributedString {
+        let head = NSMutableAttributedString(string: "Unavailable", attributes: [.font: MacType.sectionHeader, .foregroundColor: HQPalette.label2])
+        let caretFont = HQFont.preferred(.caption1).pagesWeight(.semibold)
+        if let caret = UIImage(systemName: open ? "chevron.down" : "chevron.right",
+                               withConfiguration: UIImage.SymbolConfiguration(font: caretFont))?.withTintColor(HQPalette.label3, renderingMode: .alwaysOriginal) {
+            let attachment = NSTextAttachment(image: caret)
+            // On the words' middle, as the caret sits beside "Recent".
+            let lift = (MacType.sectionHeader.capHeight - caret.size.height) / 2
+            attachment.bounds = CGRect(x: 0, y: lift.rounded(), width: caret.size.width, height: caret.size.height)
+            head.append(NSAttributedString(string: "  "))
+            head.append(NSAttributedString(attachment: attachment))
+        }
+        if !open {
+            head.append(NSAttributedString(string: "  \(count)", attributes: [.font: HQFont.preferred(.subheadline), .foregroundColor: HQPalette.headCount(phone: HQPalette.label3)]))
+        }
+        return head
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {

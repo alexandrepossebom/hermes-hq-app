@@ -325,3 +325,15 @@ extension View {
     /// [mac] Stress test 2026-10-28 #8, #51: a Mac form on the Mac (`hqMacForm`, inside the grouped page so its gap wins).
     func settingsList() -> some View { listStyle(.insetGrouped).hqMacForm().hqGroupedPage() }   // [desktoplook] the page follows the skin
 }
+
+/// [Mac AAA 2026-11-16] A row divider on whole screen pixels (`HQShape.hairline`) in the separator colour: SwiftUI's
+/// `Divider()` lands between pixels at the Mac's 77 % and draws blurred.
+struct SettingsHairline: View {
+    var body: some View {
+        #if targetEnvironment(macCatalyst)
+        HQHairline()
+        #else
+        Divider()   // the iPhone and iPad keep theirs
+        #endif
+    }
+}

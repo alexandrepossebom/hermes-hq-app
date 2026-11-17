@@ -89,6 +89,20 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
         reload.accessibilityIdentifier = "plugin-web-page.reload"
         navigationItem.rightBarButtonItem = reload
         // [plugin-pages-more] Whose page this is (each bot's plugin reads its own data), and a switch when several have it.
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] On the Mac the bot is a pop-up beside the bold title, as Files' and Changes' "Title  Bot ⌃":
+        // the bar's centred grey subtitle floated alone in the middle of the bar, and the person glyph at the right
+        // didn't say whose page it was.
+        if otherBots.count > 1 {
+            let pop = MacToolBar.popUp(identifier: "plugin-web-page.bot")
+            MacToolBar.setTitle(botName, on: pop)
+            pop.menu = botMenu()
+            pop.accessibilityLabel = "Bot: \(botName)"
+            navigationItem.leftBarButtonItem = MacToolBar.lead(title: page.label, popUp: pop)
+            navigationItem.leftItemsSupplementBackButton = true
+            navigationItem.titleView = UIView()   // the middle stays empty; `title` still names the page (VoiceOver)
+        }
+        #else
         if otherBots.count > 1 {
             navigationItem.subtitle = botName
             let bots = UIBarButtonItem(image: UIImage(systemName: "person.crop.circle"), menu: botMenu())
@@ -97,6 +111,7 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
             bots.accessibilityIdentifier = "plugin-web-page.bot"
             navigationItem.rightBarButtonItems = [reload, bots]
         }
+        #endif
 
         let host = UIHostingController(rootView: HQScaledRoot(PluginWebPageStatus(state: state, page: page, botName: botName,
                                                                                    retry: { [weak self] in self?.reload() },
@@ -353,7 +368,7 @@ final class PluginWebPageController: UIViewController, WKNavigationDelegate, WKS
                 guard let self, self.state.phase == .loading else { return }
                 // The page drew before the bars' insets reached it (the Mac): start at its top, not under the bar.
                 if let scroll = self.web?.scrollView { scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false) }
-                HQMotion.withAnimation(.easeOut(duration: 0.2)) { self.state.phase = .ready }
+                HQMotion.withAnimation(.easeOut(duration: HQMotion.fade)) { self.state.phase = .ready }
                 #if DEBUG
                 // Shots: `-HQDebugPluginPageClick <button words>` presses that button once the page is drawn (a dialog open).
                 if let words = UserDefaults.standard.string(forKey: "HQDebugPluginPageClick"), !words.isEmpty {
@@ -633,7 +648,7 @@ struct PluginWebPageStatus: View {
                 .accessibilityIdentifier("plugin-web-page.restart")
             }
         }
-        .animation(HQMotion.swiftUI(.easeOut(duration: 0.2)), value: state.phase)
+        .animation(HQMotion.swiftUI(.easeOut(duration: HQMotion.fade)), value: state.phase)
     }
 
     private func message<Actions: View>(symbol: String, title: String, words: String, @ViewBuilder actions: () -> Actions) -> some View {

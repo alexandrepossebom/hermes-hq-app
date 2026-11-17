@@ -630,7 +630,7 @@ import UIKit
         layoutTalkTip()
         bubble.alpha = 0
         if HQMotion.reduced { screen.view.setNeedsLayout(); screen.view.layoutIfNeeded() }   // the list is simply at its new place; the tip fades
-        UIView.animate(withDuration: 0.2) {
+        UIView.animate(withDuration: HQMotion.fade) {
             bubble.alpha = 1
             screen.view.setNeedsLayout()   // the transcript's end makes room
             screen.view.layoutIfNeeded()
@@ -651,7 +651,7 @@ import UIKit
             return
         }
         if HQMotion.reduced { screen.view.setNeedsLayout(); screen.view.layoutIfNeeded() }   // the list is simply at its new place; the tip fades
-        UIView.animate(withDuration: 0.2, animations: {
+        UIView.animate(withDuration: HQMotion.fade, animations: {
             bubble.alpha = 0
             screen.view.setNeedsLayout()
             screen.view.layoutIfNeeded()

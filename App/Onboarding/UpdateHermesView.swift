@@ -141,7 +141,7 @@ struct UpdateHermesView: View {
                     Button(action: model.checkAgain) {
                         Text(OutdatedCopy.checkAgain).font(Font.hq(.headline)).frame(maxWidth: .infinity, minHeight: height)
                     }
-                    .hqGlassButtonStyle()
+                    .modifier(UpdateHermesSecondaryButton())
                     .accessibilityIdentifier("update-hermes.check")
                 } else {
                     Button(action: model.checkAgain) {
@@ -154,7 +154,7 @@ struct UpdateHermesView: View {
                 Button(action: model.continueAnyway) {
                     Text(OutdatedCopy.continueAnyway).font(Font.hq(.headline)).frame(maxWidth: .infinity, minHeight: height)
                 }
-                .hqGlassButtonStyle()
+                .modifier(UpdateHermesSecondaryButton())
                 .accessibilityIdentifier("update-hermes.continue")
             }
             .controlSize(.large)
@@ -174,7 +174,7 @@ struct UpdateHermesView: View {
             .accessibilityHidden(model.status.isEmpty)
             .padding(.top, 16)
         }
-        .animation(HQMotion.swiftUI(.smooth(duration: 0.2), fades: true), value: model.phase)
+        .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: model.phase)
     }
 }
 
@@ -202,5 +202,14 @@ enum UpdateHermesScreen {
     nonisolated static func name(url: URL, label: String?) -> String {
         let given = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return given.isEmpty ? GatewayNaming.friendlyName(url) : given
+    }
+}
+
+/// [Mac AAA 2026-11-16] Check Again and Continue Anyway on the Mac: the Mac's plain push button at the height of Update
+/// Hermes above them, as the sign-in form's Sign In (`SignInButtonStyle`); iOS's glass capsule stood half as tall again
+/// under the prominent button. The iPhone and iPad keep the glass.
+private struct UpdateHermesSecondaryButton: ViewModifier {
+    func body(content: Content) -> some View {
+        if DeviceWord.isMac { content.hqBorderedButtonStyle() } else { content.hqGlassButtonStyle() }
     }
 }

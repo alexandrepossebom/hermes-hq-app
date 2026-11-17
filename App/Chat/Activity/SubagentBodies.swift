@@ -63,10 +63,10 @@ final class SubagentsBody: UIView, UITextFieldDelegate, ShelfMeasuredBody {
         divider.translatesAutoresizingMaskIntoConstraints = false
         // [mac-audit #12] Owner 2026-11-02: a pixel of the window's own display, kept right when the window moves to
         // a display of another scale (a Mac with a 1x monitor beside a 2x one); UIScreen.main's scale was the wrong one.
-        let dividerWidth = divider.widthAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale))
+        let dividerWidth = divider.widthAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale))
         dividerWidth.isActive = true
         registerForTraitChanges([UITraitDisplayScale.self]) { (body: SubagentsBody, _) in
-            dividerWidth.constant = 1 / max(1, body.traitCollection.displayScale)
+            dividerWidth.constant = HQShape.pixel(body.traitCollection.displayScale)
         }
         pageColumn.axis = .vertical
         placeholder.text = "Choose a helper to see its steps."
@@ -89,8 +89,11 @@ final class SubagentsBody: UIView, UITextFieldDelegate, ShelfMeasuredBody {
     private func countLine(_ children: [SubagentProgress]) -> UIView? {
         guard panel, !children.isEmpty else { return nil }
         var parts = [children.count == 1 ? "1 helper" : "\(children.count) helpers"]
+        // [Mac AAA 2026-11-16] The shelf's words beside it: running and queued, not "working".
         let working = children.filter { $0.status == .running }.count
-        if working > 0 { parts.append("\(working) working") }
+        let queued = children.filter { $0.status == .queued }.count
+        if working > 0 { parts.append("\(working) running") }
+        if queued > 0 { parts.append("\(queued) queued") }
         let text = parts.joined(separator: " · ")
         if let summary, text == summaryText { return summary }
         let view = InspectorLook.summary(text)
@@ -332,7 +335,7 @@ final class SubagentRowView: ShelfRowControl {
                 rule.leadingAnchor.constraint(equalTo: leadingAnchor, constant: InspectorLook.margin),
                 rule.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -InspectorLook.margin),
                 rule.bottomAnchor.constraint(equalTo: bottomAnchor),
-                rule.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)),
+                rule.heightAnchor.constraint(equalToConstant: HQShape.pixel(traitCollection.displayScale)),
             ])
         }
         timer.font = HQFont.monoDigitFace(ofSize: ShelfText.footnote.pointSize, weight: .regular)
@@ -575,7 +578,7 @@ final class SubagentDetailView: UIView {
         field.backgroundColor = ChatPalette.fill4
         field.layer.cornerRadius = 22
         field.layer.cornerCurve = .continuous
-        field.layer.borderWidth = 1
+        field.layer.borderWidth = HQShape.hairline
         field.clearButtonMode = .never
         let steerMark = UIImageView(image: SubagentLook.image("arrow.turn.down.right", size: HQFont.symbolSize(13, like: .body, cap: 20)))
         steerMark.tintColor = ChatPalette.label2
@@ -781,7 +784,7 @@ final class SubagentStepRow: UIView {
             icon.widthAnchor.constraint(equalToConstant: 18),
             icon.centerYAnchor.constraint(equalTo: text.firstBaselineAnchor, constant: -ShelfText.footnote.capHeight / 2),
             rail.centerXAnchor.constraint(equalTo: icon.centerXAnchor),
-            rail.widthAnchor.constraint(equalToConstant: 1),
+            rail.widthAnchor.constraint(equalToConstant: HQShape.hairline),
             rail.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 3),
             rail.bottomAnchor.constraint(equalTo: bottomAnchor),
             text.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),

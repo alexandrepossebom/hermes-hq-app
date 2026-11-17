@@ -119,7 +119,7 @@ struct TaskCardButtonStyle: ButtonStyle {
             label
                 .foregroundStyle(main ? Color.hqOnTint : Color.hqLabel)
                 .background(shape.fill(main ? Color.hqTint : (DeviceWord.isMac ? MacPush.fillColor : Color.clear)))
-                .overlay { if !main { shape.strokeBorder(DeviceWord.isMac ? MacPush.strokeColor : Color.hqStroke, lineWidth: 1) } }
+                .overlay { if !main { shape.strokeBorder(DeviceWord.isMac ? MacPush.strokeColor : Color.hqStroke, lineWidth: HQShape.hairline) } }
                 .contentShape(shape)
         } else {
             label
@@ -136,7 +136,7 @@ struct TaskCardBackground: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : 14, style: .continuous)
         content.background {
             if Theme.isDesktop {
-                shape.fill(Color.hqGroupedCard).overlay { shape.strokeBorder(Color.hqStroke, lineWidth: 1) }
+                shape.fill(Color.hqGroupedCard).overlay { shape.strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline) }
             } else {
                 shape.fill(Color.hqLabel.opacity(0.06))
             }

@@ -14,6 +14,8 @@ struct UsageDashboard: View {
     var usage: UsageReport
     @State private var metric = Metric.tokens
     @State private var hovered: UsageReport.Day?
+    /// [Mac AAA 2026-11-16] The headline's height, so "No Usage Yet" can sit where every page's empty state does.
+    @State private var headlineHeight: CGFloat = 0
 
     enum Metric: String, CaseIterable, Identifiable {
         case tokens = "Tokens", sessions = "Sessions"
@@ -29,15 +31,21 @@ struct UsageDashboard: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 headline
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { headlineHeight = $0 })
                 if usage.isEmpty {
                     // [macpass r4 tools] Nothing used in this period: the headline and its switch stay where they were.
+                    // [Mac AAA 2026-11-16] The state stood 48 pt under the headline, 240 pt higher than every other
+                    // page's: it now has the room down to as far from the foot as it starts from the top, so its middle
+                    // is the page's, lifted as every state is (`hqMacEmptyPlacement`).
+                    let above = MacInset.top(otherwise: 18) + headlineHeight + 16
                     ContentUnavailableView {
                         UnavailableTitle("No Usage Yet", systemImage: "chart.bar")
                     } description: {
                         Text("Usage shows up after your bots have worked.").hqMacFont(MacType.emptyBodyFont)
                     }
-                    .padding(.top, 48)
+                    .hqMacEmptyPlacement()
                     .frame(maxWidth: .infinity)
+                    .containerRelativeFrame(.vertical) { height, _ in max(220, height - 2 * above) }
                     .accessibilityIdentifier("more-usage.empty")
                 } else {
                     tiles

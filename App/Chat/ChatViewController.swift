@@ -99,6 +99,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private var composerNoticesGap: NSLayoutConstraint!
     private var composerNoticesCollapsed: NSLayoutConstraint!
     private let titleView = ChatTitleView()
+    /// [Mac AAA 2026-11-16] The window width the title was last measured at.
+    private var titleWindowWidth: CGFloat = 0
     private let statusPill = ChatStatusPill()
     /// [activity] The shelf, tool-call styles, the fold, In Header and step sheets (App/Chat/Activity/).
     lazy var activity = ChatActivityController(chat: self)
@@ -705,7 +707,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         composer.onHeightChange = { [weak self] in
             guard let self, self.view.window != nil else { return }
             // [a11y] The composer growing a line moves the transcript: at once under Reduce Motion.
-            HQMotion.animate(0.2, changes: { self.view.layoutIfNeeded() })
+            HQMotion.animate(HQMotion.fade, changes: { self.view.layoutIfNeeded() })
         }
         view.addSubview(composer)
         attachments = ChatAttachmentsController.make(for: self)                                   // [attachments]
@@ -750,7 +752,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             guard let self else { return }
             let apply = { self.view.layoutIfNeeded() }
             if self.view.window != nil && !HQMotion.reduced {
-                UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply) { _ in self.updateInsets() }   // motion-ok: off under Reduce Motion
+                UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply) { _ in self.updateInsets() }   // motion-ok: off under Reduce Motion
             } else {
                 apply(); self.updateInsets()
             }
@@ -902,6 +904,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                     self.style = ChatStyleCache.shared.style(for: self.traitCollection.preferredContentSizeCategory)
                     self.relayoutEverything(reason: "theme changed")
                     self.titleView.themeChanged()   // Mac polish #80
+                    if self.barButtonsChrome != ChatTitleView.macChrome { self.updateMoreButton() }   // [Mac AAA 2026-11-16]
                     self.statusPill.themeChanged()   // [ui-sizing] its words kept the old UI Scale
                     self.sizeTitle()
                 } else {
@@ -1087,7 +1090,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                 placeholder.alpha = fade ? 0 : 1
                 placeholder.isHidden = false
                 updatePlaceholderFrame()   // [perf] its frame isn't kept while hidden
-                if fade { UIView.animate(withDuration: 0.2) { self.placeholder.alpha = 1 } }   // motion-ok: opacity only
+                if fade { UIView.animate(withDuration: HQMotion.fade) { self.placeholder.alpha = 1 } }   // motion-ok: opacity only
             } else {
                 placeholder.alpha = 1
             }
@@ -1099,7 +1102,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             placeholderHiding = true
             // Not from the current state: the rows' 0 → 1 must start at 0 (the presentation layer still says 1).
             tableView.alpha = 0
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.allowUserInteraction, .curveEaseOut]) {   // motion-ok: opacity only
+            UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.allowUserInteraction, .curveEaseOut]) {   // motion-ok: opacity only
                 self.placeholder.alpha = 0
                 self.tableView.alpha = 1
             } completion: { _ in
@@ -1220,6 +1223,23 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if abs(edgeHostBottom.constant + lift) > 0.25 { edgeHostBottom.constant = -lift }
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// [Mac AAA 2026-11-16] A chat at the window's edge (in the right pane beside an open task) inherits the window's
+    /// 10 pt side safe area on that side only, so its message box and rows sat 12 pt from one edge and 22 from the
+    /// other. UIKit won't take an inherited inset away (a negative additional inset is ignored), so the other side gets
+    /// the same: the column is centred in the pane again.
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        let left = view.safeAreaInsets.left - additionalSafeAreaInsets.left
+        let right = view.safeAreaInsets.right - additionalSafeAreaInsets.right
+        let side = max(left, right)
+        let want = (left: side - left, right: side - right)
+        guard abs(additionalSafeAreaInsets.left - want.left) > 0.5 || abs(additionalSafeAreaInsets.right - want.right) > 0.5 else { return }
+        additionalSafeAreaInsets.left = want.left
+        additionalSafeAreaInsets.right = want.right
+    }
+    #endif
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         composer.followPosition()
@@ -1229,6 +1249,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         #if targetEnvironment(macCatalyst)
         keepHeaderTips()   // [Mac UI check 2026-11-13] V24
         placeMacJump()     // [Mac UI check 2026-11-13] V8
+        // [Mac AAA 2026-11-16] The title's room follows the window (`ChatTitleView.maxWidth`): measured before the chat
+        // was in a window it kept the phone's width, and a resize never measured it again.
+        if let width = view.window?.bounds.width, width != titleWindowWidth {
+            titleWindowWidth = width
+            sizeTitle()
+        }
         #endif
         updateBarBacking()
         // The table always covers the whole view: an inverted table pins its content to its frame's bottom, so a
@@ -1349,16 +1375,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             // leaves the chat's bar as it was.
             coordinator.notifyWhenInteractionChanges { context in
                 guard !context.isCancelled else { return }
-                HQMotion.animate(0.15, changes: { bar.forEach { $0.alpha = 0 } })
+                HQMotion.animate(HQMotion.quick, changes: { bar.forEach { $0.alpha = 0 } })
             }
             coordinator.animate(alongsideTransition: nil, completion: { _ in restore() })
         } else {
             // A pop by the Back button (or under the Desktop Look's own bar): the tab bar shows from the start, so the
             // chat's bar goes on the clock. A cancelled swipe drops the tab bar at its end: the chat's bar comes back
             // after it.
-            HQMotion.animate(0.15, changes: { bar.forEach { $0.alpha = 0 } })
+            HQMotion.animate(HQMotion.quick, changes: { bar.forEach { $0.alpha = 0 } })
             coordinator.animate(alongsideTransition: nil, completion: { context in
-                if context.isCancelled { HQMotion.animate(0.2, changes: restore) } else { restore() }
+                if context.isCancelled { HQMotion.animate(HQMotion.fade, changes: restore) } else { restore() }
             })
         }
     }
@@ -1536,7 +1562,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     #if targetEnvironment(macCatalyst)
     /// [mac-layout] ◨ at the bar's trailing end: the inspector shown or hidden (⌘I).
     private func makeInspectorButton() -> UIBarButtonItem {
-        let item = UIBarButtonItem(image: UIImage(systemName: "sidebar.trailing"), primaryAction: UIAction { [weak self] _ in
+        let item = UIBarButtonItem(image: Self.barImage("sidebar.trailing"), primaryAction: UIAction { [weak self] _ in
             guard let self else { return }
             if let inspector = MacInspector.beside(self) { inspector.toggle() } else { self.menus?.perform(.info) }
         })
@@ -1552,10 +1578,21 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         navigationItem.rightBarButtonItems?.first { $0.accessibilityIdentifier == "chat.more" } ?? navigationItem.rightBarButtonItem
     }
 
+    /// [Mac AAA 2026-11-16] A bar button's symbol. On the Mac it follows UI Scale (View › Make Text Bigger) like the
+    /// title beside it; at 100 % (and on the iPhone) it is the bar's own size, untouched.
+    static func barImage(_ name: String) -> UIImage? {
+        let chrome = ChatTitleView.macChrome
+        guard chrome != 1 else { return UIImage(systemName: name) }
+        return UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: (17 * chrome).rounded()))
+    }
+    /// The UI Scale the bar's buttons were made at (`themeWatch` makes them again when it changes).
+    private var barButtonsChrome: CGFloat = 1
+
     private func updateMoreButton() {
         guard isViewLoaded else { return }
+        barButtonsChrome = ChatTitleView.macChrome
         if let moreMenu {
-            let item = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: moreMenu)
+            let item = UIBarButtonItem(image: Self.barImage("ellipsis"), menu: moreMenu)
             item.accessibilityLabel = session is ChatRoomSurface ? "Group chat actions" : "Chat Actions"   // [groups]
             item.accessibilityIdentifier = "chat.more"
             // [settings] File Browser on, and this chat has a folder: Files sits beside the ⋯ (3x-settings §12).
@@ -1674,7 +1711,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             self?.showNotice("Read Replies Aloud is off")
         }
         off.accessibilityIdentifier = "chat.readAloud.off"
-        let item = UIBarButtonItem(image: UIImage(systemName: "speaker.wave.2"),
+        let item = UIBarButtonItem(image: Self.barImage("speaker.wave.2"),
                                    menu: UIMenu(title: "Replies are read aloud", children: [off]))
         item.accessibilityLabel = "Read Replies Aloud is on"
         item.accessibilityIdentifier = "chat.readAloud"
@@ -1703,7 +1740,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     private func makeFilesButton() -> UIBarButtonItem {
-        let item = UIBarButtonItem(image: UIImage(systemName: "folder"), primaryAction: UIAction { [weak self] _ in
+        let item = UIBarButtonItem(image: Self.barImage("folder"), primaryAction: UIAction { [weak self] _ in
             Haptics.play(.selection)
             self?.menus?.performListAction(.files)
         })
@@ -1802,7 +1839,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // reply starts, then a send) was hidden again by this completion, its card gone with a message waiting.
         let done: (Bool) -> Void = { _ in if !show, self.queueCollapsed.isActive { self.queueCard.isHidden = true; self.updateInsets() } }
         if animate {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: `animate` is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: `animate` is false under Reduce Motion
         } else {
             changes(); done(true)
         }
@@ -1844,11 +1881,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [mac] Stress test 2026-10-28 #57 (round 2): in the iOS look the chat pane's bar drew a hairline under it and
         // the list pane's bar beside it none. The system's own bar, without its line, so the two pane headers match.
         if !desktop {
-            let plain = UINavigationBarAppearance()
-            plain.configureWithDefaultBackground()
-            plain.shadowColor = .clear
-            plain.shadowImage = nil
-            clear = plain
+            // [Mac AAA 2026-11-16] Chosen by the chat (`updateTopBand`), not left to the system's guess: the system's
+            // own background showed its frosted band (ending in a line at the bar's foot) in some short chats with
+            // nothing under the bar and not in others, as it judged the flipped list's edge.
+            topBandShown = nil
+            updateTopBand()
+            return
         }
         #endif
         navigationItem.standardAppearance = clear
@@ -1857,14 +1895,52 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         navigationItem.compactScrollEdgeAppearance = clear
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// [Mac AAA 2026-11-16] The iOS look's chat bar on the Mac: a light frost ending in the panes' line only while a
+    /// message runs under the bar, as the list pane's bar takes its line once rows scroll under it; clear otherwise. Its foot is the
+    /// bar's, where the inspector's rule beside it stands. Nil: not chosen yet.
+    private var topBandShown: Bool?
+    private static let barBand: UINavigationBarAppearance = {
+        let band = UINavigationBarAppearance()
+        band.configureWithTransparentBackground()
+        band.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        band.shadowColor = HQPalette.paneLine   // the panes' own line, at the bar's foot, level with the inspector's rule
+        return band
+    }()
+    private static let barClear: UINavigationBarAppearance = {
+        let clear = UINavigationBarAppearance()
+        clear.configureWithTransparentBackground()
+        clear.shadowColor = .clear
+        return clear
+    }()
+
+    private func updateTopBand() {
+        guard isViewLoaded, !Theme.isDesktop else { return }
+        let foot = view.safeAreaLayoutGuide.layoutFrame.minY
+        let under = tableView.visibleCells.contains { cell in
+            !cell.isHidden && cell.bounds.height > 1 && cell.convert(cell.bounds, to: view).minY < foot - 0.5
+        }
+        guard topBandShown != under else { return }
+        topBandShown = under
+        let look = under ? Self.barBand : Self.barClear
+        navigationItem.standardAppearance = look
+        navigationItem.scrollEdgeAppearance = look
+        navigationItem.compactAppearance = look
+        navigationItem.compactScrollEdgeAppearance = look
+    }
+    #endif
+
     private func updateBottomEdge() {
         guard isViewLoaded else { return }
+        #if targetEnvironment(macCatalyst)
+        updateTopBand()
+        #endif
         let under = tableView.contentOffset.y - minOffset - ChatMetrics.composerContentGap > 0.5
         let hide = (following && glideLink == nil) || !under
         guard edgeHost.bottomEdgeEffect.isHidden != hide else { return }
         if Self.traceScroll { print("[Scroll] bottom edge \(hide ? "hidden" : "shown")") }
         if view.window != nil && !HQMotion.reduced {
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
                 self.edgeHost.bottomEdgeEffect.isHidden = hide
             }
         } else {
@@ -3413,7 +3489,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             tableView.contentOffset.y = target
             updateJumpButton()
         } else {
-            UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+            UIView.animate(withDuration: HQMotion.move, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
                 self.tableView.contentOffset.y = target
             } completion: { _ in self.updateJumpButton() }
         }
@@ -3777,7 +3853,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         let done: (Bool) -> Void = { _ in if !shown, self.noticeCollapsed.isActive { card.isHidden = true; self.updateInsets() } }   // as the queue card's
         if animate {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: `animate` is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: `animate` is false under Reduce Motion
         } else {
             changes(); done(true)
         }
@@ -3885,7 +3961,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             self.updateInsets()
         }
         if animate {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: `animate` is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)   // motion-ok: `animate` is false under Reduce Motion
         } else {
             changes(); done(true)
         }
@@ -4113,7 +4189,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
               !HQMotion.reduced else { return }
         let end = minOffset
         tableView.contentOffset.y = end + growth
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+        UIView.animate(withDuration: HQMotion.fade, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
             self.tableView.contentOffset.y = end
         }
     }
@@ -4155,7 +4231,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         applyState()
         let changes = { self.view.layoutIfNeeded(); self.updateInsets() }
         if animated, view.window != nil, !HQMotion.reduced {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes)
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes)
         } else {
             changes()
         }
@@ -4270,7 +4346,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         roomChrome?.stateChanged()   // [groups] its dock gives way to the question dock
         if fade {
-            UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,   // motion-ok: `fade` is false under Reduce Motion
+            UIView.animate(withDuration: HQMotion.move, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,   // motion-ok: `fade` is false under Reduce Motion
                            options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: done)
         } else {
             changes(); done(true)
@@ -4308,7 +4384,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         guard top.constant != gap else { return }
         top.constant = gap
         guard noticeToast.isShowing, view.window != nil else { return }
-        HQMotion.animate(0.2, options: [.beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
+        HQMotion.animate(HQMotion.fade, options: [.beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
     }
 
     func showFindBar(_ bar: ChatFindBar) {
@@ -4482,7 +4558,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             self.view.layoutIfNeeded()
         }
         if animated, view.window != nil, !HQMotion.reduced {
-            UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { change() }   // motion-ok: off under Reduce Motion
+            UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { change() }   // motion-ok: off under Reduce Motion
         } else {
             change()
         }
@@ -4694,6 +4770,27 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                                         max(minOffset, tableView.contentSize.height + topInset - tableView.bounds.height))
         updateJumpButton()
         revealIfNeeded()
+    }
+
+    /// [Mac AAA 2026-11-16] Tours: back to the newest row, following again.
+    func debugScrollToNewest() { scrollToBottom(animated: false) }
+
+    /// [Mac AAA 2026-11-16] Tours: the placeholder in `mode` over the chat (the loading skeleton, which a stand-in
+    /// answers too fast to photograph), or gone again with nil.
+    func debugShowPlaceholder(_ mode: ChatPlaceholderView.Mode?) {
+        placeholder.mode = mode
+        placeholder.isHidden = mode == nil
+        placeholder.alpha = 1
+        tableView.alpha = mode == nil ? 1 : 0
+        updatePlaceholderFrame()
+    }
+
+    /// [Mac AAA 2026-11-16] Tours: a brand-new chat's intro (the face, the name, Talk and Bot Info) over this chat, as a
+    /// stand-in that can't start a chat never shows it.
+    func debugShowIntro() {
+        var intro = emptyIntro()
+        intro.name = true
+        debugShowPlaceholder(.empty(name: botName, head: session.head, profile: session.profile, intro: intro))
     }
 
     /// The held reply's first row: its top, from the screen's top (keyboard checks).

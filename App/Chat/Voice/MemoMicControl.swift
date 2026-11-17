@@ -88,7 +88,7 @@ final class MemoMicControl: UIControl {
             pressedCircle.alpha = 0
             return
         }
-        UIView.animate(withDuration: 0.12, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: opacity only, no swell
+        UIView.animate(withDuration: HQMotion.quick, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: opacity only, no swell
             self.pressedCircle.alpha = on ? 1 : 0
         }
     }

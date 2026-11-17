@@ -78,7 +78,10 @@ enum SettingsNavigator {
             return
         }
         switch id {
-        case "gateway": router.push(GatewayPageController(services: services, router: router))
+        case "gateway":
+            // [Mac AAA 2026-11-16] In two columns as the card opens it: a link on another page (a toolset's setup)
+            // pushed it over that category's page, Back named the category and the column marked it, not the card.
+            if let open = router.openGateway { open() } else { router.push(GatewayPageController(services: services, router: router)) }
         case "notifications": router.push(NotificationsSettingsController(app: services as? AppModel))
         case "device-access": router.push(DeviceAccessSettingsController())   // [macpass-settings2]
         case "providers": router.push("Providers", ProvidersPageView(router: router))

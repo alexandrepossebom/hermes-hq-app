@@ -118,7 +118,7 @@ struct TabOrderPage: View {
             let label = Label {
                 Text(Self.kanbanName).foregroundStyle(Color.hqLabel)
             } icon: {
-                Image(uiImage: kanbanGlyph).foregroundStyle(Color.hqLabel).frame(width: iconColumn, height: DeviceWord.isMac ? iconColumn : nil)
+                iconBox(Image(uiImage: kanbanGlyph).foregroundStyle(Color.hqLabel))
             }
             Section {
                 Group {
@@ -207,12 +207,29 @@ struct TabOrderPage: View {
                     }
                 }
             } icon: {
-                icon(tab, page: page).foregroundStyle(Color.hqLabel).frame(width: iconColumn, height: DeviceWord.isMac ? iconColumn : nil)
+                iconBox(icon(tab, page: page).foregroundStyle(Color.hqLabel))
             }
         }
         .tint(Color.hqTint)
         .disabled(!enabled)
         .accessibilityIdentifier("tab-order.\(tab.key)")
+    }
+
+    /// The row's glyph in the icon column. [Mac AAA 2026-11-16] On the Mac the glyph is drawn over a plain box of the
+    /// column's size, which alone places the title (its capital middle on the box's middle), as `SettingsRowLabel`
+    /// does: the Label placed the title by each glyph's own baseline (Jobs' badge, Artifacts' frame), so the rows came
+    /// out 57, 58 and 59 pt tall.
+    @ViewBuilder
+    private func iconBox(_ glyph: some View) -> some View {
+        if DeviceWord.isMac {
+            let capHalf = HQFont.preferred(.body).capHeight / 2
+            Color.clear.frame(width: iconColumn, height: iconColumn)
+                .overlay { glyph }
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + capHalf }
+                .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] + capHalf }
+        } else {
+            glyph.frame(width: iconColumn)
+        }
     }
 
     /// Tab 3 is named as the bar names it now (Kanban or Artifacts).

@@ -177,7 +177,7 @@ final class MediaTileView: UIView {
         card = radius
         layer.cornerRadius = radius ?? 0
         layer.cornerCurve = .continuous
-        layer.borderWidth = radius == nil ? 0 : 1 / max(1, traitCollection.displayScale)
+        layer.borderWidth = radius == nil ? 0 : HQShape.pixel(traitCollection.displayScale)
         recolorCard()
         setNeedsLayout()
     }
@@ -294,7 +294,7 @@ final class MediaTileView: UIView {
                 self.phase = .loaded
                 if fade && !hadImage && CACurrentMediaTime() - started > 0.1 && !HQMotion.reduced {
                     self.imageView.alpha = 0
-                    UIView.animate(withDuration: 0.2) { self.imageView.alpha = 1 }
+                    UIView.animate(withDuration: HQMotion.fade) { self.imageView.alpha = 1 }
                 }
                 if item.attachment.pixelWidth == nil || item.attachment.pixelHeight == nil {
                     self.host?.tileLearnedSize(self, width: loaded.pixelWidth, height: loaded.pixelHeight)
@@ -500,7 +500,7 @@ final class PhotoRetryTile: UIView {
         super.init(frame: frame)
         backgroundColor = ChatPalette.label.withAlphaComponent(0.05)
         border.fillColor = nil
-        border.lineWidth = 1
+        border.lineWidth = HQShape.hairline
         border.lineDashPattern = [4, 3]
         layer.addSublayer(border)
         glyph.contentMode = .center

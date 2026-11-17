@@ -20,7 +20,7 @@ import UIKit
     }
 
     /// The file window in front, if one is (⌘W and Escape close it, not the main window's chat).
-    static var keyScene: UIWindowScene? { scenes.first { $0.keyWindow?.isKeyWindow == true } }
+    static var keyScene: UIWindowScene? { scenes.first { $0.keyWindow?.hqIsAppKitKey == true } }   // [Mac AAA 2026-11-16] AppKit's key
     static var isKey: Bool { keyScene != nil }
 
     /// Opens `url` in a window of its own, or brings forward the one already showing it. False when the window can't
@@ -330,6 +330,19 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
     private(set) var url: URL?
     /// [mac-pages] The live page or note this window shows (`MacFileWindow.open(page:)`), nil for a file.
     private(set) var pageKey: String?
+    /// [Mac AAA 2026-11-16] The frame the window is being moved to, and its AppKit window(s) drawn see-through till then.
+    private var placing: CGRect?
+    private var veil: [NSObject] = []
+
+    private var veilWatch: [NSObjectProtocol] = []
+
+    private func unveil() {
+        veilWatch.forEach(NotificationCenter.default.removeObserver)
+        veilWatch = []
+        placing = nil
+        veil.forEach { MacWindowVeil.setAlpha(1, of: $0) }
+        veil = []
+    }
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         session.userInfo = (session.userInfo ?? [:]).merging(["HQFileWindow": true]) { $1 }
@@ -381,8 +394,23 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
             // at the screen's left edge and kept its page laid out for the old size, 146 points too high, so the bar
             // (the file's name, Open in, Share) sat above the window and a blank band showed under the file until the
             // window was resized by hand. 0.4 s on, the frame lands where asked and the page follows it.
+            placing = frame
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak windowScene] in
                 windowScene?.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
+            }
+        }
+        // [Mac AAA 2026-11-16] shell S9: the window showed where the Mac first put it and jumped into place 0.4 s later.
+        // It is drawn see-through until it has moved (`unveil`), the page laid out exactly as before.
+        let others = Set(MacWindowVeil.windows().map(ObjectIdentifier.init))
+        let first = windowScene.effectiveGeometry.systemFrame
+        // The AppKit window is made after this returns: it is caught as it first becomes key or main, before it has
+        // been drawn on the screen (the run loop's drawing comes after), and from then on drawn see-through.
+        if let placing {
+            veilWatch = MacWindowVeil.watchNew(except: others) { [weak self] found in
+                guard let self, self.placing != nil else { return }
+                MacWindowVeil.setAlpha(0, of: found)
+                self.veil.append(found)
+                AppLog.note("mac", "file window: veiled while moved from \(Int(first.minX)),\(Int(first.minY)) \(Int(first.width))×\(Int(first.height)) to \(Int(placing.minX)),\(Int(placing.minY))")
             }
         }
         let window = UIWindow(windowScene: windowScene)
@@ -391,9 +419,21 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
         Theme.shared.adopt(window)
         let navigation = UINavigationController(rootViewController: viewer)
         navigation.navigationBar.prefersLargeTitles = false
+        // [Mac AAA 2026-11-16] Its worded buttons (Open in Numbers, Copy as Text) in the label colour, as the glyphs
+        // beside them are drawn: with the system's tint they came out a dim grey (99 of 255 in dark) that read as
+        // switched off. The Desktop Look still sets its own grey ink on the bar (`ThemeChrome`) and puts this back.
+        navigation.navigationBar.tintColor = HQPalette.label
         window.rootViewController = navigation
         window.makeKeyAndVisible()
         self.window = window
+        if let placing {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self, weak windowScene] in
+                guard let self else { return }
+                let now = windowScene?.effectiveGeometry.systemFrame ?? .zero
+                AppLog.note("mac", "file window: unveiled at \(Int(now.minX)),\(Int(now.minY)) \(Int(now.width))×\(Int(now.height)) (asked \(Int(placing.minX)),\(Int(placing.minY)) \(Int(placing.width))×\(Int(placing.height)))")
+                self.unveil()
+            }
+        }
         #if DEBUG
         // `-HQDebugFileWindow <name>`: the window as <name>.png (POSTed with -HQDebugMacShotsPost) once it has drawn.
         if let name = UserDefaults.standard.string(forKey: "HQDebugFileWindow"), !name.isEmpty {
@@ -491,5 +531,35 @@ final class FileWindowController: UIViewController, QLPreviewControllerDataSourc
 
     func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
     func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem { url as NSURL }
+}
+/// [Mac AAA 2026-11-16] shell S9: the app's AppKit windows, read and faded through their own Objective-C names (a
+/// Catalyst app has no AppKit of its own), so a window can be drawn see-through while it is moved into place.
+@MainActor enum MacWindowVeil {
+    static func windows() -> [NSObject] {
+        guard let shared = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
+              let windows = shared.value(forKey: "windows") as? [NSObject] else { return [] }
+        return windows
+    }
+
+    /// Calls `found` for each AppKit window not in `except` as it first becomes key or main (once each).
+    static func watchNew(except: Set<ObjectIdentifier>, _ found: @escaping @MainActor (NSObject) -> Void) -> [NSObjectProtocol] {
+        final class Seen: @unchecked Sendable { var ids: Set<ObjectIdentifier> = [] }
+        let seen = Seen()
+        seen.ids = except
+        return ["NSWindowDidBecomeKeyNotification", "NSWindowDidBecomeMainNotification"].map { name in
+            NotificationCenter.default.addObserver(forName: Notification.Name(name), object: nil, queue: nil) { note in
+                nonisolated(unsafe) let object = note.object as? NSObject
+                MainActor.assumeIsolated {
+                    guard let window = object, seen.ids.insert(ObjectIdentifier(window)).inserted else { return }
+                    found(window)
+                }
+            }
+        }
+    }
+
+    static func setAlpha(_ alpha: CGFloat, of window: NSObject) {
+        guard window.responds(to: NSSelectorFromString("setAlphaValue:")) else { return }
+        window.setValue(alpha, forKey: "alphaValue")
+    }
 }
 #endif

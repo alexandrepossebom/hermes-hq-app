@@ -34,6 +34,12 @@ extension MacShots {
                 }
             }
             walk(KeyCommands.viewItems())
+            // [Mac AAA 2026-11-16] File, Edit's own items and Chat as they read when opened, with a chat on show.
+            for (title, items) in [("file", KeyCommands.fileItems()), ("edit", KeyCommands.editItems()),
+                                   ("chat", ChatMenuBar.menu().children)] {
+                log += "\(title) menu as opened:\n"
+                walk(items)
+            }
         }
         log += "dock menu: " + MacDockMenu.shared.titles().map { $0 ?? "—" }.joined(separator: " | ") + "\n"
 

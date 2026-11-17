@@ -213,7 +213,7 @@ final class BrowserStageView: UIView {
         clickRing.backgroundColor = tintColor
         clickRing.alpha = 0.45
         clickRing.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
-        UIView.animate(withDuration: 0.35, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+        UIView.animate(withDuration: HQMotion.move, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
             self.clickRing.alpha = 0
             self.clickRing.transform = .identity
         }
@@ -223,7 +223,7 @@ final class BrowserStageView: UIView {
     /// page's button is down.
     private func setPressed(_ on: Bool) {
         let to: CGAffineTransform = on ? CGAffineTransform(scaleX: 0.85, y: 0.85) : .identity
-        HQMotion.animate(0.12, changes: { self.cursor.transform = to })
+        HQMotion.animate(HQMotion.quick, changes: { self.cursor.transform = to })
     }
 
     private var control: Bool { host?.stageHasControl ?? false }

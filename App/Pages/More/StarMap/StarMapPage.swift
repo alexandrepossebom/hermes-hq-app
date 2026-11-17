@@ -112,7 +112,7 @@ struct StarMapPage: View {
             Image(systemName: model.filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
                 .foregroundStyle(Theme.isDesktop ? Color.hqLabel2 : Color.hqLabel)
         }
-        .accessibilityLabel("Filter")
+        .hqIconLabel("Filter")   // [Mac AAA 2026-11-16] its name as the pointer's tip too
         .accessibilityValue(model.filter.title)
         .accessibilityIdentifier("starmap.filter")
         .disabled(!hasGraph)
@@ -128,7 +128,7 @@ struct StarMapPage: View {
             MoreErrorState(title: "Couldn’t Load Star Map", reason: reason) { model.retry() }
         case .loaded:
             if model.isEmpty {
-                MoreEmptyState(symbol: "sparkles", title: "Nothing learned yet",
+                MoreEmptyState(symbol: "sparkles", title: "Nothing Learned Yet",   // [Mac AAA 2026-11-16] Title Case, as every empty title
                                text: "As Hermes builds skills and memories for your work, they appear here.")
             } else if model.filterMiss {
                 MoreEmptyState(symbol: "line.3.horizontal.decrease", title: "No \(model.filter.title) Skills",
@@ -279,7 +279,8 @@ struct StarMapNodeSheet: View {
                         if node.pinned { fact("Pinned", "Yes") }
                     }
                     .hqGlassCard()   // [glass-audit] the facts on a solid card while the sheet sits on glass
-                    if !(glass && GlassSheetKit.designed) { Divider() }
+                    // [Mac AAA 2026-11-16] one whole screen pixel (`HQShape.hairline`), not the system Divider's 0.77 px
+                    if !(glass && GlassSheetKit.designed) { HQHairline() }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         PagesFlowLayout(spacing: 6, lineSpacing: 6) {

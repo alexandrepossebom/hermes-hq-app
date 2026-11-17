@@ -569,6 +569,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
             }
         }
         onboarding = flow
+        #if DEBUG && targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] `-HQDebugGuideTour all|<steps>` with `-HQDebugMacShots <name>`: every first-run screen in
+        // one launch (App/Debug/SettingsWindowTour.swift `guideTourIfAsked`).
+        if let window, SettingsWindowTour.guideTourIfAsked({ [weak self] in self?.onboarding }, window: window) {
+            setRoot(flow.navigationController, animated: false)
+            return
+        }
+        #endif
         #if DEBUG
         // `-HQDebugGuideStep mac2`: a first run opens on that guide screen (screenshots).
         if let name = UserDefaults.standard.string(forKey: "HQDebugGuideStep"), let step = OnboardingStep(rawValue: name) {

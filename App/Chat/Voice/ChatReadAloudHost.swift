@@ -283,7 +283,7 @@ import UIKit
             strip.isHidden = !shown
             if shown { HQAnnounce.say(strip.spoken) }
             if animated, isOnScreen, !HQMotion.reduced {
-                UIView.animate(withDuration: 0.2) {
+                UIView.animate(withDuration: HQMotion.fade) {
                     screen.view.setNeedsLayout()
                     screen.view.layoutIfNeeded()
                 }

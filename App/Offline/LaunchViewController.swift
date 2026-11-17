@@ -175,7 +175,7 @@ final class LaunchViewController: UIViewController {
         let fade = {
             self.spinner.alpha = showSpinner ? 1 : 0
         }
-        if animated { UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState], animations: fade) } else { fade() }   // motion-ok: opacity only
+        if animated { UIView.animate(withDuration: HQMotion.pane, delay: 0, options: [.beginFromCurrentState], animations: fade) } else { fade() }   // motion-ok: opacity only
         if !showSpinner, !animated { spinner.stopAnimating() }
 
         let words = shown.phase == .gone ? "" : shown.status

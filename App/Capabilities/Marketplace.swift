@@ -280,7 +280,10 @@ final class MarketplaceController: SearchPageHost<HQScaledRoot<MarketplaceView>>
         #if DEBUG
         debugModel = model
         #endif
-        super.init(rootView: HQScaledRoot(MarketplaceView(model: model, state: state, router: router)))
+        // [Mac AAA 2026-11-16] The soft top edge's watch goes on each of the store front's scroll views (`gridPage`), not
+        // on the whole page: over two of them (the side list and the cards) SwiftUI logged "Multiple scroll views were
+        // found" every time the page changed, and watched the first one only.
+        super.init(rootView: HQScaledRoot(MarketplaceView(model: model, state: state, router: router), softEdgeOnlyScrolled: false))
         title = "Marketplace"
         navigationItem.largeTitleDisplayMode = .never
         model.presenter = model.presenter ?? self
@@ -326,6 +329,12 @@ final class MarketplaceController: SearchPageHost<HQScaledRoot<MarketplaceView>>
             box.heightAnchor.constraint(equalToConstant: 44),
         ])
         macSearch = bar
+        // [Mac AAA 2026-11-16] In the Desktop Look the look's own 4 pt outlined field (as Sessions' and Jobs' searches),
+        // not the system's capsule; again on a theme or mode change (its line is a resolved colour).
+        DesktopSearch.apply(bar, desktop: Theme.isDesktop)
+        bar.registerForTraitChanges([ThemeGenerationTrait.self, UITraitUserInterfaceStyle.self]) { (bar: UISearchBar, _) in
+            DesktopSearch.apply(bar, desktop: Theme.isDesktop)
+        }
         state.typeQuery = { [weak bar] words in bar?.text = words }
         let item = UIBarButtonItem(customView: box)
         item.hidesSharedBackground = true
@@ -461,7 +470,7 @@ struct MarketplaceView: View {
         return HStack(spacing: 0) {
             if wide {
                 storeSide
-                Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 1).ignoresSafeArea(edges: .bottom)
+                HQHairline(axis: .vertical).ignoresSafeArea(edges: .bottom)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 26) {
@@ -488,10 +497,13 @@ struct MarketplaceView: View {
                         gridResults
                     }
                 }
-                .padding(.horizontal, 24)
+                // [Mac AAA 2026-11-16] Narrow (a listing open beside it) the cards stood 4 pt in from "Marketplace" over
+                // them: on the title's edge, the Tools' one side inset.
+                .padding(.horizontal, wide ? 24 : MacInset.side)
                 .padding(.top, wide ? 20 : 10)
                 .padding(.bottom, 32)
             }
+            .modifier(SoftEdgeOnlyScrolled(on: DeviceWord.isMac))
         }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }, action: { pageWidth = $0 })
         .background(Color(uiColor: HQPalette.groupedPage))
@@ -540,7 +552,7 @@ struct MarketplaceView: View {
                 .padding(.horizontal, 12).padding(.vertical, 16)
             }
             if model.bots.count > 1 {
-                Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: 1)
+                HQHairline()
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Install To").font(Font.hq(.caption)).foregroundStyle(Color.hqLabel2)
                     installToMenu { popFace(nil, model.botName).frame(maxWidth: .infinity) }
@@ -573,7 +585,13 @@ struct MarketplaceView: View {
     private func sideRow(_ title: String, symbol: String, count: Int?, on: Bool, id: String, action: @escaping () -> Void) -> some View {
         Button { HQMotion.withAnimation(.snappy) { action(); state.resetPaging() } } label: {
             HStack(spacing: 9) {
-                Image(systemName: symbol).font(Font.hq(.subheadline)).foregroundStyle(on ? Color.hqTint : Color.hqLabel2).frame(width: 24)
+                // [Mac AAA 2026-11-16] A wide symbol (Agentic AI's people with waves) ran 3 pt past its column and
+                // all but touched its name: drawn a size down when it doesn't fit, so every name keeps its gap.
+                ViewThatFits(in: .horizontal) {
+                    Image(systemName: symbol).font(Font.hq(.subheadline))
+                    Image(systemName: symbol).font(Font.hq(.subheadline)).imageScale(.small)
+                }
+                .foregroundStyle(on ? Color.hqTint : Color.hqLabel2).frame(width: 24)
                 Text(title).font(Font.hq(.subheadline).weight(on && !DeviceWord.isMac ? .semibold : .regular)).foregroundStyle(Color.hqLabel).lineLimit(1)   // [type] Mac: the fill shows the choice
                 Spacer(minLength: 4)
                 if let count {
@@ -581,7 +599,7 @@ struct MarketplaceView: View {
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(on ? Color.hqTint.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(on ? Color.hqTint.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: HQShape.radius(8, .control), style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -670,7 +688,7 @@ struct MarketplaceView: View {
                                 HStack(spacing: 12) {
                                     MarketplaceBanner(url: entry.image, name: entry.title, symbol: entry.category.symbol)
                                         .frame(width: 150, height: 84)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                        .clipShape(RoundedRectangle(cornerRadius: HQShape.radius(8, .tile), style: .continuous))
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(entry.title).font(Font.hq(.body).weight(.semibold)).foregroundStyle(Color.hqLabel).lineLimit(1)
                                         Text(PluginCatalogEntry.styled(entry.summary)).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
@@ -683,9 +701,9 @@ struct MarketplaceView: View {
                                 // [Mac UI check 2026-11-13] Three to the hero's height exactly: a few points more each cut
                                 // the third off at the bottom, which read as clipped rather than more to scroll to.
                                 .frame(height: Self.sidePickHeight)
-                                .background(Color(uiColor: HQPalette.card), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .background(Color(uiColor: HQPalette.card), in: RoundedRectangle(cornerRadius: HQShape.radius(12, .card), style: .continuous))
                                 .overlay { cardEdge(12) }
-                                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .contentShape(RoundedRectangle(cornerRadius: HQShape.radius(12, .card), style: .continuous))
                             }
                             .buttonStyle(.plain)
                             .hoverEffect(.highlight)
@@ -707,7 +725,7 @@ struct MarketplaceView: View {
 
     /// Where the card is the page's colour (the Desktop Look, the light iOS look) an outline is its edge.
     @ViewBuilder private func cardEdge(_ radius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Color(uiColor: MarketplaceHero.edge))
+        RoundedRectangle(cornerRadius: HQShape.radius(radius, .card), style: .continuous).strokeBorder(Color(uiColor: MarketplaceHero.edge))
     }
 
     private var kindPicker: some View {
@@ -774,9 +792,9 @@ struct MarketplaceView: View {
         content()
             .padding(14)
             .frame(maxWidth: .infinity, minHeight: 128, alignment: .topLeading)   // the Mac draws the page at 77 %
-            .background(Color(uiColor: HQPalette.card), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color(uiColor: HQPalette.card), in: RoundedRectangle(cornerRadius: HQShape.radius(12, .card), style: .continuous))
             .overlay { cardEdge(12) }
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: HQShape.radius(12, .card), style: .continuous))
             .hoverEffect(.highlight)
             .hqPointerFill(12)   // [mac] Feel list B: `.hoverEffect` draws nothing on the Mac
     }
@@ -846,14 +864,20 @@ struct MarketplaceView: View {
                     Button(action: install) {
                         Text("Install").font(Font.hq(.caption).weight(.hqBold)).foregroundStyle(Color.hqTint)
                             .padding(.horizontal, 14).frame(minHeight: 26)
-                            .background(Color.hqTint.opacity(0.14), in: Capsule())
-                            .contentShape(Capsule())
+                            .background(Color.hqTint.opacity(0.14), in: HQPill())
+                            .contentShape(HQPill())
                     }
                     .buttonStyle(.plain)
+                    .hqPointerFill(HQPill())   // [Mac AAA 2026-11-16] the small button answers the pointer inside the lit card
                     .accessibilityLabel("Install \(title)")
                     .accessibilityIdentifier("\(id).install")
                 }
             }
+        }
+        // [Mac AAA 2026-11-16] A right-click on a card: what its click and its button do, as a Mac person reaches for.
+        .contextMenu {
+            Button("Open", systemImage: "arrow.up.forward.app", action: open)
+            if !installed { Button("Install…", systemImage: "arrow.down.circle", action: install) }
         }
     }
 
@@ -861,7 +885,8 @@ struct MarketplaceView: View {
         HStack(spacing: 12) {
             Text(words).foregroundStyle(Color.hqLabel2).fixedSize(horizontal: false, vertical: true)
             if let retry {
-                Button("Try Again") { Task { await retry.action() } }.accessibilityIdentifier(retry.id)
+                // [Mac AAA 2026-11-16] the app's push button, as every other Try Again (it drew as a bare blue word)
+                Button("Try Again") { Task { await retry.action() } }.hqMacBordered().fixedSize().accessibilityIdentifier(retry.id)
             }
         }
         .font(Font.hq(.subheadline))
@@ -1030,8 +1055,8 @@ struct MarketplaceView: View {
         Button(action: action) {
             Text("Show More (\(left.formatted()) left)").font(Font.hq(.subheadline)).foregroundStyle(Color.hqTint)
                 .padding(.horizontal, 14).padding(.vertical, 7)
-                .background(Color(uiColor: HQPalette.card), in: Capsule())
-                .contentShape(Capsule())
+                .background(Color(uiColor: HQPalette.card), in: HQPill())
+                .contentShape(HQPill())
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
@@ -1215,7 +1240,7 @@ struct MarketplaceView: View {
     /// The upright line between the chips' groups (a bare Divider lies flat outside an HStack, as in the Mac's wrap).
     @ViewBuilder private var chipDivider: some View {
         #if targetEnvironment(macCatalyst)
-        Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(width: 1, height: 18).padding(.vertical, 6)
+        HQHairline(axis: .vertical, length: 18).padding(.vertical, 6)
         #else
         Divider().frame(height: 18)
         #endif
@@ -1605,9 +1630,9 @@ struct MarketplaceChipFace: View {
         .foregroundStyle(on ? Color.hqTint : Color.hqLabel)
         // [ui-sizing 2026-11-09] 12 / 8 as the Kanban and Sessions chips (11 / 6, about 30 pt), with a 44 pt touch.
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(on ? Color.hqTint.opacity(0.14) : Color.hqFill3, in: Capsule())
+        .background(on ? Color.hqTint.opacity(0.14) : Color.hqFill3, in: HQPill())
         .fixedSize()
-        .contentShape(Capsule().inset(by: -5))
+        .contentShape(HQPill().inset(by: -5))
     }
 }
 
@@ -1757,7 +1782,7 @@ struct MarketplaceHero: View {
             Group {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: HQShape.radius(10, .tile), style: .continuous))
                         .shadow(color: .black.opacity(0.3), radius: 14, y: 6)
                         .transition(.opacity)
                 } else {
@@ -1775,16 +1800,17 @@ struct MarketplaceHero: View {
                 if let image { Image(uiImage: image).resizable().scaledToFill().blur(radius: 40).opacity(colorScheme == .dark ? 0.38 : 0.12) }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color(uiColor: Self.edge)) }
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // [Mac AAA 2026-11-16] The Desktop Look's 4 pt corners on its cards, chips and hero (they kept iOS's 12–16 pt).
+        .clipShape(RoundedRectangle(cornerRadius: HQShape.radius(16, .card), style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: HQShape.radius(16, .card), style: .continuous).strokeBorder(Color(uiColor: Self.edge)) }
+        .contentShape(RoundedRectangle(cornerRadius: HQShape.radius(16, .card), style: .continuous))
         .onTapGesture { open(false) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Featured: \(entry.title), by \(entry.maintainer)")
         .task(id: entry.image) {
             guard let url = entry.image else { return }
             if let kept = MarketplaceImages.kept(url) { image = kept; return }
-            if let loaded = await MarketplaceImages.load(url) { HQMotion.withAnimation(.easeOut(duration: 0.2)) { image = loaded } }
+            if let loaded = await MarketplaceImages.load(url) { HQMotion.withAnimation(.easeOut(duration: HQMotion.fade)) { image = loaded } }
         }
     }
 }
@@ -1834,7 +1860,7 @@ struct MarketplaceCarousel: View {
         .buttonStyle(.plain)
         .opacity(enabled ? 1 : 0)
         .disabled(!enabled)
-        .accessibilityLabel(label)
+        .hqIconLabel(label)
         .accessibilityIdentifier("marketplace.featured.\(label.lowercased())")
     }
 
@@ -2022,7 +2048,7 @@ struct MarketplaceBanner: View {
         .task(id: url) {
             guard let url else { return }
             if let kept = MarketplaceImages.kept(url) { image = kept; return }
-            if let loaded = await MarketplaceImages.load(url) { HQMotion.withAnimation(.easeOut(duration: 0.2)) { image = loaded } }
+            if let loaded = await MarketplaceImages.load(url) { HQMotion.withAnimation(.easeOut(duration: HQMotion.fade)) { image = loaded } }
         }
     }
 }

@@ -714,7 +714,9 @@ nonisolated enum TodoWords {
         format.timeZone = calendar.timeZone
         format.locale = calendar.locale ?? .current
         format.setLocalizedDateFormatFromTemplate("jmm")
-        return format.string(from: date)
+        // [Mac AAA 2026-11-16] The system's narrow space ("5:00\u{202F}PM") read as "5:00PM" in Tasks' rows beside
+        // Jobs' and Sessions' "6:00 AM" (JobSchedule turns it into a plain space too).
+        return format.string(from: date).replacingOccurrences(of: "\u{202F}", with: " ")
     }
 
     /// "Nov 12" (with the year when it isn't this year's).

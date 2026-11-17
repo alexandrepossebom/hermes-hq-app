@@ -213,7 +213,7 @@ struct ThemeSettingsView: View {
 
     @ViewBuilder private func textBoxPicker(_ state: ThemeState) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Rectangle().fill(Color.hqStroke).frame(height: 1).padding(.horizontal, DeviceWord.isMac ? -MacInset.side : -14)
+            HQHairline(color: .hqStroke).padding(.horizontal, DeviceWord.isMac ? -MacInset.side : -14)
             VStack(alignment: .leading, spacing: 10) {
                 Text("Text Box").foregroundStyle(Color.hqLabel).fixedSize()   // [ui-sizing] whole beside its segments
                 HQSegmentedPicker("Text Box", options: [("Liquid Glass", DesktopComposer.glass), ("Desktop", DesktopComposer.box)],
@@ -276,9 +276,21 @@ struct ThemeSettingsView: View {
     private func scalePicker(_ state: ThemeState) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("UI Scale").foregroundStyle(Color.hqLabel)
+            if DeviceWord.isMac, !state.desktopLook {
+                // [Mac AAA 2026-11-16] The iOS look's segments, as Density's right above it: the desktop's square
+                // outlined strip with a blue fill stood under a rounded segmented control in the same card.
+                HQSegmentedPicker("UI Scale", options: ThemeState.scalePresets.map { ("\($0)%", $0) },
+                                  selection: Binding(get: { state.uiScalePercent }, set: { percent in
+                                      guard percent != state.uiScalePercent else { return }
+                                      theme.setUIScale(percent)
+                                  }), ticks: false)
+                    .labelsHidden()
+                    .accessibilityIdentifier("theme.uiScale")
+            } else {
             ScaleSegments(selected: state.uiScalePercent) { percent in
                 Haptics.play(.selection)
                 theme.setUIScale(percent)
+            }
             }
         }
         .hqRowPadding(4)   // [mac] Stress test 2026-10-28 round 9: the list's one room on the Mac
@@ -734,7 +746,7 @@ private struct DesktopCornersPreview: View {
                 .padding(.horizontal, ChatMetrics.bubblePadH)
                 .padding(.vertical, ChatMetrics.bubblePadV)
                 .background(Color.hqMeBubble, in: box(height: 36))
-                .overlay(box(height: 36).strokeBorder(Color(uiColor: ChatPalette.meBorder), lineWidth: 1))
+                .overlay(box(height: 36).strokeBorder(Color(uiColor: ChatPalette.meBorder), lineWidth: HQShape.hairline))
                 .frame(maxWidth: .infinity, alignment: .trailing)
             textBox
         }
@@ -772,7 +784,7 @@ private struct DesktopCornersPreview: View {
             .padding(.horizontal, 12)
             .frame(height: 46)
             .background(Color(uiColor: ChatPalette.editor), in: box(height: 46))
-            .overlay(box(height: 46).strokeBorder(Color.hqStroke, lineWidth: 1))
+            .overlay(box(height: 46).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
         }
     }
 }
@@ -819,7 +831,7 @@ private struct DesktopGroup<Content: View>: View {
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, minHeight: DeviceWord.isMac ? MacForm.settingsRowHeight : nil, alignment: .leading)
                 .background(Color.hqPage)
-                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.hqStroke, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
             if let footer {
                 Text(footer).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -862,11 +874,11 @@ private struct ScaleSegments: View {
                 .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("theme.uiScale.\(percent)")
                 if index < ThemeState.scalePresets.count - 1 {
-                    Rectangle().fill(Color.hqStroke).frame(width: 1, height: 36)
+                    HQHairline(axis: .vertical, color: .hqStroke, length: 36)
                 }
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.hqStroke, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("UI Scale")   // UX #160: VoiceOver names the group on entering it
         .accessibilityIdentifier("theme.uiScale")
@@ -947,7 +959,7 @@ private struct SkinCard: View {
                                 SkinPreview(tokens: resolved.tokens(dark: true), radius: 0, accentBar: true)
                             }
                             .clipShape(RoundedRectangle(cornerRadius: previewRadius))
-                            .overlay(RoundedRectangle(cornerRadius: previewRadius).strokeBorder(Color.hqStroke, lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: previewRadius).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
                         } else {
                             SkinPreview(tokens: tokens, radius: previewRadius, accentBar: true)
                         }
@@ -1004,8 +1016,13 @@ private struct SkinModeTag: View {
         if DeviceWord.isMac {
             // [mac] Stress test 2026-10-28 #88, round 2: the outlined tag was easy to miss; it is a filled tag with the
             // moon (or sun) of the one look the theme has.
-            Label(text, systemImage: text.hasPrefix("Dark") ? "moon.fill" : "sun.max.fill")
-                .labelStyle(.titleAndIcon)
+            // [Mac AAA 2026-11-16] The glyph beside its words: a Label put a word's width of room between them on the
+            // Mac ("☾   Dark Only").
+            HStack(spacing: 4) {
+                Image(systemName: text.hasPrefix("Dark") ? "moon.fill" : "sun.max.fill").imageScale(.small)
+                Text(text)
+            }
+                .accessibilityElement(children: .combine)
                 .font(Font.hq(.caption).weight(.semibold))
                 .foregroundStyle(Color.hqLabel)
                 .lineLimit(1)
@@ -1021,7 +1038,7 @@ private struct SkinModeTag: View {
             .fixedSize()
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .overlay(Capsule().strokeBorder(Color.hqStroke, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
         }
     }
 }
@@ -1051,7 +1068,7 @@ private struct SkinPreview: View {
                     Spacer(minLength: 0)
                     RoundedRectangle(cornerRadius: 3).fill(colour(tokens.meBubble))
                         .frame(minWidth: accentBar ? 12 : 34, maxWidth: 34, minHeight: 12, maxHeight: 12)
-                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(colour(tokens.meBorder), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(colour(tokens.meBorder), lineWidth: HQShape.hairline))
                 }
                 Capsule().fill(colour(tokens.label2)).frame(minWidth: accentBar ? 20 : 84, maxWidth: 84, minHeight: 5, maxHeight: 5)
                 RoundedRectangle(cornerRadius: 3).fill(colour(tokens.groupedCard.over(tokens.page)))
@@ -1060,7 +1077,7 @@ private struct SkinPreview: View {
             .padding(10)
         }
         .clipShape(RoundedRectangle(cornerRadius: radius))
-        .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(colour(tokens.separator), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(colour(tokens.separator), lineWidth: HQShape.hairline))
         .accessibilityHidden(true)
     }
 }

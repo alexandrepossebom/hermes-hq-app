@@ -40,7 +40,7 @@ import UIKit
             letGo = true
             guard !context.isCancelled else { return }   // back to the page that hides it: it stays hidden
             UIView.performWithoutAnimation { bar.isHidden = false }
-            HQMotion.animate(0.25, changes: { veil.alpha = 1 })
+            HQMotion.animate(HQMotion.pane, changes: { veil.alpha = 1 })
         }
         coordinator.animate(alongsideTransition: nil, completion: { context in
             letGo = true

@@ -42,7 +42,10 @@ struct MacDashCard<Trailing: View, Content: View>: View {
                 Spacer(minLength: 8)
                 trailing()
             }
-            .frame(minHeight: 26)
+            // [Mac AAA 2026-11-16] One header height in every card, whatever sits at its right: Recent Logs' Show All
+            // and Open (30–32 pt) made its heading sit 3 pt below Hermes Update's beside it. They now overhang the
+            // band evenly instead of growing it.
+            .frame(height: 26)
             content()
         }
         .padding(18)
@@ -71,7 +74,9 @@ struct MacDashTile: View {
             Text(title.uppercased()).font(Font.hq(.caption).weight(.semibold)).foregroundStyle(Color.hqLabel2)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let dot {
-                    Circle().fill(dot).frame(width: 12, height: 12).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                    // [Mac AAA 2026-11-16] Centred on the number's capitals: on the baseline it read as a full stop (". Running").
+                    Circle().fill(dot).frame(width: 12, height: 12)
+                        .alignmentGuide(.firstTextBaseline) { $0.height / 2 + HQFont.preferred(.title1).capHeight / 2 }
                         .accessibilityHidden(true)
                 }
                 Text(value).font(Font.hq(.title).weight(.semibold)).foregroundStyle(Color.hqLabel).lineLimit(1).minimumScaleFactor(0.6)
@@ -172,7 +177,9 @@ struct StatusDashboard: View {
             return (down.count == 1 ? "1 App Needs Attention" : "\(down.count) Apps Need Attention", "\(names) can’t connect.", .hqOrange,
                     "exclamationmark.triangle.fill")
         }
-        return ("Everything Is Running", "The gateway and its messaging apps are up.", .green, "checkmark.circle.fill")
+        // [Mac AAA 2026-11-16] "…and its messaging apps are up" beside a Messaging Apps tile reading None.
+        return ("Everything Is Running", status.platforms.isEmpty ? "The gateway is up." : "The gateway and its messaging apps are up.",
+                .green, "checkmark.circle.fill")
     }
 
     private var headline: some View {
@@ -240,7 +247,7 @@ struct StatusDashboard: View {
 
     private var logsCard: some View {
         MacDashCard(title: "Recent Logs") {
-            if logs.busy { ProgressView().controlSize(.small) }
+            if logs.busy, logs.load != .loading { ProgressView().controlSize(.small) }   // [Mac AAA 2026-11-16] one spinner while loading
             Menu {
                 Picker("Show", selection: $logs.level) {
                     ForEach(LogLevelFilter.allCases) { Text($0.title).tag($0) }
@@ -257,15 +264,17 @@ struct StatusDashboard: View {
         } content: {
             Group {
                 switch logs.load {
+                // [Mac AAA 2026-11-16] With no lines the card keeps its height (no jump when they come), and its one
+                // sentence stands in the middle of the well, as the page's other empty states do, not alone in the
+                // top-left corner of a 560 pt box.
                 case .loading:
-                    Text("Reading the gateway’s log…").font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
+                    logsNote(symbol: nil, Text("Reading the gateway’s log…"))
                 case .failed(let reason):
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(reason).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
+                    logsNote(symbol: "exclamationmark.triangle", Text(reason)) {
                         Button("Try Again") { logs.retry() }.hqMacBordered().fixedSize()
                     }
                 case .ready where logs.lines.isEmpty:
-                    Text(logs.emptyText).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
+                    logsNote(symbol: "doc.plaintext", Text(logs.emptyText))
                         .accessibilityIdentifier("command-center.logs.empty")
                 case .ready:
                     ScrollView {
@@ -284,6 +293,22 @@ struct StatusDashboard: View {
             }
             .frame(maxWidth: .infinity, minHeight: 560, maxHeight: 560, alignment: .topLeading)
         }
+    }
+
+    /// The logs well with no lines: a quiet mark and a sentence (and a button) in its middle.
+    private func logsNote<Extra: View>(symbol: String?, _ words: Text, @ViewBuilder extra: () -> Extra = { EmptyView() }) -> some View {
+        VStack(spacing: 10) {
+            if let symbol {
+                Image(systemName: symbol).font(Font.hq(.title2)).foregroundStyle(Color.hqLabel3).accessibilityHidden(true)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+            words.font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).multilineTextAlignment(.center)
+            extra()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: HQPalette.groupedPage).opacity(0.6), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func logLine(_ line: String) -> some View {
@@ -314,7 +339,7 @@ struct StatusDashboard: View {
         } content: {
             VStack(spacing: 0) {
                 ForEach(Array(status.platforms.enumerated()), id: \.element.id) { index, platform in
-                    if index > 0 { Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: 1) }
+                    if index > 0 { HQHairline() }
                     let fix = (platform.isDown || !platform.isUp) && model.canOpenMessaging
                     Button { if fix { model.openMessaging() } } label: {
                         VStack(alignment: .leading, spacing: 3) {
@@ -386,7 +411,7 @@ struct StatusDashboard: View {
         MacDashCard(title: "Maintenance") {
             VStack(spacing: 0) {
                 ForEach(Array(MaintenanceAction.allCases.enumerated()), id: \.element.id) { index, action in
-                    if index > 0 { Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: 1) }
+                    if index > 0 { HQHairline() }
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(action.title).font(Font.hq(.body)).foregroundStyle(Color.hqLabel)
@@ -407,7 +432,7 @@ struct StatusDashboard: View {
                     .padding(.vertical, 9)
                 }
                 if let action = model.maintenanceAction, let words = ActionWords.maintenance(model.maintenance.phase) {
-                    Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: 1)
+                    HQHairline()
                     Button { model.openMaintenanceOutput() } label: {
                         HStack(spacing: 8) {
                             Image(systemName: words.isBusy ? "hourglass" : words.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")

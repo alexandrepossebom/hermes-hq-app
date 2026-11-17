@@ -74,7 +74,7 @@ struct BotPillRail<Extra: View>: View {
                 if reduceMotion {
                     proxy.scrollTo(picked ?? allId, anchor: .center)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(picked ?? allId, anchor: .center) }
+                    withAnimation(.easeInOut(duration: HQMotion.pane)) { proxy.scrollTo(picked ?? allId, anchor: .center) }
                 }
             }
         }

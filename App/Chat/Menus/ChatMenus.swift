@@ -210,7 +210,10 @@ final class ChatMenus: NSObject, ModelSwitchUI {
     func menuAction(_ row: ChatMenuRow) -> UIAction {
         var attributes: UIMenuElement.Attributes = row.disabled ? .disabled : []
         if row.destructive { attributes.insert(.destructive) }
-        let action = UIAction(title: row.title, subtitle: row.subtitle, image: UIImage(systemName: row.symbol), attributes: attributes) { [weak self] _ in
+        // [Mac AAA 2026-11-16] A Mac menu row that asks for more before it acts ends in "…", as Share… does: Find opens
+        // the find bar for the words to look for.
+        let title = DeviceWord.isMac && row.id == .find && !row.title.hasSuffix("…") ? row.title + "…" : row.title
+        let action = UIAction(title: title, subtitle: row.subtitle, image: UIImage(systemName: row.symbol), attributes: attributes) { [weak self] _ in
             if row.id == .delete { Haptics.play(.warning) } else { Haptics.play(.selection) }
             self?.perform(row.id)
         }

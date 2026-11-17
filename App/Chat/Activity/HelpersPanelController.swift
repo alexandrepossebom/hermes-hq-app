@@ -32,7 +32,7 @@ final class HelpersPanelController: UIViewController {
             body.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
             body.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12),
             // Mac polish #61: where the inspector's other empty lines stand (`MacInspector`, the Steps tab).
-            empty.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -40),
+            empty.titleCentre.constraint(equalTo: view.centerYAnchor, constant: -MacInset.emptyLift),
             empty.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             empty.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
             empty.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
@@ -81,6 +81,13 @@ final class InspectorEmptyView: UIView {
         titleLabel.textColor = HQPalette.label2
         hintLabel.font = HQFont.preferred(.footnote)
         hintLabel.textColor = HQPalette.label2
+        #if targetEnvironment(macCatalyst)
+        // [Mac AAA 2026-11-16] The words of the right pane's own empty state ("No Chat Open"), not a size and ink of
+        // their own: the line under the title was footnote (about 10 pt on the screen) and the title grey, beside a
+        // placeholder in the label colour with a 15 pt line.
+        titleLabel.textColor = HQPalette.label
+        hintLabel.font = MacType.emptyBody
+        #endif
         for label in [titleLabel, hintLabel] {
             label.adjustsFontForContentSizeCategory = true
             label.textAlignment = .center
@@ -113,6 +120,11 @@ final class InspectorEmptyView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// [Mac AAA 2026-11-16] Where a tab stands its empty state: the title's middle, as the right pane's placeholder
+    /// holds its heading. Centred as a whole, Helpers' title stood 21 pt lower than Steps' (a two-line hint against a
+    /// four-line one), so switching tabs moved it.
+    var titleCentre: NSLayoutYAxisAnchor { titleLabel.centerYAnchor }
 
     func set(symbol: String, title: String, hint: String) {
         glyph.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 30, weight: .light))

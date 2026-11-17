@@ -322,7 +322,7 @@ private struct PricesMacSearchBox: ViewModifier {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.hqGroupedCard))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.hqStroke, lineWidth: HQShape.hairline))
         } else {
             content
                 .padding(.horizontal, 12)

@@ -100,6 +100,21 @@ import UIKit
         return out
     }
 
+    /// A key as `keyName` draws it, in words for VoiceOver ("⇧⌘F" → "Shift Command F").
+    static func spokenKey(_ drawn: String) -> String {
+        let names: [Character: String] = ["⌃": "Control", "⌥": "Option", "⇧": "Shift", "⌘": "Command", "↩": "Return",
+                                          "⇥": "Tab", "⎋": "Escape", "⌫": "Delete", "↑": "Up Arrow", "↓": "Down Arrow",
+                                          "←": "Left Arrow", "→": "Right Arrow"]
+        var words: [String] = []
+        var rest = Substring(drawn)
+        while let first = rest.first, let name = names[first] {
+            words.append(name)
+            rest = rest.dropFirst()
+        }
+        if !rest.isEmpty { words.append(rest == "," ? "Comma" : rest == "/" ? "Slash" : rest == "[" ? "Left Bracket" : rest == "]" ? "Right Bracket" : String(rest)) }
+        return words.joined(separator: " ")
+    }
+
     static func present(tries: Int = 8) {
         // [mac] Mac polish #12: over the window in front (the Settings window when it is), not the main window behind it.
         guard let host: UIViewController = KeyCommands.settingsInFront ?? KeyCommands.root else { return }
@@ -196,6 +211,8 @@ private final class KeyShortcutsList: UITableViewController {
         content.secondaryTextProperties.color = HQPalette.label2
         cell.contentConfiguration = content
         cell.accessibilityLabel = row.title
+        // [Mac AAA 2026-11-16] VoiceOver read the command's name only, never its key: the key is the row's value, in words.
+        cell.accessibilityValue = row.keys.map(KeyShortcutsSheet.spokenKey).joined(separator: ", or ")
         return cell
     }
 }

@@ -146,7 +146,7 @@ struct AppIconPreview: View {
         }
         .frame(width: side, height: side)
         .clipShape(shape)
-        .overlay(shape.strokeBorder(Color.hqStroke, lineWidth: 0.5))
+        .overlay(shape.strokeBorder(Color.hqStroke, lineWidth: HQShape.line(0.5)))
     }
 }
 

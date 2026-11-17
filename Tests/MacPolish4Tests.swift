@@ -97,6 +97,47 @@ struct MacPolish4Tests {
         #expect(SidebarRules.headingFade(rows: rows, top: 0, height: 300, below: 0) == nil)
     }
 
+    /// Mac AAA 2026-11-16: the foot fade always leaves a faded row where more lies below. A cut row that shows enough
+    /// of itself keeps the usual fade; one cut near its top (or the list ending in the room between two rows) has the
+    /// fade reach up over the last whole row.
+    @Test func footFadeAlwaysShowsMoreBelow() {
+        let rows = [SidebarRules.ListRow(top: 0, bottom: 40, heading: false),
+                    SidebarRules.ListRow(top: 42, bottom: 82, heading: false),
+                    SidebarRules.ListRow(top: 84, bottom: 124, heading: false)]
+        let fade = SidebarRules.fadeHeight
+        // Half of the third row in view: its name reads faded.
+        #expect(SidebarRules.peekFade(rows: rows, height: 104, below: 20) == fade)
+        // A few points of it: the fade covers the second row.
+        #expect(SidebarRules.peekFade(rows: rows, height: 90, below: 34) == 90 - (42 + 40 * SidebarRules.peekStart))
+        // Ending in the room between two rows: the same.
+        #expect(SidebarRules.peekFade(rows: rows, height: 83, below: 41) == 83 - (42 + 40 * SidebarRules.peekStart))
+        // Nothing below: the usual fade (none is drawn).
+        #expect(SidebarRules.peekFade(rows: rows, height: 124, below: 0) == fade)
+        // Never past half the list.
+        #expect(SidebarRules.peekFade(rows: rows, height: 44, below: 80) == 22)
+    }
+
+    /// [Mac AAA 2026-11-16] sidebar S3: the top fade reaches over the first whole row when only a sliver of the row
+    /// above it shows, and never past half the list.
+    @Test func headFadeCoversASliverAtTheTop() {
+        let rows = [SidebarRules.ListRow(top: -36, bottom: 4, heading: false),
+                    SidebarRules.ListRow(top: 6, bottom: 46, heading: false),
+                    SidebarRules.ListRow(top: 48, bottom: 88, heading: false)]
+        // 4 pt of the first row in view: the fade runs to 80 % down the second (6 + 40 × 0.8).
+        let head = SidebarRules.peekHeadFade(rows: rows, height: 120, above: 36)
+        #expect(abs(head - (6 + 40 * (1 - SidebarRules.peekStart))) < 0.001)
+        // Half a row in view: still let go into the fade (its words would be cut through their tops).
+        let half = [SidebarRules.ListRow(top: -20, bottom: 20, heading: false),
+                    SidebarRules.ListRow(top: 22, bottom: 62, heading: false)]
+        #expect(abs(SidebarRules.peekHeadFade(rows: half, height: 120, above: 20) - (22 + 40 * (1 - SidebarRules.peekStart))) < 0.001)
+        // Nearly all of it in view: the usual fade.
+        let most = [SidebarRules.ListRow(top: -2, bottom: 38, heading: false)] + rows.dropFirst()
+        #expect(SidebarRules.peekHeadFade(rows: Array(most), height: 120, above: 2) == SidebarRules.fadeHeight)
+        // Taken whole by fadeStops, though fewer points lie above than it is tall.
+        let stops = SidebarRules.fadeStops(above: 36, below: 0, height: 120, headFade: head)
+        #expect(abs((stops?.top ?? 0) - head / 120) < 0.001)
+    }
+
     /// #54: a name shrinks to fit only down to the Mac's smallest text.
     @Test func namesShrinkNoSmallerThanTheMacsSmallestText() {
         #expect(SidebarRules.shrink(pointSize: 17, least: 0.85, smallest: 13) == 0.85)

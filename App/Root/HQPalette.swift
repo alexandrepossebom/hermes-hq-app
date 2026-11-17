@@ -482,7 +482,7 @@ private final class EdgeHostScrollView: UIScrollView {
         if desktopBand.frame != bandFrame {
             CATransaction.begin(); CATransaction.setDisableActions(true)
             desktopBand.frame = bandFrame
-            let line = 1 / max(traitCollection.displayScale, 1)
+            let line = HQShape.pixel(traitCollection.displayScale)
             desktopLine.frame = CGRect(x: 0, y: bandFrame.height - line, width: bandFrame.width, height: line)
             CATransaction.commit()
         }
@@ -513,7 +513,7 @@ private final class EdgeHostScrollView: UIScrollView {
         let cardAlpha: CGFloat = covered ? 1 : 0
         if cardBand.alpha != cardAlpha {
             if window != nil, !HQMotion.reduced {
-                UIView.animate(withDuration: 0.15, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { self.cardBand.alpha = cardAlpha }   // motion-ok: a fade, nothing moves
+                UIView.animate(withDuration: HQMotion.quick, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { self.cardBand.alpha = cardAlpha }   // motion-ok: a fade, nothing moves
             } else {
                 cardBand.alpha = cardAlpha
             }

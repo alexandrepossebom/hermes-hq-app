@@ -14,7 +14,7 @@ struct SpawnDashboard: View {
     static let wideAt: CGFloat = 960
 
     private enum Column {
-        static let model: CGFloat = 190, tools: CGFloat = 90, status: CGFloat = 130, time: CGFloat = 110
+        static let model: CGFloat = 190, tools: CGFloat = 90, status: CGFloat = 130, time: CGFloat = 110, gap: CGFloat = 16
     }
 
     private var records: [SpawnRecord] { model.tree.bots.flatMap { $0.chats.flatMap { $0.rows.map(\.record) } } }
@@ -69,7 +69,7 @@ struct SpawnDashboard: View {
                 }
                 .font(Font.hq(.subheadline))
                 .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(Color.hqOrange.opacity(0.16), in: Capsule())
+                .background(Color.hqOrange.opacity(0.16), in: HQPill())   // [Mac AAA 2026-11-16] the Desktop Look's 4 pt box
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("spawn-tree.paused")
             }
@@ -125,14 +125,15 @@ struct SpawnDashboard: View {
         .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color(uiColor: MacDash.edge)) }
     }
 
-    private var line: some View { Rectangle().fill(Color(uiColor: HQPalette.separator)).frame(height: 1) }
+    private var line: some View { HQHairline() }
 
     private var headings: some View {
         HStack(spacing: 12) {
             Text("TASK").frame(maxWidth: .infinity, alignment: .leading)
             Text("MODEL").frame(width: Column.model, alignment: .leading)
             Text("TOOLS").frame(width: Column.tools, alignment: .trailing)
-            Text("STATUS").frame(width: Column.status, alignment: .leading)
+            // [Mac AAA 2026-11-16] A wider gap after the right-aligned Tools numbers: "TOOLS STATUS" read as one heading.
+            Text("STATUS").frame(width: Column.status, alignment: .leading).padding(.leading, Column.gap)
             Text("TIME").frame(width: Column.time, alignment: .trailing)
         }
         .font(Font.hq(.caption).weight(.semibold)).foregroundStyle(Color.hqLabel2)
@@ -178,7 +179,7 @@ struct SpawnDashboard: View {
                 .frame(width: Column.model, alignment: .leading)
             Text(record.toolCount.map { "\($0)" } ?? "—").monospacedDigit()
                 .frame(width: Column.tools, alignment: .trailing)
-            statusPill(record.status).frame(width: Column.status, alignment: .leading)
+            statusPill(record.status).frame(width: Column.status, alignment: .leading).padding(.leading, Column.gap)
             Text(time ?? "—").monospacedDigit()
                 .frame(width: Column.time, alignment: .trailing)
         }
@@ -186,6 +187,18 @@ struct SpawnDashboard: View {
         .padding(.horizontal, 18).padding(.vertical, 10)
         .frame(minHeight: 46)
         .contentShape(Rectangle())
+        // [Mac AAA 2026-11-16] A right-click on a subagent: what a Mac person reaches for (its chat, its task's words).
+        .contextMenu {
+            if chat.sessionId != nil {
+                Button("Open Chat", systemImage: "bubble.left") { model.open(chat, profile: profile, fromDashboard: true) }
+            }
+            if let goal = record.goal, !goal.isEmpty {
+                Button("Copy Task", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = goal
+                    PagesHaptics.success()
+                }
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(SpawnTree.spoken(row, now: model.now))
         .accessibilityIdentifier("spawn-tree.row.\(record.id)")
@@ -209,6 +222,6 @@ struct SpawnDashboard: View {
         }
         .font(Font.hq(.footnote).weight(.medium)).foregroundStyle(color)
         .padding(.horizontal, 9).padding(.vertical, 4)
-        .background(color.opacity(0.15), in: Capsule())
+        .background(color.opacity(0.15), in: HQPill())   // [Mac AAA 2026-11-16] the Desktop Look's 4 pt box
     }
 }

@@ -164,7 +164,7 @@ final class PageCardView: UIControl {
         placeholder.frame = CGRect(x: 0, y: 0, width: w, height: h)
         pinBadge.frame = CGRect(x: w - 30, y: 8, width: 22, height: 22)
         pinBadge.layer.cornerRadius = 11
-        rule.frame = CGRect(x: 0, y: h, width: w, height: 1 / max(1, traitCollection.displayScale))
+        rule.frame = CGRect(x: 0, y: h, width: w, height: HQShape.pixel(traitCollection.displayScale))
         let g: CGFloat = 18
         let lineH = nameLabel.font?.lineHeight ?? 20
         glyph.frame = CGRect(x: Self.padH, y: h + Self.padV + (lineH - g) / 2, width: g, height: g)
