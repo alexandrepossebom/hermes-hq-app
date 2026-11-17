@@ -350,6 +350,30 @@ struct ShoppingCardsTests {
         #expect(ProductCardsLayout.mode(9) == .list && ProductCardsLayout.mode(12) == .list)
     }
 
+    /// A finger's tap on a card (what a touch sends a plain UIControl) opens that product's page, in every layout.
+    /// Build 1084 listened for an event only buttons send, so no card could be opened.
+    @Test func aTapOnACardOpensItsProduct() throws {
+        for count in [1, 2, 5, 12] {
+            let items = (0..<count).map { product("Item \($0)", url: "https://example.com/p/\($0)") }
+            let (_, card) = try #require(productsRow([bot([productsCall(items)])]))
+            let g = ProductCardsLayout.geometry(card, gap: 6, width: 402, category: .large)
+            let view = ProductCardsView(frame: CGRect(x: 0, y: 0, width: 402, height: 900))
+            var opened: [Int] = []
+            view.onOpen = { opened.append($0) }
+            view.configure(card, g)
+            func cards(_ v: UIView) -> [ProductCardView] { v.subviews.flatMap { ($0 as? ProductCardView).map { [$0] } ?? cards($0) } }
+            let shown = cards(view).filter { !$0.isHidden }
+            #expect(shown.count == g.cards.count, "\(count) products")
+            for c in shown { c.sendActions(for: .touchUpInside) }
+            #expect(opened.sorted() == Array(0..<g.cards.count), "\(count) products")
+            // The touch lands on the card itself, not on a label or the photo over it.
+            if let first = shown.first {
+                let hit = first.hitTest(CGPoint(x: first.bounds.midX, y: 12), with: nil)
+                #expect(hit === first, "\(count) products: \(String(describing: hit))")
+            }
+        }
+    }
+
     @Test func oneProductHasItsBuyButtonInsideTheCard() throws {
         let (_, card) = try #require(productsRow([bot([productsCall([product()])])]))
         let g = ProductCardsLayout.geometry(card, gap: 6, width: 402, category: .large)
