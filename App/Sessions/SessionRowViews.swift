@@ -803,6 +803,10 @@ struct SessionDateHeaderView: View {
     private var captionRow: some View {
         HStack(spacing: 8) {
             if let source { PlatformMark(source: source, size: Theme.isDesktop ? 16 : 20) }
+            // [sessions-ux] A project page's section mark sits on the rows' edge, ahead of its name, as a row's own
+            // "Working…" spinner does. [working-header-inset 2026-11-17] It hung 15 pt into the margin, which left the
+            // Working ring about 5 pt from the screen's edge on the iPhone.
+            if let mark { ProjectStateMark(state: mark).frame(width: 10) }
             // [desktoplook2] In the look no font on the Text: one set there beats the label's (UX study #196).
             // Text.font(nil) is still a font of the Text's own (the body font), so the look's branch sets none at all.
             Group {
@@ -811,11 +815,6 @@ struct SessionDateHeaderView: View {
             .foregroundStyle(dropTarget ? Color.hqTint : ink(over && fold != nil))
             .hqDesktopLabel(color: dropTarget ? .hqTint : ink(over && fold != nil))   // [desktoplook2] EARLIER TODAY, as the desktop's group label
             .layoutPriority(1)
-            // [sessions-ux] The mark hangs in the margin, so every heading on the page starts on the rows' edge ("Ready"
-            // began 15 pt right of "This Week" under it, and "Working", whose ring is wider, 2 pt right of "Ready").
-            .overlay(alignment: .leading) {
-                if let mark { ProjectStateMark(state: mark).frame(width: 10).offset(x: -15) }
-            }
             if let badge, badge > 0 { countBadge(badge) }   // [sessions-layout] New for You's count
             if let tally {
                 Text("\(tally)")

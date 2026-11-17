@@ -457,4 +457,55 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { self.row(app, "s-week-0").exists && names().contains("This Week") }, "This Week open (\(names()))")
         shot(app, "P9-page-sections-open")
     }
+    /// [working-header-inset] Owner 2026-11-17: a project page's Working heading had its ring hung 15 pt into the
+    /// margin, about 5 pt from the screen's edge. The ring sits on the rows' edge now: nothing is drawn in the 14 pt
+    /// beside the screen's edge on the heading's line.
+    @MainActor func test40d_ProjectPageWorkingMarkInset() throws {
+        fixture("/__fixture/mode", ["working": ["s-garden"]])
+        defer { fixture("/__fixture/mode", ["working": [String]()]) }
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        let toProjects = app.buttons["sessions.pills.projects"]
+        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
+        toProjects.tap()
+        let appPill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(appPill.waitForExistence(timeout: 10))
+        onScreen(app, appPill).tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6))
+        let working = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'Working'")).firstMatch
+        XCTAssertTrue(working.waitForExistence(timeout: 8), "a Working section (\(headers(app)))")
+        shot(app, "P10-page-working-inset")
+        let line = working.frame
+        let image = app.windows.firstMatch.screenshot().image
+        XCTAssertEqual(Self.inkBesideEdge(image, top: line.minY, bottom: line.maxY, width: 14), 0,
+                       "nothing drawn in the 14 pt beside the screen's edge on the Working heading's line (\(line))")
+    }
+
+    /// Pixels unlike the page's ground in the strip `width` points wide at the screen's left edge, between `top` and `bottom`.
+    static func inkBesideEdge(_ image: UIImage, top: CGFloat, bottom: CGFloat, width: CGFloat) -> Int {
+        guard let cg = image.cgImage, cg.width > 40 else { return -1 }
+        let w = cg.width, h = cg.height
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return -1 }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let k = CGFloat(w) / image.size.width
+        func px(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+            let i = (y * w + x) * 4
+            return (Int(data[i]), Int(data[i + 1]), Int(data[i + 2]))
+        }
+        let y0 = max(0, Int(top * k)), y1 = min(h - 1, Int(bottom * k))
+        guard y1 > y0 else { return -1 }
+        let ground = px(Int(1 * k), (y0 + y1) / 2)
+        var count = 0
+        for y in y0...y1 {
+            for x in 0..<Int(width * k) {
+                let p = px(x, y)
+                if max(abs(p.0 - ground.0), abs(p.1 - ground.1), abs(p.2 - ground.2)) > 40 { count += 1 }
+            }
+        }
+        return count
+    }
 }
