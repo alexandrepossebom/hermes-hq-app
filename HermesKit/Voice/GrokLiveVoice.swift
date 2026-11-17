@@ -36,6 +36,9 @@ import Foundation
     /// 0.8-2.5 s. The engine was still starting (pieces that came before it had a player were dropped) and stops and
     /// starts itself for the loudspeaker within the same second; and the microphone opened at the same moment, before
     /// echo cancellation had settled, so the hello's own sound could count as the person talking over it.
+    /// When the player was last reset for queued voice that was not playing, and whether the engine was rebuilt for it.
+    private var revivedAt: TimeInterval = -10
+    private var rebuiltForSilence = false
     private var pendingHello: String?
     private var audioSettled = false
     private var helloHold: (until: TimeInterval, done: Bool)?
@@ -157,9 +160,10 @@ import Foundation
                 if session.currentRoute.inputs.isEmpty, session.availableInputs?.isEmpty != false {
                     return .failed("no microphone is connected")
                 }
-                audio.stop()
+                let queued = audio.stop(keeping: true)
                 do {
                     try audio.start(heard: heard)
+                    audio.requeue(queued)
                     return .rebuilt
                 } catch {
                     return .failed(TalkEngineCapture.describe(error))
@@ -356,7 +360,7 @@ import Foundation
         urlSession = nil
         if let audio {
             self.audio = nil
-            await AudioWork.perform { audio.stop() }
+            await AudioWork.perform { _ = audio.stop() }
         }
         if speaking { speaking = false; onSpeaking?(false) }
         if holdsSession {
@@ -378,6 +382,22 @@ import Foundation
         let now = CACurrentMediaTime()
         if audio.isPlaying { lastPlaying = now } else { speakerLevel *= 0.5 }
         setSpeaking(now - lastPlaying < Self.speakingHangover)
+        unstick(audio, now: now)
+    }
+
+    /// The voice is queued and none of it is playing: the player is reset and given it again; still nothing after that,
+    /// the engine is rebuilt (once a session) and given it again.
+    private func unstick(_ audio: GrokLiveAudio, now: TimeInterval) {
+        guard audio.isStalled, !restarting else { return }
+        if now - revivedAt > 3 {
+            revivedAt = now
+            let pieces = audio.revive()
+            AppLog.note("voice", "grok-live voice was queued and not playing: player started again with \(pieces) pieces at \(AppLog.ms(since: began)) ms")
+        } else if now - revivedAt > 1, !rebuiltForSilence {
+            rebuiltForSilence = true
+            AppLog.note("voice", "grok-live voice still not playing: the audio engine is rebuilt")
+            restart(why: "the voice was not playing")
+        }
     }
 
     private func setSpeaking(_ on: Bool) {
@@ -393,11 +413,31 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
     private let lock = NSLock()
-    private var queued = 0
+    /// The pieces of the voice queued and not yet played to their end, oldest first. Kept so a player that takes them and
+    /// plays nothing can be reset and given them again (`revive`), or a rebuilt engine can (`requeue`).
+    private var pending: [(id: Int, buffer: AVAudioPCMBuffer)] = []
+    private var nextPiece = 0
+    /// Bumped whenever the player is emptied: a completion from before then is not a piece played.
+    private var generation = 0
+    /// When the queue last moved (a piece ended, or the first piece joined an empty queue).
+    private var progressAt: TimeInterval = 0
     private let micFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: GrokLiveWire.sampleRate, channels: 1, interleaved: true)!
     private let voiceFormat = AVAudioFormat(standardFormatWithSampleRate: GrokLiveWire.sampleRate, channels: 1)!
 
-    var isPlaying: Bool { lock.withLock { queued > 0 } }
+    var isPlaying: Bool { lock.withLock { !pending.isEmpty } }
+
+    /// The head piece should have ended by now and has not: the player took the audio and is playing none of it. The
+    /// owner's phone, builds 1058-1067: after the engine's own restart at a start (the loudspeaker switch), the hello was
+    /// queued and stayed queued, "voice pieces played out 0"; it had only ever played once the person spoke, because a
+    /// barge-in resets the player.
+    static let stallGrace: TimeInterval = 0.6
+    var isStalled: Bool {
+        lock.withLock {
+            guard let head = pending.first else { return false }
+            let length = Double(head.buffer.frameLength) / head.buffer.format.sampleRate
+            return CACurrentMediaTime() - progressAt > length + Self.stallGrace
+        }
+    }
 
     /// Whether the engine still runs after a configuration change. On `AudioWork.queue`.
     var isRunning: Bool { engine?.isRunning ?? false }
@@ -408,6 +448,9 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
     /// Starts the stopped engine again as it is (same tap, same voice processing). On `AudioWork.queue`.
     func resume() -> Bool {
         guard let engine, let player else { return false }
+        // The player is emptied and started afresh with the engine: left as it was, it reports playing and plays nothing.
+        let keep = emptied()
+        player.stop()
         engine.prepare()
         do {
             try engine.start()
@@ -415,7 +458,49 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
             return false
         }
         player.play()
+        schedule(keep, on: player)
         return true
+    }
+
+    /// The player is stopped and started, and given the queued pieces again. Answers how many.
+    func revive() -> Int {
+        guard let player else { return 0 }
+        let keep = emptied()
+        player.stop()
+        player.play()
+        schedule(keep, on: player)
+        lock.withLock { revived += 1 }
+        return keep.count
+    }
+
+    /// Takes everything queued out of the bookkeeping (their completions no longer count) and hands it back.
+    private func emptied() -> [AVAudioPCMBuffer] {
+        lock.withLock {
+            generation += 1
+            let keep = pending.map(\.buffer)
+            pending = []
+            return keep
+        }
+    }
+
+    private func schedule(_ buffers: [AVAudioPCMBuffer], on player: AVAudioPlayerNode) {
+        for buffer in buffers {
+            let (id, made) = lock.withLock { () -> (Int, Int) in
+                nextPiece += 1
+                if pending.isEmpty { progressAt = CACurrentMediaTime() }
+                pending.append((nextPiece, buffer))
+                return (nextPiece, generation)
+            }
+            player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                guard let self else { return }
+                self.lock.withLock {
+                    guard made == self.generation, let index = self.pending.firstIndex(where: { $0.id == id }) else { return }
+                    self.pending.remove(at: index)
+                    self.playedOut += 1
+                    self.progressAt = CACurrentMediaTime()
+                }
+            }
+        }
     }
 
     /// `heard` gets each piece of the microphone as PCM16 mono 24 kHz little-endian, with its level (0…1).
@@ -467,6 +552,22 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
         self.player = player
     }
 
+    /// Tests: the speaker side alone (a simulator has no microphone to start with), so the queue, the reset and the
+    /// rebuild run against a real player.
+    func startSpeakerOnly() throws {
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: voiceFormat)
+        engine.prepare()
+        try engine.start()
+        player.play()
+        self.engine = engine
+        self.player = player
+        speakerOnly = true
+    }
+    private var speakerOnly = false
+
     /// Queues one piece of the voice (PCM16 mono 24 kHz little-endian); answers its level.
     /// Pieces of the voice that came while there was no player to take them.
     var unplayed: Int { lock.withLock { dropped } }
@@ -488,13 +589,8 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
                 out[index] = Float(sample) / 32_768
             }
         }
-        lock.withLock { queued += 1 }
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            guard let self else { return }
-            self.lock.withLock { self.queued = max(0, self.queued - 1); self.playedOut += 1 }
-        }
-        // A player the engine's own restart left stopped takes buffers and plays none of them (the owner's phone, builds
-        // 1058 and 1063: the voice's audio came, had a player and was not cut off, and nothing was heard).
+        schedule([buffer], on: player)
+        // A player the engine left stopped takes buffers and plays none of them.
         if engine?.isRunning == true, !player.isPlaying {
             lock.withLock { revived += 1 }
             player.play()
@@ -505,19 +601,31 @@ nonisolated final class GrokLiveAudio: @unchecked Sendable {
     /// Stops the voice now: everything queued is dropped, the player is ready for the next answer.
     func flush() {
         guard let player else { return }
+        _ = emptied()
         player.stop()
-        lock.withLock { queued = 0 }
         player.play()
     }
 
-    func stop() {
-        guard let engine else { return }
+    /// Tests: the engine stops as it does for a hardware change (the loudspeaker switch just after a start).
+    func stopEngineAsAHardwareChangeDoes() { engine?.stop() }
+
+    /// `keeping`: what is queued is handed back, for the engine that replaces this one (`requeue`).
+    @discardableResult
+    func stop(keeping: Bool = false) -> [AVAudioPCMBuffer] {
+        let keep = emptied()
+        guard let engine else { return [] }
         player?.stop()
-        engine.inputNode.removeTap(onBus: 0)
+        if !speakerOnly { engine.inputNode.removeTap(onBus: 0) }
         engine.stop()
         self.engine = nil
         player = nil
-        lock.withLock { queued = 0 }
+        return keeping ? keep : []
+    }
+
+    /// Queues pieces a stopped engine handed back.
+    func requeue(_ buffers: [AVAudioPCMBuffer]) {
+        guard let player, !buffers.isEmpty else { return }
+        schedule(buffers, on: player)
     }
 }
 

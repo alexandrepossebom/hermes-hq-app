@@ -80,7 +80,16 @@ transport turns the loop's effects into xAI events (`GrokLiveCalls`):
 
 `URLSessionWebSocketTask` and one `AVAudioEngine` with voice processing on its input (the system's echo cancellation):
 the tap is converted to PCM16 24 kHz with `AVAudioConverter`; the voice plays through an `AVAudioPlayerNode` on the same
-engine. `AudioSessionCoordinator` stays the only owner of the audio session (`.conversation`, mode `.voiceChat`). Closing
+engine. `AudioSessionCoordinator` stays the only owner of the audio session (`.conversation`, mode `.voiceChat`).
+
+The player corrects itself. The owner's phone, builds 1058-1067: the hello's audio was queued about a second after the
+engine's own restart at a start (the loudspeaker switch) and none of it played ("voice pieces played out 0") until the
+person spoke; a barge-in resets the player, which is why Grok had been audible before there was a hello. The queue is
+kept (`GrokLiveAudio.pending`), and every 0.1 s the transport asks whether the head piece should have ended and has not
+(`isStalled`: its own length + 0.6 s). Then the player is stopped, started and given the queue again (`revive`); if
+that changes nothing within 1-3 s the engine is rebuilt once a session and given the queue. The engine's own restart
+also stops and starts the player now. The simulator does not reproduce the stuck player; `GrokPlayerTests` runs the
+queue, the reset, the rebuild and the stall check against a real player (speaker only). Closing
 just closes the socket and stops the engine.
 
 ## 6. Tests
