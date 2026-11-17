@@ -1687,6 +1687,7 @@ final class LiveChatSession: ChatSessionModel {
         changes.markState()
         scheduleFlush()
         if !item.attachments.isEmpty { returnAttachments(item.attachments, text: nil) }                        // [attachments]
+        if VoiceChatRecord.isRecord(item.text) { return nil }   // [voice record] a voice chat's words never fill the field
         return item.hidden ? nil : (item.display ?? item.text)   // [activity] a hidden continuation never reaches the field
     }
 

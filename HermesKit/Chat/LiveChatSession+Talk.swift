@@ -76,7 +76,14 @@ extension LiveChatSession: ChatVoiceTurns {
     func sendVoiceRecord(_ text: String) {
         guard !chatGone, !ChatText.trimmed(text).isEmpty else { return }
         flushDeltas()
-        enqueueHidden(text, display: nil)
+        // An ordinary message, not a hidden one: a hidden row (`display_kind: "hidden"`) reaches the bot but is never
+        // drawn, and the chat's line is made from this message (build 1073 sent it hidden: the bot had the words and
+        // the chat showed nothing).
+        unparkQueue()
+        queuedMessages.append(QueuedMessage(id: nextQueuedId(), text: text))
+        changes.markState()
+        scheduleFlush()
+        if !turn.busy { drainQueueHead() }
     }
 
     // [gpt-live] (docs/spec/3x-gpt-live.md §4)

@@ -143,8 +143,12 @@ transcript. I mean you were literally talking to the bot."
   `[Voice chat transcript · m:ss]`, a bracketed note for the bot, a blank line, then `User: …` / `Voice assistant: …`
   lines. The newest 24,000 characters are kept. The gateway has no way to add words to a chat without a turn, so it
   is an ordinary turn: the note asks the bot not to act and to reply `NO_REPLY`, which the chat already hides.
-- It is queued behind whatever the chat is doing (`enqueueHidden`): never typed into a running reply, which its
-  "do not answer" note would have silenced.
+- It is queued behind whatever the chat is doing, as an ordinary message: never typed into a running reply, which
+  its "do not answer" note would have silenced, and never a hidden one (`display_kind: "hidden"` rows reach the bot
+  but are not drawn: build 1073 sent it that way, and the chat showed no line). In the queue it reads "Voice Chat ·
+  4:12", and taken out of the queue its words never fill the message box.
+- Checked against real bots (2026-11-17, a GPT bot and an Opus bot, three runs): each answered `NO_REPLY`, acted on
+  nothing in the transcript, and recalled a word from it when asked afterwards.
 - The chat draws the message as one line, "Voice Chat · 4:12" with a waveform, that opens on the words ("You: …",
   "Voice: …"); the note is never shown. It is a row of its own, never folded into a run of updates. The Bots row's
   preview passes over it, and the next live session's seed gets its words without the note.

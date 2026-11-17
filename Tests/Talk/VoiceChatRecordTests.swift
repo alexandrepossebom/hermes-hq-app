@@ -178,3 +178,91 @@ struct VoiceChatRecordControllerTests {
         await talk.resetForTests()
     }
 }
+
+/// The real chat's side of it (`LiveChatSession.sendVoiceRecord`): build 1073 sent the record as a hidden message, so
+/// the bot had the words and the chat drew nothing.
+@MainActor @Suite("Voice record in the real chat", .serialized)
+struct VoiceChatRecordSendTests {
+    private static let record = VoiceChatRecord.message([.init(user: true, text: "Book the dentist for Friday."),
+                                                         .init(user: false, text: "Done.")], seconds: 65) ?? ""
+
+    private func open() async throws -> (ChatHarness, LiveChatSession) {
+        let h = try ChatHarness()
+        try h.setPage("24", "perf-page-latest-24.json")
+        let s = h.make()
+        s.queueDrainFallback = .milliseconds(30)
+        #expect(await h.open())
+        h.client.onCall { method, params in
+            switch method {
+            case "prompt.submit": return ["status": "streaming"]
+            case "session.redirect": return ["status": "redirected", "text": params["text"] ?? ""]
+            default: return [:]
+            }
+        }
+        return (h, s)
+    }
+
+    private func lines(_ s: LiveChatSession) -> [BackgroundResultRow] {
+        ChatRowBuilder.build(.init(messages: s.messages, isRunning: s.isRunning, botName: "Hermes", expanded: [])).compactMap {
+            if case .backgroundResult(let b) = $0.kind, b.voice { return b } else { return nil }
+        }
+    }
+
+    /// In an idle chat it goes out at once as an ordinary turn, and the chat draws its line from the message.
+    @Test func anIdleChatSendsItAsAnOrdinaryMessageAndShowsTheLine() async throws {
+        let (h, s) = try await open()
+        s.sendVoiceRecord(Self.record)
+        #expect(await waitUntil { h.client.calls("prompt.submit").count == 1 })
+        let call = try #require(h.client.calls("prompt.submit").first)
+        #expect(call.params["text"]?.string == Self.record)
+        #expect(call.params["display_kind"] == nil, "a hidden row is never drawn")
+        #expect(s.messages.last?.role == .user)
+        #expect(lines(s).map(\.title) == ["Voice Chat · 1:05"])
+        #expect(s.queuedMessages.isEmpty)
+    }
+
+    /// Read back from the gateway's history (another device, or this one later): the line, and nothing for the bot's
+    /// silent answer.
+    @Test func historyShowsTheLineAndNothingForTheSilentAnswer() async throws {
+        let h = try ChatHarness()
+        let rows: [JSONValue] = [
+            .object(["role": "user", "content": "Hello there", "row_id": 9_000, "timestamp": 1_791_600_000]),
+            .object(["role": "assistant", "content": "Hi. What do you need?", "row_id": 9_001, "timestamp": 1_791_600_001]),
+            .object(["role": "user", "content": .string(Self.record), "row_id": 9_002, "timestamp": 1_791_600_100]),
+            .object(["role": "assistant", "content": "NO_REPLY", "row_id": 9_003, "timestamp": 1_791_600_101]),
+        ]
+        h.setPage("24", rows: rows, hasMore: false)
+        let s = h.make()
+        #expect(await h.open())
+        let built = ChatRowBuilder.build(.init(messages: TimelineNotes.resolve(s.messages), isRunning: false, botName: "Hermes", expanded: []))
+        let voice = built.compactMap { row -> BackgroundResultRow? in
+            if case .backgroundResult(let b) = row.kind, b.voice { return b } else { return nil }
+        }
+        #expect(voice.map(\.title) == ["Voice Chat · 1:05"])
+        #expect(voice.first?.result == "You: Book the dentist for Friday.\n\nVoice: Done.")
+        let bubbles = built.compactMap { row -> String? in if case .bubble(let b) = row.kind { return b.text } else { return nil } }
+        #expect(bubbles == ["Hello there", "Hi. What do you need?"])
+        #expect(!built.contains { if case .notice = $0.kind { return true } else { return false } })
+    }
+
+    /// While a reply runs it waits its turn: never typed into that reply, whose answer its note would have silenced.
+    @Test func aRunningReplyIsNeverSteeredOrStopped() async throws {
+        let (h, s) = try await open()
+        s.send("first")
+        await h.emit([h.event("message.start"), h.event("message.delta", ["text": "Working on it"])])
+        s.sendVoiceRecord(Self.record)
+        #expect(s.queuedMessages.map(\.text) == [Self.record])
+        #expect(ChatQueueCard.rowText(s.queuedMessages[0]) == ("Voice Chat · 1:05", true))
+        #expect(h.client.calls("session.redirect").isEmpty)
+        #expect(h.client.calls("session.interrupt").isEmpty)
+        #expect(lines(s).isEmpty)
+        // Taken out of the queue, its words never fill the message box.
+        #expect(s.removeQueued(s.queuedMessages[0].id) == nil)
+        s.sendVoiceRecord(Self.record)
+        await h.emit([h.event("message.complete", ["text": "Working on it", "status": "complete"]),
+                      h.event("session.info", ["running": false])])
+        #expect(await waitUntil { h.client.calls("prompt.submit").count == 2 })
+        #expect(h.client.calls("prompt.submit").last?.params["text"]?.string == Self.record)
+        #expect(lines(s).count == 1)
+    }
+}

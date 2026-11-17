@@ -217,6 +217,8 @@ final class ChatQueueCard: UIView {
         // MENUS (spec 1x §8.3): a queued skill send shows its invocation, never the expanded body.
         guard item.hidden else {
             // [drafts] A draft card's answer waits as its short words ("Send it"), as its bubble will read.
+            // [voice record] A voice chat's words waiting behind a reply read as their line will ("Voice Chat · 4:12").
+            if let record = VoiceChatRecord.parse(item.text) { return (record.title, true) }
             let words = DraftCards.bubbleWords(item.text) ?? ClarifyLate.bubbleWords(item.text) ?? (item.display ?? item.text).replacingOccurrences(of: "\n", with: " ")
             // Nothing at all to show (no words, nothing attached, no memo): the web's "Empty Message" (spec §15.3).
             if words.trimmingCharacters(in: .whitespaces).isEmpty, item.attachments.isEmpty, item.memo == nil {
