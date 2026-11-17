@@ -16,8 +16,6 @@ nonisolated struct ChatRow: @unchecked Sendable {
         /// A finished subagent or background process: one line ("Subagent Task Completed: <goal>") that opens on its
         /// result, as the desktop's BackgroundResult (system-message.tsx).
         case backgroundResult(BackgroundResultRow)
-        /// [updates] One member of an opened update group: a row of the card under its line (UpdateGroups.swift).
-        case updateMember(UpdateMemberRow)
         case error(ErrorRow)
         /// "Stopped" / "Interrupted" under a reply.
         case caption(String)

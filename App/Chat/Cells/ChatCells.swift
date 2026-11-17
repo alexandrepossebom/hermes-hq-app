@@ -1412,6 +1412,8 @@ extension ChatBubbleCell: UIPointerInteractionDelegate {
 final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
     static let reuse = "tool"
     private let rowButton = UIControl()
+    /// [updates] A group's line as drawn (its marks, words and chevron): what its sheet hangs from on an iPad.
+    var groupAnchor: UIView { rowButton }
     private let glyph = CAShapeLayer()
     /// A running tool's glyph: the desktop's `breathe` spinner in tertiary text (V:tool/fallback.tsx `statusGlyph`).
     private let spinner = GlyphSpinner(style: .breathe, color: ChatPalette.label3, size: HQFont.symbolSize(13, like: .footnote, cap: 22))
@@ -1721,12 +1723,22 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
             let caretH = (caretW * 0.5).rounded()
             // Centred on the words' capitals: the label centres its line box in the row.
             let capMid = (h - font.lineHeight) / 2 + font.ascender - font.capHeight / 2
-            caret.frame = CGRect(x: pad + lead + textW + caretGap, y: (capMid - caretH / 2).rounded(), width: caretW, height: caretH)
             let path = UIBezierPath()
-            let open = t.groupOpen
-            path.move(to: CGPoint(x: 0, y: open ? caretH : 0))
-            path.addLine(to: CGPoint(x: caretW / 2, y: open ? 0 : caretH))
-            path.addLine(to: CGPoint(x: caretW, y: open ? caretH : 0))
+            if group.count > 1 {
+                // A group opens its sheet: the caret turned to point right, as a step that opens its sheet has (the
+                // same slot, size and stroke). Down would say it unfolds here, as a line of one does.
+                caret.frame = CGRect(x: pad + lead + textW + caretGap + ((caretW - caretH) / 2).rounded(), y: (capMid - caretW / 2).rounded(),
+                                     width: caretH, height: caretW)
+                path.move(to: .zero)
+                path.addLine(to: CGPoint(x: caretH, y: caretW / 2))
+                path.addLine(to: CGPoint(x: 0, y: caretW))
+            } else {
+                caret.frame = CGRect(x: pad + lead + textW + caretGap, y: (capMid - caretH / 2).rounded(), width: caretW, height: caretH)
+                let open = t.groupOpen
+                path.move(to: CGPoint(x: 0, y: open ? caretH : 0))
+                path.addLine(to: CGPoint(x: caretW / 2, y: open ? 0 : caretH))
+                path.addLine(to: CGPoint(x: caretW, y: open ? caretH : 0))
+            }
             caret.path = path.cgPath
         }
         CATransaction.commit()
@@ -1736,7 +1748,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         rowButton.accessibilityTraits = group.opens ? .button : .staticText
         // "4 updates: From Hermes, Delegated 1 task, To Hermes, To Hermes", or a single line's own words.
         rowButton.accessibilityLabel = group.count > 1 ? "\(group.count) updates: " + group.titles.joined(separator: ", ") : (t.spokenTitle ?? t.title)
-        rowButton.accessibilityValue = group.opens && !t.single ? (t.groupOpen ? "Expanded" : "Collapsed") : nil
+        rowButton.accessibilityValue = group.opens && !t.single && group.count == 1 ? (t.groupOpen ? "Expanded" : "Collapsed") : nil
         rowButton.accessibilityHint = !group.opens ? nil : t.single ? "Shows the step’s details"
             : group.count > 1 ? "Shows them" : "Shows the message"
     }

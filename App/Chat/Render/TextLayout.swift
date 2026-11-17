@@ -620,7 +620,6 @@ nonisolated struct RowLayout: @unchecked Sendable {
         case prompt(PromptRowLayout)      // [questions]
         case activity(ActivityLayout)       // [activity] tool bubbles, delegate card, generated image
         case reactions(ReactionsLayout)     // Tapback badges under a message
-        case member(UpdateMemberLayout)     // [updates] a row of an opened update group's card
     }
     var height: CGFloat
     var content: Content
@@ -759,8 +758,6 @@ nonisolated enum TextLayout {
                 layout.content = .tool(t)
             }
             return layout
-        case .updateMember(let member):
-            return UpdateMemberLayouts.make(member, gap: gap, width: width, style: style)     // [updates]
         case .day(let date, let now, let until):
             let text = until.map { ChatRowBuilder.dayRange(date, $0, now: now) } ?? ChatRowBuilder.dayLabel(date, now: now)
             let tk = TextKitLayout(line(text, font: style.day, color: ChatPalette.lineInk, align: .center), width: width - 16)
@@ -1408,7 +1405,7 @@ nonisolated enum TextLayout {
                               height: rowH)
         // [updates] Open or shut, a centred line keeps its whole row, so its press highlight is the same pill both ways;
         // its card follows 4 pt under that row (owner, 2026-10-30: cut 4 pt under the words, the highlight lay over the
-        // card). An opened group's members are the rows after it (UpdateMemberCell.swift).
+        // card). A group's members are in its sheet (UpdatesSheet.swift).
         var height = top + rowH
         var cardFrame = CGRect.zero
         var stepLines: [(String, String?, CGRect, Bool, Bool)] = []
@@ -1419,8 +1416,8 @@ nonisolated enum TextLayout {
         if expanded {
             // [updates] Under a centred line the card is centred too (on the Mac it sat at the column's left, under a line
             // centred in the whole width), 4 pt under it.
-            let cardW = centered ? UpdateMemberLayouts.cardWidth(width) : replyWidth(width)
-            let cardX = centered ? UpdateMemberLayouts.cardX(width) : ChatMetrics.sideInset
+            let cardW = centered ? UpdateCard.width(width) : replyWidth(width)
+            let cardX = centered ? UpdateCard.x(width) : ChatMetrics.sideInset
             var y: CGFloat = 0
             if let thought {
                 let tk = TextKitLayout(askedText(asked, then: resultText(thought, links: thoughtLinks, style: style), style: style),
@@ -1452,9 +1449,9 @@ nonisolated enum TextLayout {
                 }
             }
             if centered {
-                // 4 pt under its line's row, as an opened group's card is.
+                // 4 pt under its line's row.
                 cardFrame = CGRect(x: cardX, y: height + 4, width: cardW, height: ceil(y))
-                height = cardFrame.maxY + UpdateMemberLayouts.after
+                height = cardFrame.maxY + UpdateCard.after
             } else {
                 cardFrame = CGRect(x: cardX, y: height + 2, width: cardW, height: ceil(y))
                 height += 2 + ceil(y) + 8
@@ -1761,5 +1758,22 @@ nonisolated enum RetryCapsuleMetrics {
         let g = glyph(style)
         let height = max(g, ceil(f.lineHeight * 1.5)) + 4
         return CGSize(width: ceil(padH + g + gap + label + padH), height: height)
+    }
+}
+
+/// [updates] The card a centred line of one update opens on its words, under the line.
+nonisolated enum UpdateCard {
+    /// Under the card: as far from the next row as a closed line's words are.
+    static let after: CGFloat = 12
+
+    /// The reply column less 12 pt each side, so its edges don't line up with the bubbles' and it doesn't read as one
+    /// more bot bubble (review 2026-10-28). [desktoplook] Replies have no bubble there and run from the text margin:
+    /// the card is the reply column itself, so its edge sits on the text's grid (review 2026-10-28).
+    static func width(_ width: CGFloat) -> CGFloat {
+        HQShape.plainReplies ? TextLayout.replyWidth(width) : max(0, TextLayout.replyWidth(width) - 24)
+    }
+
+    static func x(_ width: CGFloat) -> CGFloat {
+        HQShape.plainReplies ? ChatMetrics.sideInset : ((width - self.width(width)) / 2).rounded()
     }
 }

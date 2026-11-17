@@ -190,8 +190,8 @@ fought the chat's scroll. Mac audit #11 (2026-11-02) rebuilt F18 on today's rend
 - **Press and drag** across a message's text: the press picks the message and the caret spot under it, the drag moves
   the other end. It runs across the message's blocks (prose, quote, code card, list); a drag past the message runs to
   its start or end. One message at a time (not across messages).
-- **Folded replies** (an exchange's or update group's member, `UpdateMemberCell`): its opened words select the same
-  way; a click still folds it (or, with a selection, puts it away).
+- **Folded replies** (an exchange's or update group's member, a card in the group's sheet, `UpdateCardCell` in
+  `UpdatesSheet.swift`): its words select the same way.
 - **The highlight** is the theme's tint under a reply (as iOS's own selection), white at 35 % under your own bubble.
   It is kept per piece, so it survives a piece being redrawn or scrolled off and back (not the row being reused).
 - **⌘C** (Edit › Copy) and **right-click › Copy** copy plain words: a link as its words, a code span or formula selected
@@ -212,7 +212,7 @@ fought the chat's scroll. Mac audit #11 (2026-11-02) rebuilt F18 on today's rend
   as a finger's (no `UIApplicationSupportsIndirectInputEvents`), so a drag on a bubble can't be told from a scroll.
 - Code: `App/Chat/Render/MessageSelection.swift` (the pure rules), `App/Chat/Cells/ChatTextSelection.swift` (the drag,
   Copy, Select All, the click away, the chat scroll's guard), hooks in `BlockView` (`ChatTextViews.swift`),
-  `ChatBubbleCell`, `UpdateMemberCell` and `ChatTableView`.
+  `ChatBubbleCell`, `UpdateCardCell` and `ChatTableView`.
 - Check: `-HQDebugMacShots <name> -HQDebugMacShotsSelect YES` (signed in to the stand-in) selects part of the first
   bot's biggest reply through the drag's own code, then ⌘C, ⌘A, a click away, the composer case, your own bubble and an
   opened folded reply, and writes each picture and `<name>-select.txt` (selected words, first responder, pasteboard).

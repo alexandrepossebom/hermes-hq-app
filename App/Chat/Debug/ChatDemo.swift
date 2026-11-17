@@ -20,8 +20,8 @@ import UIKit
 /// - `-HQDemoOpenIndex <i>` which list entry `-HQDemoAutoOpen` opens; `-HQDemoThenOpen <i>` pops and opens another
 ///   (entry 3 "Other bot" has the same message ids as entry 1 with different words: the cache-scope check)
 /// - `-HQDemoUpdates` / `-HQDemoBotTalk` the [updates] threads (BotTalk: Inbox's chat with Hermes, the owner's
-///   2026-10-28 screenshots); `-HQDemoOpenGroups` opens every grouped line, `-HQDemoOpenMember <n>` then opens the
-///   first group's n-th member (1 = the top one); `-HQDemoBotExchange` Hermes and Home's back-and-forth (2026-10-29)
+///   2026-10-28 screenshots); `-HQDemoOpenGroups` opens the newest grouped line's sheet (`-HQDemoOpenGroup <n>` the
+///   n-th newest), `-HQDemoOpenMember <n>` at its n-th member (1 = the top one); `-HQDemoBotExchange` Hermes and Home's back-and-forth (2026-10-29)
 /// - `-HQDemoIdle` [idle] a bot left alone for ten days: scheduled runs and background updates, one a day (2026-11-10)
 /// - `-HQDemoWorkFold` [files] a long turn of wordless replies that each changed files, between helpers' deliveries (2026-11-10)
 /// - `-HQDemoRestated` Hermes's chat with a request it restated after compressing the chat (2026-10-30)
@@ -246,7 +246,8 @@ final class ChatDemoListViewController: UITableViewController {
         }
         if ChatDemo.flag("-HQDemoVoiceRecordOpen") { chat.debugOpenVoiceRecords() }   // [voice record]
         if ChatDemo.flag("-HQDemoOpenGroups") {   // [updates]
-            chat.debugOpenGroups(member: ChatDemo.argument("-HQDemoOpenMember").flatMap(Int.init))
+            chat.debugOpenGroups(group: ChatDemo.argument("-HQDemoOpenGroup").flatMap(Int.init),
+                                 member: ChatDemo.argument("-HQDemoOpenMember").flatMap(Int.init))
         }
         // Sheets (screenshots): -HQDemoInfoSheet, -HQDemoStepSheet (the newest tool call, with a demo detail).
         if ChatDemo.flag("-HQDemoInfoSheet") {

@@ -1463,40 +1463,6 @@ enum MacShots {
         } else {
             note("5 no own bubble on screen")
         }
-        // 6. An opened folded reply (an exchange's member), when the chat shows one; a closed one is opened first.
-        // The steps above may have moved the chat, so it is paged through until a member shows.
-        let start = list.contentOffset
-        var page = 0
-        while !list.visibleCells.contains(where: { $0 is UpdateMemberCell }), page < 12 {
-            page += 1
-            let maxY = max(-list.adjustedContentInset.top, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)
-            let y = min(maxY, -list.adjustedContentInset.top + CGFloat(page) * list.bounds.height * 0.5)
-            list.setContentOffset(CGPoint(x: start.x, y: y), animated: false)
-            list.layoutIfNeeded()
-            try? await Task.sleep(for: .seconds(0.3))
-        }
-        if !list.visibleCells.contains(where: { ($0 as? UpdateMemberCell)?.debugOpenedWords != nil }),
-           let closed = list.visibleCells.compactMap({ $0 as? UpdateMemberCell }).first(where: \.debugOpensToWords) {
-            closed.debugOpen()
-            try? await Task.sleep(for: .seconds(1))
-        }
-        note("6 members: " + list.visibleCells.compactMap { $0 as? UpdateMemberCell }
-            .map { $0.debugOpenedWords != nil ? "open" : $0.debugOpensToWords ? "closed" : "line" }.joined(separator: ", "))
-        if let member = list.visibleCells.compactMap({ $0 as? UpdateMemberCell }).first(where: { $0.debugOpenedWords != nil }),
-           let words = member.debugOpenedWords, let sel = member.debugSelector {
-            let host = member.debugHost
-            UIPasteboard.general.string = ""
-            _ = sel.begin(at: words.convert(CGPoint(x: 2, y: 4), to: host))
-            sel.move(to: words.convert(CGPoint(x: words.bounds.width * 0.5, y: words.bounds.height - 4), to: host))
-            sel.end()
-            try? await Task.sleep(for: .seconds(0.5))
-            shoot(window, to: folder.appending(path: "\(name)-6-folded-reply.png"))
-            UIApplication.shared.sendAction(#selector(UIResponderStandardEditActions.copy(_:)), to: nil, from: nil, for: nil)
-            note("6 folded reply: selected \(shown(sel.selectedText)), ⌘C pasteboard \(shown(UIPasteboard.general.string))")
-            sel.clear()
-        } else {
-            note("6 no opened folded reply on screen")
-        }
         save()
         AppLog.note("debug", "mac select shots written to \(folder.path)")
         try? await Task.sleep(for: .seconds(2))   // the last upload (-HQDebugMacShotsPost) lands before the app quits

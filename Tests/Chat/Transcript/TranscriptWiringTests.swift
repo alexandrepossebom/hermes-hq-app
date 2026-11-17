@@ -9,11 +9,15 @@ import UIKit
     static let ivy = DeliveryMessages.Seat(profile: "ivy", name: "Ivy", head: nil)
     static let own = DeliveryMessages.Seat(profile: "default", name: "Hermes", head: nil)
 
-    static func rows(_ messages: [ChatMessage], running: Bool = false, expanded: Set<String> = []) -> [ChatRow] {
+    static func input(_ messages: [ChatMessage], running: Bool = false, expanded: Set<String> = []) -> ChatRowBuilder.Input {
         let cron = CronDeliveries.resolve(messages, roster: [own, ivy], own: own)
         let shown = TurnErrors.withoutDuplicateTurnErrors(TimelineNotes.resolve(cron.messages))
         #expect(shown.count == messages.count, "the display pass keeps every position")
-        return ChatRowBuilder.build(ChatRowBuilder.Input(messages: shown, isRunning: running, botName: "Hermes", expanded: expanded, scope: "t"))
+        return ChatRowBuilder.Input(messages: shown, isRunning: running, botName: "Hermes", expanded: expanded, scope: "t")
+    }
+
+    static func rows(_ messages: [ChatMessage], running: Bool = false, expanded: Set<String> = []) -> [ChatRow] {
+        ChatRowBuilder.build(input(messages, running: running, expanded: expanded))
     }
 
     static func bubbles(_ rows: [ChatRow]) -> [BubbleRow] {
@@ -86,11 +90,15 @@ import UIKit
     }
 
     @Test func modelSwitchAndProcessNoteReadInWords() {
-        let rows = Self.rows([
+        let input = Self.input([
             ChatMessage(id: "m", role: .user, parts: [.text("[System: The active model for this chat has changed to zz-unknown-9 via provider x. From this point on, answer as it.]")]),
             ChatMessage(id: "p", role: .user, parts: [.text("[IMPORTANT: Background process 4412 finished with exit code 0]")]),
-        ], expanded: ["m|grp"])   // [updates] the two fold into one group; opened, each is a row of its card
-        let members = rows.compactMap { if case .updateMember(let m) = $0.kind { return m } else { return nil } }
+        ])
+        let rows = ChatRowBuilder.build(input)
+        // [updates] the two fold into one group; each is a member of its sheet (UpdatesSheet.swift)
+        let line = rows.first { $0.id == "m|grp" }
+        #expect(line != nil)
+        let members = line.flatMap { UpdateGroups.opened(line: $0.id, messageId: $0.messageId, input: input) }?.members ?? []
         // The id is shown under the name the model picker gives it (`ModelNames.displayModelName`).
         #expect(members.filter(\.notice).map(\.title) == ["Model changed to \(ModelNames.displayModelName("zz-unknown-9"))"])
         // The process note is a row that opens on the gateway's line (its id and exit code).

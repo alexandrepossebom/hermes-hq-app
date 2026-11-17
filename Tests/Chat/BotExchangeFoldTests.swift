@@ -41,8 +41,10 @@ struct BotExchangeFoldTests {
         rows.compactMap { if case .backgroundResult(let b) = $0.kind { return ($0.id, b) } else { return nil } }
     }
 
-    private func members(_ rows: [ChatRow]) -> [(id: String, row: UpdateMemberRow, message: String)] {
-        rows.compactMap { if case .updateMember(let m) = $0.kind { return ($0.id, m, $0.messageId) } else { return nil } }
+    /// What the sheet of the line `id` shows (UpdatesSheet.swift): the line is found in the rows, as a tap on it does.
+    private func members(_ input: ChatRowBuilder.Input, line id: String) -> [UpdateMemberRow] {
+        guard let line = ChatRowBuilder.build(input).first(where: { $0.id == id }) else { return [] }
+        return UpdateGroups.opened(line: line.id, messageId: line.messageId, input: input)?.members ?? []
     }
 
     private func bubbles(_ rows: [ChatRow]) -> [String] { rows.filter(\.isBubble).map(\.id) }
@@ -179,9 +181,9 @@ struct BotExchangeFoldTests {
         let line = try #require(lines(rows).last)
         #expect(line.row.title == "With Home")
         #expect(line.row.group?.tail == "2 messages")
-        let opened = members(ChatRowBuilder.build(input(chat, expanded: [line.id])))
-        #expect(opened.map(\.row.title) == ["From Home", "Hermes"])
-        #expect(opened.last?.row.full.hasPrefix("Thanks, Home.") == true)
+        let opened = members(input(chat), line: line.id)
+        #expect(opened.map(\.title) == ["From Home", "Hermes"])
+        #expect(opened.last?.full.hasPrefix("Thanks, Home.") == true)
 
         // News the other bot brought back, when this bot had asked it, is for you: it keeps its bubble, also when it
         // names the bot.
@@ -227,8 +229,8 @@ struct BotExchangeFoldTests {
         let line = try #require(lines(rows).last)
         #expect(line.row.title == "With Home")
         #expect(line.row.group?.tail == "2 messages")
-        let opened = members(ChatRowBuilder.build(input(chat, expanded: [line.id])))
-        #expect(opened.map(\.row.title) == ["From Home", "Hermes"])
+        let opened = members(input(chat), line: line.id)
+        #expect(opened.map(\.title) == ["From Home", "Hermes"])
 
         // A short answer folds too, and your next message's answer stays.
         let short = chat.map { $0.id == "a3" ? m("a3", .assistant, "Still on hold; no route to the image.", -60) : $0 }
@@ -323,31 +325,34 @@ struct BotExchangeFoldTests {
         }
     }
 
-    /// Opened, the card reads as the exchange did: who wrote, to whom, in order, Hermes's replies under its own name
-    /// and face, each opening on its whole words.
+    /// Opened, the sheet reads as the exchange did: who wrote, to whom, in order, Hermes's replies under its own name
+    /// and face, each with its whole words.
     @Test func openedCardReadsAsTheExchange() throws {
         let rows = ChatRowBuilder.build(input(flowers, expanded: ["fx-a1|grp"]))
-        let found = members(rows)
-        #expect(found.map(\.row.title) == [
+        let found = members(input(flowers), line: "fx-a1|grp")
+        #expect(found.map(\.title) == [
             "To Home", "Hermes", "From Home", "To Home", "Hermes", "From Home", "To App", "To Home", "Hermes",
             "From Home", "To Home", "Hermes", "From App", "Hermes", "From Home", "Hermes", "From Home", "To Home",
         ])
         let reply = try #require(found.first { $0.id == "fx-a4|b1|in" })
-        #expect(reply.message == "fx-a4")
-        #expect(reply.row.preview.hasPrefix("Correction: the watch’s first scheduled run didn’t actually check the camera"))
-        #expect(reply.row.full.contains("**didn’t actually check the camera**"), "it opens formatted")
-        #expect(reply.row.result?.result == reply.row.full, "Copy and Read Aloud read its words")
-        if case .face(let f) = reply.row.mark { #expect(f.name == "Hermes") } else { Issue.record("expected Hermes's face") }
-        // The last update stays below the card.
-        let last = try #require(rows.firstIndex { $0.id == found.last?.id })
-        #expect(rows[last + 1].id == "fx-a7|b1")
+        #expect(reply.messageId == "fx-a4")
+        #expect(reply.preview.hasPrefix("Correction: the watch’s first scheduled run didn’t actually check the camera"))
+        #expect(reply.full.contains("**didn’t actually check the camera**"), "it shows formatted")
+        #expect(reply.result?.result == reply.full, "Copy and Read Aloud read its words")
+        if case .face(let f) = reply.mark { #expect(f.name == "Hermes") } else { Issue.record("expected Hermes's face") }
+        // The last update stays right below the line: the members are in the sheet, not rows of the chat.
+        let line = try #require(rows.firstIndex { $0.id == "fx-a1|grp" })
+        #expect(rows[line + 1].id == "fx-a7|b1")
 
+        // (A member's own `expanded` flag went with the in-chat card: the sheet shows every member's whole words,
+        // UpdatesSheet.swift.) The old opened keys change no row, and no member id is said twice.
         let opened = ChatRowBuilder.build(input(flowers, expanded: ["fx-a1|grp", "fx-a4|b1|in"]))
-        #expect(members(opened).first { $0.id == "fx-a4|b1|in" }?.row.expanded == true)
+        #expect(opened.map(\.id) == ChatRowBuilder.build(input(flowers)).map(\.id))
         #expect(Set(opened.map(\.id)).count == opened.count)
+        #expect(Set(found.map(\.id)).count == found.count)
     }
 
-    /// Find landing on a folded reply opens its line and its card row; the last reply needs nothing opened.
+    /// Find landing on a folded reply opens its line's sheet at its member; the last reply needs nothing opened.
     @Test func findOpensAFoldedReply() throws {
         let rowsInput = input(flowers)
         let a4 = try #require(rowsInput.messages.firstIndex { $0.id == "fx-a4" })
@@ -355,13 +360,15 @@ struct BotExchangeFoldTests {
         let open = UpdateGroups.opening(rowId: "fx-a4|b1", message: a4, input: rowsInput)
         #expect(open?.line == "fx-a1|grp" && open?.member == "fx-a4|b1|in")
         #expect(UpdateGroups.opening(rowId: "fx-a7|b1", message: a7, input: rowsInput) == nil)
-        // Every bubble Find counts is drawn, or opens to a card row that is.
-        let opened = ChatRowBuilder.build(input(flowers, expanded: [open?.line ?? "", open?.member ?? ""]))
-        #expect(opened.contains { $0.id == "fx-a4|b1|in" })
+        // Every bubble Find counts is drawn, or opens to a member of a line's sheet that is there.
+        #expect(members(rowsInput, line: open?.line ?? "").contains { $0.id == open?.member })
+        let drawnRows = ChatRowBuilder.build(rowsInput)
         for unit in ChatFind.units(rowsInput.messages) {
             guard let at = rowsInput.messages.firstIndex(where: { $0.id == unit.messageId }) else { continue }
-            let drawn = ChatRowBuilder.build(rowsInput).contains { $0.id == unit.rowId }
-            #expect(drawn || UpdateGroups.opening(rowId: unit.rowId, message: at, input: rowsInput) != nil, "\(unit.rowId)")
+            if drawnRows.contains(where: { $0.id == unit.rowId }) { continue }
+            let folded = UpdateGroups.opening(rowId: unit.rowId, message: at, input: rowsInput)
+            #expect(folded != nil, "\(unit.rowId)")
+            if let folded { #expect(members(rowsInput, line: folded.line).contains { $0.id == folded.member }, "\(unit.rowId)") }
         }
     }
 
@@ -374,8 +381,7 @@ struct BotExchangeFoldTests {
         writing.isStreaming = true
         let rows = ChatRowBuilder.build(input(upTo + [writing], running: true))
         #expect(bubbles(rows).suffix(2) == ["fx-u2|b0", "fx-a2|b1"])
-        #expect(members(ChatRowBuilder.build(input(upTo + [writing], expanded: ["fx-a1|grp"], running: true)))
-            .map(\.id).contains("fx-a1|b1|in"))
+        #expect(members(input(upTo + [writing], running: true), line: "fx-a1|grp").map(\.id).contains("fx-a1|b1|in"))
     }
 
     /// What Hermes said before it began talking with another bot keeps its bubble. Its reply to a bot that wrote in
@@ -423,7 +429,8 @@ struct BotExchangeFoldTests {
     }
 
     /// The model's rebuilds draw what a full build draws: messages arriving one by one (each new reply folding the one
-    /// before), any one message changing, and taps on the line and its members.
+    /// before), any one message changing, and the old in-chat card's opened keys set (they change no row now: the line
+    /// opens a sheet, UpdatesSheet.swift).
     @Test func incrementalEqualsFull() {
         func ids(_ rows: [ChatRow]) -> [String] { rows.map { "\($0.id)#\($0.fingerprint)#\($0.variant)#\($0.gapAbove)" } }
         for thread in [flowers, afternoon] {
@@ -449,13 +456,15 @@ struct BotExchangeFoldTests {
             var open = Set<String>()
             var model = ChatRowModel()
             model.rebuildAll(input(thread, style: style), syncMessages: 100, oldestShown: nil)
+            // The members ("fx-a4|b1|in", "fx-d3|dl|in") are no longer rows: their keys ride along with the line's.
             for id in ["fx-a1|grp", "fx-a4|b1|in", "fx-d3|dl|in"] {
                 open.insert(id)
                 let full = input(thread, expanded: open, style: style)
-                guard let row = model.allRows.first(where: { $0.id == id }),
+                guard let row = model.allRows.first(where: { $0.id == "fx-a1|grp" }),
                       let k = thread.firstIndex(where: { $0.id == row.messageId }) else {
-                    Issue.record("\(style): no row \(id)"); continue
+                    Issue.record("\(style): no line row"); continue
                 }
+                #expect(!model.allRows.contains { $0.id.hasSuffix(UpdateGroups.memberSuffix) }, "\(style): a member is not a row")
                 model.rebuildMessages(full, k...k)
                 #expect(ids(model.allRows.reversed()) == ids(ChatRowBuilder.build(full)), "\(style) toggling \(id)")
             }

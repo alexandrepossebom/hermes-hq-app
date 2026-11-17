@@ -42,6 +42,15 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     var moreMenu: UIMenu? { didSet { updateMoreButton() } }
     /// MENUS (spec 1x): the ⋯ menu's provider, the commands and Models sheets, hold menus (App/Chat/Menus/ChatMenus.swift).
     var menus: ChatMenus?
+    /// [updates] The open sheet of a group's line and that line (ChatViewController+Updates.swift): kept current as
+    /// the chat moves on.
+    weak var updatesSheet: UpdatesSheetViewController?
+    var updatesLine: (id: String, messageId: String)?
+    /// [updates] Find's current match is a reply folded into this line: the line's sheet opens at it.
+    var updatesFound: (line: String, member: String)?
+    /// [updates] An open sheet is brought up to date at most this often (a reply being written changes the chat's
+    /// rows many times a second).
+    var updatesRefreshQueued = false
     /// [mac-layout] The Chat Info rows for the Mac's inspector (set where the Info sheet is made).
     var makeInfoContent: (() -> UIViewController?)?
     /// MENUS: Find in chat, made on first use (App/Chat/Find/ChatFindController.swift).
@@ -216,11 +225,11 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     // MARK: Rows
 
     /// Built rows and how many the table shows (see `ChatRowModel`).
-    private var model = ChatRowModel()
+    private(set) var model = ChatRowModel()
     /// The table's rows (newest first) and their layouts.
-    private var rows: [ChatRow] = []
+    private(set) var rows: [ChatRow] = []
     private var layouts: [RowLayout] = []
-    private var expanded: Set<String> = []
+    private(set) var expanded: Set<String> = []
     private var style: ChatStyle
     private var layoutWidth: CGFloat
     private let details: ChatSessionDetails?
@@ -479,7 +488,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// /btw answers already opened as they landed (once: one closed stays closed).
     private var openedAsides: Set<String> = []
 
-    private func input() -> ChatRowBuilder.Input {
+    func input() -> ChatRowBuilder.Input {
         // [groups] A delivery from another bot draws as that bot's incoming bubble (docs/spec/3x-groups.md §7.12).
         var messages = session.messages
         if !(session is ChatRoomSurface) {
@@ -636,7 +645,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         tableView.register(ChatActionsCell.self, forCellReuseIdentifier: ChatActionsCell.reuse)
         tableView.register(ChatPromptCell.self, forCellReuseIdentifier: ChatPromptCell.reuse)   // [questions]
         tableView.register(ChatReactionsCell.self, forCellReuseIdentifier: ChatReactionsCell.reuse)
-        tableView.register(UpdateMemberCell.self, forCellReuseIdentifier: UpdateMemberCell.reuse)   // [updates]
         // [activity] Here, not only in `activity.install`: the rows (a subagent card among them) exist from init, and
         // a layout before the install asked for a cell nobody had registered (build 294 crash, chat opened from a
         // notification).
@@ -2048,7 +2056,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         switch row.kind {
         case .bubble: reuse = ChatBubbleCell.reuse
         case .toolRun, .thought, .backgroundResult: reuse = ChatToolCell.reuse
-        case .updateMember: reuse = UpdateMemberCell.reuse                                     // [updates]
         case .day, .notice, .caption, .stoppedEarly, .sendState, .slashOutput: reuse = ChatLineCell.reuse
         case .error: reuse = ChatErrorCell.reuse
         case .waiting: reuse = ChatWaitingCell.reuse
@@ -2181,6 +2188,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         default: break
         }
         activity.sessionChanged()        // [activity] the live Steps sheet, an open step sheet
+        refreshUpdatesSheet()            // [updates] an open group's sheet
         voice.talkSessionChanged()       // [talk] Read Replies Aloud reads a reply that completes on screen
         // MENUS: Find follows the transcript, and its Search Earlier row the paging state.
         if case .state = change { findController?.sessionStateChanged() } else { findController?.messagesChanged() }
@@ -2497,7 +2505,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         case .toolRun(let t): return 80 + t.tools.reduce(0) { $0 + min($1.argsText?.utf8.count ?? 0, ChatRunSummary.argsParseLimit) }
         case .thought(let t): return 80 + (t.expanded ? t.text.utf8.count : 0)
         case .backgroundResult(let b): return 80 + (b.expanded ? b.result.utf8.count : 0)
-        case .updateMember(let m): return 120 + (m.expanded ? m.full.utf8.count : 0)
         default: return 80
         }
     }
@@ -4003,9 +4010,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             chatCellOpenStep(rowId: rowId, index: 0)
             return
         }
-        // [updates] A work line in an opened group acts as its One Line row: one step opens its sheet.
-        if case .updateMember(let member) = row.kind, member.steps.count == 1, member.thought == nil {
-            chatCellOpenStep(rowId: rowId, index: 0)
+        // [updates] A group's line opens its sheet (ChatViewController+Updates.swift); the chat stays as it is.
+        if case .backgroundResult(let line) = row.kind, (line.group?.count ?? 1) > 1 {
+            presentUpdates(line: row)
             return
         }
         if expanded.contains(rowId) { expanded.remove(rowId) } else { expanded.insert(rowId) }
@@ -4033,16 +4040,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     func chatCellOpenStep(rowId: String, index: Int) {
         guard let row = rows.first(where: { $0.id == rowId }) else { return }
-        // [files] A folded "N files changed" member: one of its files, or its last row, Review Changes.
-        if case .updateMember(let member) = row.kind, !member.files.isEmpty {
-            if index < member.files.count { activityCellOpenFile(path: member.files[index].path) }
-            else { activityCellReviewChanges(highlighting: nil) }
-            return
-        }
         let tools: [ToolCall]
         switch row.kind {
         case .toolRun(let run): tools = run.tools
-        case .updateMember(let member): tools = member.steps                       // [updates] a work line in a group
         default: return
         }
         guard index < tools.count else { return }
@@ -4444,6 +4444,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         findInset = 0
         NSLayoutConstraint.activate([noticeTop(under: statusPill)])
         pendingFindRow = nil
+        updatesFound = nil
         updateInsets()
         UIView.animate(withDuration: HQMotion.reduced ? 0 : 0.2, animations: { bar.alpha = 0 }) { _ in
             bar.removeFromSuperview()
@@ -4472,15 +4473,17 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// the current occurrence lands a third of the way down the room between the find bar and the composer.
     func revealFindMatch(_ match: ChatFindMatch) {
         var target = findController?.drawnPlace(of: match).rowId ?? match.rowId
-        // [exchange] A reply folded into a talk between bots: its line and its card row open, and Find goes there.
+        // [exchange] A reply folded into a talk between bots: Find goes to its line; a tap on the line then opens its
+        // sheet at that reply. (The sheet doesn't open by itself: it would cover Find's own Next and Previous at
+        // every folded match.)
+        var folded = false
         if let at = session.messages.lastIndex(where: { $0.id == match.messageId }),
            let open = UpdateGroups.opening(rowId: match.rowId, message: at, input: input()) {
-            target = open.member
-            if !expanded.isSuperset(of: [open.line, open.member]) {
-                expanded.formUnion([open.line, open.member])
-                model.rebuildMessages(input(), at...at)
-            }
+            target = open.line
+            folded = true
+            updatesFound = (open.line, open.member)
         }
+        if !folded { updatesFound = nil }
         pendingFindRow = target
         if rows.contains(where: { $0.id == target }) {
             scrollToPendingFind()
@@ -4493,7 +4496,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             model.rebuildAll(input(), syncMessages: Self.syncBuildMessages, oldestShown: match.messageId)
             model.reveal(20)
             // Its rows exist now: the bubble that draws the match (a later part joined into an earlier one).
-            pendingFindRow = findController?.drawnPlace(of: match).rowId ?? target
+            pendingFindRow = folded ? target : findController?.drawnPlace(of: match).rowId ?? target
         } else {
             pendingFindRow = nil
             return
@@ -4755,20 +4758,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         return { gate.signal() }
     }
 
-    /// [updates] Opens every grouped line (screenshots: `-HQDemoOpenGroups`); `member` (1 = the top one) then opens
-    /// that member of the first group (`-HQDemoOpenMember <n>`).
-    func debugOpenGroups(member: Int?) {
-        for row in model.allRows where row.id.hasSuffix(UpdateGroups.lineSuffix) { expanded.insert(row.id) }
-        activityRebuildAll()
-        guard let member else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            guard let self, let line = self.model.allRows.lastIndex(where: { $0.id.hasSuffix(UpdateGroups.lineSuffix) }) else { return }
-            // Newest first: the first line's members sit just before it, the top one nearest.
-            let members = Array(self.model.allRows[..<line].reversed().prefix { if case .updateMember = $0.kind { return true } else { return false } })
-            guard member >= 1, member <= members.count, case .updateMember = members[member - 1].kind else { return }
-            self.expanded.insert(members[member - 1].id)
-            self.activityRebuildAll()
-        }
+    /// [updates] Opens the sheet of a grouped line (screenshots: `-HQDemoOpenGroups`): the newest one, or with
+    /// `-HQDemoOpenGroup <n>` the n-th newest (1 = the newest). `-HQDemoOpenMember <n>` opens it at its n-th member.
+    func debugOpenGroups(group: Int?, member: Int?) {
+        let lines = model.allRows.filter { $0.id.hasSuffix(UpdateGroups.lineSuffix) }   // newest first
+        let n = max(1, group ?? 1)
+        guard n <= lines.count else { return }
+        let line = lines[n - 1]
+        guard let opened = UpdateGroups.opened(line: line.id, messageId: line.messageId, input: input()) else { return }
+        let at = member.flatMap { $0 >= 1 && $0 <= opened.members.count ? opened.members[$0 - 1].id : nil }
+        openUpdates(lineId: line.id, at: at)
     }
 
     /// [voice record] Opens every voice chat line (screenshots).

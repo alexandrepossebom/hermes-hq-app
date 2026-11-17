@@ -964,19 +964,9 @@ extension ChatViewController {
             action.accessibilityIdentifier = id
             return action
         }
-        var held: BackgroundResultRow?
         switch row.kind {
         case .backgroundResult(let result):
             guard (result.group?.count ?? 1) == 1 else { return nil }   // [updates] a group's line: its members have menus
-            held = result
-        case .updateMember(let member):
-            held = member.result                                         // [updates] a member of an opened group
-        default:
-            break
-        }
-        switch row.kind {
-        case .backgroundResult, .updateMember:
-            guard let result = held else { return nil }
             let text = RowHoldMenu.resultText(title: result.title, result: result.result, delivery: result.delivery || result.cron)
             guard !text.isEmpty else { return nil }
             var children: [UIMenuElement] = [copy("Copy", text, id: "row.copy")]

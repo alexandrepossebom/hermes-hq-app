@@ -330,7 +330,12 @@ import UIKit
                          arrow: UIPopoverArrowDirection = .any, from presenter: UIViewController?,
                          size: CGSize = CGSize(width: 360, height: 520), bar: Bool = true) {
         #if !targetEnvironment(macCatalyst)
-        guard let anchor, SheetStyle.inTwoPanes(presenter), presenter?.presentedViewController == nil else { return }
+        var twoPanes = SheetStyle.inTwoPanes(presenter)
+        #if DEBUG
+        // `-HQDebugPanePopover YES`: as in two panes, for a demo chat (`-HQDemoChat`), which has no tabs to ask.
+        if UserDefaults.standard.bool(forKey: "HQDebugPanePopover"), UIDevice.current.userInterfaceIdiom == .pad { twoPanes = true }
+        #endif
+        guard let anchor, twoPanes, presenter?.presentedViewController == nil else { return }
         if let view = anchor as? UIView, view.window == nil || view.isHidden || view.alpha < 0.05 { return }
         let tall = min(size.height, max(320, (presenter?.viewIfLoaded?.window?.bounds.height ?? 800) - 160))
         next = (anchor, rect, arrow, CGSize(width: size.width, height: tall), bar)

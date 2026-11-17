@@ -62,17 +62,23 @@ struct UpdateGroupsTests {
         #expect(!rows.contains { if case .notice = $0.kind { return true } else { return false } }, "the note is in the group")
     }
 
-    @Test func openedGroupListsEveryMember() {
+    /// What the sheet of the line `id` shows (UpdatesSheet.swift): the line is found in the rows, as a tap on it does.
+    private func opened(_ input: ChatRowBuilder.Input, line id: String) -> UpdatesOpened? {
+        guard let line = ChatRowBuilder.build(input).first(where: { $0.id == id }) else { return nil }
+        return UpdateGroups.opened(line: line.id, messageId: line.messageId, input: input)
+    }
+
+    @Test func openedGroupListsEveryMember() throws {
         let rows = ChatRowBuilder.build(input(thread, expanded: ["n1|grp"]))
-        // [updates] One card row per member under the line, in the chat's order; your messages stay bubbles.
+        // [updates] The chat keeps its one line; your messages stay bubbles.
         #expect(lines(rows).map(\.0) == ["n1|grp"])
-        let members = rows.compactMap { row -> (String, UpdateMemberRow)? in
-            if case .updateMember(let m) = row.kind { return (row.id, m) } else { return nil }
-        }
-        #expect(members.map(\.0) == ["n1|bg|in", "n2|notice|in", "d1|dl|in"])
-        #expect(members.map(\.1.first) == [true, false, false] && members.map(\.1.last) == [false, false, true])
-        #expect(members.map(\.1.title) == ["npm test finished", "Model changed to gpt-5-mini", "From Ivy"])
-        #expect(rows.map(\.messageId).suffix(4) == ["n1", "n2", "d1", "u2"], "each member keeps its own message")
+        #expect(rows.map(\.id) == ChatRowBuilder.build(input(thread)).map(\.id), "the members are in the sheet, not the chat")
+        // One member per update in the line's sheet, in the chat's order.
+        let members = try #require(opened(input(thread), line: "n1|grp")).members
+        #expect(members.map(\.id) == ["n1|bg|in", "n2|notice|in", "d1|dl|in"])
+        // (Their first/last corner flags went with the in-chat card: it is a sheet now, UpdatesSheet.swift.)
+        #expect(members.map(\.title) == ["npm test finished", "Model changed to gpt-5-mini", "From Ivy"])
+        #expect(members.map(\.messageId) == ["n1", "n2", "d1"], "each member keeps its own message")
         #expect(rows.contains { $0.id == "u2|b0" } && rows.contains { $0.id == "u1|b0" })
     }
 
@@ -117,9 +123,8 @@ struct UpdateGroupsTests {
         fewer.messages = messages
         #expect(ChatRowBuilder.build(fewer).contains { if case .day(_, _, let until?) = $0.kind { return $0.id == "c1|day" && until == t0 + 4 * day } else { return false } })
 
-        // Opened, each row says its day.
-        let open = ChatRowBuilder.build(input(messages, expanded: ["c1|grp"]))
-        let days = open.compactMap { row -> String? in if case .updateMember(let m) = row.kind { return m.day } else { return nil } }
+        // Opened, each member says its day.
+        let days = try #require(opened(input(messages), line: "c1|grp")).members.compactMap(\.day)
         #expect(days.count == 4 && Set(days).count == 4)
     }
 

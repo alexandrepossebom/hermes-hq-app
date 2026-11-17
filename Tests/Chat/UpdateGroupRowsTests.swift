@@ -4,7 +4,8 @@ import UIKit
 @testable import HermesHQNative
 
 /// [updates] Row-level groups (docs/briefs/chat-extras-v2.md): the small rows between the real ones fold into one
-/// centred line, wherever they come from (a reply's work line, another bot's message, a note), and open as a card.
+/// centred line, wherever they come from (a reply's work line, another bot's message, a note), and open as a sheet
+/// (UpdatesSheet.swift; its members come from `UpdateGroups.opened`, they are no longer rows of the chat).
 @MainActor
 struct UpdateGroupRowsTests {
     private static let roster = [
@@ -30,8 +31,10 @@ struct UpdateGroupRowsTests {
         rows.compactMap { if case .backgroundResult(let b) = $0.kind { return ($0.id, b) } else { return nil } }
     }
 
-    private func members(_ rows: [ChatRow]) -> [(id: String, row: UpdateMemberRow, message: String)] {
-        rows.compactMap { if case .updateMember(let m) = $0.kind { return ($0.id, m, $0.messageId) } else { return nil } }
+    /// What the sheet of the line `id` shows: the line is found in the chat's rows, as a tap on it does.
+    private func members(_ input: ChatRowBuilder.Input, line id: String) -> [UpdateMemberRow] {
+        guard let line = ChatRowBuilder.build(input).first(where: { $0.id == id }) else { return [] }
+        return UpdateGroups.opened(line: line.id, messageId: line.messageId, input: input)?.members ?? []
     }
 
     private func shape(_ rows: [ChatRow]) -> [String] {
@@ -40,7 +43,6 @@ struct UpdateGroupRowsTests {
             case .bubble: return "bubble"
             case .backgroundResult(let b): return "line \(b.group?.count ?? 0)"
             case .toolRun(let t) where t.line != nil: return "work"
-            case .updateMember: return "member"
             default: return "\(row.kind)".components(separatedBy: "(")[0]
             }
         }
@@ -101,87 +103,50 @@ struct UpdateGroupRowsTests {
         }
     }
 
-    /// Opened: a card row per member, in the chat's order, each owned by its own message; the last bubble stays.
+    /// Opened: a member per update in the sheet, in the chat's order, each owned by its own message; the chat's rows
+    /// stay as they were, the last bubble right under the line.
     @Test func openedMembersKeepTheirOrderAndMessages() throws {
         let closed = ChatRowBuilder.build(input(talk))
         let line = try #require(lines(closed).first { ($0.row.group?.count ?? 0) == 8 })
         let rows = ChatRowBuilder.build(input(talk, expanded: [line.id]))
-        let found = members(rows)
-        #expect(found.map(\.message) == ["bt-d1", "bt-a2", "bt-a2", "bt-a2", "bt-a2", "bt-r1", "bt-n1", "bt-a3"])
+        let found = members(input(talk), line: line.id)
+        #expect(found.map(\.messageId) == ["bt-d1", "bt-a2", "bt-a2", "bt-a2", "bt-a2", "bt-r1", "bt-n1", "bt-a3"])
         #expect(found.map(\.id) == ["bt-d1|dl|in", "bt-a2|line|in", "bt-a2|dm3|in", "bt-a2|dm5|in", "bt-a2|b6|in", "bt-r1|dl|in",
                                     "bt-n1|bg|in", "bt-a3|dm0|in"])
-        #expect(found.map(\.row.first) == [true] + Array(repeating: false, count: 7))
-        #expect(found.map(\.row.last) == Array(repeating: false, count: 7) + [true])
-        #expect(found.map(\.row.title)[4...] == ["Inbox", "From Hermes", "Helper finished", "To Hermes"])
-        #expect(found[5].row.preview.hasPrefix("Inbox found something worth attention"))
-        #expect(found[4].row.preview.hasPrefix("The fresh iCloud check found a new operational warning"))
-        // The bubble after the run is still there, right after the last member.
-        let last = try #require(rows.firstIndex { $0.id == "bt-a3|dm0|in" })
-        #expect(rows[last + 1].messageId == "bt-a3")
-        if case .bubble = rows[last + 1].kind {} else { Issue.record("expected the reply's bubble after the card") }
-        #expect(shape(rows).filter { $0 == "bubble" }.count == shape(closed).filter { $0 == "bubble" }.count)
+        // (The members' first/last corner flags went with the in-chat card: it is a sheet now, UpdatesSheet.swift.)
+        #expect(found.map(\.title)[4...] == ["Inbox", "From Hermes", "Helper finished", "To Hermes"])
+        #expect(found[5].preview.hasPrefix("Inbox found something worth attention"))
+        #expect(found[4].preview.hasPrefix("The fresh iCloud check found a new operational warning"))
+        // The bubble after the run is still there, right after the line: no member is a row of the chat.
+        let at = try #require(rows.firstIndex { $0.id == line.id })
+        #expect(rows[at + 1].messageId == "bt-a3")
+        if case .bubble = rows[at + 1].kind {} else { Issue.record("expected the reply's bubble after the line") }
+        #expect(shape(rows) == shape(closed))
 
-        // A member opens on its whole formatted text.
-        let opened = ChatRowBuilder.build(input(talk, expanded: [line.id, "bt-n1|bg|in"]))
-        let helper = try #require(members(opened).first { $0.id == "bt-n1|bg|in" })
-        #expect(helper.row.expanded && helper.row.full.contains("Gmail overview"))
-        let layout = TextLayout.layout(try #require(opened.first { $0.id == "bt-n1|bg|in" }), width: 390,
-                                       style: ChatStyle.make(category: .large))
-        guard case .member(let m) = layout.content else { Issue.record("expected a member layout"); return }
-        #expect(m.full != nil && m.card.width <= 390)
+        // A member holds its whole formatted text (it needs no second tap: the sheet shows it).
+        let helper = try #require(found.first { $0.id == "bt-n1|bg|in" })
+        #expect(helper.full.contains("Gmail overview"))
+        // (The opened member's in-chat layout, `UpdateMemberLayout`, is gone: the card is a sheet, UpdatesSheet.swift.)
 
-        // The reply's work line, a member of the first run, opens on its steps.
-        let first = ChatRowBuilder.build(input(talk, expanded: ["bt-d1|grp"]))
-        let work = try #require(members(first).first { $0.id == "bt-a2|line|in" })
-        #expect(work.row.steps.count > 1 && work.row.opens)
+        // The reply's work line, a member of the first run, holds its steps.
+        let first = members(input(talk), line: "bt-d1|grp")
+        let work = try #require(first.first { $0.id == "bt-a2|line|in" })
+        #expect(work.steps.count > 1)
         // Its title is its time alone; what it did and its helpers are the preview (review 2026-10-28: "Worked for 8s ·
         // 3 steps · 1 helper" pushed its time under it and disagreed with the four steps listed).
-        #expect(work.row.title.hasPrefix("Worked ") && !work.row.title.contains(" · "))
-        #expect(work.row.preview == UpdateGroups.counted(ChatRunSummary.summarize(work.row.steps, live: false) + " · 1 helper"))
+        #expect(work.title.hasPrefix("Worked ") && !work.title.contains(" · "))
+        #expect(work.preview == UpdateGroups.counted(ChatRunSummary.summarize(work.steps, live: false) + " · 1 helper"))
         // A count never breaks from its noun ("1 task").
-        #expect(work.row.preview.contains("1\u{00A0}helper") && !work.row.preview.contains("1 "))
-        // Every member's time ends at the same edge, a caret or not (the caret's slot is kept on each row).
-        let style = ChatStyle.make(category: .large)
-        let ends = first.filter { if case .updateMember = $0.kind { true } else { false } }.compactMap { row -> CGFloat? in
-            guard case .member(let m) = TextLayout.layout(row, width: 390, style: style).content, m.time != nil else { return nil }
-            return m.timeFrame.maxX
+        #expect(work.preview.contains("1\u{00A0}helper") && !work.preview.contains("1 "))
+        // (Where each member's time sat in the in-chat card, and how it shortened at accessibility sizes, went with
+        // `UpdateMemberLayout`: the sheet's card sets its time in a label beside the title, UpdatesSheet.swift.)
+        // Every member says its time: the clock alone for a run within one day.
+        #expect(first.count == 8)
+        for member in first {
+            let clock = try #require(member.time.map { ChatRowBuilder.clock($0) })
+            #expect(member.day == nil && UpdateTimes.words(member) == clock)
         }
-        #expect(ends.count == 8 && Set(ends).count == 1)
-        // At accessibility sizes the time stays beside its title or goes: the whole time if it fits, else the short one,
-        // else none, never on a line of its own (review 2026-10-28: "11:23 PM" alone on a line under the preview).
-        // Same rule in both looks.
-        for desktop in [false, true] {
-            var state = ThemeTable.current.state
-            state.desktopLook = desktop
-            state.highContrast = false
-            try ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
-            #expect(HQShape.plainReplies == desktop)
-            for category in [UIContentSizeCategory.accessibilityExtraLarge, .accessibilityExtraExtraExtraLarge] {
-                let xl = ChatStyle.make(category: category)
-                let xlMembers = first.compactMap { row -> (UpdateMemberLayout, UpdateMemberRow)? in
-                    guard case .updateMember(let member) = row.kind,
-                          case .member(let m) = TextLayout.layout(row, width: 390, style: xl).content else { return nil }
-                    return (m, member)
-                }
-                #expect(xlMembers.count == 8)
-                for (m, member) in xlMembers {
-                    guard let time = m.time else {
-                        #expect(m.timeFrame == .zero)
-                        continue
-                    }
-                    let clock = try #require(member.time.map { ChatRowBuilder.clock($0) })
-                    #expect(time == clock || time == UpdateMemberLayouts.shortClock(clock))
-                    // On the title's line, clear of the title, and never below it.
-                    #expect(m.timeFrame.minY < m.titleFrame.maxY && m.timeFrame.maxY > m.titleFrame.minY)
-                    #expect(m.timeFrame.minX >= m.titleFrame.minX + ceil((m.title as NSString).size(withAttributes: [.font: xl.tool]).width))
-                    #expect(m.previewFrame == .zero || m.timeFrame.maxY <= m.previewFrame.minY)
-                }
-                let shown = xlMembers.compactMap { $0.0.time == nil ? nil : $0.0.timeFrame.maxX }
-                #expect(Set(shown).count <= 1)
-            }
-            }
-        }
-        #expect(UpdateMemberLayouts.shortClock("11:23\u{202F}PM") == "11:23" && UpdateMemberLayouts.shortClock("23:05") == "23:05")
+        #expect(UpdateTimes.shortClock("11:23\u{202F}PM") == "11:23" && UpdateTimes.shortClock("23:05") == "23:05")
     }
 
     /// One Line: a reply still working keeps its line out of any group (it's news, not an update) until it settles.
@@ -199,15 +164,20 @@ struct UpdateGroupRowsTests {
         #expect(lines(live).map(\.id) == ["bt-d1|dl", "bt-a2|dm3"])
         #expect(lines(live).map { $0.row.group?.count } == [1, 1])
         // Settled, it joins them.
-        let settled = ChatRowBuilder.build(input(Array(talk.prefix(4)), expanded: ["bt-d1|grp"], style: .line))
-        #expect(members(settled).contains { $0.id == "bt-a2|line|in" })
+        let settled = members(input(Array(talk.prefix(4)), style: .line), line: "bt-d1|grp")
+        #expect(settled.contains { $0.id == "bt-a2|line|in" })
     }
 
     /// Tool Call Style › Rows draws every step: none of them fold.
     @Test func rowsStyleKeepsToolRowsReal() {
         let rows = ChatRowBuilder.build(input(talk, style: .rows))
         #expect(rows.contains { if case .toolRun(let t) = $0.kind { t.line == nil } else { false } })
-        #expect(!members(rows).contains { $0.id.hasSuffix("|line|in") })
+        let grouped = lines(rows).filter { ($0.row.group?.count ?? 0) > 1 }
+        #expect(!grouped.isEmpty)
+        for line in grouped {
+            let found = members(input(talk, style: .rows), line: line.id)
+            #expect(!found.isEmpty && !found.contains { $0.id.hasSuffix("|line|in") }, "\(line.id)")
+        }
     }
 
     /// The model's rebuilds draw what a full build draws, from any message onward and for any one message.
@@ -235,7 +205,8 @@ struct UpdateGroupRowsTests {
                     #expect(ids(model.allRows.reversed()) == want, "\(style) rebuildMessages \(k)")
                 }
             }
-            // A tap: the line or a member opens, and only its own message is rebuilt (as `chatCellToggle` does).
+            // The opened keys of the old in-chat card (a line's id, a member's) change nothing now: the line opens a
+            // sheet (UpdatesSheet.swift). A rebuild of the line's own message with them set still draws a full build.
             var open = Set<String>()
             var model = ChatRowModel()
             model.rebuildAll(input(talk, style: style), syncMessages: 100, oldestShown: nil)
@@ -290,9 +261,9 @@ struct UpdateGroupRowsTests {
             }
             #expect(found.count == 2 && Set(found).count == 2, "\(style) \(rows.map(\.id))")
             #expect(found.contains("a|dm2|grp"), "\(style) \(found)")
-            let opened = ChatRowBuilder.build(input(split, expanded: ["a|dm2|grp"], style: style))
+            let opened = members(input(split, style: style), line: "a|dm2|grp")
+            #expect(opened.map(\.id) == ["a|dm2|in", "a|dm3|in", "b|line|in"], "\(style) \(rows.map(\.id))")
             #expect(Set(opened.map(\.id)).count == opened.count)
-            #expect(members(opened).map(\.id) == ["a|dm2|in", "a|dm3|in", "b|line|in"], "\(style) \(opened.map(\.id))")
         }
     }
 

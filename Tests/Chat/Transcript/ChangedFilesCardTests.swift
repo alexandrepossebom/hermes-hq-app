@@ -221,7 +221,7 @@ import UIKit
         return i
     }
 
-    @Test func cardsBetweenHelpersFoldIntoOneLine() throws {
+    @MainActor @Test func cardsBetweenHelpersFoldIntoOneLine() throws {
         var input = longTurn()
         let closed = ChatRowBuilder.build(input)
         #expect(card(closed) == nil, "no card stands in the chat")
@@ -234,27 +234,28 @@ import UIKit
         #expect(line.group?.count == 9 && line.group?.tail == "8 more")
         #expect(closed.filter { !$0.id.hasSuffix("|day") }.count == 3, "your message, the line, the answer")
 
-        input.expanded = [lineId]
-        let members = ChatRowBuilder.build(input).compactMap { row -> (String, UpdateMemberRow)? in
-            if case .updateMember(let m) = row.kind { return (row.id, m) } else { return nil }
-        }
-        let files = members.filter { !$0.1.files.isEmpty }
+        // The line's sheet (UpdatesSheet.swift) holds the members; the chat's rows don't change.
+        let lineRow = try #require(closed.first { $0.id == lineId })
+        let members = try #require(UpdateGroups.opened(line: lineRow.id, messageId: lineRow.messageId, input: input)).members
+        #expect(members.count == 9)
+        let files = members.filter { !$0.files.isEmpty }
         #expect(files.count == 1, "every card is one member")
-        let (id, member) = try #require(files.first)
-        #expect(id == "w4|files|in", "where the last card was")
-        #expect(member.title == "4 files changed" && member.opens)
+        let member = try #require(files.first)
+        #expect(member.id == "w4|files|in", "where the last card was")
+        #expect(member.title == "4 files changed")
         #expect(member.preview == "TASK.json, check_consistency.py, parent-adjudications.json, analyze.py")
         let analyze = try #require(member.files.last)
         #expect(analyze.edits == 3 && analyze.added == 6 && analyze.removed == 3, "a file two replies changed is one row")
 
-        // Opened: a row per file, then Review Changes.
-        input.expanded = [lineId, id]
-        let opened = try #require(ChatRowBuilder.build(input).first { $0.id == id })
-        guard case .member(let m) = TextLayout.layout(opened, width: 390, style: ChatStyle.make(category: .large)).content else {
-            Issue.record("expected a member layout"); return
-        }
-        #expect(m.files && m.steps.map(\.title) == ["TASK.json", "check_consistency.py", "parent-adjudications.json", "analyze.py", "Review Changes"])
-        #expect(m.steps[3].detail == "3 edits · +6 −3")
+        // On its card in the sheet: a row per file, then Review Changes.
+        #expect(member.files.map(\.name) == ["TASK.json", "check_consistency.py", "parent-adjudications.json", "analyze.py"])
+        #expect(UpdateCardCell.fileCounts(analyze) == "3 edits · +6 −3")
+        let cell = UpdateCardCell(style: .default, reuseIdentifier: nil)
+        cell.configure(member, first: false, last: true, whole: false, width: 390, style: ChatStyle.make(category: .large))
+        #expect(cell.debugRows.map { $0.components(separatedBy: ", ")[0] }
+                == ["TASK.json", "check_consistency.py", "parent-adjudications.json", "analyze.py", "Review Changes"])
+        #expect(cell.debugRows.last == "Review Changes" && cell.debugRows.dropLast().last == "analyze.py, 3 edits · +6 −3")
+        #expect(cell.debugWords == nil, "a files member has no words of its own")
     }
 
     @Test func aReplyWithWordsKeepsItsCardAndSoDoesOneWordlessReplyAlone() throws {
@@ -290,13 +291,14 @@ import UIKit
             model.rebuildMessages(full, k...k)
             #expect(ids(model.allRows.reversed()) == want, "rebuildMessages \(k)")
         }
-        // A tap: the line opens, then its files member, each rebuilding only its own message (as `chatCellToggle` does).
+        // The old in-chat card's opened keys (the line's, then its files member's) change no row now: the line opens
+        // a sheet (UpdatesSheet.swift). A rebuild of the line's own message with them set still draws a full build.
         var open = full
         var model = ChatRowModel()
         model.rebuildAll(full, syncMessages: 100, oldestShown: nil)
         for id in ["w1|grp", "w4|files|in"] {
             open.expanded.insert(id)
-            guard let row = model.allRows.first(where: { $0.id == id }),
+            guard let row = model.allRows.first(where: { $0.id == "w1|grp" }),
                   let k = full.messages.firstIndex(where: { $0.id == row.messageId }) else { Issue.record("no row \(id)"); continue }
             model.rebuildMessages(open, k...k)
             #expect(ids(model.allRows.reversed()) == ids(ChatRowBuilder.build(open)), "toggling \(id)")

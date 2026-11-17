@@ -3,10 +3,13 @@ import Foundation
 // [updates] Everything that happens between two real messages besides their words — finished helpers and background
 // tasks, /bg and /btw answers, other bots' messages and this bot's messages to them, scheduled runs, a reply's finished
 // work line, notes such as "Model changed to …" — folds into one centred line: "From Hermes · 3 more", led by the most
-// useful one, with their faces and glyphs before it. A tap opens a card under it with one row per member (each opens on
-// its words); a run of one opens on its words directly (owner, 2026-10-27: "very minimal, not in your way at all …
-// never a thing that creates clutter"; 2026-10-28: "they all must be properly designed and automatically grouped
-// together so that they do not create clutter … we can't have them stacked on top of each other").
+// useful one, with their faces and glyphs before it. A tap opens its sheet (UpdatesSheet.swift): the run in order,
+// each member on a card of its own with its whole words, and the chat behind it doesn't move. Until 2026-11-17 the
+// members opened as a grey card of two-line rows in the chat itself, each row opening again inside it (owner: "When
+// you click it to open it all it's so messy"). A run of one still opens on its words under its line (owner,
+// 2026-10-27: "very minimal, not in your way at all … never a thing that creates clutter"; 2026-10-28: "they all must
+// be properly designed and automatically grouped together so that they do not create clutter … we can't have them
+// stacked on top of each other").
 //
 // Runs are found from the rows, not the messages: every small row between two real rows is in one run, whichever
 // message drew it. A run can start in the tail of a reply (its last small rows), cover messages that draw only small
@@ -65,12 +68,12 @@ nonisolated struct UpdatesGroup: Hashable {
     var titles: [String] = []
 }
 
-/// [updates] One member of an opened group: a row of the inset card under the line (UpdateMemberCell.swift). The card is
-/// made of these rows, so opening a member rebuilds one row.
+/// [updates] One member of a group, as its sheet shows it (UpdatesSheet.swift): a card on the sheet's rail.
 nonisolated struct UpdateMemberRow {
-    /// The card's top and bottom rows round their outer corners.
-    var first: Bool
-    var last: Bool
+    /// Its own row's id and `UpdateGroups.memberSuffix` (Find lands on it by this).
+    var id: String
+    /// The member's own message: its steps' details and Read Aloud are found by it.
+    var messageId: String
     var mark: UpdatesGroup.Mark
     /// "From Hermes", "Helper finished", "Delegated 1 task · 1 helper", "Model changed to GPT-6".
     var title: String
@@ -78,26 +81,33 @@ nonisolated struct UpdateMemberRow {
     var time: Date?
     /// [idle] Its day before the time ("Nov 2", "Yesterday") when the group spans days.
     var day: String? = nil
-    /// The words after the title, as one paragraph (two lines show); empty for a note.
+    /// What its steps did or which files changed, in a line ("Ran 2 commands, edited overview.md"); for a message, its
+    /// words as one paragraph (VoiceOver reads it). Empty for a note.
     var preview: String
-    /// What it opens on: the whole message or report (`BackgroundResults.opened`); empty when it opens nothing.
+    /// The whole message or report (`BackgroundResults.opened`); empty for a work line, a files member or a note.
     var full: String
     /// A process's log: only written-out addresses are links (`.addresses`), not Markdown.
     var process = false
-    /// A note: its title may wrap to two lines.
+    /// A note: its title is its words.
     var notice = false
-    var expanded: Bool
-    /// A reply's work line: its steps (one opens its sheet; several list in the row once it is open) and its thought.
+    /// A reply's work line: its steps (each opens its sheet) and its thought.
     var steps: [ToolCall] = []
     var thought: String? = nil
     /// The update as its own row (Copy, Read Aloud and Share read its words); nil for a work line or a note.
     var result: BackgroundResultRow? = nil
-    /// [files] "5 files changed": the files, listed once it is open (one opens the file), then Review Changes.
+    /// [files] "5 files changed": the files (one opens the file), then Review Changes.
     var files: [ChangedFile] = []
+}
 
-    /// A tap shows more: its steps (one step: the step's sheet), its files, or its whole words when they say more than
-    /// the preview (the layout also opens one whose preview is cut short).
-    var opens: Bool { !steps.isEmpty || thought != nil || !files.isEmpty || (!full.isEmpty && full != preview) }
+/// [updates] What a group's sheet shows: its name, how much it holds and when, and its members oldest first.
+nonisolated struct UpdatesOpened {
+    /// "With Home", "From Hermes" (every member from the one bot), else "Updates".
+    var title: String
+    /// "18 messages · 7:02 – 7:15 AM", "13 updates · Oct 31 – Yesterday".
+    var subtitle: String
+    var members: [UpdateMemberRow]
+    /// Changes when anything the sheet draws does (an open sheet redraws only then).
+    var fingerprint: Int = 0
 }
 
 nonisolated enum UpdateGroups {
@@ -412,8 +422,8 @@ nonisolated enum UpdateGroups {
         return plan
     }
 
-    /// [exchange] The line a folded row is in and its card row's id, to open both (Find landing on a folded reply); nil
-    /// when the row draws on its own.
+    /// [exchange] The line a folded row is in and its member's id in that line's sheet (Find landing on a folded reply
+    /// opens the sheet at it); nil when the row draws on its own.
     static func opening(rowId: String, message index: Int, input: ChatRowBuilder.Input) -> (line: String, member: String)? {
         guard input.messages.indices.contains(index) else { return nil }
         let rows = Rows(input)
@@ -594,13 +604,12 @@ nonisolated enum UpdateGroups {
     /// The words a member shows on the line and leads its card row with: those before the title's colon.
     private static func head(_ title: String) -> String { BackgroundResults.split(title).head }
 
-    /// What the run draws: its centred line, then (opened) a card row per member.
+    /// What the run draws: its centred line (a tap opens its sheet, `opened`); a run of one draws its own row.
     static func rows(_ group: Group, input: ChatRowBuilder.Input, rows: Rows) -> [ChatRow] {
         let all = items(group, rows: rows)
         guard !all.isEmpty else { return [] }
         if all.count == 1 { return [alone(all[0].original)] }
         let id = key(group, rows: rows)
-        let expanded = input.expanded.contains(id)
         // The newest of the highest rank leads; the marks follow the same order, no face or glyph twice.
         let ordered = all.enumerated()
             .sorted { a, b in a.element.rank != b.element.rank ? a.element.rank > b.element.rank : a.offset > b.offset }
@@ -612,27 +621,80 @@ nonisolated enum UpdateGroups {
             if talk != nil, item.original.isBubble { continue }
             marks.append(item.mark)
         }
-        // Only the words before the title's colon show; the rest opens with the member's row.
-        var row = BackgroundResultRow(title: short(talk ?? head(ordered[0].title)), result: "", process: false, expanded: expanded)
+        // Only the words before the title's colon show; the rest is in the sheet.
+        var row = BackgroundResultRow(title: short(talk ?? head(ordered[0].title)), result: "", process: false, expanded: false)
+        let titles = all.map { head($0.title).components(separatedBy: " · ")[0] }
+        row.group = UpdatesGroup(marks: marks, tail: counts(all, talk: talk).tail, count: all.count, opens: true, titles: titles)
+        var h = Hasher()
+        for item in all { RowHash.add(item.title, to: &h) }
+        h.combine(row.group)
+        return [ChatRow(id: id, messageId: input.messages[group.head.message].id, scope: input.scope, fingerprint: h.finalize(),
+                        kind: .backgroundResult(row), gapAbove: ChatMetrics.turnGap, variant: 0)]
+    }
+
+    /// The line's count ("3 more", "4 messages") and the sheet's ("4 updates", "4 messages").
+    private static func counts(_ all: [Item], talk: String?) -> (tail: String, whole: String) {
         let titles = all.map { head($0.title).components(separatedBy: " · ")[0] }
         // Every one from (or to) the same bot: "From Hermes · 2 messages", not "· 1 more", which reads as something else.
         let sameBot = all.allSatisfy { $0.rank >= 4 } && Set(titles).count == 1
         // [exchange] A talk counts its messages: the bot's replies and the messages between the bots.
         let said = all.filter { $0.original.isBubble || isBotTalk($0.original) }.count
-        let tail = talk != nil ? "\(said) messages" : sameBot ? "\(all.count) messages" : "\(all.count - 1) more"
-        row.group = UpdatesGroup(marks: marks, tail: tail, count: all.count, opens: true, titles: titles)
-        var h = Hasher()
-        for item in all { RowHash.add(item.title, to: &h) }
-        h.combine(row.group)
-        h.combine(expanded)
-        var out = [ChatRow(id: id, messageId: input.messages[group.head.message].id, scope: input.scope, fingerprint: h.finalize(),
-                           kind: .backgroundResult(row), gapAbove: ChatMetrics.turnGap, variant: expanded ? 1 : 0)]
-        guard expanded else { return out }
+        if talk != nil { return ("\(said) messages", "\(said) messages") }
+        if sameBot { return ("\(all.count) messages", "\(all.count) messages") }
+        return ("\(all.count - 1) more", "\(all.count) updates")
+    }
+
+    /// The run whose line has this id (`key`), looked for around the line's own message.
+    private static func group(line id: String, messageId: String, input: ChatRowBuilder.Input, rows: Rows) -> Group? {
+        guard let index = input.messages.lastIndex(where: { $0.id == messageId }) else { return nil }
+        return plan(input, range: index..<(index + 1), rows: rows).groups.first { key($0, rows: rows) == id }
+    }
+
+    /// What the sheet of the line `id` shows; nil when the chat no longer draws that line (its run became a run of one,
+    /// or its first message went).
+    static func opened(line id: String, messageId: String, input: ChatRowBuilder.Input) -> UpdatesOpened? {
+        let rows = Rows(input)
+        guard let group = group(line: id, messageId: messageId, input: input, rows: rows) else { return nil }
+        let all = items(group, rows: rows)
+        guard all.count > 1 else { return nil }
+        let talk = talkedWith(all)
+        let titles = Set(all.map { head($0.title).components(separatedBy: " · ")[0] })
+        let sameBot = all.allSatisfy { $0.rank >= 4 } && titles.count == 1
+        let title = talk ?? (sameBot ? short(head(all[0].title)) : "Updates")
         let dated = days(group, input: input) != nil
-        for (n, item) in all.enumerated() {
-            out.append(member(item, first: n == 0, last: n == all.count - 1, dated: dated, input: input))
+        let members = all.map { member($0, dated: dated, input: input) }
+        let times = all.compactMap { input.messages[$0.message].timestamp }
+        var subtitle = counts(all, talk: talk).whole
+        if let first = times.min(), let last = times.max() {
+            subtitle += " · " + span(first, last, now: input.now)
         }
-        return out
+        var h = Hasher()
+        h.combine(title)
+        h.combine(subtitle)
+        for m in members {
+            h.combine(m.id)
+            h.combine(m.mark)
+            h.combine(m.time)
+            h.combine(m.day)
+            h.combine(m.files)
+            RowHash.add(m.title, to: &h)
+            RowHash.add(m.full, to: &h)
+            RowHash.add(m.thought ?? "", to: &h)
+            for call in m.steps { h.combine(call.id); h.combine(call.state); RowHash.add(call.title, to: &h) }
+        }
+        return UpdatesOpened(title: title, subtitle: subtitle, members: members, fingerprint: h.finalize())
+    }
+
+    /// When a run happened: "7:15 AM" (within a minute), "7:02 – 7:15 AM" (one day), "Oct 31 – Yesterday".
+    static func span(_ first: Date, _ last: Date, now: Date) -> String {
+        if LocalDay.number(first) != LocalDay.number(last) { return ChatRowBuilder.dayRange(first, last, now: now) }
+        let a = ChatRowBuilder.clock(first), b = ChatRowBuilder.clock(last)
+        let day = LocalDay.number(first) == LocalDay.number(now) ? "" : ChatRowBuilder.dayName(first, now: now) + " "
+        if a == b { return day + a }
+        // "7:02 – 7:15 AM": the first drops an AM/PM it shares with the last.
+        let short = UpdateTimes.shortClock(a)
+        let shares = a.hasSuffix(String(b.suffix(2))) && short != a
+        return day + (shares ? short : a) + " – " + b
     }
 
     /// Two marks that draw the same: a bot's face once, however its sender record was made.
@@ -649,15 +711,13 @@ nonisolated enum UpdateGroups {
         words.replacingOccurrences(of: #"(\d) "#, with: "$1\u{00A0}", options: .regularExpression)
     }
 
-    /// A member row's id: its own row's id and this (it is also the member's expansion key).
+    /// A member's id in its sheet: its own row's id and this.
     static let memberSuffix = "|in"
 
-    private static func member(_ item: Item, first: Bool, last: Bool, dated: Bool, input: ChatRowBuilder.Input) -> ChatRow {
-        let id = item.id + memberSuffix
-        let expanded = input.expanded.contains(id)
+    private static func member(_ item: Item, dated: Bool, input: ChatRowBuilder.Input) -> UpdateMemberRow {
         let m = input.messages[item.message]
-        var row = UpdateMemberRow(first: first, last: last, mark: item.mark, title: head(item.title), time: m.timestamp,
-                                  preview: "", full: "", expanded: expanded)
+        var row = UpdateMemberRow(id: item.id + memberSuffix, messageId: m.id, mark: item.mark, title: head(item.title),
+                                  time: m.timestamp, preview: "", full: "")
         if dated, let t = m.timestamp { row.day = ChatRowBuilder.dayName(t, now: input.now) }
         switch item.original.kind {
         case .backgroundResult(var b):
@@ -689,11 +749,11 @@ nonisolated enum UpdateGroups {
         case .notice:
             row.notice = true
         case .activity(.changedFiles(let c)):
-            // [files] Its names are the preview; opened, a row per file.
+            // [files] Its names are the preview; the sheet lists a row per file.
             row.files = c.files
             row.preview = c.files.map(\.name).joined(separator: ", ")
         case .bubble(let b):
-            // [exchange] The bot's reply: its words open formatted, as an update's do; Copy and Read Aloud read them.
+            // [exchange] The bot's reply: its words formatted, as an update's are; Copy and Read Aloud read them.
             let words = SpacedText.repair(b.text)
             row.full = words
             row.preview = preview(words)
@@ -701,26 +761,10 @@ nonisolated enum UpdateGroups {
         default:
             break
         }
-        var h = Hasher()
-        RowHash.add(row.title, to: &h)
-        RowHash.add(row.full, to: &h)
-        RowHash.add(row.preview, to: &h)
-        h.combine(row.mark)
-        h.combine(row.time)
-        h.combine(row.day)
-        for call in row.steps { h.combine(call.id); h.combine(call.state); RowHash.add(call.title, to: &h) }
-        RowHash.add(row.thought ?? "", to: &h)
-        h.combine(row.files)
-        var variant = Hasher()
-        variant.combine(expanded)
-        variant.combine(first)
-        variant.combine(last)
-        // The member's own message: its steps' details and Read Aloud are found by it.
-        return ChatRow(id: id, messageId: m.id, scope: input.scope, fingerprint: h.finalize(), kind: .updateMember(row),
-                       gapAbove: first ? 4 : 0, variant: variant.finalize())
+        return row
     }
 
-    /// A member's words as one paragraph for its two-line preview: no Markdown marks or link addresses. A process's
+    /// A member's words as one paragraph (what VoiceOver reads for it): no Markdown marks or link addresses. A process's
     /// echoed command ("> npm test") is left out, its output leads; a line that ends without a stop is set off from the
     /// next by a dash ("Check the flaky upload test — The upload test waits …"), not run into it.
     static func preview(_ text: String, process: Bool = false) -> String {
@@ -785,4 +829,20 @@ nonisolated enum UpdateGroups {
 nonisolated extension BackgroundResultRow {
     /// The line's glyph when it has no face.
     var glyph: ChatGlyph { voice ? .voice : cron ? .clock : delivery ? .message : aside ? .aside : note ? .note : process ? .terminal : .subagent }
+}
+
+/// [updates] A member's time in its sheet.
+nonisolated enum UpdateTimes {
+    /// A clock time without its AM/PM ("11:23 PM" → "11:23").
+    static func shortClock(_ time: String) -> String {
+        let cut = time.replacingOccurrences(of: #"[\s\x{202F}\x{00A0}]*[AaPp]\.?\s?[Mm]\.?$"#, with: "", options: .regularExpression)
+        return cut.isEmpty ? time : cut
+    }
+
+    /// "8:42 AM", or with its day when the run spans days ("Nov 2 8:42 AM").
+    static func words(_ member: UpdateMemberRow) -> String? {
+        guard let time = member.time else { return nil }
+        let clock = ChatRowBuilder.clock(time)
+        return member.day.map { "\($0) \(clock)" } ?? clock
+    }
 }

@@ -115,7 +115,7 @@ nonisolated extension BotSaidRules {
             return !UpdateGroups.isBotTalk(row)          // "From Otto" / "To Otto" are the bots' own business
         case .error, .prompt, .slashOutput:
             return true
-        case .toolRun, .thought, .day, .notice, .updateMember, .caption, .stoppedEarly, .waiting, .sendState, .actions,
+        case .toolRun, .thought, .day, .notice, .caption, .stoppedEarly, .waiting, .sendState, .actions,
              .activity, .reactions:
             return false
         }

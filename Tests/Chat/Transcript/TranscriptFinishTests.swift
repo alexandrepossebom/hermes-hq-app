@@ -303,13 +303,20 @@ struct TranscriptViewFinishTests {
             m.job = job
             return m
         }
-        // [updates] The two runs fold into one group; opened, it lists both.
-        let rows = ChatRowBuilder.build(.init(messages: [delivery("c1", job: "Morning brief"), delivery("c2", job: "Evening brief")],
-                                              isRunning: false, botName: "Ivy", expanded: ["c1|grp"]))
-        let lines = rows.filter { $0.id.hasSuffix("|cr" + UpdateGroups.memberSuffix) }   // the card's member rows
+        // [updates] The two runs fold into one group; its sheet (UpdatesSheet.swift) lists both.
+        let input = ChatRowBuilder.Input(messages: [delivery("c1", job: "Morning brief"), delivery("c2", job: "Evening brief")],
+                                         isRunning: false, botName: "Ivy", expanded: [])
+        let line = ChatRowBuilder.build(input).first { $0.id == "c1|grp" }
+        #expect(line != nil)
+        let lines = line.flatMap { UpdateGroups.opened(line: $0.id, messageId: $0.messageId, input: input) }?.members
+            .filter { $0.id.hasSuffix("|cr" + UpdateGroups.memberSuffix) } ?? []   // the sheet's members
         #expect(lines.count == 2)
         guard lines.count == 2 else { return }
-        #expect(lines[0].fingerprint != lines[1].fingerprint, "the job's name is on the line")
+        #expect(lines[0].title != lines[1].title && lines[0].result?.title != lines[1].result?.title, "the job's name is on the line")
+        // The same words under another job's name are another line in the chat too (its fingerprint says the names).
+        let other = ChatRowBuilder.build(.init(messages: [delivery("c1", job: "Morning brief"), delivery("c2", job: "Night brief")],
+                                               isRunning: false, botName: "Ivy", expanded: [])).first { $0.id == "c1|grp" }
+        #expect(line?.fingerprint != other?.fingerprint)
     }
 
     // MARK: Loopback spellings (review)
