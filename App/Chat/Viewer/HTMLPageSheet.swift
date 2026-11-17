@@ -1017,6 +1017,8 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     /// controls in its own light or dark (a white page in a dark app drew a black slider track). Its words too: a page that paints a light
     /// background in a dark app (or the other way) and sets no text colour of its own gets the theme's ink for its own
     /// look, not the app's (2026-11-03: a light tile's words were light grey on white in dark mode). Then `window.hermes.send` (posting to the app, or answering that it can't).
+    /// [tile-soft] A background that is a `color-mix()` reads back as `color(srgb 0.95 0.95 0.96)`, its parts from 0 to 1,
+    /// not 0 to 255: such a pale page was taken for black, and its words went white on it.
     static func prelude(_ traits: UITraitCollection, talks: Bool) -> String {
         func css(_ dynamic: UIColor) -> String {
             let color = dynamic.resolvedColor(with: traits)
@@ -1056,7 +1058,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         g.style.width='100%';g.style.height='auto'}})}\
         function scheme(){var c=getComputedStyle(document.body).backgroundColor,m=c&&c.match(/[\\d.]+/g);\
         if(!m||m.length<3||(m.length>3&&+m[3]<0.5)){c=getComputedStyle(document.documentElement).backgroundColor;m=c&&c.match(/[\\d.]+/g)}\
-        if(m&&m.length>=3&&!(m.length>3&&+m[3]<0.5)){var l=(0.299*m[0]+0.587*m[1]+0.114*m[2])/255;\
+        if(m&&m.length>=3&&!(m.length>3&&+m[3]<0.5)){var k=/^color\\(/.test(c)?255:1,l=(0.299*m[0]+0.587*m[1]+0.114*m[2])*k/255;\
         var light=l>0.5,r=document.documentElement.style;r.colorScheme=light?'light':'dark';\
         if(light===\(traits.userInterfaceStyle == .dark)){r.setProperty('--foreground',light?'#1c1c1e':'#f2f2f7');\
         r.setProperty('--muted-foreground',light?'rgba(60,60,67,0.75)':'rgba(235,235,245,0.7)')}}}\
