@@ -285,7 +285,7 @@ extension SessionsTests {
         shot(app, "S-old-gateway-projects")
         failed.buttons.firstMatch.tap()
         XCTAssertFalse(app.staticTexts["Created Site"].waitForExistence(timeout: 1.5), "no stale HUD")
-        chip(app, nil).tap()
+        clearPick(app)
         openChat(app, "s-trip")
         openSessionInfo(app)
         XCTAssertTrue(hasInfoRow(app, "Model") && hasInfoRow(app, "Gateway") && hasInfoRow(app, "Chat ID"))
@@ -353,10 +353,13 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(30) { !self.order(app).isEmpty }, "the list")
         let rail = app.scrollViews["sessions.chips"]
         XCTAssertTrue(rail.waitForExistence(timeout: 8))
-        func chips() -> [String] { rail.buttons.allElementsBoundByIndex.map(\.identifier).filter { $0.hasPrefix("sessions.chip.") } }
-        if !waitUntil(8, { Set(chips()).count == 13 }) { print("RAIL-TREE", rail.debugDescription) }
-        XCTAssertEqual(Set(chips()).count, 13, "All and twelve bots (\(chips()))")
-        XCTAssertEqual(chips().count, 13, "each chip is said once (\(chips()))")
+        // [switch-toggles] The bots' pills (the switch beside them is one button of its own, and no All).
+        func chips() -> [String] {
+            rail.buttons.allElementsBoundByIndex.map(\.identifier).filter { $0.hasPrefix("sessions.chip.") && !$0.hasPrefix("sessions.chip.status.") }
+        }
+        if !waitUntil(8, { Set(chips()).count == 12 }) { print("RAIL-TREE", rail.debugDescription) }
+        XCTAssertEqual(Set(chips()).count, 12, "twelve bots (\(chips()))")
+        XCTAssertEqual(chips().count, 12, "each chip is said once (\(chips()))")
         shot(app, "S-big-chips-12")
         fixture("/__fixture/mode", ["bots": 40])
         fixture("/__fixture/rows", ["id": "s-poke", "set": ["profile": "default", "title": "Poke"], "event": true])
@@ -365,12 +368,12 @@ extension SessionsTests {
         app.collectionViews["bots.list"].swipeDown()
         Thread.sleep(forTimeInterval: 3.0)
         app.tabBars.buttons["Sessions"].tap()
-        XCTAssertTrue(waitUntil(20) { Set(chips()).count == 41 }, "the rail grows to All and forty bots (\(Set(chips()).count))")
-        // The rail moves with each swipe until its last chip is on screen (All's own place says how far it has gone).
-        var places: [CGFloat] = [chip(app, nil).frame.minX]
+        XCTAssertTrue(waitUntil(20) { Set(chips()).count == 40 }, "the rail grows to forty bots (\(Set(chips()).count))")
+        // The rail moves with each swipe until its last chip is on screen (the switch's place says how far it has gone).
+        var places: [CGFloat] = [pillSwitch(app).frame.minX]
         for _ in 0..<14 {
             rail.swipeLeft()
-            places.append(chip(app, nil).frame.minX)
+            places.append(pillSwitch(app).frame.minX)
             if places.count > 2, places[places.count - 1] == places[places.count - 2] { break }      // the end: it no longer moves
         }
         print("RAIL-PLACES", places)
@@ -384,9 +387,8 @@ extension SessionsTests {
         XCTAssertNotNil(last, "a chip at the rail's end")
         last?.tap()
         XCTAssertTrue(waitUntil(5) { last?.isSelected == true }, "it takes the pick")
-        for _ in 0..<16 where chip(app, nil).frame.minX < 0 { rail.swipeRight() }
-        chip(app, nil).tap()
-        XCTAssertTrue(chip(app, nil).isSelected)
+        last?.tap()
+        XCTAssertTrue(waitUntil(5) { self.nothingPicked(app) }, "the lit chip shows every bot again")
         XCTAssertEqual(app.state, .runningForeground)
     }
 

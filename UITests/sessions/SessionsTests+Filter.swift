@@ -439,14 +439,14 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget", "s-garden"] }, "only Hermes's chats (\(order(app)))")
         closeFilter(app)
         XCTAssertTrue(chip(app, "default").isSelected, "the Hermes chip lights")
-        XCTAssertFalse(chip(app, nil).isSelected)
+        XCTAssertFalse(nothingPicked(app))
         shot(app, "A7-allbots-off")
         openFilter(app)
         XCTAssertFalse(filterChecked(app, "allbots"))
         tapFilter(app, "allbots")
         closeFilter(app)
         XCTAssertTrue(waitUntil(6) { self.order(app).count == 5 })
-        XCTAssertTrue(chip(app, nil).isSelected)
+        XCTAssertTrue(nothingPicked(app))
 
         // Show › Archived: the archived chats join the rest (2026-10-24: Show's checks add rows).
         openFilter(app)
@@ -581,7 +581,7 @@ extension SessionsTests {
         closeFilter(app)
         XCTAssertTrue(waitUntil(6) { self.order(app).count == 5 }, "every chat is back (\(order(app)))")
         XCTAssertFalse(strip(app).exists)
-        XCTAssertTrue(chip(app, nil).isSelected, "the chip is cleared too")
+        XCTAssertTrue(nothingPicked(app), "the chip is cleared too")
         XCTAssertEqual(app.buttons["sessions.filter"].label, "Filter and Sort")
         openFilter(app)
         XCTAssertTrue(filterWords(app, "sort").contains("Created"), "the sort stays (\(filterWords(app, "sort")))")
@@ -710,7 +710,7 @@ extension SessionsTests {
         let again = launch(keepView: true)
         XCTAssertTrue(strip(again).waitForExistence(timeout: 3), "the strip is there with the cached list")
         XCTAssertEqual(strip(again).label, "Showing Unread. Clear Filters")
-        XCTAssertTrue(chip(again, nil).isSelected, "the chip is not kept: every launch opens on All")
+        XCTAssertTrue(nothingPicked(again), "the chip is not kept: every launch opens on every bot")
         XCTAssertTrue(row(again, "s-more-0").exists, "cached rows, already narrowed (\(order(again).prefix(4)))")   // the newest unread chat
         XCTAssertFalse(row(again, "s-garden").exists)
         shot(again, "B3-relaunch-strip")
@@ -740,7 +740,7 @@ extension SessionsTests {
         shot(app, "B4-no-match-chip")
         app.buttons["sessions.empty.clear"].tap()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 6))
-        XCTAssertTrue(chip(app, nil).isSelected)
+        XCTAssertTrue(nothingPicked(app))
     }
 
     // MARK: - New Project… (L261)

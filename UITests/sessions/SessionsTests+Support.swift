@@ -241,6 +241,24 @@ extension SessionsTests {
 
     @MainActor func strip(_ app: XCUIApplication) -> XCUIElement { app.buttons["sessions.filter-strip"] }
 
+    /// [switch-toggles] The Bots | Projects switch: one button, a tap anywhere on it flips the view.
+    @MainActor func pillSwitch(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.pills.'")).firstMatch
+    }
+
+    /// No pill is lit: no bot, project, New or Working (the switch's side drawn was All; All itself, when the rail has
+    /// no switch, is not counted).
+    @MainActor func nothingPicked(_ app: XCUIApplication) -> Bool {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.' AND identifier != 'sessions.chip.all' AND selected == true")).count == 0
+    }
+
+    /// Clears the pick as a finger does: a tap on the lit pill (it goes back to everything).
+    @MainActor func clearPick(_ app: XCUIApplication) {
+        let lit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.' AND identifier != 'sessions.chip.all' AND selected == true")).firstMatch
+        if lit.exists { lit.tap() }
+        _ = waitUntil(5) { self.nothingPicked(app) }
+    }
+
     /// The Sessions tab's badge, as VoiceOver says it ("" for none).
     @MainActor func sessionsBadge(_ app: XCUIApplication) -> String {
         app.tabBars.buttons["Sessions"].value as? String ?? ""

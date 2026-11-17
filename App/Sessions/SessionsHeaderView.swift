@@ -206,8 +206,10 @@ struct SessionsHeaderView: View {
     /// [projects-switch] The switch at the rail's start: the two views side by side in one capsule (owner 2026-11-15
     /// on 1039's single round button: "needs to be more clear that it's a toggle between two views"). The robot is
     /// the tab bar's Bots glyph and the folder the project pills' own (owner: "They need to match what we use in the
-    /// menu"). The side of the view drawn is also All (owner picked this of four drawings): the tint while nothing is
-    /// picked, as All was; dark while a pill is, and a tap on it shows everything again.
+    /// menu"). The side of the view drawn is the tint while nothing is picked, dark while a pill is.
+    /// [switch-toggles] Owner 2026-11-17: "Why can't the toggle toggle when you click it anywhere?" A tap anywhere on it
+    /// flips the view. The side drawn had also been All (a tap on it cleared a picked pill and otherwise did nothing,
+    /// so the switch seemed to ignore the tap); the lit pill clears itself with a tap, as it always has.
     /// The two glyphs alone (owner 2026-11-16, on a drawing with the side's name beside its glyph: "I don't want the
     /// bots/projects toggle to be fixed unless we have it only be the icons"). [switch-scrolls] Owner 2026-11-17: it
     /// scrolls with the pills, as the row's first item ("I want for this to scroll with everything else in this row").
@@ -235,28 +237,27 @@ struct SessionsHeaderView: View {
             .hqPickGlass(false, in: Capsule(), prominent: true)
             .accessibilityHidden(true)
             .frame(height: 44)
-            // The touch: one clear button over each side (its own drawing, unseen, sizes it), reaching past the
-            // capsule's end.
+            // The touch: one clear button over the whole switch, reaching past both ends of the capsule (its own drawing,
+            // unseen, sizes it). VoiceOver: "Switch to Projects", and the view shown as its value.
             .overlay {
-                HStack(spacing: 0) {
-                    ForEach(views, id: \.self) { view in
-                        let here = model.pills == view
-                        Button {
-                            if here { model.onPickAll() } else { model.onSwitch(view) }
-                        } label: {
-                            switchSide(view, here: here, half: half, side: side)
-                                .hidden()
-                                .padding(view == .bots ? .leading : .trailing, 2 + reach)
-                                .frame(height: 44)
-                                .contentShape(Rectangle())
+                let other: SessionPills = model.pills == .bots ? .projects : .bots
+                Button {
+                    model.onSwitch(other)
+                } label: {
+                    HStack(spacing: 0) {
+                        ForEach(views, id: \.self) { view in
+                            switchSide(view, here: model.pills == view, half: half, side: side).hidden()
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(here ? (view == .projects ? "All Projects" : "All Bots")
-                                                 : (view == .projects ? "Switch to Projects" : "Switch to Bots"))
-                        .accessibilityAddTraits(here && allPicked ? .isSelected : [])
-                        .accessibilityIdentifier(here ? "sessions.chip.all" : "sessions.pills.\(view.rawValue)")
                     }
+                    .padding(2)
+                    .padding(.horizontal, reach)
+                    .frame(height: 44)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(other == .projects ? "Switch to Projects" : "Switch to Bots")
+                .accessibilityValue(model.pills == .projects ? "Projects" : "Bots")
+                .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
                 .fixedSize()
             }
             .id("sessions.chip.all")

@@ -238,7 +238,7 @@ extension SessionsTests {
         shot(app, "F-new-chat-info")
         closeSheet(app)
         backToList(app)
-        chip(app, nil).tap()
+        clearPick(app)
 
         // The largest text size: value and note stack under the label.
         app.terminate()

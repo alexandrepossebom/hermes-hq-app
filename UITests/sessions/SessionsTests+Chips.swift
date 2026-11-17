@@ -11,13 +11,15 @@ extension SessionsTests {
         let rail = app.scrollViews["sessions.chips"]
         XCTAssertTrue(rail.waitForExistence(timeout: 6), "the rail")
         XCTAssertEqual(rail.label, "Bots")
-        let chips = ["all", "default", "research", "deploys"].map { app.buttons["sessions.chip.\($0)"] }
-        XCTAssertTrue(chips.allSatisfy(\.exists), "All, Hermes, Research, Deploys")
-        XCTAssertEqual(chips.map(\.label), ["All Bots", "Hermes", "Research", "Deploys"])
+        // [switch-toggles] The Bots | Projects switch first (one button), then the bots.
+        let chips = [pillSwitch(app)] + ["default", "research", "deploys"].map { app.buttons["sessions.chip.\($0)"] }
+        XCTAssertTrue(chips.allSatisfy(\.exists), "the switch, Hermes, Research, Deploys")
+        XCTAssertEqual(chips.map(\.label), ["Switch to Projects", "Hermes", "Research", "Deploys"])
+        XCTAssertEqual(chips[0].value as? String, "Bots", "the switch says the view shown")
         for (left, right) in zip(chips, chips.dropFirst()) {
             XCTAssertLessThan(left.frame.midX, right.frame.midX, "in that order")
         }
-        XCTAssertTrue(chips[0].isSelected, "All is picked at launch")
+        XCTAssertTrue(nothingPicked(app), "nothing is picked at launch")
         // [sessions-layout] Pills: a 44 pt touch height around the 34 pt capsule (a frame reads 43.99999…).
         XCTAssertTrue(chips.allSatisfy { $0.frame.width >= 43.5 && $0.frame.height >= 43.5 }, "44 x 44 touch targets (\(chips.map(\.frame)))")
         // The rail ends where the list's first row begins or above it (the "Pinned" header sits between them).
@@ -28,10 +30,11 @@ extension SessionsTests {
         // [projects-switch] Nor is the Bots | Projects switch at the rail's start a bot pill.
         let botPills = rail.buttons.matching(NSPredicate(format: "NOT (identifier BEGINSWITH %@) AND NOT (identifier BEGINSWITH %@)",
                                                          "sessions.chip.status.", "sessions.pills."))
-        // [switch-scrolls] The switch (whose lit side is All) is the rail's first item and scrolls with the pills: the
-        // rail holds All and the three bots, each once.
-        XCTAssertEqual(botPills.count, 4, "each chip is one element\n\(rail.debugDescription)")
-        XCTAssertEqual(app.buttons.matching(identifier: "sessions.chip.all").count, 1, "All is one element")
+        // [switch-scrolls] The switch is the rail's first item and scrolls with the pills. [switch-toggles] It is one
+        // button, and no All beside it (the lit pill clears itself): the rail holds the three bots, each once.
+        XCTAssertEqual(botPills.count, 3, "each chip is one element\n\(rail.debugDescription)")
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.pills.'")).count, 1, "the switch is one element")
+        XCTAssertFalse(app.buttons["sessions.chip.all"].exists, "no All beside the switch")
         app.terminate()
 
         fixture("/__fixture/mode", ["bots": 1])
@@ -40,7 +43,7 @@ extension SessionsTests {
         // [sessions-fresh] One bot: no bot pills. All stays only with New or Working chats beside it, to pick them.
         XCTAssertTrue(waitUntil(15) { !alone.buttons["sessions.chip.default"].exists }, "one bot: no bot pills")
         let status = alone.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "sessions.chip.status."))
-        XCTAssertEqual(alone.buttons["sessions.chip.all"].exists, status.count > 0, "All only beside New or Working")
+        XCTAssertTrue(!alone.buttons["sessions.chip.all"].exists || status.count > 0, "All only beside New or Working")
         let others = alone.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND NOT (identifier BEGINSWITH %@) AND identifier != %@",
                                                         "sessions.chip.", "sessions.chip.status.", "sessions.chip.all"))
         XCTAssertEqual(others.count, 0, "no bot's pill")
@@ -51,7 +54,7 @@ extension SessionsTests {
     }
 
     /// C2, C3: a chip narrows the list to its bot and lights; nothing else moves and no call goes out beyond sidebar
-    /// reads. The lit chip, or All, shows every bot again.
+    /// reads. The lit chip shows every bot again.
     @MainActor func test41_ChipFiltersAndNothingElseMoves() throws {
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
@@ -62,7 +65,7 @@ extension SessionsTests {
         chip(app, "research").tap()
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-trip", "s-recipes"] }, "only Research's chats (\(order(app)))")
         XCTAssertTrue(chip(app, "research").isSelected, "its chip lights")
-        XCTAssertFalse(chip(app, nil).isSelected)
+        XCTAssertFalse(nothingPicked(app))
         XCTAssertFalse(strip(app).exists, "a chip alone shows no strip")
         XCTAssertEqual(app.buttons["sessions.filter"].label, "Filter and Sort", "nor fills the button")
         shot(app, "C2-chip-research")
@@ -87,16 +90,16 @@ extension SessionsTests {
         XCTAssertTrue(chip(app, "research").isSelected, "and opening a chat")
         XCTAssertEqual(order(app), ["s-trip", "s-recipes"])
 
-        // C3: the lit chip again, then All.
+        // C3: the lit chip again shows every bot; so does another bot's lit chip.
         chip(app, "research").tap()
         XCTAssertTrue(waitUntil(6) { self.order(app).count == 5 }, "the lit chip shows every bot again (\(order(app)))")
-        XCTAssertTrue(chip(app, nil).isSelected)
+        XCTAssertTrue(nothingPicked(app))
         chip(app, "deploys").tap()
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-release"] }, "\(order(app))")
         shot(app, "C3-chip-deploys")
-        chip(app, nil).tap()
-        XCTAssertTrue(waitUntil(6) { self.order(app).count == 5 }, "All shows every bot (\(order(app)))")
-        XCTAssertTrue(chip(app, nil).isSelected && !chip(app, "deploys").isSelected)
+        chip(app, "deploys").tap()
+        XCTAssertTrue(waitUntil(6) { self.order(app).count == 5 }, "every bot again (\(order(app)))")
+        XCTAssertTrue(nothingPicked(app) && !chip(app, "deploys").isSelected)
     }
 
     /// C4: the rail stays where it is while the list scrolls to its end and back.
@@ -121,7 +124,7 @@ extension SessionsTests {
         XCTAssertEqual(chip(app, "default").frame, hermes)
         XCTAssertTrue(chip(app, "default").isHittable, "and still takes taps")
         // No row shows between the bar and the chips: the band above the faces is one colour, to the pixel.
-        XCTAssertNil(oddPixel(app, from: rail.frame.minY - 4, to: chip(app, nil).frame.minY - 0.5), "a row shows above the chips")
+        XCTAssertNil(oddPixel(app, from: rail.frame.minY - 4, to: pillSwitch(app).frame.minY - 0.5), "a row shows above the chips")
         shot(app, "C4-rail-at-the-end")
         for _ in 0..<8 { list.swipeDown(velocity: .fast) }
         Thread.sleep(forTimeInterval: 1.0)
@@ -150,7 +153,7 @@ extension SessionsTests {
         shot(app, "C6-compose-with-chip")
         backToList(app)
         XCTAssertTrue(chip(app, "research").isSelected)
-        chip(app, nil).tap()
+        chip(app, "research").tap()
         app.buttons["sessions.compose"].tap()
         XCTAssertTrue(app.buttons["new-chat-bot-research"].waitForExistence(timeout: 5), "under All: the same sheet")
         shot(app, "C6-compose-under-all")
@@ -164,7 +167,7 @@ extension SessionsTests {
         picked.terminate()
         let again = launch(keepView: true)
         XCTAssertTrue(row(again, "s-garden").waitForExistence(timeout: 15), "the list opens on every bot")
-        XCTAssertTrue(chip(again, nil).isSelected, "All is picked")
+        XCTAssertTrue(nothingPicked(again), "nothing is picked")
         XCTAssertFalse(chip(again, "deploys").isSelected)
         XCTAssertTrue(row(again, "s-trip").exists && row(again, "s-release").exists)
         shot(again, "C5-relaunch-on-all")
@@ -180,7 +183,7 @@ extension SessionsTests {
         chip(app, "default").tap()
         XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget", "s-garden"] }, "unread first, in New for You (\(order(app)))")
         XCTAssertEqual(botChats.count, 0, "nor under its chip")
-        chip(app, nil).tap()
+        chip(app, "default").tap()
         openFilter(app)
         tapFilter(app, "show", "runs")
         closeFilter(app)
@@ -227,7 +230,7 @@ extension SessionsTests {
 
     /// [project-pills] Owner 2026-11-15: "the pills at the top are the projects so that you can filter by project".
     /// Group By › Project swaps the bot pills for the projects (what needs you first); a project pill narrows the
-    /// list to that project and lights, with no strip (the pill says it); All shows every project again.
+    /// list to that project and lights, with no strip (the pill says it); the lit pill shows every project again.
     @MainActor func test40b_ProjectPills() throws {
         fixture("/__fixture/mode", ["working": ["s-trip"]])          // a turn at work in Reading
         defer { fixture("/__fixture/mode", ["working": [String]()]) }
@@ -238,19 +241,23 @@ extension SessionsTests {
         let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15), "the switch: both views side by side")
         XCTAssertEqual(toProjects.label, "Switch to Projects")
-        // The side of the view drawn is All: lit while nothing is picked, and a tap on it shows everything again.
-        let all = chip(app, nil)
-        XCTAssertTrue(all.label == "All Bots" && all.isSelected && !toBots.exists, "the bots' side is All (\(all.label))")
+        XCTAssertEqual(toProjects.value as? String, "Bots")
+        XCTAssertTrue(nothingPicked(app) && !toBots.exists && !app.buttons["sessions.chip.all"].exists, "one switch, no All")
         shot(app, "P0-switch-bots")
         chip(app, "research").tap()
-        XCTAssertTrue(waitUntil(6) { !all.isSelected && self.chip(app, "research").isSelected }, "a bot picked: All is not lit")
+        XCTAssertTrue(waitUntil(6) { !self.nothingPicked(app) && self.chip(app, "research").isSelected }, "a bot picked")
         app.scrollViews["sessions.chips"].swipeRight()     // the picked pill was centred, which can take the switch off
-        XCTAssertTrue(waitUntil(4) { all.isHittable })
+        XCTAssertTrue(waitUntil(4) { toProjects.isHittable })
         shot(app, "P0b-switch-bot-picked")
-        all.tap()
-        XCTAssertTrue(waitUntil(6) { all.isSelected && !self.chip(app, "research").isSelected }, "its side shows every bot again")
-        toProjects.tap()
-        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists && all.label == "All Projects" }, "now the projects' side is All")
+        // [switch-toggles] A tap anywhere on the switch flips the view: here on its lit (Bots) side, which had been All.
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "the lit side flips it too")
+        XCTAssertEqual(toBots.value as? String, "Projects")
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists && !toBots.exists }, "and its lit (Projects) side flips it back")
+        XCTAssertTrue(nothingPicked(app), "the bot picked before went with the view")
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now the projects")
         openFilter(app)
         XCTAssertTrue(filterWords(app, "group").contains("Project"), filterWords(app, "group"))
         closeFilter(app)
@@ -261,22 +268,22 @@ extension SessionsTests {
         XCTAssertTrue(pills.allSatisfy(\.exists), "three project pills\n\(rail.debugDescription)")
         XCTAssertEqual(pills.map(\.label), ["Website project, New", "Reading project, Working", "App project"],
                        "what needs you first: Website's unread reply, Reading's working chat, then App")
-        XCTAssertTrue(chip(app, nil).isSelected, "All is lit")
+        XCTAssertTrue(nothingPicked(app), "nothing is picked")
         shot(app, "P1-project-pills")
-        // [sessions-ux] A project's row opens its page, as its pill does (it opened in place); All shows the list again.
+        // [sessions-ux] A project's row opens its page, as its pill does (it opened in place); the lit pill shows the list again.
         let websiteRow = header(app, "Website")
         XCTAssertTrue(websiteRow.waitForExistence(timeout: 6), "Website's row")
         reveal(app, websiteRow)
         websiteRow.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "the row opens the project's page")
-        XCTAssertTrue(waitUntil(6) { pills[0].isSelected && !self.chip(app, nil).isSelected }, "and lights its pill")
-        chip(app, nil).tap()
-        XCTAssertTrue(waitUntil(6) { self.chip(app, nil).isSelected && !app.cells["sessions.projectPage"].exists }, "All: the list again")
+        XCTAssertTrue(waitUntil(6) { pills[0].isSelected && !self.nothingPicked(app) }, "and lights its pill")
+        pills[0].tap()
+        XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) && !app.cells["sessions.projectPage"].exists }, "the lit pill: the list again")
         pills[0].tap()
         XCTAssertTrue(waitUntil(6) { let o = self.order(app); return o.contains("s-budget") && !o.contains("s-garden") && !o.contains("s-trip") },
                       "only Website's chats (\(order(app)))")
         XCTAssertTrue(pills[0].isSelected, "its pill lights")
-        XCTAssertFalse(chip(app, nil).isSelected)
+        XCTAssertFalse(nothingPicked(app))
         XCTAssertFalse(strip(app).exists, "the lit pill says it: no strip")
         // The project page: its header (name, folder, counts, New Chat), then its chats by what they wait on.
         let page = app.cells["sessions.projectPage"]
@@ -304,7 +311,7 @@ extension SessionsTests {
         pills[0].tap()
         XCTAssertTrue(waitUntil(6) { !page.exists && self.headers(app).contains("Website") }, "every project again (\(headers(app)))")
         XCTAssertFalse(pills[0].isSelected)
-        XCTAssertTrue(waitUntil(4) { self.chip(app, nil).isSelected }, "All lights again")
+        XCTAssertTrue(waitUntil(4) { self.nothingPicked(app) }, "nothing is picked again")
         // Working narrows the pills to the projects at work.
         app.buttons["sessions.chip.status.working"].tap()
         XCTAssertTrue(waitUntil(6) { pills[0].exists && pills[0].label == "Reading project, Working" && !pills[1].exists },

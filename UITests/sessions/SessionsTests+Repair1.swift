@@ -47,8 +47,8 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 6), "and its chats show")
         touch(app, chip(app, "deploys"))
         XCTAssertTrue(app.staticTexts["Deploys Has No Chats Yet"].waitForExistence(timeout: 5))
-        touch(app, chip(app, nil))
-        XCTAssertTrue(waitUntil(5) { self.chip(app, nil).isSelected }, "All answers")
+        touch(app, chip(app, "deploys"))
+        XCTAssertTrue(waitUntil(5) { self.nothingPicked(app) }, "the lit chip answers")
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 6))
     }
 

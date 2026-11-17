@@ -68,7 +68,7 @@ extension SessionsTests {
         press(alert.buttons["Cancel"])
         XCTAssertTrue(waitUntil(5) { !alert.exists })
         XCTAssertTrue(rpc("projects.create").isEmpty, "nothing was created")
-        chip(app, nil).tap()
+        clearPick(app)
         // Session Info.
         openChat(app, "s-trip")
         openSessionInfo(app)
@@ -105,7 +105,8 @@ extension SessionsTests {
         XCTAssertTrue(labelOf(row(app, "s-garden")).hasPrefix("Garden plan. "), "the cached title (\(labelOf(row(app, "s-garden"))))")
         chip(app, "research").tap()
         XCTAssertTrue(waitUntil(5) { let now = self.order(app); return now.contains("s-trip") && !now.contains("s-garden") }, "a chip filters the cached rows (\(order(app)))")
-        chip(app, nil).tap()
+        chip(app, "research").tap()
+        XCTAssertTrue(waitUntil(5) { self.row(app, "s-garden").exists }, "the lit chip shows every bot again")
         XCTAssertTrue(labelOf(row(app, "s-garden")).hasPrefix("Garden plan. "), "still the cached title while the gateway is away")
         fixture("/__fixture/mode", ["down": 0])
         XCTAssertTrue(waitUntil(120) { self.labelOf(self.row(app, "s-garden")).hasPrefix("Garden plan, back online. ") },
