@@ -10,16 +10,6 @@ struct TaskBarView: View {
     // Owner 2026-11-09 (the plain task view): over its chat the task is one quiet line, a dot in its state's colour and
     // the bot's latest word (its question while it needs you), or your next step; a tap brings the task back. The
     // progress marks, the state line and the move button it had are gone: the task's view has them, once.
-    /// [Mac glass 2026-11-17] The bar floats over the task's chat, whose messages scroll under it. Its glass alone took
-    /// their colour (a dark own message turned it dark and its words read through the bar, as the Find bar's did): on
-    /// the Mac a backing in the page's colour lies under the glass, which keeps its rim and sheen. Not in the Desktop
-    /// Look or Paper, whose bar is already a solid box (`hqGlassEffect`).
-    @ViewBuilder private var macBacking: some View {
-        if DeviceWord.isMac, !Theme.isDesktop, !Theme.solidChrome {
-            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(uiColor: ChatPalette.page))
-        }
-    }
-
     var body: some View {
         let color = TodoSheetView.statusColor(task.status)
         HStack(alignment: .center, spacing: 10) {
@@ -45,7 +35,6 @@ struct TaskBarView: View {
         .contentShape(Rectangle())
         .onTapGesture { model.untuck() }
         .hqGlassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .background { macBacking }
         .padding(.horizontal, 8).padding(.vertical, 6)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { model.onLeadHeight?($0) }
         .accessibilityElement(children: .combine)

@@ -100,9 +100,6 @@ struct MoreErrorState: View {
     var reason: String
     /// The page's name for the not-available line; read from a "Couldn't Load <Page>" title when not given.
     var page: String? = nil
-    /// Owner 2026-11-17 (Mac calls Q15): on the Mac the page's own symbol over "Not Available on This Hermes" (Star
-    /// Map's star), so it doesn't read as an error; a real failure keeps the triangle. Nil: the triangle.
-    var unavailableSymbol: String? = nil
     var retry: () -> Void
     @State private var copied = false
     @State private var copiedTask: Task<Void, Never>?
@@ -111,8 +108,7 @@ struct MoreErrorState: View {
         if reason == MoreWire.olderHermes {
             // [mac] Stress test 2026-10-28 #10: a page this Hermes doesn't have isn't a failure. Its own line under the
             // title (not the title again), and no Try Again or Copy Details, which can't change anything.
-            MoreEmptyState(symbol: DeviceWord.isMac ? unavailableSymbol ?? "exclamationmark.triangle" : "exclamationmark.triangle",
-                           title: MoreWire.notAvailableTitle,
+            MoreEmptyState(symbol: "exclamationmark.triangle", title: MoreWire.notAvailableTitle,
                            text: MoreWire.notAvailableBody(page ?? MoreWire.pageName(fromFailureTitle: title)))
         } else {
             failure

@@ -1088,7 +1088,7 @@ struct HeaderMenuSpot: PreferenceKey {
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
 }
 
-/// Under a capped project: "Show 12 More" opens it in place; "Show Less" closes it to its newest chats again.
+/// Under a capped project: "Show More (12)" opens it in place; "Show Less" closes it to its newest chats again.
 struct SessionShowMoreRow: View {
     var column = ProjectCard.column   // [card-gutters] drawn again when the column changes
     var more: Int
@@ -1099,7 +1099,7 @@ struct SessionShowMoreRow: View {
                 .font(Font.hq(.subheadline).weight(.semibold))
                 .foregroundStyle(Color.hqLabel3)
                 .frame(width: ProjectCard.column)   // [ui-sizing] the chat rows' column, Compact's too (was 40)
-            Text(more > 0 ? "Show \(more) More" : "Show Less")   // Owner 2026-11-17 (Mac calls Q12): was "Show More (12)"
+            Text(more > 0 ? "Show More (\(more))" : "Show Less")
                 .font(Font.hq(.subheadline).weight(.medium))
                 .foregroundStyle(Color.hqTintText)
             Spacer(minLength: 0)

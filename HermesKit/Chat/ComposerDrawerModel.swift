@@ -21,14 +21,6 @@ nonisolated enum ComposerDrawerModel {
 
         var isOpen: Bool { self != .closed }
         var isSlash: Bool { if case .slash = self { return true } else { return false } }
-
-        /// [Mac AAA 2026-11-17] Owner's call Q2: a command's name is being typed ("/st", no space yet), so the drawer
-        /// marks its first match and Return picks it, as the Commands panel does; "/" alone and a command's argument
-        /// ("/reasoning h") mark nothing, so Return there still does what it always did.
-        var marksFirstMatch: Bool {
-            guard case .slash(let text) = self, text.count > 1 else { return false }
-            return !text.contains { $0.isWhitespace }
-        }
     }
 
     private static func isLetter(_ u: UInt16) -> Bool { (u >= 65 && u <= 90) || (u >= 97 && u <= 122) }

@@ -10,18 +10,6 @@ import UIKit
 enum DesktopFrost {
     /// How much of the page colour lies over the blur: the content reads through, never against the bar's own text.
     static let tintAlpha: CGFloat = 0.3
-    /// [Mac glass 2026-11-17] The bars' and bands' own veil (owner, answering O2: "Give them their own backing"). On the
-    /// Mac a bar's 30 % tint let a black message under it turn the whole bar dark grey (a white one, pale), as the iOS
-    /// look's chat band did; it now carries the pop-overs' 94 % page veil (`ChatPalette.popupVeil`, the iOS look's chat
-    /// band since the same day) over the frost, so a message under it is a faint local shade and the bar keeps its own
-    /// tone. The iPhone keeps its see-through frost. Selection colours and other `tint` users keep `tintAlpha`.
-    static var barTintAlpha: CGFloat {
-        #if targetEnvironment(macCatalyst)
-        0.94
-        #else
-        tintAlpha
-        #endif
-    }
     /// The blur under the tint (the system's plain blur, light and dark by itself; not glass).
     static func blur() -> UIBlurEffect { UIBlurEffect(style: .regular) }
 
@@ -36,7 +24,7 @@ enum DesktopFrost {
         // the scroll edge effect and draws neither the effect nor the colour set here.
         appearance.configureWithOpaqueBackground()
         appearance.backgroundEffect = blur()
-        appearance.backgroundColor = tint(color, alpha: barTintAlpha)   // [Mac glass 2026-11-17] Mac: 94 %
+        appearance.backgroundColor = tint(color)
         appearance.shadowColor = .clear
     }
 }
@@ -54,7 +42,7 @@ final class DesktopFrostView: UIView {
     var fadeLength: CGFloat = 50 { didSet { setNeedsLayout() } }
     var color: UIColor = .clear { didSet { tintView.backgroundColor = DesktopFrost.tint(color, alpha: tintAlpha) } }
     /// The tint's alpha (a control on the frost, like the jump pill, is mostly its fill).
-    var tintAlpha: CGFloat = DesktopFrost.barTintAlpha { didSet { tintView.backgroundColor = DesktopFrost.tint(color, alpha: tintAlpha) } }
+    var tintAlpha: CGFloat = DesktopFrost.tintAlpha { didSet { tintView.backgroundColor = DesktopFrost.tint(color, alpha: tintAlpha) } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)

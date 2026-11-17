@@ -399,19 +399,7 @@ private func swiftSources(_ folders: [String]) -> [(file: String, lines: [String
         #expect(FileBrowserPref.isOn && told == 1)
         UserDefaults.standard.set("yes", forKey: FileBrowserPref.key)
         #expect(!FileBrowserPref.isOn, "a value that is not a Bool reads as the default")
-        // [Mac AAA 2026-11-17] Q18: rows are found by their explanations' words too, and Open Links In's ("pages and
-        // files your bots make", a browser row) matches these words as well.
-        #expect(SettingsSearch.results("file browser", in: SettingsSearch.appRows).map(\.label).contains("Files Button in Chats"), "the old name still finds it")
-    }
-
-    /// [Mac AAA 2026-11-17] Q18: Settings › Chat's rows are found by the words of the explanations under their titles.
-    @Test func chatRowsAreFoundByTheirExplanations() {
-        func find(_ words: String) -> [String] { SettingsSearch.results(words, in: SettingsSearch.appRows).map(\.id) }
-        #expect(find("reply finishes").contains("app:send-while-busy"))
-        #expect(find("ready to type").contains("app:new-chat-mode"))
-        #expect(find("time only under").contains("app:fewer-timestamps"))
-        #expect(find("no sheet").contains("app:new-chat-asks-project"))
-        #expect(find("react to yours").contains("app:message-reactions"))
+        #expect(SettingsSearch.results("file browser", in: SettingsSearch.appRows).map(\.label) == ["Files Button in Chats"], "the old name still finds it")
     }
 
     // MARK: §13 hidden on phone (web-shell-only)

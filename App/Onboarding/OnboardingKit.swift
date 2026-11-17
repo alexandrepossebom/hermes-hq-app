@@ -130,48 +130,12 @@ struct GuideParagraph: View {
     }
 }
 
-// MARK: - Middle of the window (Mac first run)
-
-/// [Mac calls 2026-11-17] Owner's call (Q19, "Middle of the window"): on the Mac's first-run screens the block (icon,
-/// heading, words, buttons) sits in the middle of the window's visible area (under the bar), top to bottom as well as
-/// side to side. Set per screen by `OnboardingFlow` (the Mac's first-run window only; not the Add Gateway sheet).
-@MainActor @Observable final class FirstRunLayout {
-    var centred = false
-}
-
-/// A first-run screen's scroll view: when its screen is centred and the block fits, the block sits in the middle of the
-/// visible area and follows the window as it resizes; a block taller than the window scrolls from the top, as before.
-struct FirstRunScroll<Content: View>: View {
-    @ViewBuilder var content: Content
-    @Environment(FirstRunLayout.self) private var layout: FirstRunLayout?
-    @State private var visible: CGFloat = 0
-
-    var body: some View {
-        let centred = layout?.centred == true
-        ScrollView {
-            content
-                .frame(maxWidth: .infinity, minHeight: centred ? visible : nil, alignment: centred ? .center : .top)
-        }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visible = $0 }
-    }
-}
-
-extension View {
-    /// The block's own padding above and below: even when centred (so the middle is the block's), else as given.
-    func firstRunVerticalPadding(top: CGFloat, bottom: CGFloat, centred: Bool, even: CGFloat = 24) -> some View {
-        padding(.top, centred ? even : top).padding(.bottom, centred ? even : bottom)
-    }
-}
-
 // MARK: - Page
 
 /// One guide screen: the heading (content, not the bar: DECISION D4), the screen's parts, and its error line. The way
 /// on (`footer`: Next, Sign In) is pinned under the words on the page colour, as on the welcome (UX study #123), so the
 /// next thing to tap is in the same place on every screen and never below the fold. At the accessibility text sizes
 /// two pinned buttons would take half the screen, so there the way on ends the page instead.
-/// [Mac calls 2026-11-17] Owner's call (Q19): on the Mac the way on always ends the page, right under the words, as
-/// the sign-in screen's Continue does (pinned, it stood ~340 pt below them at the usual window). iPhone and iPad keep it
-/// pinned.
 struct GuidePage<Content: View, Footer: View>: View {
     let id: String
     let heading: String
@@ -179,12 +143,11 @@ struct GuidePage<Content: View, Footer: View>: View {
     @ViewBuilder var content: Content
     @ViewBuilder var footer: Footer
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(FirstRunLayout.self) private var layout: FirstRunLayout?
 
-    private var pinsFooter: Bool { Footer.self != EmptyView.self && !typeSize.isAccessibilitySize && !DeviceWord.isMac }
+    private var pinsFooter: Bool { Footer.self != EmptyView.self && !typeSize.isAccessibilitySize }
 
     var body: some View {
-        FirstRunScroll {
+        ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text(heading)
                     .font(Font.hq(.title).weight(.hqBold))
@@ -208,7 +171,8 @@ struct GuidePage<Content: View, Footer: View>: View {
             }
             .frame(maxWidth: 440, alignment: .leading)
             .padding(.horizontal, 24)
-            .firstRunVerticalPadding(top: 8, bottom: 32, centred: layout?.centred == true)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
             .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.fade), fades: true), value: error)
         }

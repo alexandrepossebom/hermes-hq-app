@@ -22,11 +22,7 @@ import UIKit
     static let readReplies = #selector(AppDelegate.hqReadReplies(_:))
     // [mac] Stress test 2026-10-31: the ⋯'s Prompts, Usage & Limits and Model Prices (tester wishlist 2026-10-24).
     static let tool = #selector(AppDelegate.hqChatTool(_:))
-    /// [Mac model selector] Owner 2026-11-17: Choose Model… opens the model selector, the caret in its search field,
-    /// from anywhere in a chat. ⇧⌘M stays Mute Talk (owner's answer); ⌥⌘M is Window › Minimize All in this app's own
-    /// menu, so the key is ⌃⌘M.
-    static let chooseModel = #selector(AppDelegate.hqChooseModel(_:))
-    static let actions: Set<Selector> = [chatRow, attach, memo, dictate, talk, muteTalk, endTalk, readReplies, tool, chooseModel]
+    static let actions: Set<Selector> = [chatRow, attach, memo, dictate, talk, muteTalk, endTalk, readReplies, tool]
 
     private static func item(_ title: String, _ action: Selector, _ input: String? = nil, _ flags: UIKeyModifierFlags = [],
                              row: ChatMenuItemID? = nil, attributes: UIMenuElement.Attributes = []) -> UICommand {
@@ -54,18 +50,16 @@ import UIKit
             item("Read Replies Aloud", readReplies),
         ]
         let chat: [UIMenuElement] = [
+            item(DeviceWord.isMac ? "Show Inspector" : "Chat Info", chatRow, "i", .command, row: .info),
             item("Rename…", chatRow, row: .rename),
             item("Pin", chatRow, "p", [.command, .shift], row: .pin),
             item("Mark as Unread", chatRow, "u", [.command, .shift], row: .unread),
         ]
-        var tools: [UIMenuElement] = [
+        let tools: [UIMenuElement] = [
             UICommand(title: "Prompts…", action: tool, propertyList: ChatMenus.ToolRow.prompts.rawValue),
             UICommand(title: "Usage & Limits", action: tool, propertyList: ChatMenus.ToolRow.usage.rawValue),
             UICommand(title: "Model Prices", action: tool, propertyList: ChatMenus.ToolRow.prices.rawValue),
         ]
-        #if targetEnvironment(macCatalyst)
-        tools.insert(item("Choose Model…", chooseModel, "m", [.command, .control]), at: 0)   // [Mac model selector]
-        #endif
         let more: [UIMenuElement] = [
             // [macpass] 2026-11-14: View has Files and Changes too (the places); these are this chat's.
             item(Self.filesTitle, chatRow, row: .files),
@@ -76,26 +70,16 @@ import UIKit
         // [mac-audit K] Owner 2026-11-02: one name per action. "Delete Chat", as the ⋯ and the Sessions menus say it
         // (the kit puts no ellipsis on a destructive row).
         // [keys] Mac UI check 2026-11-13 (V29): on the Mac it asks first, so it reads as File's "Delete Chat…" (⌘⌫).
+        let danger: [UIMenuElement] = [item(Self.deleteTitle, chatRow, row: .delete, attributes: .destructive)]
         #if targetEnvironment(macCatalyst)
-        // [Mac AAA 2026-11-17] Owner's call Q9: the one Delete Chat… in the menu bar, with ⌘⌫ (File's item went). Owner's
-        // call Q8: Show/Hide Inspector is View's now (`inspectorItem`).
-        let danger: [UIMenuElement] = [KeyCommands.deleteItem()]
-        // [mac-audit K] Go to Message Field, Send and Message Actions act on this chat: first here, not in Edit (and
-        // Stop Reply beside Send, owner's call Q7).
+        // [mac-audit K] Go to Message Field, Send and Message Actions act on this chat: first here, not in Edit.
         let groups = [KeyCommands.chatItems() as [UIMenuElement], compose, talking, chat, tools, more, danger]
         #else
-        let danger: [UIMenuElement] = [item(Self.deleteTitle, chatRow, row: .delete, attributes: .destructive)]
-        let groups = [compose, talking, [inspectorItem()] + chat, tools, more, danger]
+        let groups = [compose, talking, chat, tools, more, danger]
         #endif
         return UIMenu(title: "Chat", identifier: identifier, children: groups.map {
             UIMenu(title: "", options: .displayInline, children: $0)
         })
-    }
-
-    /// ⌘I: the inspector beside the chat on the Mac (View's item under Hide Sidebar, named Show or Hide Inspector by
-    /// `validateChat`); Chat Info in the iPad's Chat menu.
-    static func inspectorItem() -> UICommand {
-        item(DeviceWord.isMac ? "Show Inspector" : "Chat Info", chatRow, "i", .command, row: .info)
     }
 
     /// The Chat menu's Delete: a Mac menu item that asks before acting ends in "…", as File's does.
@@ -177,8 +161,6 @@ extension AppDelegate {
         case ChatMenuBar.readReplies:
             enabled = chat?.voice.talkReadsAloud == true
             command.state = TalkController.readsRepliesAloud ? .on : .off
-        case ChatMenuBar.chooseModel:
-            enabled = chat?.menus?.canChooseModel == true
         case ChatMenuBar.tool:
             if let row = (command.propertyList as? String).flatMap(ChatMenus.ToolRow.init(rawValue:)) {
                 enabled = chat?.menus?.canOpen(row) == true
@@ -247,13 +229,6 @@ extension AppDelegate {
               let menus = ChatMenuBar.chat?.menus, menus.canOpen(row) else { return }
         AppLog.note("keys", "chat menu: \(row.rawValue)")
         menus.open(row)
-    }
-
-    /// [Mac model selector] Chat › Choose Model… (⌃⌘M): the model selector, the caret in its search field.
-    @objc func hqChooseModel(_ sender: Any?) {
-        guard let menus = ChatMenuBar.chat?.menus, menus.canChooseModel else { return }
-        AppLog.note("keys", "chat menu: choose model")
-        menus.presentModelPanel()
     }
 
     @objc func hqReadReplies(_ sender: Any?) {

@@ -9,13 +9,10 @@ import UIKit
 /// One screen of the flow. It carries its step (the Mac and Linux screens share classes).
 final class OnboardingStepController: UIHostingController<HQScaledRoot<AnyView>> {
     let step: OnboardingStep
-    /// [Mac calls 2026-11-17] Whether the screen centres its block top to bottom (the Mac's first-run window).
-    let layout = FirstRunLayout()
 
     init<Content: View>(step: OnboardingStep, title: String = "", @ViewBuilder content: () -> Content) {
         self.step = step
-        let layout = self.layout
-        super.init(rootView: HQScaledRoot(AnyView(content().environment(layout))))
+        super.init(rootView: HQScaledRoot(AnyView(content())))
         view.backgroundColor = HQPalette.page
         // DECISION D4: the web's eyebrow is the small title on the bar row; the heading is content.
         navigationItem.title = title
@@ -183,9 +180,6 @@ final class OnboardingNavigationController: UINavigationController {
 
     private func make(_ step: OnboardingStep) -> UIViewController {
         let controller = build(step)
-        // [Mac calls 2026-11-17] Owner's call (Q19, "Middle of the window"): in the Mac's first-run window every screen's
-        // block sits in the middle of the window, top to bottom. Not in the Add Gateway sheet, nor off the Mac.
-        if case .root = mode, DeviceWord.isMac { (controller as? OnboardingStepController)?.layout.centred = true }
         // In the sheet, Cancel closes it from any depth: leading on the form, trailing beside Back on a guide screen.
         if case .sheet(_, let identifier) = mode, controller.navigationItem.leftBarButtonItem == nil,
            controller.navigationItem.rightBarButtonItem == nil {

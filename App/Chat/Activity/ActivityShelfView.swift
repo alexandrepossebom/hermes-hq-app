@@ -18,8 +18,6 @@ final class ActivityShelfView: UIView {
     var maxCardHeight: CGFloat = 300 { didSet { if maxCardHeight != oldValue { setNeedsLayout() } } }
     var maxHeight: CGFloat = .greatestFiniteMagnitude { didSet { if maxHeight != oldValue { setNeedsLayout() } } }
     static let gap: CGFloat = 6
-    /// The folded pill's glass inside its 44 pt tap area, above and below (34 pt of glass).
-    static let pillMargin: CGFloat = 5
     static let minCardBody: CGFloat = 60
     private var themeWatch: NSObjectProtocol?
     private var styledExpanded: Bool?
@@ -36,17 +34,8 @@ final class ActivityShelfView: UIView {
         return rule
     }
 
-    /// [Mac AAA 2026-11-17] The page's colour under the glass on the Mac, as the Find bar's: over a dark message the
-    /// pill's glass took its colour and the message's words read through "3 helpers".
-    private let backing = UIView()
-
     override init(frame: CGRect) {
         super.init(frame: frame)
-        if DeviceWord.isMac {
-            backing.isUserInteractionEnabled = false
-            backing.backgroundColor = ChatPalette.page
-            addSubview(backing)
-        }
         addSubview(glass)
         // The header is outside the glass so the invisible 5 pt margins remain tappable.
         addSubview(summaryHeader)
@@ -96,13 +85,7 @@ final class ActivityShelfView: UIView {
     }
 
     private var detail: ShelfPieceView? { expanded ? visiblePieces.first(where: \.isOpen) : nil }
-    #if DEBUG
-    /// [Mac AAA 2026-11-17] Tours: the pill leaves (and comes back) through the shelf's own animation.
-    var debugHidden = false
-    var hasActivity: Bool { !debugHidden && !visiblePieces.isEmpty }
-    #else
     var hasActivity: Bool { !visiblePieces.isEmpty }
-    #endif
     var hasOpenCard: Bool { expanded }
     var piecesHeight: CGFloat { bounds.height }
 
@@ -180,7 +163,6 @@ final class ActivityShelfView: UIView {
         let present = hasActivity
         accessibilityElementsHidden = !present
         glass.isHidden = !present
-        backing.isHidden = !present
         glass.accessibilityElementsHidden = !present || !expanded
         summaryHeader.isHidden = !present
         guard present else { return }
@@ -189,13 +171,9 @@ final class ActivityShelfView: UIView {
         let headerH = summaryHeader.height(width: w)
         let actualW = expanded ? w : min(w, summaryHeader.fittingWidth)
         let x = ((bounds.width - actualW) / 2).rounded()
-        let margin: CGFloat = expanded ? 0 : Self.pillMargin
+        let margin: CGFloat = expanded ? 0 : 5
         glass.frame = CGRect(x: x, y: margin, width: actualW, height: max(0, bounds.height - 2 * margin))
         summaryHeader.frame = CGRect(x: x, y: 0, width: actualW, height: headerH)
-        if backing.superview != nil {
-            backing.frame = glass.frame
-            backing.cornerConfiguration = Theme.isDesktop ? .corners(radius: .fixed(4)) : expanded ? .corners(radius: .fixed(18)) : .capsule()
-        }
         if styledExpanded != expanded {
             styledExpanded = expanded
             if glass.effect is UIGlassEffect {

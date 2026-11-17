@@ -647,18 +647,6 @@ struct PhotoGridTests {
         #expect(box.frame.size == CGSize(width: 260, height: 195))
     }
 
-    /// [Mac AAA 2026-11-17] Q4: the Mac's lone photo as a grid's card: the grid's width, its own shape, never taller
-    /// than a grid of four (a square of that width).
-    @Test func aLonePhotoCardIsAsWideAsTheGrid() {
-        let pair = MediaLayout.grid(count: 2, maxWidth: 900).size.width
-        #expect(MediaLayout.card(width: 1600, height: 1200, maxWidth: 900) == CGSize(width: pair, height: 390))
-        #expect(MediaLayout.card(width: 1000, height: 2000, maxWidth: 900) == CGSize(width: 260, height: 520), "tall: a square's height")
-        #expect(MediaLayout.card(width: 1179, height: 2556, maxWidth: 900).height == 520)
-        #expect(MediaLayout.card(width: 3000, height: 400, maxWidth: 900) == CGSize(width: 520, height: 100), "wide: ≥ 100 tall")
-        #expect(MediaLayout.card(width: 1600, height: 1200, maxWidth: 300) == CGSize(width: 300, height: 225), "a narrow column")
-        #expect(MediaLayout.card(width: nil, height: nil, maxWidth: 900) == CGSize(width: 520, height: 390))
-    }
-
     @Test func aRepliesPicturesAreAGrid() {
         let refs = ["a", "b", "c"].compactMap { MarkdownMedia.ref(destination: "#media:%2Ftmp%2F\($0).png", title: "Image: \($0).png", image: false) }
         let block = AttachmentBubbleLayout.mediaBlock(refs, context: nil, maxText: 338, mine: false, style: style)

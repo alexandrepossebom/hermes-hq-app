@@ -628,10 +628,7 @@ final class WorkspaceTextPage: UIViewController {
     }
 
     private func styled(_ text: String) -> NSAttributedString {
-        // Owner 2026-11-17 (Mac calls Q14): on the Mac a file's text (and a diff) at the body's size, 15 pt on the screen
-        // as the rest of the Mac, still monospaced; it was 13 pt in code, about 12 there. The iPhone keeps its 13.
-        let font = DeviceWord.isMac ? HQFont.monoFace(ofSize: MacType.row.pointSize)
-            : UIFontMetrics(forTextStyle: .footnote).scaledFont(for: HQFont.mono(ofSize: 13, weight: .regular), compatibleWith: traitCollection)
+        let font = UIFontMetrics(forTextStyle: .footnote).scaledFont(for: HQFont.mono(ofSize: 13, weight: .regular), compatibleWith: traitCollection)
         let out = NSMutableAttributedString()
         // Bounded: a huge file shows its first 400,000 characters (Share hands over the whole file).
         let shown = text.count > 400_000 ? String(text.prefix(400_000)) + "\n…" : text

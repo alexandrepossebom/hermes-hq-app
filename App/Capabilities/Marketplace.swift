@@ -763,28 +763,19 @@ struct MarketplaceView: View {
 
     private static let gridColumns = [GridItem(.adaptive(minimum: 350), spacing: 12, alignment: .top)]
 
-    /// A titled part of the grid page: its name (and See All), what it is (`about`), what it holds, a line under it.
-    /// Owner 2026-11-17 (Mac calls Q16): a shelf's description sits under its title, above its cards, as the page's
-    /// own title and blurb do (4 pt apart, subheadline in the second grey); under the cards it read as a footer.
-    private func gridSection<Content: View>(_ title: String, about: String? = nil, note: String? = nil,
-                                            seeAll: (title: String, id: String, action: () -> Void)? = nil,
+    /// A titled part of the grid page: its name (and See All), what it holds, a line under it.
+    private func gridSection<Content: View>(_ title: String, note: String? = nil, seeAll: (title: String, id: String, action: () -> Void)? = nil,
                                             @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    if !title.isEmpty {
-                        Text(title).font(Font.hq(.headline)).foregroundStyle(Color.hqLabel).accessibilityAddTraits(.isHeader)
-                    }
-                    Spacer(minLength: 0)
-                    if let seeAll {
-                        Button(action: seeAll.action) { Text(seeAll.title).font(Font.hq(.subheadline)).foregroundStyle(Color.hqTint) }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier(seeAll.id)
-                    }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                if !title.isEmpty {
+                    Text(title).font(Font.hq(.headline)).foregroundStyle(Color.hqLabel).accessibilityAddTraits(.isHeader)
                 }
-                if let about {
-                    Text(about).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2)
-                        .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if let seeAll {
+                    Button(action: seeAll.action) { Text(seeAll.title).font(Font.hq(.subheadline)).foregroundStyle(Color.hqTint) }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier(seeAll.id)
                 }
             }
             content()
@@ -913,21 +904,21 @@ struct MarketplaceView: View {
         } else {
             let quality = MarketplaceFeatured.qualityOfLife(pluginEntries)
             if !quality.isEmpty {
-                gridSection("Quality of Life Improvements", about: "The most-starred desktop and tool plugins in the catalog.",
+                gridSection("Quality of Life Improvements", note: "The most-starred desktop and tool plugins in the catalog.",
                             seeAll: ("See All", "marketplace.shelf.quality.all", {
                     narrow(to: .plugins, category: PluginCatalogCategory.tools.rawValue)
                 })) { cards { ForEach(wholeRows(quality)) { pluginCard($0) } } }
             }
             if let spotlight = MarketplaceFeatured.spotlight(pluginEntries) {
                 gridSection("Spotlight: \(spotlight.maker)",
-                            about: "\(spotlight.picks.count) picks from the community maintainer with the most plugins in the catalog.",
+                            note: "\(spotlight.picks.count) picks from the community maintainer with the most plugins in the catalog.",
                             seeAll: ("See All", "marketplace.shelf.spotlight.all", {
                     narrow(to: .plugins, query: spotlight.maker)
                 })) { cards { ForEach(wholeRows(spotlight.picks)) { pluginCard($0) } } }
             }
             if skills.entries == nil || !skillEntries.isEmpty {
                 let official = skillEntries.filter { $0.source == "optional" }
-                gridSection("Skills from Nous", about: "Ready-made know-how your bots load when a task needs it.",
+                gridSection("Skills from Nous", note: "Ready-made know-how your bots load when a task needs it.",
                             seeAll: skills.entries == nil ? nil : ("See All \(skillEntries.count.formatted()) Skills", "marketplace.shelf.skills.all", {
                     narrow(to: .skills)
                 })) {
@@ -945,7 +936,7 @@ struct MarketplaceView: View {
             if let context = MarketplaceAnywhere.context(model.services), MorePages.factories["messaging"] != nil {
                 let more = pluginEntries.filter { $0.category == .platform }.count
                 gridSection("Talk to Hermes Anywhere",
-                            about: "Chat where you already are. Set each one up in Messaging, or add more chat apps with a plugin.",
+                            note: "Chat where you already are. Set each one up in Messaging, or add more chat apps with a plugin.",
                             seeAll: more == 0 ? nil : ("\(more.formatted()) Messaging Plugins", "marketplace.shelf.anywhere.all", {
                     narrow(to: .plugins, category: PluginCatalogCategory.platform.rawValue)
                 })) {
@@ -1062,8 +1053,7 @@ struct MarketplaceView: View {
 
     private func gridMore(left: Int, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text("Show \(left.formatted()) More")   // Owner 2026-11-17 (Mac calls Q12): was "Show More (35 left)"
-                .font(Font.hq(.subheadline)).foregroundStyle(Color.hqTint)
+            Text("Show More (\(left.formatted()) left)").font(Font.hq(.subheadline)).foregroundStyle(Color.hqTint)
                 .padding(.horizontal, 14).padding(.vertical, 7)
                 .background(Color(uiColor: HQPalette.card), in: HQPill())
                 .contentShape(HQPill())

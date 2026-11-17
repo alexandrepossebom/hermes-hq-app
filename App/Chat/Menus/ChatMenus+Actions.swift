@@ -392,14 +392,6 @@ extension ChatMenus {
         MenusSheet.top(screen)?.present(alert, animated: true)
     }
 
-    #if DEBUG
-    /// [Mac AAA 2026-11-17] Tours: Edit on your newest message (`-HQDebugMacShotsFloat`'s edit step).
-    func debugBeginEdit() {
-        guard let id = session.messages.last(where: { $0.role == .user })?.id else { return }
-        beginEdit(id)
-    }
-    #endif
-
     // MARK: Edit
 
     /// Edit: your message's words in the composer with an "Editing Message" banner; the next send goes out as the edit
@@ -527,9 +519,6 @@ final class ComposerEditBanner: UIView, ComposerFieldWatching {
         return view
     }()
     private var capsule = true
-    /// [Mac AAA 2026-11-17] On the Mac the page's colour under the glass, as the Find bar's: over a reply the words
-    /// behind the banner read through it as words.
-    private let veil = UIView()
 
     convenience init(removesLater: Bool = false) {
         self.init(title: "Editing Message", symbol: "pencil", note: removesLater ? "Later messages will be removed" : nil,
@@ -557,17 +546,6 @@ final class ComposerEditBanner: UIView, ComposerFieldWatching {
     init(title: String, symbol: String, note: String?, noteLines: Int = 0, cancelLabel: String, identifier: String, saves: Bool = false) {
         super.init(frame: .zero)
         accessibilityIdentifier = identifier
-        if DeviceWord.isMac {
-            veil.isUserInteractionEnabled = false
-            veil.backgroundColor = ChatPalette.page
-            veil.cornerConfiguration = .capsule()
-            veil.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(veil)
-            NSLayoutConstraint.activate([veil.topAnchor.constraint(equalTo: topAnchor, constant: 1),
-                                         veil.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
-                                         veil.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
-                                         veil.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1)])
-        }
         addSubview(glass)
         glass.translatesAutoresizingMaskIntoConstraints = false
         let icon = UIImageView(image: UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(textStyle: .footnote, scale: .medium)))
@@ -672,7 +650,6 @@ final class ComposerEditBanner: UIView, ComposerFieldWatching {
         if isCapsule != capsule {
             capsule = isCapsule
             glass.cornerConfiguration = isCapsule ? .capsule() : .corners(radius: .fixed(22))
-            veil.cornerConfiguration = isCapsule ? .capsule() : .corners(radius: .fixed(21))
         }
     }
 }

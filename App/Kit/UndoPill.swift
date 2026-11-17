@@ -68,8 +68,6 @@ final class UndoPill: UIView {
         view.cornerConfiguration = .capsule()
         return view
     }()
-    /// The glass is a 22 pt card (two lines), not a capsule: the Mac's backing follows its shape.
-    private var roundedCard = false
     private let label = UILabel()
     private let button = UIButton(type: .system)
     private let dot = UILabel()
@@ -164,12 +162,6 @@ final class UndoPill: UIView {
         self.onUndo = onUndo
         super.init(frame: .zero)
         accessibilityIdentifier = "undo-pill"
-        #if targetEnvironment(macCatalyst)
-        // [Mac AAA 2026-11-17] The page's colour under the glass, as the Find bar's: over a dark message the glass alone
-        // took its colour and let its words read through. The glass keeps its rim and sheen on top.
-        backgroundColor = HQPalette.page
-        layer.cornerCurve = .continuous
-        #endif
         addSubview(glass)
         glass.translatesAutoresizingMaskIntoConstraints = false
         label.text = text
@@ -235,7 +227,6 @@ final class UndoPill: UIView {
             stack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0)
             words = stack
             glass.cornerConfiguration = .uniformCorners(radius: .fixed(22))
-            roundedCard = true
         }
         let row = UIStackView(arrangedSubviews: [words, dot, button])
         row.axis = .horizontal
@@ -290,13 +281,6 @@ final class UndoPill: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    #if targetEnvironment(macCatalyst)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        layer.cornerRadius = roundedCard ? 22 : bounds.height / 2   // [Mac AAA 2026-11-17] the backing in the glass's shape
-    }
-    #endif
 
     private var focusObserver: NSObjectProtocol?
     /// The pill takes Undo back (not a plain notice, not Cancel).

@@ -25,29 +25,12 @@ import UIKit
 
     /// What could join the sidebar now, as Settings › Tabs' add list has it: the main tabs not in it, then the More
     /// pages this gateway has, in More's order.
-    /// Owner 2026-11-17 (Mac calls Q11): Only pages in neither the places nor Tools: a Tool is already in the
-    /// sidebar, and its own Control-click has Move to Places (two ways to one thing before).
     static func addable() -> [Place] {
         let shown = TabOrder.tabs
-        let mains = HQTab.movable.map(TabChoice.main).filter { !shown.contains($0) && !isTool($0) }
-        let pages = TabOrderPage.pageChoices().filter { !shown.contains(.page($0.id)) && !isTool(.page($0.id)) }
+        let mains = HQTab.movable.map(TabChoice.main).filter { !shown.contains($0) }
+        let pages = TabOrderPage.pageChoices().filter { !shown.contains(.page($0.id)) }
         return mains.map { Place(choice: $0, title: TabOrderPage.title($0), image: image($0, symbol: nil)) }
             + pages.map { Place(choice: .page($0.id), title: $0.title, image: image(.page($0.id), symbol: $0.symbol)) }
-    }
-
-    /// `choice` stands under the sidebar's Tools now (a page More's working sections give it, Marketplace, a plugin
-    /// page, or Bots while it is no place).
-    private static func isTool(_ choice: TabChoice) -> Bool {
-        guard let pages = MainTabController.current?.pages else { return false }
-        let id: String?
-        switch choice {
-        case .page(let page): id = page
-        case .main(.jobs): id = "jobs"
-        case .main(.workspace): id = pages.workspaceRowID
-        case .main(.bots): id = PagesTabs.botsRowID
-        case .main: id = nil
-        }
-        return id.map(pages.toolIDs.contains) ?? false
     }
 
     /// The place a More row opens, when it can be in the sidebar: a hidden Jobs or Kanban/Artifacts tab, or a page.
@@ -138,8 +121,7 @@ import UIKit
     static func spaceMenu() -> UIMenu {
         let places = addable()
         let add: UIMenuElement = places.isEmpty
-            // Owner 2026-11-17 (Mac calls Q11): Nothing left to add: the item itself, dimmed, not an empty submenu.
-            ? UIAction(title: "Add to Sidebar", image: UIImage(systemName: "plus"), attributes: .disabled) { _ in }
+            ? UIAction(title: "Every Page Is in the Sidebar", attributes: .disabled) { _ in }
             : UIMenu(title: "Add to Sidebar", image: UIImage(systemName: "plus"), children: places.map { place in
                 UIAction(title: place.title, image: place.image) { _ in add(place.choice) }
             })

@@ -93,11 +93,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
                                                         withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
         return max(44, ceil(fitted.height))
     }
-    /// [Mac AAA 2026-11-17] On the Mac 8 pt clear of the box's own line (it rises over the row), as the activity pill
-    /// and the arrow: the banner stood 6 pt over it.
-    private var editExtra: CGFloat {
-        editBanner == nil ? 0 : editBannerHeight + (DeviceWord.isMac ? ChatMetrics.macFloatGap + boxRise : 8)
-    }
+    private var editExtra: CGFloat { editBanner == nil ? 0 : editBannerHeight + 8 }
     var topAccessoryHeight: CGFloat = 0 {
         didSet { if topAccessoryHeight != oldValue { invalidateIntrinsicContentSize(); onHeightChange?(); setNeedsLayout() } }
     }
@@ -503,6 +499,10 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         backgroundColor = .clear
         desktopBox.isUserInteractionEnabled = false      // [desktoplook2] the one-box composer's box
         desktopBox.isHidden = true
+        macBacking.isUserInteractionEnabled = false      // [mac-message-box] the page, under and beside the box
+        macBacking.isHidden = true
+        macBacking.layer.addSublayer(macBackingFade)
+        addSubview(macBacking)
         addSubview(desktopBox)
         addSubview(glassContainer)
         glassContainer.contentView.addSubview(field)
@@ -591,9 +591,6 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
             DispatchQueue.main.async { [weak view] in view?.restyleText() }
         }
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: ComposerView, _) in view.restyleText() }
-        // [Mac AAA 2026-11-17] The line's colour is resolved once (a layer colour): a switch between light and dark
-        // draws it again.
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: ComposerView, _) in view.restrokeBox() }
         // At accessibility sizes the line cap follows the keyboard (`maxLines`): measure again once it has come or gone.
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardSettled), name: UIResponder.keyboardDidShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardSettled), name: UIResponder.keyboardDidHideNotification, object: nil)
@@ -845,29 +842,37 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// faint line all round, rounder corners and no shadow. This is that recipe in the look's own colours
     /// (`MacMessageBox`). The Desktop Look keeps its own box.
     static var macPlainBox: Bool { DeviceWord.isMac && !Theme.isDesktop }
-    /// [mac-message-box] Nothing of the chat beside or under the box: it scrolls behind the composer, and round a box
-    /// that is no longer see-through its bubbles showed in the 12 pt beside it and the strip under it.
+    /// [mac-message-box] The page's own colour under the box: the chat scrolls behind the composer, and round a box
+    /// that is no longer see-through its bubbles showed in the 12 pt beside it and the strip under it (a blue corner
+    /// past the box's end). Not over a Chat Background: the picture is the page there, and it runs to the window's foot.
     /// [mac-top-glass] Owner 2026-11-15: "nothing at the bottom of the chats. the chat text just needs to disappear in
-    /// to the text input area", as in Claude's and ChatGPT's apps: the words thin out over the last 32 pt
-    /// (`ChatMetrics.composerContentGap`, where the newest message rests, so nothing is dimmed at rest) and are gone as
-    /// they reach the box. [Mac AAA 2026-11-17] The chat fades its own transcript out there (`ChatViewController.
-    /// fadeTranscriptAtBox`), with this line: a mask, so whatever is behind the rows (the page, or the Chat Background's
-    /// picture) is all that shows round the box. It was a page-coloured wash drawn by the composer, which (1) lay over
-    /// what the chat floats above the box from below the composer (the activity pill and its card, the tray's pictures)
-    /// and dissolved their lower part, and (2) with the system's edge over the rows turned dark navy, box and all, when
-    /// the owner's dark message passed under it in the light look.
-    /// The line (composer coordinates) the transcript is gone by: the box's top, or the top of what the composer holds
-    /// over it (the tray's strip when pictures wait in it, the reply / edit banner). Nil without the Mac's box.
-    var macFadeLine: CGFloat? {
-        guard DeviceWord.isMac, let box = macBoxFrame else { return nil }
-        var top = box.minY
-        if let tray = topAccessory as? AttachmentTrayView, topAccessoryHeight > 0, !tray.isHidden, !tray.isEmpty {
-            top = min(top, tray.frame.minY + tray.panelFrame.minY)
-        }
-        // [Mac AAA 2026-11-17] And by the reply / edit banner's top: faded to the box, the last of the words showed as a
-        // ghost line in the gap between the banner and the box.
-        if let banner = editBanner, !banner.isHidden, banner.frame.height > 1 { top = min(top, banner.frame.minY) }
-        return top
+    /// to the text input area", as in Claude's and ChatGPT's apps. The fade used to run 24 pt and end 10 pt above the
+    /// box, so the words stopped on a hard line over a page-coloured strip. Now it starts where the newest message rests
+    /// (`ChatMetrics.composerContentGap` above the box, so nothing is dimmed at rest) and eases to the full page colour
+    /// at the box's top edge: the words thin out over the last 32 pt and are gone as they reach the box.
+    private let macBacking = UIView()
+    private let macBackingFade = CAGradientLayer()
+
+    private func layoutMacBacking(box: CGRect) {
+        // In both looks on the Mac (the Desktop Look's square box cut the words off on a hard line too).
+        let shown = DeviceWord.isMac && !Backdrop.chats.shows
+        if macBacking.isHidden == shown { macBacking.isHidden = !shown }
+        guard shown else { return }
+        let rise = ChatMetrics.composerContentGap
+        let solidAt = rise + 2
+        // Past the composer's own foot to the window's (the composer stands a little above it).
+        let frame = CGRect(x: 0, y: box.minY - rise, width: bounds.width, height: bounds.height - box.minY + rise + 400)
+        let page = ChatPalette.page.resolvedColor(with: traitCollection)
+        let end = Double(min(1, solidAt / frame.height))
+        // An eased ramp (smoothstep), not a straight one: a straight fade reads as a band with edges.
+        let steps = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        macBacking.frame = frame
+        macBackingFade.frame = macBacking.bounds
+        macBackingFade.colors = steps.map { t in page.withAlphaComponent(t * t * (3 - 2 * t)).cgColor } + [page.cgColor]
+        macBackingFade.locations = steps.map { NSNumber(value: $0 * end) } + [1]
+        CATransaction.commit()
     }
     /// [mac] The iOS look's one box: rounded, not the Desktop Look's square corners.
     static let macBoxRadius: CGFloat = MacMessageBox.radius
@@ -906,6 +911,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
             let box = CGRect(x: side - boxOutset, y: rowTop - 3 + trim, width: bounds.width - 2 * side + 2 * boxOutset, height: fieldHeight + 6 - trim)
             desktopBox.frame = box
             let plainBox = Self.macPlainBox
+            layoutMacBacking(box: box)
             desktopBox.backgroundColor = plainBox ? MacMessageBox.fill : ChatPalette.editor
             // [mac] The iOS look's box rounder, as a Mac text field in Messages is. [desktop-corners] The Desktop Look's
             // takes the look's Corners, as your messages' boxes (the desktop's 4 pt unless another was picked), up to a
@@ -918,6 +924,7 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
             // [mac-message-box] The iOS look's box: one even line all round, a step stronger while typing.
             restrokeBox()
         } else if field.effect == nil {
+            macBacking.isHidden = true
             let glass = UIGlassEffect(style: .regular)
             glass.isInteractive = true
             field.effect = glass

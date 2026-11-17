@@ -95,9 +95,9 @@ extension MoreViewController: KeySearchable {}
             command("New Chat With…", newChatWith, "n", [.command, .shift])]),
          UIMenu(title: "", options: .displayInline, children: [
             command("Close Chat", closeChat, "w", .command), command("Close Window", closeWindow, "w", [.command, .shift])]),
-         // [Mac AAA 2026-11-17] Owner's call Q9 ("one go-to"): Delete Chat… (⌘⌫) is the Chat menu's alone now
-         // (`deleteItem`); File keeps Archive.
-         UIMenu(title: "", options: .displayInline, children: [command("Archive Chat", archiveChat, "a", [.command, .control])])]
+         UIMenu(title: "", options: .displayInline, children: [
+            command("Archive Chat", archiveChat, "a", [.command, .control]),
+            command("Delete Chat…", deleteChat, UIKeyCommand.inputDelete, .command)])]
         #else
         [command("New Chat", newChat, "n", .command), command("New Chat Here", newChatHere, "n", [.command, .alternate]),
          command("New Chat With…", newChatWith, "n", [.command, .shift]),
@@ -131,35 +131,11 @@ extension MoreViewController: KeySearchable {}
 
     /// The message field's keys: in Edit on the iPad, at the top of the Chat menu on the Mac (`ChatMenuBar.menu`).
     static func chatItems() -> [UIKeyCommand] {
-        var items = [command("Go to Message Field", messageField, "l", .command),
-                     command("Send", send, "\r", .command),
-                     // [transcript] The web's menu key: the newest message's hold menu as a list.
-                     command("Message Actions", messageActions, "\r", .control)]
-        #if targetEnvironment(macCatalyst)
-        // [Mac AAA 2026-11-17] Owner's call Q7: Stop Reply (Escape) acts on the chat: beside Send at the top of the Chat
-        // menu, no longer in View. Same key; still named for Escape's step now (`escapeTitle`).
-        items.insert(stopItem(), at: 2)
-        #endif
-        return items
+        [command("Go to Message Field", messageField, "l", .command),
+         command("Send", send, "\r", .command),
+         // [transcript] The web's menu key: the newest message's hold menu as a list.
+         command("Message Actions", messageActions, "\r", .control)]
     }
-
-    /// Escape's item: View's on the iPad, the Chat menu's on the Mac (`chatItems`).
-    static func stopItem() -> UIKeyCommand {
-        #if targetEnvironment(macCatalyst)
-        // [mac-audit K] Owner 2026-11-02: "Stop or Close" named nothing; the item says what Escape does now (`escapeTitle`).
-        let stop = command("Stop Reply", escape, UIKeyCommand.inputEscape, [])
-        #else
-        let stop = command("Stop or Close", escape, UIKeyCommand.inputEscape, [])
-        #endif
-        stop.repeatBehavior = .nonRepeatable   // a held key takes one step of the ladder, not a run of them
-        return stop
-    }
-
-    #if targetEnvironment(macCatalyst)
-    /// [Mac AAA 2026-11-17] Owner's call Q9: the Chat menu's Delete Chat… with File's old key, ⌘⌫ (it asks first,
-    /// `hqDeleteChat`), the one place it is listed.
-    static func deleteItem() -> UIKeyCommand { command("Delete Chat…", deleteChat, UIKeyCommand.inputDelete, .command) }
-    #endif
 
     static func viewItems() -> [UIMenuElement] {
         let tabs = tabTitles.enumerated().map { index, title in command(title, selectTab, String(index + 1), .command, list: index) }
@@ -170,6 +146,13 @@ extension MoreViewController: KeySearchable {}
             command("Previous Chat", previousChat, UIKeyCommand.inputUpArrow, .command),
         ]
         walk.forEach { $0.repeatBehavior = .nonRepeatable }
+        #if targetEnvironment(macCatalyst)
+        // [mac-audit K] Owner 2026-11-02: "Stop or Close" named nothing; the item says what Escape does now (`escapeTitle`).
+        let stop = command("Stop Reply", escape, UIKeyCommand.inputEscape, [])
+        #else
+        let stop = command("Stop or Close", escape, UIKeyCommand.inputEscape, [])
+        #endif
+        stop.repeatBehavior = .nonRepeatable   // a held key takes one step of the ladder, not a run of them
         // ⌘[ goes back a page, as in the Finder, Safari and System Settings: Escape's last step, named in the menu.
         let back = command("Back", back, "[", .command)
         back.repeatBehavior = .nonRepeatable
@@ -178,13 +161,10 @@ extension MoreViewController: KeySearchable {}
         }
         var menus = [UIMenu(title: "", options: .displayInline, children: tabs + others),
                      UIMenu(title: "", options: .displayInline, children: walk + [back]),
-                     UIMenu(title: "", options: .displayInline, children: [command("Refresh", refresh, "r", .command)])]
+                     UIMenu(title: "", options: .displayInline, children: [command("Refresh", refresh, "r", .command), stop])]
         #if targetEnvironment(macCatalyst)
         // [mac] Mail's Hide Sidebar: folds the tabs down the left edge to their icons (MacSidebar).
-        // [Mac AAA 2026-11-17] Owner's call Q8: Show/Hide Inspector (⌘I) under it, where Mac apps keep the inspector
-        // (Pages, Keynote, Xcode); it left the Chat menu. Same key, same action and naming (`validateChat`).
-        menus.insert(UIMenu(title: "", options: .displayInline, children: [
-            command("Hide Sidebar", toggleSidebar, "s", [.control, .command]), ChatMenuBar.inspectorItem()]), at: 0)
+        menus.insert(UIMenu(title: "", options: .displayInline, children: [command("Hide Sidebar", toggleSidebar, "s", [.control, .command])]), at: 0)
         // [mac] Mail's and Safari's text size items: the Desktop Look's UI Scale (MacWindow.changeTextSize).
         menus.append(UIMenu(title: "", options: .displayInline, children: [
             command("Make Text Bigger", textBigger, "+", .command),
@@ -192,7 +172,6 @@ extension MoreViewController: KeySearchable {}
             command("Make Text Smaller", textSmaller, "-", .command),
         ]))
         #else
-        menus[menus.count - 1] = UIMenu(title: "", options: .displayInline, children: [command("Refresh", refresh, "r", .command), stopItem()])
         // [ipad-polish] Mail's and Notes' sidebar key on the iPad: the list beside the chat goes away and comes back
         // (`RootSplitController.setListHidden`).
         menus.insert(UIMenu(title: "", options: .displayInline, children: [command("Hide List", toggleList, "s", [.control, .command])]), at: 0)
@@ -211,19 +190,6 @@ extension MoreViewController: KeySearchable {}
     /// Help's items. [keys] 2026-11-14 (round 3): Keyboard Shortcuts has a key of its own, ⌘/, as in Slack, Linear and
     /// Notion (⇧⌘/ stays the system's Help search).
     static func helpItems() -> [UIMenuElement] { [command("Keyboard Shortcuts", keyboardShortcuts, "/", .command)] }
-
-    /// [Mac AAA 2026-11-17] Owner's call Q10: the Terminal's tab keys, listed in the Window menu while the Terminal is
-    /// on screen and on while it is in front, as Apple's Terminal lists its tabs there (`build`, `validate`). They were
-    /// keys in no menu.
-    static let terminalNewTab = #selector(AppDelegate.hqTerminalNewTab(_:))
-    static let terminalNextTab = #selector(AppDelegate.hqTerminalNextTab(_:))
-    static let terminalPreviousTab = #selector(AppDelegate.hqTerminalPreviousTab(_:))
-    static let terminalActions: Set<Selector> = [terminalNewTab, terminalNextTab, terminalPreviousTab]
-    static func windowItems() -> [UIKeyCommand] {
-        [command("New Tab", terminalNewTab, "t", .command),
-         command("Show Previous Tab", terminalPreviousTab, "[", [.command, .shift]),
-         command("Show Next Tab", terminalNextTab, "]", [.command, .shift])]
-    }
     /// [mac-feel D30] Page Up, Page Down, Home and End scroll the chat on show (`ChatViewController.keyScroll`).
     static let scrollChat = #selector(AppDelegate.hqScrollChat(_:))
     private static let scrollInputs = [UIKeyCommand.inputPageUp, UIKeyCommand.inputPageDown, UIKeyCommand.inputHome, UIKeyCommand.inputEnd]
@@ -328,12 +294,6 @@ extension MoreViewController: KeySearchable {}
         MacUpdater.addMenuItem(builder)
         // [mac-audit K] Owner 2026-11-02: Help › Keyboard Shortcuts lists every key in a sheet (MacShortcutsSheet).
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: helpItems()), atStartOfMenu: .help)
-        // After Minimize and Zoom, where Apple's Terminal lists its tabs; only while a Terminal is on screen (it asks for
-        // the menu again as it shows and goes: a hidden group left two lines in a row behind).
-        if TerminalViewController.onShow {
-            builder.insertSibling(UIMenu(title: "", options: .displayInline, children: windowItems()), afterMenu: .minimizeAndZoom)
-        }
-        TypeToChatKeys.install()   // [Mac AAA 2026-11-17] owner's call Q1
         #endif
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: fileItems()), atStartOfMenu: .file)
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: editItems()), atEndOfMenu: .edit)
@@ -661,19 +621,6 @@ extension MoreViewController: KeySearchable {}
 
     /// The list Next / Previous Chat walk: the one the chat on show was opened from, else the selected one.
     static func walkList(_ root: MainTabController) -> (order: [String], current: String?, open: (String) -> Void)? {
-        #if targetEnvironment(macCatalyst)
-        // [Mac AAA 2026-11-17] Owner's call Q3: Jobs and Tasks walk as Sessions does, ↑/↓ opening the next or previous
-        // job or task beside the list (they kept the system's own arrows, a grey mark that opened nothing). Two panes
-        // only: in one the page covers the list, as a chat does, and the keys there stay the page's.
-        if root.split?.isDouble == true {
-            if let jobs = listOnShow(root) as? JobsViewController {
-                return (jobs.walkOrder, jobs.walkCurrent, { [weak jobs] in jobs?.walkOpen($0) })
-            }
-            if let tasks = listOnShow(root) as? TasksViewController {
-                return (tasks.walkOrder, tasks.walkCurrent, { [weak tasks] in tasks?.walkOpen($0) })
-            }
-        }
-        #endif
         let shown = root.paneChatOnShow
         let tab: HQTab? = if let shown { shown.tab } else { root.shownTab }   // [taborder]
         let live = shown?.chat.session as? LiveChatSession
@@ -739,14 +686,7 @@ extension MoreViewController: KeySearchable {}
     static func arrowsWalk(forward: Bool) -> Bool {
         guard let root, presented(root) == nil, !MacSettingsWindow.isKey, !MacFileWindow.isKey,
               root.view.window?.isKeyWindow == true, !typing(root) else { return false }
-        return walkStops(root) || walkTarget(root, forward: forward) != nil
-    }
-
-    /// [Mac AAA 2026-11-17] The plain arrows at either end of a list they walk: they stay theirs and do nothing (a list's
-    /// first and last row stop the walk, as before). Passed on, the press moved the system's own grey focus mark down
-    /// the rows below (seen in Tasks: a second grey row five rows from the one open). Every walked list alike.
-    static func walkStops(_ root: MainTabController) -> Bool {
-        walkList(root)?.order.isEmpty == false
+        return walkTarget(root, forward: forward) != nil
     }
     #endif
 
@@ -788,14 +728,6 @@ extension AppDelegate {
             // [mac] #15: on while the chat's Find bar has matches to step through.
             let find = settings != nil || KeyCommands.fileInFront != nil ? nil : KeyCommands.root.flatMap { KeyCommands.presented($0) == nil ? $0.chatOnShow?.findController : nil }
             command.attributes = find?.canStep == true ? [] : .disabled
-            return
-        case KeyCommands.terminalNewTab, KeyCommands.terminalNextTab, KeyCommands.terminalPreviousTab:
-            // [Mac AAA 2026-11-17] Owner's call Q10: listed while a Terminal is on screen (`build`), on while it is in
-            // front with something to do (no shell open yet, one tab or the most tabs dim them; so do a sheet over it
-            // and another window in front).
-            guard let terminal = TerminalViewController.front else { command.attributes = .disabled; return }
-            let can = command.action == KeyCommands.terminalNewTab ? terminal.canAddTab : terminal.canCycleTabs
-            command.attributes = can ? [] : .disabled
             return
         case KeyCommands.keyboardShortcuts:
             // [mac] Mac polish #21: before the main page is up (the sign-in form) there is nothing to list keys for.
@@ -885,21 +817,8 @@ extension AppDelegate {
         case KeyCommands.nextChat, KeyCommands.previousChat:
             enabled = enabled && KeyCommands.walkTarget(root, forward: command.action == KeyCommands.nextChat) != nil
             #if targetEnvironment(macCatalyst)
-            // [Mac AAA 2026-11-17] The second keys (`alternates`: plain ↑ / ↓, ⌃Tab) have no title; they may reach here as
-            // plain commands, so the title tells them from the menu's items. At either end of a walked list they stay
-            // taken and do nothing, so the press never moves the system's grey focus mark down the rows; the menu's
-            // items dim there as before.
-            // (A field's caret keeps the plain arrows: `keyCommands` offers them only while no field has the keyboard.)
-            if command.title.isEmpty {
-                if KeyCommands.walkStops(root) { enabled = !covered }
-            } else {
-                // [Mac AAA 2026-11-17] Owner's call Q3: over Jobs and Tasks the items say what they open.
-                let forward = command.action == KeyCommands.nextChat
-                let thing = root.split?.isDouble != true ? "Chat"
-                    : KeyCommands.listOnShow(root) is JobsViewController ? "Job"
-                    : KeyCommands.listOnShow(root) is TasksViewController ? "Task" : "Chat"
-                command.title = (forward ? "Next " : "Previous ") + thing
-            }
+            // [macpass] The plain arrows (with priority over the system's own, `alternates`) leave a text field's caret be.
+            if (command as? UIKeyCommand)?.modifierFlags.isEmpty == true, KeyCommands.typing(root) { enabled = false }
             // [Mac AAA 2026-11-16] Nor ⌘↑ / ⌘↓ while a field holds words: they are the caret's (start / end of the text),
             // as `walkFromEmptyField` says. The menu's item went first, so ⌘↓ in a half-typed message switched the chat
             // (seen in the running app); an empty field still walks the chats.
@@ -954,11 +873,6 @@ extension AppDelegate {
             command.title = menus?.menuState().archived == true ? "Unarchive Chat" : "Archive Chat"
         case KeyCommands.deleteChat:
             enabled = enabled && root.chatOnShow?.menus?.canDelete == true
-            #if targetEnvironment(macCatalyst)
-            // [Mac AAA 2026-11-17] While a field holds words ⌘⌫ is the text's (delete to the start of the line), as ⌘↑ /
-            // ⌘↓ are: the item took it and asked to delete the chat mid-message (seen in the running app).
-            if KeyCommands.typing(root), (root.view.window?.hqFirstResponder as? UIKeyInput)?.hasText == true { enabled = false }
-            #endif
         case KeyCommands.escape:
             // An alert or a menu on top: the system's own Escape closes it, so this command must not take the key.
             let action = EscapeAction.decide(KeyCommands.escapeState(root))
@@ -1203,9 +1117,8 @@ extension AppDelegate {
     override var keyCommands: [UIKeyCommand]? {
         #if targetEnvironment(macCatalyst)
         // [macpass] The plain ↑ / ↓ go before the system's own use of the arrows (`alternates`), so they are offered
-        // only when they walk something: not while a field holds the caret, nor over a list they don't walk (Files,
-        // Artifacts, Kanban, a pick panel keep their own arrows; Jobs and Tasks walk since owner's call Q3, 2026-11-17),
-        // nor under a sheet or with another window in front.
+        // only when they walk something: not while a field holds the caret, nor over a list they don't walk (Jobs,
+        // Tasks, Files, a pick panel keep their own arrows), nor under a sheet or with another window in front.
         let alternates = KeyCommands.alternates.filter { command in
             guard command.modifierFlags.isEmpty, command.action == KeyCommands.nextChat || command.action == KeyCommands.previousChat else { return true }
             return KeyCommands.arrowsWalk(forward: command.action == KeyCommands.nextChat)
@@ -1447,25 +1360,6 @@ extension AppDelegate {
     }
 
     #if targetEnvironment(macCatalyst)
-    /// [Mac AAA 2026-11-17] Owner's call Q10: Window › New Tab, Show Previous Tab, Show Next Tab (the Terminal in front).
-    @objc func hqTerminalNewTab(_ sender: Any?) {
-        guard let terminal = TerminalViewController.front else { return }
-        AppLog.note("keys", "terminal: new tab")
-        terminal.menuNewTab()
-    }
-
-    @objc func hqTerminalNextTab(_ sender: Any?) {
-        guard let terminal = TerminalViewController.front else { return }
-        AppLog.note("keys", "terminal: next tab")
-        terminal.menuCycle(1)
-    }
-
-    @objc func hqTerminalPreviousTab(_ sender: Any?) {
-        guard let terminal = TerminalViewController.front else { return }
-        AppLog.note("keys", "terminal: previous tab")
-        terminal.menuCycle(-1)
-    }
-
     /// [mac-feel D30] Page Up, Page Down, Home, End: the chat on show scrolls (which key: `KeyCommands.scrollKey`).
     @objc func hqScrollChat(_ sender: Any?) {
         guard let key = KeyCommands.scrollKey(input: (sender as? UIKeyCommand)?.input) else { return }
@@ -1513,10 +1407,7 @@ extension AppDelegate {
     @objc func hqPreviousChat(_ sender: Any?) { walk(forward: false) }
 
     private func walk(forward: Bool) {
-        guard let root = uncovered, let target = KeyCommands.walkTarget(root, forward: forward) else {
-            AppLog.note("keys", forward ? "next chat: at the end" : "previous chat: at the start")
-            return
-        }
+        guard let root = uncovered, let target = KeyCommands.walkTarget(root, forward: forward) else { return }
         AppLog.note("keys", forward ? "next chat" : "previous chat")
         // Phone layout: the chat on show gives way to the next one over the same list, in one step (the list between
         // them is never shown).

@@ -126,9 +126,9 @@ extension SettingsEndToEndTests {
         let app = launchSignedIn()
         let filter = app.buttons["bots.filter"]
         XCTAssertTrue(filter.waitForExistence(timeout: 5), "Filter (always on the bar: [filters-only])")
-        openMenu(app, filter, showing: "Show 1 Hidden Bot")
+        openMenu(app, filter, showing: "Show Hidden Bots (1)")
         shot(app, "bots-filter-menu")
-        tapMenu(app, "Show 1 Hidden Bot")
+        tapMenu(app, "Show Hidden Bots (1)")
         let deploys = app.cells["bot-row-deploys"]
         XCTAssertTrue(appears(deploys, app, "show-hidden"), "the hidden bot shows")
         let activity = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Activity'")).firstMatch

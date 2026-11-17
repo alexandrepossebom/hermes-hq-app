@@ -224,15 +224,6 @@ final class ChatFindBar: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         accessibilityIdentifier = "chat.find"
-        #if targetEnvironment(macCatalyst)
-        // [Mac glass 2026-11-17] Owner: the glass alone took the colour of what scrolled under it: under a dark own
-        // message half the bar went black and the message's words read straight through it, over the field and its
-        // arrows. A backing under the glass in the page's own colour, whole: the pop-overs' 94 % veil
-        // (`ChatPalette.popupVeil`) still let a black message turn the bar grey with its words faintly in it. The glass
-        // keeps its rim and sheen on top.
-        backgroundColor = ChatPalette.page
-        layer.cornerCurve = .continuous
-        #endif
         addSubview(glass)
         glass.translatesAutoresizingMaskIntoConstraints = false
         field.placeholder = "Find in Chat"
@@ -368,9 +359,6 @@ final class ChatFindBar: UIView {
         super.layoutSubviews()
         // A capsule while it is one line; a rounded card once it is taller, so the corners don't cut into the text.
         let isCapsule = bounds.height <= Self.height + 4
-        #if targetEnvironment(macCatalyst)
-        layer.cornerRadius = isCapsule ? bounds.height / 2 : 24   // [Mac glass 2026-11-17] the backing in the glass's shape
-        #endif
         if isCapsule != capsule {
             capsule = isCapsule
             glass.cornerConfiguration = isCapsule ? .capsule() : .corners(radius: .fixed(24))

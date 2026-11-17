@@ -312,16 +312,12 @@ struct SignInView: View {
     @AccessibilityFocusState private var spoken: SignInModel.Field?   // [a11y]
     @AccessibilityFocusState private var errorSpoken: Bool
     @ScaledMetric(relativeTo: .body) private var fieldHeight: CGFloat = 50
-    @Environment(FirstRunLayout.self) private var layout: FirstRunLayout?
 
     var body: some View {
-        // [Mac calls 2026-11-17] In the Mac's first-run window the form sits in the middle of the window (owner's call
-        // Q19); elsewhere (Add Gateway, the iPhone) as before.
-        let centred = layout?.centred == true
-        FirstRunScroll {
+        ScrollView {
             VStack(spacing: 0) {
                 header
-                    .padding(.top, centred ? 0 : 48)
+                    .padding(.top, 48)
                     .padding(.bottom, 28)
                 VStack(alignment: .leading, spacing: 16) {
                     addressField
@@ -411,7 +407,7 @@ struct SignInView: View {
                 #endif
             }
             .padding(.horizontal, 24)
-            .firstRunVerticalPadding(top: 0, bottom: 32, centred: centred)
+            .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
             .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: model.ways)
             .animation(HQMotion.swiftUI(.smooth(duration: HQMotion.move), fades: true), value: model.accessOpen)

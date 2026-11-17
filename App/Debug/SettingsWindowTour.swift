@@ -153,20 +153,13 @@ import UIKit
                 try? await Task.sleep(for: .seconds(1.6))
                 shot("g\(String(format: "%02d", index + 1))-\(step.rawValue)")
             }
-            // [Mac calls 2026-11-17] Every screen again at the smallest window and at a tall one (`-HQDebugGuideTourSizes
-            // YES`; without it only the welcome and the question at the small size, as before).
-            let every = UserDefaults.standard.bool(forKey: "HQDebugGuideTourSizes")
-            for (label, frame) in [("small", CGRect(x: 80, y: 80, width: 700, height: 560)), ("tall", CGRect(x: 40, y: 30, width: 1100, height: 1400))]
-                where every || label == "small" {
-                window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
-                try? await Task.sleep(for: .seconds(1))
-                for (index, step) in steps.enumerated() where every || [OnboardingStep.welcome, .start].contains(step) {
-                    guard let flow = flow() else { break }
-                    flow.animated = false
-                    flow.go(step)
-                    try? await Task.sleep(for: .seconds(1.6))
-                    shot(every ? "\(label)-g\(String(format: "%02d", index + 1))-\(step.rawValue)" : "\(label)-\(step.rawValue)")
-                }
+            window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: 80, y: 80, width: 700, height: 560))) { _ in }
+            for step in [OnboardingStep.welcome, .start] where steps.contains(step) {
+                guard let flow = flow() else { break }
+                flow.animated = false
+                flow.go(step)
+                try? await Task.sleep(for: .seconds(1.6))
+                shot("small-\(step.rawValue)")
             }
             try? await Task.sleep(for: .seconds(2))
             exit(0)

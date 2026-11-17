@@ -1010,9 +1010,6 @@ struct SettingsRootView: View {
         }
 
         if model.shows(.chat) {
-        // [Mac AAA 2026-11-17] Q18, owner: on the Mac each row's explanation is under its own title (`ChatRowNotes`),
-        // and the paragraph under the card goes. The iPhone keeps its paragraph.
-        let notes = DeviceWord.isMac
         Section {
             if let screen = SettingsHooks.toolCallsScreen {
                 NavRow(title: SettingsHooks.toolCallsTitle, systemImage: "wrench.and.screwdriver", value: model.toolCallsSummary) { router.push(screen()) }
@@ -1022,7 +1019,7 @@ struct SettingsRootView: View {
                 model.fewerTimestamps = on
                 ToolCallSettings.fewerTimestamps = on
             })) {
-                SettingsRowLabel(title: "Fewer Timestamps", systemImage: "clock", subtitle: notes ? ChatRowNotes.fewerTimestamps : nil)
+                SettingsRowLabel(title: "Fewer Timestamps", systemImage: "clock")
             }
             .accessibilityIdentifier("settings.fewer-timestamps")
             .revealRow("row:fewer-timestamps", model.revealed)
@@ -1030,7 +1027,7 @@ struct SettingsRootView: View {
                 model.showFileChanges = on
                 ToolCallSettings.showFileChanges = on
             })) {
-                SettingsRowLabel(title: "Show File Changes", systemImage: "doc.badge.ellipsis", subtitle: notes ? ChatRowNotes.showFileChanges : nil)
+                SettingsRowLabel(title: "Show File Changes", systemImage: "doc.badge.ellipsis")
             }
             .accessibilityIdentifier("settings.show-file-changes")
             .revealRow("row:show-file-changes", model.revealed)
@@ -1038,7 +1035,7 @@ struct SettingsRootView: View {
                 model.newChatAsksProject = on
                 NewChatProjectChoice.isOn = on
             })) {
-                SettingsRowLabel(title: "New Chat Asks for a Project", systemImage: "folder", subtitle: notes ? ChatRowNotes.newChatAsksProject : nil)
+                SettingsRowLabel(title: "New Chat Asks for a Project", systemImage: "folder")
             }
             .accessibilityIdentifier("settings.new-chat-asks-project")
             .revealRow("row:new-chat-asks-project", model.revealed)
@@ -1083,8 +1080,7 @@ struct SettingsRootView: View {
             })
             if DeviceWord.isMac {
                 HStack(spacing: 12) {
-                    SettingsRowLabel(title: SettingsSearch.sendWhileBusyLabel, systemImage: "text.line.last.and.arrowtriangle.forward",
-                                     subtitle: ChatRowNotes.sendWhileBusy(mac: true))
+                    SettingsRowLabel(title: SettingsSearch.sendWhileBusyLabel, systemImage: "text.line.last.and.arrowtriangle.forward")
                     Spacer(minLength: 16)
                     MacPopUp(label: SettingsSearch.sendWhileBusyLabel, selection: sendWhileBusy, options: SendWhileBusy.allCases) { $0.title }
                         .accessibilityIdentifier("settings.send-while-busy")
@@ -1119,7 +1115,7 @@ struct SettingsRootView: View {
             let linkChoices = LinkOpener.choices(installed: model.linkBrowsers)
             if DeviceWord.isMac {
                 HStack(spacing: 12) {
-                    SettingsRowLabel(title: SettingsSearch.openLinksInLabel, systemImage: "safari", subtitle: ChatRowNotes.openLinksIn)
+                    SettingsRowLabel(title: SettingsSearch.openLinksInLabel, systemImage: "safari")
                     Spacer(minLength: 16)
                     MacPopUp(label: SettingsSearch.openLinksInLabel, selection: linkChoice, options: linkChoices) {
                         $0.title(installed: model.linkBrowsers)
@@ -1149,8 +1145,7 @@ struct SettingsRootView: View {
             if DeviceWord.isMac {
                 // [cmd-n] A tester 2026-11-02: ⌘N opens the bot's own chat instead of a new one, when asked.
                 HStack(spacing: 12) {
-                    SettingsRowLabel(title: "⌘N Opens", systemImage: "command",
-                                     subtitle: ChatRowNotes.newChatMode(botChat: model.newChatKeyMode == .botChat))
+                    SettingsRowLabel(title: "⌘N Opens", systemImage: "command")
                     Spacer(minLength: 16)
                     MacPopUp(label: "⌘N Opens", selection: Binding(get: { model.newChatKeyMode }, set: { mode in
                         NewChatKeyBot.mode = mode
@@ -1191,7 +1186,7 @@ struct SettingsRootView: View {
             }
             if model.configStore != nil {
                 Toggle(isOn: Binding(get: { model.resumeLastSession }, set: { model.setResumeLastSession($0) })) {
-                    SettingsRowLabel(title: "Reopen Last Chat on Launch", systemImage: "arrow.counterclockwise", subtitle: notes ? ChatRowNotes.resumeLastChat : nil)
+                    SettingsRowLabel(title: "Reopen Last Chat on Launch", systemImage: "arrow.counterclockwise")
                 }
                 .accessibilityIdentifier("settings.resume-last-chat")
                 .revealRow("row:resume-last-chat", model.revealed)
@@ -1227,11 +1222,11 @@ struct SettingsRootView: View {
                 model.messageReactions = on
                 MessageReactionsPref.isOn = on
             })) {
-                SettingsRowLabel(title: "Message Reactions", systemImage: "face.smiling", subtitle: notes ? ChatRowNotes.messageReactions : nil)
+                SettingsRowLabel(title: "Message Reactions", systemImage: "face.smiling")
             }
             .accessibilityIdentifier("settings.message-reactions")
             .revealRow("row:message-reactions", model.revealed)
-        } header: { categoryHeader("Chat") } footer: { if !notes { HQSectionFooter {
+        } header: { categoryHeader("Chat") } footer: { HQSectionFooter {
             // UX study #69: the switches' names say what they do; the footer keeps only what a name can't say.
             Text("Fewer Timestamps shows a day line only when the date changes, and a time only under the bot’s replies."
                  + " Show File Changes puts a “files changed” card under a reply that edited files; with it off, ⋯ › Changes still lists them."
@@ -1245,7 +1240,7 @@ struct SettingsRootView: View {
                       + " you’re in; ⇧⌘N asks for both.") : "")
                  + " Message Reactions adds Tapbacks to a message’s menu, and lets the bot react to yours."
                  + (model.configStore != nil ? " Reopen Last Chat on Launch is saved on \(HostWord.phrase)." : ""))
-        } } }
+        } }
         }
 
         // [settings] §1, §18: "Sounds & Haptics". The Haptics row does not depend on the completion cue being wired.
@@ -1921,26 +1916,11 @@ struct SettingsRowLabel: View {
     var macSymbol: String? = nil
     /// No symbol: whether the empty column is kept (a card with symbols) or the title starts at the edge.
     var keepsColumn = true
-    /// [Mac AAA 2026-11-17] Q18: a line under the title, in the style of Notifications' rows (footnote, the second
-    /// label colour, 2 pt under the title, wrapping). Settings › Chat on the Mac.
-    var subtitle: String? = nil
     @ScaledMetric(relativeTo: .body) private var iconWidth: CGFloat = 29
     @ScaledMetric(relativeTo: .body) private var desktopIconWidth: CGFloat = 20
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var scheme
 
-
-    @ViewBuilder private var titleText: some View {
-        if let subtitle {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).foregroundStyle(Color.hqLabel)
-                Text(subtitle).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        } else {
-            Text(title).foregroundStyle(Color.hqLabel)
-        }
-    }
 
     var body: some View {
         let desktop = Theme.isDesktop
@@ -1948,10 +1928,10 @@ struct SettingsRowLabel: View {
         let systemImage = symbol.map { Self.outline($0, dark: scheme == .dark) }
         // At accessibility sizes the rows stack and the empty column only pushes the title's first line in.
         if systemImage == nil && (!keepsColumn || typeSize.isAccessibilitySize) {
-            titleText
+            Text(title).foregroundStyle(Color.hqLabel)
         } else {
             Label {
-                titleText
+                Text(title).foregroundStyle(Color.hqLabel)
             } icon: {
                 // [mac] Stress test 2026-10-28 #58: one glyph size and weight in one column width on every Settings row
                 // (`MacIcon`), following UI Scale as the titles do (a ScaledMetric doesn't on the Mac).

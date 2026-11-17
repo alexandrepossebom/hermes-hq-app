@@ -219,27 +219,14 @@ nonisolated enum ChatMetrics {
     static let jumpSize: CGFloat = 44
     static let jumpTrailing: CGFloat = 16
     static let jumpAboveComposer: CGFloat = 16
-    /// [Mac AAA 2026-11-17] On the Mac, what floats over the message box (the activity pill or its card, the arrow, a
-    /// reply or edit banner) stands this far clear of the box's line, as the Commands panel and the / list do.
-    static let macFloatGap: CGFloat = 8
     /// Space between the newest row and the composer's top. [mac-ui-issues] 16 on the Mac: its box rises 3 pt above the
     /// row, so at 8 the newest bubble sat 4 px above the box on the screen and read as stuck to it. [mac-top-glass] 32
-    /// since 2026-11-15: the words fade out over this space as they scroll toward the box
-    /// (`ChatViewController.fadeTranscriptAtBox`).
+    /// since 2026-11-15: the words fade out over this space as they scroll toward the box (`ComposerView.macBacking`).
     static let composerContentGap: CGFloat = DeviceWord.isMac ? 32 : 8
     /// Transcript top: 12 pt below the bar plus the status line's reserved height.
     static let transcriptTopGap: CGFloat = 12
-    /// [Mac AAA 2026-11-17] 34 on the Mac: the status capsule is the activity pill's sibling there (its glass height),
-    /// and the transcript starts under it, so no line of the conversation rests behind it (owner: "sized weird").
-    static let statusLineHeight: CGFloat = DeviceWord.isMac ? 34 : 22
+    static let statusLineHeight: CGFloat = 22
     /// The status pill's top from the bar's foot: tucked 4 pt under the iOS look's glass bar; [desktoplook] 4 pt below
     /// the Desktop Look's solid bar (Mac polish #78: tucked under it, "Waking up…" lost its top outline).
-    /// [Mac AAA 2026-11-17] On the Mac in both looks: the iOS look's bar there is a band ending on a line, and a notice
-    /// tucked under it ("Model changed to …") lost its top under the band's foot.
-    /// [Mac AAA 2026-11-17] The owner: "too high", its top through the title's "Working…" line. On the Mac it stands
-    /// the floats' even gap (`macFloatGap`) under the bar, and under the title where the title reaches lower
-    /// (`ChatViewController.macTitleOverhang`).
-    @MainActor static var statusPillTop: CGFloat { DeviceWord.isMac ? macFloatGap : Theme.isDesktop ? 4 : -4 }
-    /// [Mac AAA 2026-11-17] Between two things stacked under the bar (the status capsule, a notice, the Find bar).
-    static var underBarGap: CGFloat { DeviceWord.isMac ? macFloatGap : 6 }
+    @MainActor static var statusPillTop: CGFloat { Theme.isDesktop ? 4 : -4 }
 }

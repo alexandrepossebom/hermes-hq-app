@@ -268,8 +268,6 @@ final class ChatMenus: NSObject, ModelSwitchUI {
                 sample.approvalMode = state.approvalMode
                 sample.yolo = state.yolo
             }
-            // [Mac model selector] A level set in this run shows (the sample otherwise puts the knob back on High).
-            if let effort = Self.debugSampleEffort, sample.efforts.contains(effort) { sample.effort = effort }
             return sample
         }
         #endif
@@ -288,12 +286,6 @@ final class ChatMenus: NSObject, ModelSwitchUI {
     /// keys go down, the bar keeps its two rows (growing into them first when it was one), and the caret comes back when
     /// the panel closes (if it was in the field). The Desktop Look's bar has no bubble: the card rises in place.
     func presentModelPanel() {
-        #if targetEnvironment(macCatalyst)
-        // Owner 2026-11-17: on the Mac this card "is not a good UX for Mac at all"; he chose design B, the Models list
-        // as the one selector with the card's settings at its foot (`presentMacModelPicker`). This reverses his
-        // 2026-11-08 ask for the card centred on the Mac. The card below stays the iPhone's and iPad's.
-        if DeviceWord.isMac { presentMacModelPicker(query: nil); return }
-        #endif
         guard modelPanel == nil, let screen, let switcher, context != nil else { return }
         // [ghost-stars] The catalog is read as the panel opens (when the one in memory isn't fresh), so Switch Model's
         // Favorites are the bot's own by the time the menu is opened, not the last read's.
@@ -317,35 +309,13 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         let tray = composer.topAccessoryHeight > 0 ? composer.topAccessory?.frame.minY : nil
         let restsOn = min(composer.fieldFrame.minY, composer.editBanner?.frame.minY ?? .infinity, tray ?? .infinity)
         let floor = keysDownBottom - composer.bounds.height + restsOn - 12
-        let actions = modelPanelActions(screen: screen, switcher: switcher, closed: { [weak screen] handingOff in
-            guard let screen else { return }
-            screen.composer.holdsRows = false
-            // [keys-return] Back to the keys it opened over; All Models brings them back when it closes instead.
-            guard hadFocus else { return }
-            if handingOff { screen.oweKeys() } else { screen.focusComposer() }
-        })
-        AppLog.trace("chatui", "model panel opened \(AppLog.tag(logScope))")
-        modelPanel = ModelPanelView.present(in: host, under: composer, from: composer.modelChip, floor: floor,
-                                            face: (screen.session.head, screen.session.profile), actions: actions)
-        if let modelPanel { screen.tuckJumpButton(under: modelPanel) } else { composer.holdsRows = false }
-        // A context window models.dev lists shows on the next open once its copy is fetched (a day old at most).
-        Task { _ = await ModelsDevCache.shared.load() }
-    }
-
-    /// What the model card and the Mac's selector read and do: the switcher's switch, thinking, Fast, approvals and
-    /// YOLO, the catalog, the stars, and the pages its facts and its bot open. Built once, for whichever shows it.
-    private func modelPanelActions(screen: ChatViewController, switcher: ModelSwitcher,
-                                   closed: @escaping (_ handingOff: Bool) -> Void) -> ModelPanelActions {
-        ModelPanelActions(
+        let actions = ModelPanelActions(
             state: { [weak self] in self?.modelPanelState() },
             pick: { [weak screen] model in
                 _ = await switcher.switchModel(model)
                 screen?.composer.refreshModelChip()
             },
             setEffort: { [weak screen] level in
-                #if DEBUG
-                Self.debugSampleEffort = level
-                #endif
                 _ = await switcher.setReasoning(level)
                 screen?.composer.refreshModelChip()
             },
@@ -386,7 +356,13 @@ final class ChatMenus: NSObject, ModelSwitchUI {
                 return catalog.isEmpty ? nil : ModelPanelModel.groups(catalog, current: context.current())
             },
             reloadModels: { [weak context] in _ = try? await context?.load(refresh: true) },
-            closed: closed,
+            closed: { [weak screen] handingOff in
+                guard let screen else { return }
+                screen.composer.holdsRows = false
+                // [keys-return] Back to the keys it opened over; All Models brings them back when it closes instead.
+                guard hadFocus else { return }
+                if handingOff { screen.oweKeys() } else { screen.focusComposer() }
+            },
             // The facts' Price and Plan open the ⋯'s pages; the face opens the bot's Bot Info.
             openUsage: { [weak self] in self?.presentUsage() },
             openPrices: { [weak self] in self?.presentPrices() },
@@ -396,70 +372,21 @@ final class ChatMenus: NSObject, ModelSwitchUI {
                     open()
                 }
             },
-            bot: Self.debugBot(self.host?.botInfo(for: screen.session, over: screen)))
-    }
-
-    /// [Mac model selector] Screenshots of a long bot name (`-HQDebugModelPanelBotName <name>`); otherwise as given.
-    private static func debugBot(_ bot: (name: String, open: () -> Void)?) -> (name: String, open: () -> Void)? {
-        #if DEBUG
-        if let name = UserDefaults.standard.string(forKey: "HQDebugModelPanelBotName"), let bot { return (name, bot.open) }
-        #endif
-        return bot
-    }
-
-    #if targetEnvironment(macCatalyst)
-    /// [Mac model selector] The Mac's one model selector (owner 2026-11-17, design B): the Models pop-over hung off the
-    /// model's name in the message box (else off the box's ☰, when the name has stepped aside), the caret in its
-    /// search field, the card's settings and facts at its foot. The name, ⋯ › Model, Chat › Choose Model… (⌃⌘M),
-    /// ☰ › Models and `/model <query>` all open it; a second open while it is up gives its field the caret back.
-    func presentMacModelPicker(query: String?) {
-        guard let context, let switcher, let screen else { return }
-        if let shown = macPicker, shown.presentingViewController != nil, !shown.isBeingDismissed {
-            if let query, !query.isEmpty { shown.setQuery(query); shown.onQuery?(query) }
-            shown.field.becomeFirstResponder()
-            return
-        }
-        // [ghost-stars] The catalog is read as it opens when the one in memory isn't fresh (as the card did).
-        if !context.offline, context.cache.fresh(context.key) == nil { Task { _ = try? await context.load() } }
-        screen.stowKeys()
-        let chip = screen.composer.modelChip
-        let onChip = chip.window != nil && !chip.isHidden && chip.alpha > 0.01
-        let anchor = onChip ? chip : Self.composerAnchor(screen)
-        let bot = host?.botInfo(for: screen.session, over: screen)
-        let actions = modelPanelActions(screen: screen, switcher: switcher, closed: { _ in })
-        let picker = MacModelsPanel(anchor: anchor, clearOf: screen.composer, context: context, query: query, bot: bot?.name,
-                                    selector: .init(actions: actions, head: (screen.session.head, screen.session.profile), chip: onChip ? chip : nil),
-                                    onPick: { _ in }, onCancel: { [weak screen] in screen?.focusComposer() })
-        if let top = MenusSheet.top(screen), MacPickPanel.present(picker.panel, from: top) { macPicker = picker.panel }
-        AppLog.trace("chatui", "model selector opened \(AppLog.tag(logScope))")
+            bot: self.host?.botInfo(for: screen.session, over: screen))
+        AppLog.trace("chatui", "model panel opened \(AppLog.tag(logScope))")
+        modelPanel = ModelPanelView.present(in: host, under: composer, from: composer.modelChip, floor: floor,
+                                            face: (screen.session.head, screen.session.profile), actions: actions)
+        if let modelPanel { screen.tuckJumpButton(under: modelPanel) } else { composer.holdsRows = false }
         // A context window models.dev lists shows on the next open once its copy is fetched (a day old at most).
         Task { _ = await ModelsDevCache.shared.load() }
     }
 
-    private weak var macPicker: MacPickPanel?
-    #endif
-
-    /// [Mac model selector] Chat › Choose Model… can open the selector: a live chat whose model can be switched.
-    var canChooseModel: Bool { context != nil && switcher != nil && screen != nil }
-
-    var modelPanelOpen: Bool {
-        #if targetEnvironment(macCatalyst)
-        if macPicker?.presentingViewController != nil { return true }
-        #endif
-        return modelPanel != nil
-    }
+    var modelPanelOpen: Bool { modelPanel != nil }
 
     /// Closes the model panel if it is open (a send: the chat moves on, the settings already took).
-    func closeModelPanel() {
-        modelPanel?.close()
-        #if targetEnvironment(macCatalyst)
-        macPicker?.close()
-        #endif
-    }
+    func closeModelPanel() { modelPanel?.close() }
 
     #if DEBUG
-    /// [Mac model selector] The level last set while the debug sample stands in for the chat's state.
-    static var debugSampleEffort: String?
     func debugHoldModelPanelDial(at position: CGFloat) { modelPanel?.debugHoldDial(at: position) }
     func debugSweepModelPanelDial() { modelPanel?.debugSweepDial() }
     func debugCloseModelPanel() { modelPanel?.close() }
@@ -729,17 +656,22 @@ final class ChatMenus: NSObject, ModelSwitchUI {
 
     /// More Models… (spec 1x §6); `query` fills its search field (`/model <query>`).
     func presentModelSheet(query: String?) {
+        guard let context, let switcher, let screen else { return }
+        screen.stowKeys()
+        let bot = host?.botInfo(for: screen.session, over: screen)?.name   // [model-scope] for "Change <Bot>'s default…"
         #if targetEnvironment(macCatalyst)
         // [mac-popups] A pop-over hung off the composer's ☰, not a window-tall form sheet; the caret goes back to the
         // field when it closes, whichever way.
         // [Mac UI check 2026-11-13] V22: off the box's model pill when it shows (the model is what it picks), else the ☰.
-        // [Mac model selector] Owner 2026-11-17 (design B): this list is the Mac's one model selector now, with the
-        // model card's settings at its foot; ☰ › Models and `/model <query>` open it as the name in the box does.
-        presentMacModelPicker(query: query)
+        let chip = screen.composer.modelChip
+        let anchor = chip.window != nil && !chip.isHidden && chip.alpha > 0.01 ? chip : Self.composerAnchor(screen)
+        let panel = MacModelsPanel(anchor: anchor, clearOf: screen.composer, context: context, query: query, bot: bot, onPick: { [weak screen] model in
+            Task { await switcher.switchModel(model) }
+            screen?.focusComposer()
+        }, onCancel: { [weak screen] in screen?.focusComposer() })
+        if let host = MenusSheet.top(screen) { _ = MacPickPanel.present(panel.panel, from: host) }
+        return
         #else
-        guard let context, let switcher, let screen else { return }
-        screen.stowKeys()
-        let bot = host?.botInfo(for: screen.session, over: screen)?.name   // [model-scope] for "Change <Bot>'s default…"
         PanePopover.hangNext(on: screen.composer.modelChip, arrow: .down, from: screen)   // [ipad-polish] off the model's name in two panes
         let sheet = ModelSheetViewController.make(context: context, query: query, bot: bot) { model in
             Task { await switcher.switchModel(model) }

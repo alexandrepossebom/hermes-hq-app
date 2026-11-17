@@ -390,10 +390,7 @@ final class ArtifactTextViewController: UIViewController, UITextViewDelegate {
             return
         }
         spinner.stopAnimating()
-        // Owner 2026-11-17 (Mac calls Q14): on the Mac the code at the body's size (15 pt on the screen, as the rest of
-        // the Mac), still monospaced; it was 13 pt in code, about 12 on the screen. The iPhone keeps its 13.
-        let font = DeviceWord.isMac ? HQFont.monoFace(ofSize: MacType.row.pointSize)
-            : UIFontMetrics(forTextStyle: .body).scaledFont(for: HQFont.mono(ofSize: 13, weight: .regular))
+        let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: HQFont.mono(ofSize: 13, weight: .regular))
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping   // "Rossio" was split "R" / "ossio"; a word too long still breaks
         let attributed = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: HQPalette.label,

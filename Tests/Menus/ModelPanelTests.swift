@@ -139,24 +139,4 @@ struct ModelPanelTests {
         let stored = try #require(ModelsDevPrices.decodeStored(encoded))
         #expect(stored.contextWindow(provider: "openai", model: "gpt-5.5") == 400_000)
     }
-
-    /// [Mac model selector] The card's facts as the Mac selector's one line, each part as a sentence says it.
-    @Test func theMacFactsLineReadsEachFactAsWords() {
-        let sample = ModelPanelModel.factParts(ModelPanelModel.build(input(choice("claude-opus-5-5[1m]")), contextMax: 1_000_000,
-                                                                   contextUsed: 184_000, price: "Included", limit: "Weekly · 62% left").facts)
-        #expect(sample.map { $0.figure + $0.words } == ["1M context", "18% used", "Included", "62% left"])
-        #expect(sample.map(\.figure) == ["1M", "18%", "", "62%"])
-        #expect(sample.map(\.title) == ["Context window", "Context used", "Price", "Plan"])
-        let priced = ModelPanelModel.factParts([ModelPanelModel.priceFact("$5.00 in · $25.00 out"), ModelPanelModel.planFact("Rate limited · back in 2h")])
-        #expect(priced.map(\.words) == ["$5 / $25 per 1M", "Rate limited, back in 2h"])
-        #expect(priced[0].spoken == "$5.00 in · $25.00 out per 1M")
-        let bare = ModelPanelModel.factParts(ModelPanelModel.build(input(choice("x"), offline: true)).facts)
-        #expect(bare.map(\.words) == ["Offline"] && bare[0].title == "Status")
-    }
-
-    @Test func theMacScopeLineNamesTheBotsDefault() {
-        #expect(ModelPanelModel.macScope(bot: "Otto") == ("For this chat only", "Otto’s default"))
-        #expect(ModelPanelModel.macScope(bot: "  ").link == nil)
-        #expect(ModelPanelModel.macScope(bot: nil).scope == "For this chat only")
-    }
 }

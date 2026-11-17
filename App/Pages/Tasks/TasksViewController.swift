@@ -1044,25 +1044,6 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         return Calendar.current.startOfDay(for: due.date) > Calendar.current.startOfDay(for: Date()) ? (.upcoming, "Upcoming") : (.today, "Today")
     }
 
-    #if targetEnvironment(macCatalyst)
-    /// [Mac AAA 2026-11-17] Owner's call Q3: ↑/↓ open the next or previous task beside the list, as Sessions' arrows
-    /// open chats (`KeyCommands.walkList`): the tasks in the order the view shows them. The first ↓ opens the first
-    /// task (the system's focus used to start on it unseen, so its ↓ marked the second). Off while Select picks.
-    var walkOrder: [String] {
-        guard isViewLoaded, dataSource != nil, !selecting else { return [] }
-        return dataSource.snapshot().itemIdentifiers.compactMap { if case .task(let id) = $0 { id } else { nil } }
-    }
-
-    /// The task open beside the list (nil: none).
-    var walkCurrent: String? { paneKeepsSelection ? onShowTask : nil }
-
-    /// Opens `id` beside the list, as a click on its row (its row comes into view: `openTask`'s `reveal`).
-    func walkOpen(_ id: String) {
-        PagesHaptics.selection()
-        openTask(id)
-    }
-    #endif
-
     /// `asking`: the question goes into the task's own chat at once (New Task with a bot). `atReply`: the page opens at
     /// its chat's newest end (a reply's alert), not the task's top.
     func openTask(_ id: String, asking question: String? = nil, atReply: Bool = false) {

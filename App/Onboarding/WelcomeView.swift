@@ -5,16 +5,15 @@ import SwiftUI
 struct WelcomeView: View {
     let go: (OnboardingStep) -> Void
     @ScaledMetric(relativeTo: .body) private var symbol: CGFloat = 30
-    @Environment(FirstRunLayout.self) private var layout: FirstRunLayout?
 
     var body: some View {
-        FirstRunScroll {
+        ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // UX study #80: the icon, heading and lead are centred, as on the sign-in screen that follows, so they
                 // don't jump sideways; the feature rows below stay leading-aligned.
                 VStack(spacing: 0) {
                     WornAppIcon(side: 72)
-                        .padding(.top, layout?.centred == true ? 0 : 12)
+                        .padding(.top, 12)
                     Text(OnboardingCopy.Welcome.headingLine1 + "\n" + OnboardingCopy.Welcome.headingLine2)
                         .font(Font.hq(.largeTitle).weight(.hqBold))
                         .foregroundStyle(Color.hqLabel)
@@ -51,36 +50,25 @@ struct WelcomeView: View {
                     }
                 }
                 .padding(.top, 28)
-                // [Mac calls 2026-11-17] Owner's call (Q19): on the Mac the two ways on sit right under the three
-                // points, part of the block (pinned to the window's foot they stood ~340 pt below the words).
-                if DeviceWord.isMac {
-                    buttons.padding(.top, 28)
-                }
             }
             .frame(maxWidth: 440, alignment: .leading)
             .padding(.horizontal, 24)
-            .firstRunVerticalPadding(top: 0, bottom: 32, centred: layout?.centred == true)
+            .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
         }
         // UX study #123: the two ways on are pinned under the words, on the page colour, as the system's own setup
         // screens do: at the largest text sizes the words fill several screens, and the buttons must not hide below them.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !DeviceWord.isMac {
-                buttons
-                    .frame(maxWidth: 440)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.hqPage.ignoresSafeArea(edges: .bottom))
+            VStack(spacing: 12) {
+                GuideActionButton(title: OnboardingCopy.Welcome.start, id: "onboarding.welcome.start") { go(.start) }
+                GuideActionButton(title: OnboardingCopy.Welcome.haveAddress, id: "onboarding.welcome.address", prominent: false) { go(.connect) }
             }
+            .frame(maxWidth: 440)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(Color.hqPage.ignoresSafeArea(edges: .bottom))
         }
         .background(Color.hqPage.ignoresSafeArea())
-    }
-
-    private var buttons: some View {
-        VStack(spacing: 12) {
-            GuideActionButton(title: OnboardingCopy.Welcome.start, id: "onboarding.welcome.start") { go(.start) }
-            GuideActionButton(title: OnboardingCopy.Welcome.haveAddress, id: "onboarding.welcome.address", prominent: false) { go(.connect) }
-        }
     }
 }

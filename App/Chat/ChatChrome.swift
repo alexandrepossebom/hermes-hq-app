@@ -14,9 +14,6 @@ final class JumpButton: UIView {
     }()
     private let chevron = UIImageView()
     private let countLabel = UILabel()
-    /// [Mac AAA 2026-11-17] The page's colour under the glass on the Mac (the iOS look), as the Find bar's and the
-    /// activity pill's: over a dark message the glass alone took its colour and its words read through.
-    private let backing = UIView()
     private(set) var isShown = false
     /// L422: "Approval needed", a tinted glass capsule, while an approval waits out of sight. `onSizeChange` asks the
     /// screen to resize it.
@@ -95,12 +92,6 @@ final class JumpButton: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        if DeviceWord.isMac {
-            backing.isUserInteractionEnabled = false
-            backing.backgroundColor = ChatPalette.page
-            backing.cornerConfiguration = .capsule()
-            addSubview(backing)
-        }
         addSubview(glass)
         // An 18 pt down arrow (spec 06 §4.4).
         chevron.image = UIImage(systemName: "arrow.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
@@ -165,8 +156,6 @@ final class JumpButton: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         glass.frame = bounds
-        backing.frame = bounds
-        backing.isHidden = desktop || !DeviceWord.isMac || glass.isHidden
         if desktop {
             flat.frame = bounds
             let d = min(Self.desktopDiameter, bounds.width, bounds.height)
@@ -587,28 +576,9 @@ final class ChatStatusPill: UIView {
     private(set) var text: String?
     /// UX study #121: while signed out the pill is a button that signs in again (nil: never tappable).
     var onSignIn: (() -> Void)? { didSet { updateTappable() } }
-    /// [Mac AAA 2026-11-17] The words came or went (the chat moves a notice under them).
-    var onChange: (() -> Void)?
-    /// [Mac AAA 2026-11-17] The page's colour under the glass on the Mac (the activity pill's backing).
-    private let backing = UIView()
-    /// [Mac AAA 2026-11-17] The Mac's capsule is the activity pill's sibling: its height (34), padding (14), text size
-    /// and weight, the working dots before the words with its glyph's 4 pt gap, the page under its glass. The owner:
-    /// "Sized weird": a low strip hugging small words. The iPhone keeps its 22 pt line.
-    private static var mac: Bool { DeviceWord.isMac }
-    private static var pad: CGFloat { mac ? 14 : 10 }
-    private var dotSize: CGFloat { Self.mac ? 4 : 3 }
-    private var dotStep: CGFloat { Self.mac ? 6 : 5 }
-    /// The gap after the dots: the activity pill's glyph-to-words gap as it reads (its glyph carries 2 pt of its own).
-    private let dotsGap: CGFloat = 6
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        if Self.mac {
-            backing.isUserInteractionEnabled = false
-            backing.backgroundColor = ChatPalette.page
-            backing.cornerConfiguration = .capsule()
-            addSubview(backing)
-        }
         addSubview(glass)
         label.lineBreakMode = .byTruncatingTail
         glass.contentView.addSubview(label)
@@ -650,9 +620,7 @@ final class ChatStatusPill: UIView {
     }
 
     private func updateFont() {
-        // [Mac AAA 2026-11-17] The Mac's: the activity pill's words (`ShelfHeader.updateFonts`), never under 15 on screen.
-        let size = Self.mac ? min(HQFont.preferred(.subheadline, compatibleWith: traitCollection).pointSize, 22)
-                            : min(HQFont.preferred(.footnote, compatibleWith: traitCollection).pointSize, 18)
+        let size = min(HQFont.preferred(.footnote, compatibleWith: traitCollection).pointSize, 18)
         label.font = HQFont.face(ofSize: size)
         invalidateIntrinsicContentSize()
     }
@@ -682,7 +650,6 @@ final class ChatStatusPill: UIView {
             if self.text == nil { self.stopDots() }
         })
         if text != nil && !(quiet || attention) { animateDots() } else if text != nil { stopDots() }
-        onChange?()
     }
 
     /// The dots are animating (tests).
@@ -690,36 +657,24 @@ final class ChatStatusPill: UIView {
 
     private func stopDots() { dots.forEach { $0.layer.removeAnimation(forKey: "dot") } }
 
-    private var dotsWidth: CGFloat { dotStep * 2 + dotSize }
-
     override var intrinsicContentSize: CGSize {
-        let dotsW: CGFloat = dots.first?.isHidden == false ? dotsWidth + dotsGap : 0
+        let dotsW: CGFloat = dots.first?.isHidden == false ? 13 + 6 : 0
         // [ui-sizing 2026-11-09] 22 pt, or taller when its words are (up to 18 pt): at the cap they touched the capsule's
         // edges. The width limit follows UI Scale and the window, so long words aren't cut sooner at a larger scale.
-        var most = min(HQFont.scaled(240), max(240, (window?.bounds.width ?? 375) - 32))
-        if Self.mac, let pane = superview?.bounds.width, pane > 0 {
-            // [Mac AAA 2026-11-17] One line, cut with "…" inside the reading column and the pane's side margins.
-            most = min(ReadableColumn.fit(pane: pane).width, pane - 2 * ChatMetrics.composerSideDown)
-        }
-        let w = min(most, Self.pad + dotsW + ceil(label.intrinsicContentSize.width) + Self.pad)
-        let tall: CGFloat = Self.mac ? ChatMetrics.statusLineHeight : 22
-        return CGSize(width: w, height: max(tall, ceil(label.font.lineHeight) + 4))
+        let most = min(HQFont.scaled(240), max(240, (window?.bounds.width ?? 375) - 32))
+        let w = min(most, 10 + dotsW + ceil(label.intrinsicContentSize.width) + 10)
+        return CGSize(width: w, height: max(22, ceil(label.font.lineHeight) + 4))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         glass.frame = bounds
-        backing.frame = bounds.insetBy(dx: 1, dy: 1)
-        var x: CGFloat = Self.pad
+        var x: CGFloat = 10
         if dots.first?.isHidden == false {
-            let mid = (bounds.height - dotSize) / 2
-            for (i, d) in dots.enumerated() {
-                d.frame = CGRect(x: x + CGFloat(i) * dotStep, y: mid, width: dotSize, height: dotSize)
-                d.layer.cornerRadius = dotSize / 2
-            }
-            x += dotsWidth + dotsGap
+            for (i, d) in dots.enumerated() { d.frame = CGRect(x: x + CGFloat(i) * 5, y: (bounds.height - 3) / 2, width: 3, height: 3) }
+            x += 13 + 6
         }
-        label.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - Self.pad), height: bounds.height)
+        label.frame = CGRect(x: x, y: 0, width: max(0, bounds.width - x - 10), height: bounds.height)
     }
 
     private func animateDots() {
@@ -769,16 +724,9 @@ final class ChatNoticeToast: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         alpha = 0
-        #if targetEnvironment(macCatalyst)
-        // [Mac AAA 2026-11-17] The status capsule's sibling on the Mac: the page's colour under the glass, its height and
-        // its words (the activity pill's), so a notice and the status line read as one family.
-        backgroundColor = ChatPalette.page
-        layer.cornerCurve = .continuous
-        heightAnchor.constraint(greaterThanOrEqualToConstant: ChatMetrics.statusLineHeight).isActive = true
-        #endif
         addSubview(glass)
         glass.translatesAutoresizingMaskIntoConstraints = false
-        label.font = DeviceWord.isMac ? HQFont.face(ofSize: min(HQFont.preferred(.subheadline).pointSize, 22)) : HQFont.preferred(.footnote)
+        label.font = HQFont.preferred(.footnote)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = ChatPalette.label
         label.numberOfLines = 2
@@ -831,13 +779,6 @@ final class ChatNoticeToast: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    #if targetEnvironment(macCatalyst)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        layer.cornerRadius = bounds.height / 2   // [Mac AAA 2026-11-17] the backing in the glass capsule's shape
-    }
-    #endif
 
     /// [questions] With an action ("Reconnect"): 5 s and tappable (8 s at accessibility sizes, held while touched or
     /// VoiceOver-focused); otherwise 3 s (8 s at accessibility sizes).

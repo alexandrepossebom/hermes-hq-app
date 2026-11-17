@@ -352,13 +352,8 @@ import UIKit
     func show(from presenter: UIViewController?) {
         if let shownSheet, shownSheet.view.window != nil { return }
         guard let host = FailureAlert.topmost(presenter ?? MainTabController.current) else { return }
-        #if targetEnvironment(macCatalyst)
-        // [Mac calls 2026-11-17] Owner's call (Q20): the Mac app's own update window's layout (MacGatewayUpdateSheets.swift).
-        let controller = macSheet()
-        #else
         let controller = AddOnUpdateController(update: self)
         SheetStyle.macTall(controller, from: host)   // [mac] the other sheets' size, not the system's small one
-        #endif
         sheet = controller
         host.present(controller, animated: true)
     }

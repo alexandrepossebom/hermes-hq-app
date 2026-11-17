@@ -348,9 +348,6 @@ extension DesktopBars {
 
 extension UINavigationBar {
     @objc dynamic func hqDesktopLayoutSubviews() {
-        #if targetEnvironment(macCatalyst)
-        hqPinOwnStyle()
-        #endif
         if DesktopBars.macPlain, let top = topItem { DesktopBars.searchToEdge(top) }   // [mac] stress test #66
         if DeviceWord.isMac, let bar = topItem?.searchController?.searchBar { DesktopSearch.fitPlaceholder(bar) }   // [mac-audit]
         if Theme.isDesktop {
@@ -375,42 +372,6 @@ extension UINavigationBar {
 }
 
 #if targetEnvironment(macCatalyst)
-/// The view a pinned bar watches (weakly: the bar may move to another holder, or outlive this one).
-private final class PinHolder {
-    weak var view: UIView?
-    init(_ view: UIView) { self.view = view }
-}
-
-extension UINavigationBar {
-    private static let pinKey = malloc(1)!
-    private static let watchKey = malloc(1)!
-
-    /// [Mac AAA 2026-11-17] The owner caught it twice on the chat: with a dark or saturated message under a bar, the
-    /// system drew everything on the bar light-on-dark over a light band. On the Mac every navigation bar (the list
-    /// places, the inspector's pages, Settings' panes in either window, file windows) and so everything on it (titles,
-    /// the bold page title, buttons, search field, pop-ups) is drawn in the light or dark its OWN place asks for: the
-    /// view it sits in, which carries its window's and its controller's styles (a viewer with an always-dark bar keeps
-    /// it). Its soft edge and backing are untouched. A bar whose style someone else set on purpose is left alone: the
-    /// pin only ever replaces itself.
-    func hqPinOwnStyle() {
-        guard let holder = superview else { return }
-        // The pinned bar no longer hears a change of light or dark itself: its holder's change pins it again.
-        if (objc_getAssociatedObject(self, Self.watchKey) as? PinHolder)?.view !== holder {
-            objc_setAssociatedObject(self, Self.watchKey, PinHolder(holder), .OBJC_ASSOCIATION_RETAIN)
-            holder.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (_: UIView, _: UITraitCollection) in
-                self?.hqPinOwnStyle()
-            }
-        }
-        let own = holder.traitCollection.userInterfaceStyle
-        let mine = objc_getAssociatedObject(self, Self.pinKey) as? Int
-        let current = overrideUserInterfaceStyle
-        guard current == .unspecified || mine == current.rawValue else { return }   // set on purpose elsewhere
-        guard current != own else { return }
-        overrideUserInterfaceStyle = own
-        objc_setAssociatedObject(self, Self.pinKey, own.rawValue, .OBJC_ASSOCIATION_RETAIN)
-    }
-}
-
 extension UIToolbar {
     // Each runs the original (the implementations were exchanged): the items are flattened before they are placed, and
     // again as the toolbar lays out (an item that changed its style since).

@@ -57,20 +57,8 @@ final class ChatQueueCard: UIView {
     /// At accessibility text sizes a row stacks: its words on top, Send Now and ⋯ under them.
     private var stacked: Bool { traitCollection.preferredContentSizeCategory.isAccessibilityCategory }
 
-    /// [Mac AAA 2026-11-17] The page's colour under the glass on the Mac's iOS look, as the Find bar's and the activity
-    /// pill's: a message scrolled under the card showed through it as a coloured smear. (The Desktop Look's card is
-    /// solid already.)
-    private let backing = UIView()
-
     override init(frame: CGRect) {
         super.init(frame: frame)
-        if DeviceWord.isMac {
-            backing.isUserInteractionEnabled = false
-            backing.backgroundColor = ChatPalette.page
-            backing.layer.cornerRadius = 20
-            backing.layer.cornerCurve = .continuous
-            addSubview(backing)
-        }
         addSubview(glass)
         glass.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
@@ -215,10 +203,6 @@ final class ChatQueueCard: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if backing.superview != nil {
-            backing.frame = glass.frame.insetBy(dx: 1, dy: 1)
-            backing.isHidden = Theme.isDesktop
-        }
         // The room changed (keyboard, rotation, window size): the opened rest follows, and the screen lays the dock out.
         guard let restHeight else { return }
         let cap = restCap

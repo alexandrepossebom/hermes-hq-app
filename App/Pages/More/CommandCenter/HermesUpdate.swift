@@ -522,20 +522,15 @@ import UserNotifications
     func show(from presenter: UIViewController?) {
         if let sheet, sheet.view.window != nil { return }
         guard let host = FailureAlert.topmost(presenter ?? MainTabController.current) else { return }
-        #if targetEnvironment(macCatalyst)
-        // [Mac calls 2026-11-17] Owner's call (Q20): the Mac app's own update window's layout (MacGatewayUpdateSheets.swift).
-        let controller = macSheet()
-        #else
         let controller = HermesUpdateController(update: self)
         SheetStyle.macTall(controller, from: host)   // [mac] the other sheets' size, not the system's small one
-        #endif
         sheet = controller
         host.present(controller, animated: true)
     }
 
     func close() { sheet?.dismiss(animated: true) }
 
-    func sheetClosed() {
+    fileprivate func sheetClosed() {
         // An ended run that's been seen is done: the rows go back to the gateway's own state.
         if case .ended = phase, HermesUpdateCenter.shared.run(key) === self { HermesUpdateCenter.shared.forget(key) }
         if case .ended(.updated) = phase, let afterUpdated {

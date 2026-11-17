@@ -491,9 +491,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     func input() -> ChatRowBuilder.Input {
         // [groups] A delivery from another bot draws as that bot's incoming bubble (docs/spec/3x-groups.md §7.12).
         var messages = session.messages
-        #if DEBUG
-        messages = HostileContent.lengthen(messages)   // [Mac glass 2026-11-17] -HQDebugHostile: long own messages
-        #endif
         if !(session is ChatRoomSurface) {
             let resolved = DeliveryMessages.resolve(messages, roster: DeliveryRoster.seats)
             messages = resolved.messages
@@ -669,29 +666,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // the conversation (as Messages, WhatsApp and Telegram, which fade instead). Tabs still follow the setting.
         edgeHost.topEdgeEffect.style = .soft
         edgeHost.bottomEdgeEffect.style = .soft
-        if DeviceWord.isMac { edgeHost.bottomEdgeEffect.isHidden = true }   // [Mac AAA 2026-11-17] `updateBottomEdge`
         // [desktop-glass-sweep] The chat keeps its soft edges in the Desktop Look too (owner 2026-10-18: the top and
         // bottom of chats see-through "like it used to be", as the look's bar has been since 2026-10-13).
         DesktopEdges.leaveAlone(edgeHost)
         edgeHost.addSubview(tableView)
         view.addSubview(edgeHost)
-        if DeviceWord.isMac {
-            // [Mac AAA 2026-11-17] The owner: white title, "Working…", face and buttons on a pale bar, with one of his
-            // blue messages under it. The bar read the transcript (its content scroll view, the edge's element) and,
-            // judging what lay under it dark, drew everything on it light-on-dark while its band stayed light. On the
-            // Mac the chat draws and decides its own band (`updateTopBand`, `barBlur`), so the bar is given a still,
-            // empty scroll view to watch: nothing the transcript shows can reach it. (The list places' "still" too.)
-            let still = UIScrollView()
-            still.isScrollEnabled = false
-            still.isUserInteractionEnabled = false
-            still.scrollsToTop = false
-            still.isHidden = true
-            view.addSubview(still)
-            setContentScrollView(still, for: .top)
-            edgeHost.topEdgeEffect.isHidden = true   // and no system edge over the rows at the top (`applyChatLook`)
-        } else {
-            setContentScrollView(edgeHost, for: .top)
-        }
+        setContentScrollView(edgeHost, for: .top)
         #if targetEnvironment(macCatalyst)
         barBlur.isUserInteractionEnabled = false
         barBlur.alpha = 0
@@ -719,12 +699,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         view.addSubview(topEdgeElement)
         edgeStandIn.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(edgeStandIn)
-        if !DeviceWord.isMac {   // [Mac AAA 2026-11-17] the Mac's top reads nothing from the rows (above)
-            let topEdge = UIScrollEdgeElementContainerInteraction()
-            topEdge.scrollView = edgeHost
-            topEdge.edge = .top
-            topEdgeElement.addInteraction(topEdge)
-        }
+        let topEdge = UIScrollEdgeElementContainerInteraction()
+        topEdge.scrollView = edgeHost
+        topEdge.edge = .top
+        topEdgeElement.addInteraction(topEdge)
         placeholder.isHidden = true
         placeholder.onRetry = { [weak self] in self?.retryOpen() }
         // [talk] the intro's capsules (§5.6); Talk with the composer's light tap
@@ -755,20 +733,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             HQMotion.animate(HQMotion.fade, changes: { self.view.layoutIfNeeded() })
         }
         view.addSubview(composer)
-        attachments = ChatAttachmentsController.make(for: self)                                  // [attachments]
+        attachments = ChatAttachmentsController.make(for: self)                                   // [attachments]
         sendHasAttachments = { [weak self] in self?.attachments?.hasAttachments == true }       // MENUS × [attachments]
         // The composer row is the bottom edge's element: the system fades the transcript under it (`updateBottomEdge`).
-        // [Mac AAA 2026-11-17] Not on the Mac. The owner (light look, a dark message colour): with his own dark message
-        // under the box, the whole foot of the chat, box included, turned dark navy. The system's edge reads what is
-        // under its element and turns the element light or dark to match, and the element was the whole composer: the
-        // box, its words and the page-coloured wash down to the window's foot then drew in dark. The Mac fades the words
-        // by fading the transcript itself (`fadeTranscriptAtBox`), so nothing at the box reads the rows.
-        if !DeviceWord.isMac {
-            let composerEdge = UIScrollEdgeElementContainerInteraction()
-            composerEdge.scrollView = edgeHost
-            composerEdge.edge = .bottom
-            composer.addInteraction(composerEdge)
-        }
+        let composerEdge = UIScrollEdgeElementContainerInteraction()
+        composerEdge.scrollView = edgeHost
+        composerEdge.edge = .bottom
+        composer.addInteraction(composerEdge)
 
         queueCard.isHidden = true
         queueCard.canSendNow = { [weak self] item in
@@ -826,9 +797,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         view.addSubview(jumpButton)
         view.addSubview(statusPill)
-        // [Mac AAA 2026-11-17] Whoever changes the status words, a notice under them steps down (or up into their
-        // place) with them: the two are never drawn over each other.
-        statusPill.onChange = { [weak self] in self?.updateNoticeTop(); self?.updateBarBacking() }
         installEarlierPill()            // [transcript] under the toast
         view.addSubview(noticeToast)
 
@@ -1267,122 +1235,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// [mac-ui-issues] The Mac draws no soft edge at the transcript's foot, so the rows showed again in the strip
     /// between the message box and the window's bottom edge (words under the box, in both looks). The rows now end
     /// inside the box's lower rim: behind the box they still show (through its glass in the iOS look), under it nothing.
-    /// [Mac AAA 2026-11-17] How far the Mac's message box rises over the composer's own top. The queue card's foot
-    /// (its top while it is away: where the notices, the activity pill and the arrow stand) is the box's top, so every
-    /// gap above the box is measured from the line a person sees.
-    private let transcriptFade = CAGradientLayer()   // [Mac AAA 2026-11-17] `fadeTranscriptAtBox`
-
-    /// [Mac AAA 2026-11-17] How far the bar's title (the name, and "Working…" under it) reaches below the bar's foot:
-    /// at a large UI Scale it outgrew the bar, and the status capsule, placed from the bar's foot, ran through its
-    /// second line (the owner's photo). The capsule and the transcript's top start under the title then.
-    private var macTitleOverhang: CGFloat = 0
-
-    private func followTitleOverhang() {
-        guard DeviceWord.isMac else { return }
-        var reach: CGFloat = 0
-        if titleInBar, titleView.window != nil, !titleView.isHidden {
-            let bottom = titleView.convert(titleView.bounds, to: view).maxY
-            reach = max(0, (bottom - view.safeAreaInsets.top).rounded(.up))
-        }
-        guard abs(reach - macTitleOverhang) > 0.5 else { return }
-        macTitleOverhang = reach
-        statusPillTop.constant = ChatMetrics.statusPillTop + reach
-        updateInsets()
-    }
-
-    private var macBoxRise: CGFloat { DeviceWord.isMac ? composer.boxRise : 0 }
-
-    /// [Mac AAA 2026-11-17] How far the arrow's drawn circle sits inside its 44 pt tap area (the Desktop Look's 36 pt
-    /// circle): the arrow's visible gap to the box is the activity pill's.
-    var jumpCircleInset: CGFloat {
-        jumpButton.desktop && !jumpButton.approvalMode ? (ChatMetrics.jumpSize - JumpButton.desktopDiameter) / 2 : 0
-    }
-
-    /// [Mac AAA 2026-11-17] The Mac's transcript thins out over the last 32 pt above the message box and is gone by its
-    /// top (`ComposerView.macFadeLine`): a mask on the transcript, so the page or the Chat Background's picture behind
-    /// it is all that shows round the box. Nothing is laid over the rows, so nothing there can take their colour (the
-    /// owner's dark band), and whatever floats above the box (the activity pill, its card, the arrow, banners) is drawn
-    /// whole over it.
-    private func fadeTranscriptAtBox() {
-        guard let gone = macFadeTop() else {
-            if edgeHost.layer.mask != nil { edgeHost.layer.mask = nil }
-            return
-        }
-        let height = edgeHost.bounds.height
-        guard height > 1 else { return }
-        let fade = transcriptFade
-        CATransaction.begin()
-        // [Mac AAA 2026-11-17] Inside a float's own animation (a banner, the queue card, a notice coming or going) the
-        // fade moves with it, in the same time; otherwise at once.
-        let step = UIView.inheritedAnimationDuration
-        if step > 0 && edgeHost.layer.mask === fade {
-            CATransaction.setAnimationDuration(step)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
-        } else {
-            CATransaction.setDisableActions(true)
-        }
-        fade.frame = edgeHost.bounds
-        // An eased ramp (smoothstep), not a straight one: a straight fade reads as a band with edges. Gone 2 pt before
-        // the box's line, so no trace of a word touches it.
-        let start = gone - ChatMetrics.composerContentGap, end = gone - 2
-        let steps: [CGFloat] = [0, 0.2, 0.4, 0.6, 0.8, 1]
-        fade.colors = [UIColor.black.cgColor] + steps.map { t in UIColor.black.withAlphaComponent(1 - t * t * (3 - 2 * t)).cgColor }
-            + [UIColor.clear.cgColor]
-        fade.locations = [0] + steps.map { t in NSNumber(value: Double(max(0, min(1, (start + (end - start) * t) / height)))) } + [1]
-        CATransaction.commit()
-        if edgeHost.layer.mask !== fade { edgeHost.layer.mask = fade }
-    }
-
-    /// [Mac AAA 2026-11-17] Where the transcript is gone by (edge host coordinates): the top of the topmost full-width
-    /// thing over the box (the reply / edit banner and the tray inside the composer, the queue card, the notices over
-    /// the box, the memo notice, and the activity pill or its card: owner's choice) or the box's own top; a question
-    /// or voice dock's top when it stands in the box's place. The arrow leaves it where it is. Nil: no fade.
-    private func macFadeTop() -> CGFloat? {
-        var top: CGFloat?
-        func lower(_ y: CGFloat) { top = min(top ?? y, y) }
-        func lift(_ float: UIView) {
-            guard !float.isHidden, float.alpha > 0.01, float.frame.height > 1, float.superview === view else { return }
-            lower(float.frame.minY)
-        }
-        if let dock = promptDock {
-            lift(dock)
-        } else if let line = composer.macFadeLine, composer.window != nil, !composer.isHidden, composer.alpha > 0.01 {
-            lower(composer.convert(CGPoint(x: 0, y: line), to: view).y)
-        }
-        guard top != nil else { return nil }
-        [queueCard, composerNotices, voice.notice].forEach(lift)
-        // [Mac AAA 2026-11-17] Owner's choice ("Fade before the pill"): the activity / helpers pill and its opened card
-        // move the fade too, so no line passes behind the pill with its two ends showing. The arrow alone does not.
-        let shelf = activity.shelf
-        if shelf.hasActivity, !shelf.isHidden, shelf.alpha > 0.01, shelf.frame.height > 1 {
-            lower(shelf.frame.minY + (shelf.expanded ? 0 : ActivityShelfView.pillMargin))
-        }
-        return top.map { view.convert(CGPoint(x: 0, y: $0), to: edgeHost).y }
-    }
-
-    #if targetEnvironment(macCatalyst)
-    /// [Mac AAA 2026-11-17] Everything on the chat's top bar (the bar itself with its buttons, the title and face, the
-    /// "Working…" line) and the status line and notice under it are drawn in the WINDOW's light or dark, the app's
-    /// theme: whatever the system decides about what lies under the bar, nothing on it turns white in the light look
-    /// or dark in the dark one. Each layout pass, so a change of the theme or the system's appearance follows at once.
-    private func pinBarStyle() {
-        guard let window = view.window else { return }
-        let style = window.traitCollection.userInterfaceStyle
-        var pinned: [UIView] = [titleView, statusPill, noticeToast]
-        if let bar = navigationController?.navigationBar, navigationController?.topViewController === self { pinned.append(bar) }
-        // Owner 2026-11-17, a fourth photo of the foot of the chat gone black, under a green voice memo this time: "Any
-        // color behind the text input makes the whole thing go black." The message box is no longer the transcript's
-        // edge element (viewDidLoad), which was what the system redrew; the box and everything that floats at it are
-        // pinned to the window's light or dark as well, so nothing else can redraw them for what lies under them.
-        for item in pinned where item.overrideUserInterfaceStyle != style { item.overrideUserInterfaceStyle = style }
-        // These follow the chat's own view (the window's style, or a style the chat page itself was given on purpose).
-        let own = view.traitCollection.userInterfaceStyle
-        for item in [composer, queueCard, jumpButton, activity.shelf] as [UIView] where item.overrideUserInterfaceStyle != own {
-            item.overrideUserInterfaceStyle = own
-        }
-    }
-    #endif
-
     private func clipUnderMacBox() {
         guard DeviceWord.isMac else { return }
         var lift: CGFloat = 0
@@ -1416,16 +1268,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         composer.followPosition()
         followDockSide()
         clipUnderMacBox()
-        if DeviceWord.isMac {
-            fadeTranscriptAtBox()   // [Mac AAA 2026-11-17]
-            followTitleOverhang()   // [Mac AAA 2026-11-17]
-            let base = (queueCollapsed.isActive ? 0 : -8) - macBoxRise
-            if abs(queueGap.constant - base) > 0.25 { queueGap.constant = base }
-        }
         if edgeHost.contentSize != edgeHost.bounds.size { edgeHost.contentSize = edgeHost.bounds.size }
         #if targetEnvironment(macCatalyst)
         keepHeaderTips()   // [Mac UI check 2026-11-13] V24
-        pinBarStyle()      // [Mac AAA 2026-11-17]
         placeMacJump()     // [Mac UI check 2026-11-13] V8
         // [Mac AAA 2026-11-16] The title's room follows the window (`ChatTitleView.maxWidth`): measured before the chat
         // was in a window it kept the phone's width, and a resize never measured it again.
@@ -1502,7 +1347,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     private var transcriptRoom: CGRect {
         let dockTop = transcriptBottom   // [questions] composer or dock, queue card, prompt chip; VOICE memo notice; [activity] shelf
-        let top = view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap
+        let top = view.safeAreaInsets.top + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap
         return CGRect(x: 0, y: top, width: view.bounds.width, height: max(0, dockTop - ChatMetrics.composerContentGap - top))
     }
 
@@ -1515,12 +1360,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     override func viewWillDisappear(_ animated: Bool) {
-        #if targetEnvironment(macCatalyst)
-        // [Mac AAA 2026-11-17] The bar is the navigation's: a page pushed over the chat follows the window again.
-        if let bar = navigationController?.navigationBar, bar.overrideUserInterfaceStyle != .unspecified {
-            bar.overrideUserInterfaceStyle = .unspecified
-        }
-        #endif
         super.viewWillDisappear(animated)
         if isMovingFromParent { fadeBottomBarWithTabBar(appearing: false) }
         // [macpass-chat] The bar hands its button views on to the page pushed over the chat (a table's pane): the names
@@ -2014,8 +1853,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let animate = view.window != nil && !HQMotion.reduced
         if show && queueCard.isHidden { queueCard.alpha = 0; queueCard.isHidden = false }
         queueCollapsed.isActive = !show
-        queueGap.constant = (show ? -8 : 0) - macBoxRise
-        promptQueueGap?.constant = show ? -8 : 0   // [questions] the queue card sits 8 pt above the dock too (Q13)
+        queueGap.constant = show ? -8 : 0
+        promptQueueGap?.constant = queueGap.constant   // [questions] the queue card sits 8 pt above the dock too (Q13)
         let changes = {
             self.queueCard.alpha = show ? 1 : 0
             self.view.layoutIfNeeded()
@@ -2051,7 +1890,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         jumpWidth.constant = jumpButton.preferredWidth
         jumpHeight.constant = jumpButton.preferredHeight
         activity.jumpWidthChanged(jumpButton.preferredWidth)
-        statusPillTop.constant = ChatMetrics.statusPillTop + macTitleOverhang
+        statusPillTop.constant = ChatMetrics.statusPillTop
         updateTopEdgeReach()
         var clear: UINavigationBarAppearance? = desktop ? ThemeChrome.solidBar() : nil
         #if !targetEnvironment(macCatalyst)
@@ -2073,7 +1912,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // again. The band was the system's top edge effect over the still edge host, which the Mac fades out for good
         // after the host's first size change (nothing scrolls it, so nothing brings it back). The chat takes the list
         // pane's own bar instead (the look's frost, no hairline, `ListBarAppearance`), and that edge stays off.
-        edgeHost.topEdgeEffect.isHidden = true   // [Mac AAA 2026-11-17] in both looks (see `viewDidLoad`'s still view)
+        edgeHost.topEdgeEffect.isHidden = desktop
         if desktop { clear = ThemeChrome.solidBar(frosted: true) }
         // [mac] Stress test 2026-10-28 #57 (round 2): in the iOS look the chat pane's bar drew a hairline under it and
         // the list pane's bar beside it none. The system's own bar, without its line, so the two pane headers match.
@@ -2101,10 +1940,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let band = UINavigationBarAppearance()
         band.configureWithTransparentBackground()
         band.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
-        // [Mac AAA 2026-11-17] The page's veil over the frost (the pop-overs' and the reply peek's, `popupVeil`): the
-        // thin blur alone went dark grey across the whole bar under a black message. Now a message under the bar shows
-        // as a faint, local shade and the bar keeps its own tone.
-        band.backgroundColor = ChatPalette.popupVeil
         band.shadowColor = HQPalette.paneLine   // the panes' own line, at the bar's foot, level with the inspector's rule
         return band
     }()
@@ -2137,9 +1972,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         updateTopBand()
         #endif
         let under = tableView.contentOffset.y - minOffset - ChatMetrics.composerContentGap > 0.5
-        // [Mac AAA 2026-11-17] Never on the Mac: it fades the transcript itself (`fadeTranscriptAtBox`); the system's
-        // soft edge is a blur of the rows, so it took their colour at the box.
-        let hide = (following && glideLink == nil) || !under || DeviceWord.isMac
+        let hide = (following && glideLink == nil) || !under
         guard edgeHost.bottomEdgeEffect.isHidden != hide else { return }
         if Self.traceScroll { print("[Scroll] bottom edge \(hide ? "hidden" : "shown")") }
         if view.window != nil && !HQMotion.reduced {
@@ -2154,7 +1987,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private func updateInsets() {
         let dockTop = transcriptBottom   // [questions] composer or dock, queue card, prompt chip; VOICE memo notice; [activity] shelf
         let bottom = max(0, view.bounds.maxY - dockTop) + ChatMetrics.composerContentGap
-        let top = view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findInset
+        let top = view.safeAreaInsets.top + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findInset
         let old = tableView.contentInset
         // The scroll bar runs the whole height the rows can show in: down behind the composer to the screen's bottom
         // edge (above the home indicator), or to the keys when they're up. Owner 2026-11-01: ended at the composer's
@@ -3517,32 +3350,17 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         if barBlur.alpha != alpha { barBlur.alpha = alpha }
         // The notice's backing: from the top down past the notice, in at the notice's pace and out at its fade.
-        // [Mac AAA 2026-11-17] Past the LOWEST thing showing under the bar (the status capsule, the notice, the Find
-        // bar, the Search Earlier pill) and the floats' 8 pt gap beyond it: a message scrolled up there stops 8 pt
-        // short of the capsule, as everything in that stack does, instead of touching it.
-        let statusShown = statusPill.text != nil
-        var lowest: CGFloat = 0
-        if statusShown { lowest = max(lowest, statusPill.frame.maxY) }
-        if noticeToast.isShowing { lowest = max(lowest, noticeToast.frame.maxY) }
-        for under in view.subviews where (under is ChatFindBar || under === earlierPill) && !under.isHidden && under.alpha > 0.01 {
-            lowest = max(lowest, under.frame.maxY)
-        }
-        let showing = lowest > 0
-        let solid = (showing ? lowest : noticeToast.frame.maxY) + ChatMetrics.macFloatGap
-        let noticeBottom = solid
-        let noticeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: solid + 16)
-        if noticeBacking.frame != noticeFrame, solid > ChatMetrics.macFloatGap {
-            // With the stack's own motion when it moves inside an animation (a notice or the Find bar coming or going).
-            let step = UIView.inheritedAnimationDuration
-            CATransaction.begin()
-            if step > 0 { CATransaction.setAnimationDuration(step) } else { CATransaction.setDisableActions(true) }
+        let noticeBottom = noticeToast.frame.maxY
+        let noticeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: noticeBottom + 16)
+        if noticeBacking.frame != noticeFrame, noticeBottom > 0 {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
             noticeBacking.frame = noticeFrame
             noticeBackingFade.frame = noticeBacking.bounds
-            noticeBackingFade.locations = [0, NSNumber(value: Double(solid / noticeFrame.height)), 1]
+            noticeBackingFade.locations = [0, NSNumber(value: Double(noticeBottom / noticeFrame.height)), 1]
             CATransaction.commit()
         }
         noticeBacking.backgroundColor = ChatPalette.page
-        let covers: CGFloat = showing && contentTop < noticeBottom ? 1 : 0
+        let covers: CGFloat = noticeToast.isShowing && contentTop < noticeBottom ? 1 : 0
         if noticeBacking.alpha != covers {
             HQMotion.animate(covers > 0 ? 0.2 : 0.3, options: [.beginFromCurrentState], changes: { self.noticeBacking.alpha = covers })
         }
@@ -4502,7 +4320,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             }
             let follow = dock.bottomAnchor.constraint(equalTo: guide.topAnchor, constant: -keys)
             follow.priority = .defaultHigh
-            let gap = queueCard.bottomAnchor.constraint(equalTo: dock.topAnchor, constant: queueGap.constant + macBoxRise)
+            let gap = queueCard.bottomAnchor.constraint(equalTo: dock.topAnchor, constant: queueGap.constant)
             queueGap.isActive = false
             promptQueueGap?.isActive = false
             promptQueueGap = gap
@@ -4584,7 +4402,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// Owner 2026-11-15: "Model changed to …" sat a whole empty status line below the title. With no status words the
     /// notice takes the status line's place under the title; it steps down under the words when they show.
     private func noticeGap(under anchor: UIView) -> CGFloat {
-        anchor === statusPill && statusPill.text == nil ? -ChatMetrics.statusLineHeight : ChatMetrics.underBarGap
+        anchor === statusPill && statusPill.text == nil ? -ChatMetrics.statusLineHeight : 6
     }
 
     private func updateNoticeTop() {
@@ -4604,7 +4422,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // hidden behind it (the Desktop Look bar is opaque; the glass one faded them).
         view.insertSubview(bar, belowSubview: noticeToast)
         NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: DeviceWord.isMac ? ChatMetrics.underBarGap : 4),
+            bar.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: 4),
             // [mac] Stress test 2026-10-28 #53: on the composer's and the bubbles' edges (it was 4 to 14 pt wider).
             bar.leadingAnchor.constraint(equalTo: columnGuide.leadingAnchor, constant: Self.findBarSide),
             bar.trailingAnchor.constraint(equalTo: columnGuide.trailingAnchor, constant: -Self.findBarSide),
@@ -5016,30 +4834,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// The row ids on screen, top to bottom (tests and traces).
     var debugVisibleRowIds: [String] {
         (tableView.indexPathsForVisibleRows ?? []).sorted { $0.row > $1.row }.map { rows[$0.row].id }
-    }
-
-    /// [Mac AAA 2026-11-17] Tours: the status capsule's words through its own path (nil: gone).
-    func debugStatus(_ text: String?) { statusPill.set(text) }
-
-    /// [Mac AAA 2026-11-17] Tours: the light or dark the top bar and everything on it is drawn in, against the window's,
-    /// and what could feed the bar from the transcript (the owner: white words on a pale bar over a blue message).
-    var debugTopBarReport: String {
-        func style(_ v: UIView?) -> String {
-            guard let v else { return "-" }
-            return v.traitCollection.userInterfaceStyle == .dark ? "dark" : "light"
-        }
-        let bar = navigationController?.navigationBar
-        let scroll = contentScrollView(for: .top)
-        let feed = scroll === edgeHost ? "transcript" : scroll == nil ? "none (system picks)" : "still"
-        let edges = topEdgeElement.interactions.filter { $0 is UIScrollEdgeElementContainerInteraction }.count
-        #if targetEnvironment(macCatalyst)
-        let buttons = (headerButtons() ?? []).map(style).joined(separator: ",")
-        #else
-        let buttons = "-"
-        #endif
-        return "window \(style(view.window)) bar \(style(bar)) title \(style(titleView)) buttons [\(buttons)] "
-            + "status \(style(statusPill)) notice \(style(noticeToast)); bar's scroll view \(feed), top edge effect "
-            + "\(edgeHost.topEdgeEffect.isHidden ? "off" : "on"), top edge elements \(edges)"
     }
     #endif
 }

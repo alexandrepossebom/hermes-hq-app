@@ -239,9 +239,6 @@ final class PagesTests: XCTestCase {
         let fold = app.cells["jobs.show-completed"]
         XCTAssertTrue(fold.waitForExistence(timeout: 3))
         XCTAssertTrue(text("Show 1 Completed", in: fold).exists || fold.label.contains("Show 1 Completed"), "Completed is folded")
-        // Owner 2026-11-17 (Mac calls Q12): folded, the Completed heading has no count of its own (the row under it says it).
-        let completedHead = list.otherElements["jobs.section.Completed"].firstMatch
-        if completedHead.exists { XCTAssertFalse(completedHead.label.hasSuffix("1"), "the folded heading reads “Completed” (\(completedHead.label))") }
         let search = app.navigationBars.buttons["Search"].firstMatch
         if search.exists { search.tap() }
         let field = app.searchFields.firstMatch

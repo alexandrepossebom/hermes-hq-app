@@ -124,9 +124,7 @@ struct PeekAlert {
     }
 
     /// The capsule: glass, a face, a name over one line of the reply, and the others' count at the end.
-    /// [Mac glass 2026-11-17] A `BackedGlassCard`: on the Mac a veil in the page's colour lies under the glass, so the
-    /// title and messages it drops over no longer read through it (the pop-overs' backing). Elsewhere plain glass.
-    final class PeekView: BackedGlassCard, UIGestureRecognizerDelegate {
+    final class PeekView: UIVisualEffectView, UIGestureRecognizerDelegate {
         var onTap: (() -> Void)?
         var onDismiss: (() -> Void)?
         var onHold: ((Bool) -> Void)?

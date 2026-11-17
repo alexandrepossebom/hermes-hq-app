@@ -180,9 +180,7 @@ final class JobsViewController: UIViewController, UICollectionViewDelegate, UISe
     }
 
     private func countText(shown: Int, total: Int) -> String? {
-        // Owner 2026-11-17 (Mac calls Q5): no "9 jobs" under the list on the Mac; the section heads count. The iPhone and
-        // iPad keep theirs.
-        guard store.hasList, total > 0, !DeviceWord.isMac else { return nil }
+        guard store.hasList, total > 0 else { return nil }
         let noun = total == 1 ? "job" : "jobs"
         return query.isEmpty ? "\(total) \(noun)" : "\(shown) of \(total) \(noun)"
     }
@@ -605,26 +603,6 @@ final class JobsViewController: UIViewController, UICollectionViewDelegate, UISe
         }
         if let path { collectionView.selectItem(at: path, animated: false, scrollPosition: []) }
     }
-
-    #if targetEnvironment(macCatalyst)
-    /// [Mac AAA 2026-11-17] Owner's call Q3: ↑/↓ open the next or previous job beside the list, as Sessions' arrows
-    /// open chats (`KeyCommands.walkList`): the jobs in the order the list shows them (a folded Completed left out).
-    var walkOrder: [String] {
-        guard isViewLoaded, dataSource != nil else { return [] }
-        return dataSource.snapshot().itemIdentifiers.compactMap { if case .job(let key) = $0 { key } else { nil } }
-    }
-
-    /// The job whose page is open beside the list (nil: none).
-    var walkCurrent: String? { paneKeepsSelection ? onShowKey : nil }
-
-    /// Opens `key`'s page beside the list, as a click on its row, and brings its row into view (as Tasks does).
-    func walkOpen(_ key: String) {
-        openDetail(key)
-        guard let path = dataSource.indexPath(for: .job(key)), let row = collectionView.layoutAttributesForItem(at: path) else { return }
-        guard !collectionView.bounds.inset(by: collectionView.adjustedContentInset).contains(row.frame) else { return }
-        collectionView.scrollToItem(at: path, at: .centeredVertically, animated: !HQMotion.reduced)
-    }
-    #endif
 
     func openDetail(_ key: String) {
         guard let services, store.job(key: key) != nil else { return }

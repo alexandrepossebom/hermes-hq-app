@@ -1,5 +1,4 @@
-// A job's page (docs/spec/1x-pages.md §3.5): the title and status, Run Now and Pause/Resume as glass tiles (on the Mac
-// push buttons beside the title), the
+// A job's page (docs/spec/1x-pages.md §3.5): the title and status, Run Now and Pause/Resume as glass tiles, the
 // last error (folded), Schedule, Delivery, the prompt (6 lines, Show All), Run History (a session run opens its chat on
 // this stack, a script run its output document read-only) and Delete Job. The title moves into the bar once the
 // header scrolls under it. A job that disappears pops the page with "Job Removed".
@@ -333,23 +332,18 @@ struct JobDetailView: View {
             Section {
                 // [desktoplook] The title, tiles and error card stand on the page: no outline round them (it boxed the
                 // title with the tiles and cut the tiles' sides, owner 2026-10-30).
-                header(job, title: title, busy: busy, paused: paused)
+                header(job, title: title)
                     .hqDesktopBareRow()
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     // [Mac AAA 2026-11-16] On the Mac the name starts on the page's one edge, where "Schedule", "Repeats"
                     // and "Run History" do (it stood 16 pt left of them, 4 pt inside the cards' edge).
-                    // Mac calls Q6: the push buttons end as far in as the name starts (on the rows' words' edge).
-                    .listRowInsets(EdgeInsets(top: 0, leading: DeviceWord.isMac ? 20 : 4, bottom: 6, trailing: DeviceWord.isMac ? 20 : 4))
-                // Owner 2026-11-17 (Mac calls Q6): on the Mac Run Now and Pause are push buttons beside the name
-                // (`header`); the iPhone and iPad keep the two tiles.
-                if !DeviceWord.isMac {
-                    tiles(job, busy: busy, paused: paused)
-                        .hqDesktopBareRow()
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
-                }
+                    .listRowInsets(EdgeInsets(top: 0, leading: DeviceWord.isMac ? 20 : 4, bottom: 6, trailing: 4))
+                tiles(job, busy: busy, paused: paused)
+                    .hqDesktopBareRow()
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                 if let error = job.lastError, !error.isEmpty {
                     errorCard(error, busy: busy)
                         .hqDesktopBareRow()
@@ -422,19 +416,15 @@ struct JobDetailView: View {
         .onChange(of: job.lastRunAt) { model.lastRunChanged() }
     }
 
-    private func header(_ job: CronJob, title: String, busy: Bool, paused: Bool) -> some View {
+    private func header(_ job: CronJob, title: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(title)
-                    .font(DeviceWord.isMac ? Font.hq(.title3).weight(.semibold) : Font.hqSystem(.title, design: .default, weight: .bold))
-                    .foregroundStyle(Color.hqLabel)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("job.title")
-                    .onScrollVisibilityChange(threshold: 0.2) { visible in titleUnderBar(!visible) }
-                if DeviceWord.isMac { macButtons(job, busy: busy, paused: paused) }
-            }
+            Text(title)
+                .font(DeviceWord.isMac ? Font.hq(.title3).weight(.semibold) : Font.hqSystem(.title, design: .default, weight: .bold))
+                .foregroundStyle(Color.hqLabel)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("job.title")
+                .onScrollVisibilityChange(threshold: 0.2) { visible in titleUnderBar(!visible) }
             let raw = JobWords.jobTitle(job)
             if raw != title {
                 // Mac polish #68: a line of words in the second grey (`cardNote`), not the faintest (2.2:1 in the iOS look).
@@ -484,36 +474,6 @@ struct JobDetailView: View {
             .buttonBorderShape(.roundedRectangle(radius: 18))
             .disabled(busy)
             .accessibilityIdentifier("job.pause")
-        }
-    }
-
-    /// Owner 2026-11-17 (Mac calls Q6): Run Now and Pause (Resume) as the Mac's push buttons (`MacPushButtonStyle`, as
-    /// Status & Maintenance's Run), beside the job's name; the same names, states and spinners as the iPhone's tiles.
-    private func macButtons(_ job: CronJob, busy: Bool, paused: Bool) -> some View {
-        let runOut = model.store.showsRunning(job)
-        let running = runOut || JobWords.isRunning(job)
-        return HStack(spacing: 8) {
-            Button { model.run() } label: { macLabel("Run Now", spinning: running) }
-                .hqMacBordered()
-                .fixedSize()
-                .disabled(busy || runOut || JobWords.runIsOut(job))   // Audit 863 (08c-7), as the tile
-                .help("Run Now")
-                .accessibilityLabel("Run Now")
-                .accessibilityIdentifier("job.run")
-            Button { model.togglePause() } label: { macLabel(paused ? "Resume" : "Pause", spinning: busy && !runOut) }
-                .hqMacBordered()
-                .fixedSize()
-                .disabled(busy)
-                .help(paused ? "Resume" : "Pause")
-                .accessibilityLabel(paused ? "Resume" : "Pause")
-                .accessibilityIdentifier("job.pause")
-        }
-    }
-
-    private func macLabel(_ title: String, spinning: Bool) -> some View {
-        HStack(spacing: 6) {
-            if spinning { ProgressView().controlSize(.mini) }
-            Text(title)
         }
     }
 

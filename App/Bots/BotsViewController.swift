@@ -1564,7 +1564,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         bar.setFilterActive(BotsBar.filtersActive(kind: kind, activity: activity), token: BotsBar.token(kind: kind, activity: activity))
     }
 
-    /// Activity ›, Sort By ›, then Show N Hidden Bots and Clear Filters (`S/ui-bots/roster-filters.ts`).
+    /// Activity ›, Sort By ›, then Show Hidden Bots (N) and Clear Filters (`S/ui-bots/roster-filters.ts`).
     /// [filters-only] Filters only (owner 2026-11-03): no Switch Gateway here, the title's switcher holds the gateways
     /// (the same items, with Add Gateway… and Manage Gateways…).
     private func filterMenu() -> [UIMenuElement] {
@@ -1594,7 +1594,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         return items
     }
 
-    /// Filter › Show N Hidden Bots, nil with nothing hidden. Hidden rooms count too (UX study #254): the item opens the
+    /// Filter › Show Hidden Bots (N), nil with nothing hidden. Hidden rooms count too (UX study #254): the item opens the
     /// one Hidden section. Only what the Show filter puts there: rooms under Show › All, bots unless it is Show › Groups.
     /// [mac] The Mac's sidebar offers it on its right click (`changed` redraws it), read from the roster: the list it
     /// fills is never on show there.
@@ -1605,8 +1605,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         let hiddenCount = (kind == .groups ? 0 : hiddenBots) + (kind == .all ? hiddenRooms : 0)
         guard hiddenCount > 0 else { return nil }
         let showing = railShowsHidden
-        // Owner 2026-11-17 (Mac calls Q12): the count in the words ("Show 3 Hidden Bots"), not in brackets after them.
-        return UIAction(title: "Show \(hiddenCount) Hidden \(hiddenCount == 1 ? "Bot" : "Bots")", image: UIImage(systemName: "eye"),
+        return UIAction(title: "Show Hidden Bots (\(hiddenCount))", image: UIImage(systemName: "eye"),
                         state: showing ? .on : .off) { [weak self] _ in
             Haptics.play(.selection)
             self?.setSection(.hidden, collapsed: showing)

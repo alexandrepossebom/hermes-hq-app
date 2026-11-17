@@ -45,10 +45,9 @@ import UIKit
     /// everything); `host`: the view the fill is drawn in and takes its size from, when that is not the view itself (a
     /// glass view's content view, the circle inside a larger tap area).
     /// Nothing on the iPhone and the iPad, which draw the system's effect.
-    /// [Mac AAA 2026-11-17] `pill`: as `capsule`, but in the Desktop Look the look's 4 pt box (`HQPill`'s rule).
-    static func surface(_ view: UIView, radius: CGFloat? = nil, capsule: Bool = false, pill: Bool = false, above: UIView? = nil, host: UIView? = nil) {
+    static func surface(_ view: UIView, radius: CGFloat? = nil, capsule: Bool = false, above: UIView? = nil, host: UIView? = nil) {
         #if targetEnvironment(macCatalyst)
-        MacHover.surface(view, shape: pill ? .pill : capsule ? .capsule : radius.map { .rounded($0) } ?? .own, above: above, host: host)
+        MacHover.surface(view, shape: capsule ? .capsule : radius.map { .rounded($0) } ?? .own, above: above, host: host)
         #endif
     }
 
@@ -155,8 +154,7 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
 
     /// What a control's fill is cut to: a disc round an icon button (a capsule when it is clearly wider than tall), the
     /// view's own corners, a capsule, or corners of a given radius.
-    /// `pill`: a capsule with the Desktop Look off, its 4 pt box with it on (read when shown, so it follows the look).
-    enum Shape { case button, own, capsule, pill, rounded(CGFloat) }
+    enum Shape { case button, own, capsule, rounded(CGFloat) }
 
     private weak var list: UIScrollView?
     private weak var hovered: UIView?
@@ -176,11 +174,6 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
     static func debugHover(_ list: UIScrollView, row: UIView?) {
         rows(list)
         (objc_getAssociatedObject(list, &key) as? MacHover)?.show(row)
-    }
-
-    /// [Mac AAA 2026-11-17] Tours: a `surface`'s hover drawn as the pointer over it would draw it.
-    static func debugHoverSurface(_ view: UIView) {
-        (objc_getAssociatedObject(view, &key) as? ButtonHover)?.debugOver()
     }
     #endif
 
@@ -417,13 +410,6 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
         show()
     }
 
-    #if DEBUG
-    func debugOver() {
-        over = true
-        show()
-    }
-    #endif
-
     private func show() {
         guard let view else { return }
         let control = view as? UIControl
@@ -469,10 +455,6 @@ private final class ButtonPointer: NSObject, UIPointerInteractionDelegate {
             small = true   // a pill beside the icon buttons (the composer's model bubble) answers as strongly as they do
             fill.frame = box
             fill.layer.cornerRadius = box.height / 2
-        case .pill:
-            small = true
-            fill.frame = box
-            fill.layer.cornerRadius = HQShape.radius(box.height / 2, .capsule)
         case .rounded(let radius):
             small = false
             fill.frame = box

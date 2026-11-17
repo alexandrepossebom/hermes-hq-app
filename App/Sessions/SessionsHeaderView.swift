@@ -215,72 +215,8 @@ struct SessionsHeaderView: View {
     /// Then: each side carries its name beside its glyph (`switchSide`).
     @ViewBuilder private func pillsSwitch(allPicked: Bool) -> some View {
         if model.showsSwitch {
-            let side: CGFloat = Theme.isDesktop ? HQFont.scaled(24) : HQFont.scaled(30)
-            let half = side + 8
-            // Each side's touch reaches this far past the capsule (into the rail's margin, and the gap before the
-            // next pill), so it is 44 pt wide as every pill's is.
-            let reach = max(0, 44 - half - 2)
-            let views: [SessionPills] = [.bots, .projects]
-            // The drawing: glyphs in the glass (the glass takes its content, as every pill's does).
-            HStack(spacing: 0) {
-                ForEach(views, id: \.self) { view in
-                    let here = model.pills == view
-                    switchSide(view, here: here, half: half, side: side)
-                        .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqPage)
-                        .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel) } }
-                }
-            }
-            .padding(2)
-            .background {
-                if Theme.isDesktop { RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3) }
-            }
-            .hqPickGlass(false, in: Capsule(), prominent: true)
-            .accessibilityHidden(true)
-            .frame(height: 44)
-            // The touch: one clear button over the whole switch, reaching past both ends of the capsule (its own drawing,
-            // unseen, sizes it). VoiceOver: "Switch to Projects", and the view shown as its value.
-            .overlay {
-                let other: SessionPills = model.pills == .bots ? .projects : .bots
-                Button {
-                    model.onSwitch(other)
-                } label: {
-                    HStack(spacing: 0) {
-                        ForEach(views, id: \.self) { view in
-                            switchSide(view, here: model.pills == view, half: half, side: side).hidden()
-                        }
-                    }
-                    .padding(2)
-                    .padding(.horizontal, reach)
-                    .frame(height: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(other == .projects ? "Switch to Projects" : "Switch to Bots")
-                .accessibilityValue(model.pills == .projects ? "Projects" : "Bots")
-                .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
-                .fixedSize()
-            }
-            .id("sessions.chip.all")
+            SessionsPillsSwitch(model: model).id("sessions.chip.all")
         }
-    }
-
-    /// One side of the switch: its glyph and its name. [switch-words] Owner 2026-11-17: "I want the bots/projects
-    /// toggle to show the words of each with the icons" (both sides named, now that the switch scrolls with the row).
-    private func switchSide(_ view: SessionPills, here: Bool, half: CGFloat, side: CGFloat) -> some View {
-        HStack(spacing: 5) {
-            if view == .bots {
-                Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(14), line: 0.1)).renderingMode(.template)
-            } else {
-                Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
-            }
-            Text(view == .bots ? "Bots" : "Projects")
-                .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
-                .lineLimit(1)
-                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                .fixedSize()
-        }
-        .padding(.horizontal, 11)
-        .frame(minWidth: half, minHeight: side, maxHeight: side)
     }
 
     private var botRail: some View {
@@ -752,4 +688,89 @@ struct ChipPaging: ScrollTargetBehavior {
         let most = max(0, context.contentSize.width - context.containerSize.width)
         target.rect.origin.x = min(most, max(0, (target.rect.origin.x / step).rounded() * step))
     }
+}
+
+/// [projects-switch] The Bots | Projects switch, on the iPhone's and iPad's pill rail (its first item) and, [mac-switch]
+/// in the Mac's bar (`inBar`), where the rail isn't drawn: the same drawing and the same one tap.
+struct SessionsPillsSwitch: View {
+    var model: SessionsHeaderModel
+    /// [mac-switch] In the Mac's bar: a 24 pt capsule, its touch the capsule's own.
+    var inBar = false
+
+    /// The side drawn is the tint while nothing is picked, dark while a pill is.
+    private var allPicked: Bool {
+        model.pills == .projects ? model.pickedProjects.isEmpty && model.status == nil && !model.botPicked
+            : model.picked == nil && model.status == nil
+    }
+
+    var body: some View {
+        Group {
+            let side: CGFloat = Theme.isDesktop || inBar ? HQFont.scaled(24) : HQFont.scaled(30)
+            let half = side + 8
+            // Each side's touch reaches this far past the capsule (into the rail's margin, and the gap before the
+            // next pill), so it is 44 pt wide as every pill's is. In the Mac's bar the pointer needs no reach.
+            let reach = inBar ? 0 : max(0, 44 - half - 2)
+            let touch: CGFloat = inBar ? side + 4 : 44
+            let views: [SessionPills] = [.bots, .projects]
+            // The drawing: glyphs in the glass (the glass takes its content, as every pill's does).
+            HStack(spacing: 0) {
+                ForEach(views, id: \.self) { view in
+                    let here = model.pills == view
+                    switchSide(view, here: here, half: half, side: side)
+                        .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqPage)
+                        .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel) } }
+                }
+            }
+            .padding(2)
+            .background {
+                if Theme.isDesktop { RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3) }
+            }
+            .hqPickGlass(false, in: Capsule(), prominent: true)
+            .accessibilityHidden(true)
+            .frame(height: touch)
+            // The touch: one clear button over the whole switch, reaching past both ends of the capsule (its own drawing,
+            // unseen, sizes it). VoiceOver: "Switch to Projects", and the view shown as its value.
+            .overlay {
+                let other: SessionPills = model.pills == .bots ? .projects : .bots
+                Button {
+                    model.onSwitch(other)
+                } label: {
+                    HStack(spacing: 0) {
+                        ForEach(views, id: \.self) { view in
+                            switchSide(view, here: model.pills == view, half: half, side: side).hidden()
+                        }
+                    }
+                    .padding(2)
+                    .padding(.horizontal, reach)
+                    .frame(height: touch)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(other == .projects ? "Switch to Projects" : "Switch to Bots")
+                .accessibilityValue(model.pills == .projects ? "Projects" : "Bots")
+                .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
+                .fixedSize()
+            }
+        }
+    }
+
+    /// One side of the switch: its glyph and its name. [switch-words] Owner 2026-11-17: "I want the bots/projects
+    /// toggle to show the words of each with the icons" (both sides named, now that the switch scrolls with the row).
+    private func switchSide(_ view: SessionPills, here: Bool, half: CGFloat, side: CGFloat) -> some View {
+        HStack(spacing: 5) {
+            if view == .bots {
+                Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(14), line: 0.1)).renderingMode(.template)
+            } else {
+                Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
+            }
+            Text(view == .bots ? "Bots" : "Projects")
+                .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
+                .lineLimit(1)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .fixedSize()
+        }
+        .padding(.horizontal, 11)
+        .frame(minWidth: half, minHeight: side, maxHeight: side)
+    }
+
 }

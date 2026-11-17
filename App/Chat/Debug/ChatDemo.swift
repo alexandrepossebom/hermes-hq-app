@@ -9,7 +9,7 @@ import UIKit
 /// - `-HQDemoAutoOpen` push the chat 1.2 s after launch (`-HQDemoOpenDelay <s>` to change)
 /// - `-HQDemoFocusComposer` focus the composer once open (keyboard up); `-HQDemoFocusAfter <s>` /
 ///   `-HQDemoDismissAfter <s>` focus it / dismiss the keyboard that long after opening
-/// - `-HQDemoScrollUp <points>` scroll that far up from the newest end once open (`-HQDemoScrollAfter <s>`: later)
+/// - `-HQDemoScrollUp <points>` scroll that far up from the newest end once open
 /// - `-HQDemoAutoScroll` run the scroll probe (newest → oldest → newest) and log dropped frames
 /// - `-HQDemoSend <text>` send a message once open (streams a fake reply)
 /// - `-HQDemoExpandTools` open the newest tool rows
@@ -69,11 +69,6 @@ enum ChatDemo {
         let sets: [(String, [CGSize], String?)] = [
             ("a1", [CGSize(width: 1600, height: 1200)], "Here is the view from the deck."),
             ("b2", [CGSize(width: 1200, height: 1600), CGSize(width: 1200, height: 1600)], nil),
-            // [Mac AAA 2026-11-17] Q4: a bot's photo alone, your tall photo alone (the demo's replies never learn their
-            // pictures' sizes, yours carry them), your photo with words.
-            ("c1", [CGSize(width: 1600, height: 1200)], nil),
-            ("me1", [CGSize(width: 1000, height: 2000)], nil),
-            ("me2", [CGSize(width: 1600, height: 1000)], "Sunset from the pier"),
             ("me3", Array(repeating: CGSize(width: 1600, height: 1200), count: 3), "Three from the trip"),
             ("p4", (0..<6).map { CGSize(width: 1400, height: $0 % 2 == 0 ? 1000 : 1400) }, "All six from the walk."),
             ("me5", Array(repeating: CGSize(width: 1200, height: 1200), count: 4), nil),
@@ -241,25 +236,10 @@ final class ChatDemoListViewController: UITableViewController {
     }
 
     private static var thenOpened = false
-    private static var resized = false
 
     private static func afterOpen(_ chat: ChatViewController) {
-        #if targetEnvironment(macCatalyst)
-        // [Mac AAA 2026-11-17] `-HQDemoWindowWidth <points>`: the window that wide (as far as its smallest size lets
-        // it), to see the chat's rows in a narrow column; the scroll waits for the new width.
-        if let width = ChatDemo.argument("-HQDemoWindowWidth").flatMap(Double.init), let scene = chat.view.window?.windowScene,
-           !resized {
-            resized = true
-            scene.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: 80, y: 60, width: width, height: 800))) { _ in }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { Self.afterOpen(chat) }
-            return
-        }
-        #endif
         if let up = ChatDemo.argument("-HQDemoScrollUp").flatMap(Double.init) {
-            // [Mac AAA 2026-11-17] `-HQDemoScrollAfter <s>`: that much later (after `-HQDemoSend`'s message is in), so
-            // your newest message passes under the message box.
-            let after = ChatDemo.argument("-HQDemoScrollAfter").flatMap(Double.init) ?? 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + after) { chat.debugScroll(by: CGFloat(up)) }
+            chat.debugScroll(by: CGFloat(up))
         }
         if ChatDemo.flag("-HQDemoExpandTools") {
             chat.debugExpandNewestTools()

@@ -286,8 +286,7 @@ import UIKit.UIGestureRecognizerSubclass
     }
 
     /// The capsule: glass, the bot's face, the words (up to two lines), and "Watch".
-    /// [Mac glass 2026-11-17] A `BackedGlassCard`, as the reply peek: on the Mac a veil under the glass.
-    final class NoticeView: BackedGlassCard, UIGestureRecognizerDelegate {
+    final class NoticeView: UIVisualEffectView, UIGestureRecognizerDelegate {
         var onTap: (() -> Void)?
         var onDismiss: (() -> Void)?
         var onHold: ((Holder, Bool) -> Void)?

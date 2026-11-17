@@ -134,6 +134,19 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// [Mac full pass 2026-11-14] The Mac's "All Bots ⌄", in the bar where Jobs, Artifacts and Tasks have theirs (it
     /// stood in a row of its own under the bar, the one list that put it there).
     private lazy var botsScope = ScopeBarItem()
+    /// [mac-switch] The Bots | Projects switch in the Mac's bar (`SessionsPillsSwitch` in a bar item of its own).
+    private lazy var switchItem: UIBarButtonItem = {
+        let host = UIHostingController(rootView: SessionsPillsSwitch(model: headerModel, inBar: true))
+        host.sizingOptions = .intrinsicContentSize
+        host.view.backgroundColor = .clear
+        let item = UIBarButtonItem(customView: host.view)
+        item.hidesSharedBackground = true   // its own capsule, not a glass button around it
+        item.accessibilityIdentifier = "sessions.pills.switch"
+        switchHost = host
+        return item
+    }()
+    private var switchHost: UIHostingController<SessionsPillsSwitch>?
+
     private var botWordsShown: Bool?
     /// [ipad-polish] The bar's compose button while this list is the page on show: New Chat hangs off it in two panes.
     /// The bar and the compose button's place in it (the trailing-most item): a pop-over given the bar's item itself
@@ -213,7 +226,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             snapshot.reloadSections(snapshot.sectionIdentifiers)
             dataSource.apply(snapshot, animatingDifferences: false)
         }
-        store?.projectRowsOpenPages = !DeviceWord.isMac   // [sessions-ux] the pills' project page; the Mac has no pills
+        // [sessions-ux] A project's row opens its page. [mac-switch] Owner 2026-11-17: on the Mac too (its project's
+        // page, from its row or "All Projects ⌄"), where projects had opened in place.
+        store?.projectRowsOpenPages = true
         #if DEBUG
         // UI tests of a project opening in place under Group By Project (the Mac's way) run it on the simulator.
         if UserDefaults.standard.bool(forKey: "HQDebugProjectRowsUnfold") { store?.projectRowsOpenPages = false }
@@ -2128,7 +2143,12 @@ extension SessionsViewController {
         // is still on the rail), and the list where it was.
         let back = pills == .bots ? projectPageReturn : nil
         projectPageReturn = nil
-        guard let back else { apply(state); return }
+        // [sessions-motion] Owner 2026-11-17 ("when you change the toggle … everything on the screen just abruptly
+        // changes"): the list slides the way the switch goes (Bots is its left side, Projects its right); from a
+        // project's page back to the Bots side it slides back out of the project.
+        let fromPage = isProjectPage
+        let motion: SessionsSlide = pills == .projects ? .toProjects : fromPage ? .outOfProject : .toBots
+        guard let back else { slide(motion) { self.apply(state, animated: false) }; return }
         if let bot = back.bot, chipBots.contains(where: { $0.id == bot }) { state.botFilter = bot }
         func restore() {
             collectionView.layoutIfNeeded()
@@ -2136,7 +2156,7 @@ extension SessionsViewController {
             let most = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
             collectionView.setContentOffset(CGPoint(x: 0, y: min(max(back.offset, -inset.top), most)), animated: false)
         }
-        crossfade {
+        slide(motion) {
             self.apply(state, animated: false)
             restore()
         }
@@ -2163,7 +2183,9 @@ extension SessionsViewController {
             SessionFilterApply.apply(.group(.project), to: &state, homeBot: homeBot)
         }
         state.prefs.projectFilter = [key]
-        crossfade {
+        // [sessions-motion] Owner 2026-11-17: a project tapped in the list "should like transition to the project": its
+        // page slides in from the right, one step deeper.
+        slide(.intoProject) {
             self.apply(state, animated: false)
             self.collectionView.setContentOffset(CGPoint(x: 0, y: -self.collectionView.adjustedContentInset.top), animated: false)
         }
@@ -2175,11 +2197,77 @@ extension SessionsViewController {
         guard state.prefs.projectFilter != picked else { return }
         Haptics.play(.selection)
         state.prefs.projectFilter = picked
-        // [sessions-ux] Into a project's page or back out the whole list changes: a quick fade from its top, not rows
-        // flying between sections under a list left scrolled where the tapped row was.
-        crossfade {
+        // [sessions-ux] Into a project's page or back out the whole list changes, from its top, not rows flying
+        // between sections under a list left scrolled where the tapped row was. [sessions-motion] Into a page it slides
+        // in from the right, back out to the list it slides away to the right; one page to another fades.
+        let wasPage = isProjectPage
+        let motion: SessionsSlide? = key == nil ? (wasPage ? .outOfProject : nil) : (wasPage ? nil : .intoProject)
+        let change = {
             self.apply(state, animated: false)
             self.collectionView.setContentOffset(CGPoint(x: 0, y: -self.collectionView.adjustedContentInset.top), animated: false)
+        }
+        if let motion { slide(motion, change) } else { crossfade(change) }
+    }
+
+    #if DEBUG
+    /// [mac-switch] Tours: the projects the list shows, by key, in its order.
+    var debugProjectKeys: [String] {
+        let pills = headerModel.projects.map(\.key).filter { $0 != SessionProjects.homeKey }
+        return pills.isEmpty ? groups.compactMap { SessionListPipeline.projectKey($0.id) }.filter { $0 != SessionProjects.homeKey } : pills
+    }
+    #endif
+
+    /// A project's page is on show (the Projects side, one project picked).
+    private var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
+
+    /// [sessions-motion] The list moving to another view: the old one (a picture of it) slides out and fades as the new
+    /// one slides in from the other side, the pills cross-fading above. Sideways for the switch (a short way: the same
+    /// place, another view of it), a page's width into and out of a project (a step deeper, as a page pushed and
+    /// popped). Under Reduce Motion, the cross-fade alone.
+    private func slide(_ motion: SessionsSlide, _ change: () -> Void) {
+        guard view.window != nil, !HQMotion.reduced, let list = collectionView, let superview = list.superview,
+              let oldList = list.snapshotView(afterScreenUpdates: false) else {
+            crossfade(change); return
+        }
+        let rail = headerHost?.view
+        let oldRail = rail.flatMap { $0.bounds.height > 0 ? $0.snapshotView(afterScreenUpdates: false) : nil }
+        oldList.frame = list.frame
+        oldList.isUserInteractionEnabled = false
+        superview.insertSubview(oldList, aboveSubview: list)
+        if let rail, let oldRail {
+            oldRail.frame = rail.frame
+            oldRail.isUserInteractionEnabled = false
+            rail.superview?.insertSubview(oldRail, aboveSubview: rail)
+        }
+        change()
+        view.layoutIfNeeded()
+        let width = list.bounds.width
+        let (inFrom, outTo) = motion.offsets(width: width)
+        list.transform = CGAffineTransform(translationX: inFrom, y: 0)
+        list.alpha = 0
+        rail?.alpha = 0
+        let finish = { (_: Bool) in
+            oldList.removeFromSuperview()
+            oldRail?.removeFromSuperview()
+            list.transform = .identity
+            list.alpha = 1
+            rail?.alpha = 1
+        }
+        // The move runs the whole time; the fades are staggered so the two views never stand half over each other: the
+        // old one is mostly gone before the new one comes up (a frame of both at half read as doubled words).
+        let duration = motion.duration
+        UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,   // motion-ok: guarded above (Reduce Motion: crossfade)
+                       options: [.allowUserInteraction, .beginFromCurrentState]) {
+            list.transform = .identity
+            oldList.transform = CGAffineTransform(translationX: outTo, y: 0)
+        } completion: { finished in finish(finished) }
+        UIView.animate(withDuration: duration * 0.4, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: guarded above
+            oldList.alpha = 0
+            oldRail?.alpha = 0
+        }
+        UIView.animate(withDuration: duration * 0.6, delay: duration * 0.25, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: guarded above
+            list.alpha = 1
+            rail?.alpha = 1
         }
     }
 
@@ -2257,7 +2345,7 @@ extension SessionsViewController {
         if headerModel.statusChips != counts { headerModel.statusChips = counts; headerChanged = true }
         if headerModel.status != store.statusChip { headerModel.status = store.statusChip; headerChanged = true }
         // [project-pills] The projects as the pills (Group By › Project).
-        let pills = DeviceWord.isMac ? .bots : state.prefs.pills
+        let pills = state.prefs.pills   // [mac-switch] the Mac's bar switch reads it too (the rail is the iPhone's)
         if headerModel.pills != pills { headerModel.pills = pills; headerChanged = true }
         let pillProjects = pills == .projects ? store.pillProjects(order: bots.map(\.id)) : []
         if headerModel.projects != pillProjects { headerModel.projects = pillProjects; headerChanged = true }
@@ -2297,12 +2385,16 @@ extension SessionsViewController {
         let shown = items.contains { $0 === botsScope.item }
         let inProjects = state.prefs.pills == .projects
         let hasProjects = inProjects || state.projects.contains { $0.key != SessionProjects.homeKey }
+        // [mac-switch] Owner 2026-11-17: the Bots | Projects switch where it can be seen, as on the iPhone (icons and
+        // words), at the bar's leading end, at every pane width; the pop-up holds only that view's choices (one place
+        // to switch).
+        placeSwitchItem(shown: hasProjects)
         guard bots.count > 1 || hasProjects, botWordsShown != false else {
             if shown { items.removeAll { $0 === botsScope.item }; navigationItem.rightBarButtonItems = items }
             return
         }
         var sections: [UIMenuElement] = []
-        if hasProjects {
+        if hasProjects, !DeviceWord.isMac {
             let views: [(SessionPills, String)] = [(.bots, "Bots"), (.projects, "Projects")]
             sections.append(UIMenu(options: [.displayInline, .singleSelection], children: views.map { view, word in
                 let action = UIAction(title: word, state: state.prefs.pills == view ? .on : .off) { [weak self] _ in self?.pickPills(view) }
@@ -2336,6 +2428,15 @@ extension SessionsViewController {
         }
         botsScope.show(title: title, menu: UIMenu(children: sections), signature: signature.joined(separator: "\u{1E}"))
         if !shown { items.append(botsScope.item); navigationItem.rightBarButtonItems = items }
+    }
+
+    private func placeSwitchItem(shown: Bool) {
+        let has = navigationItem.leftBarButtonItems?.contains { $0 === switchItem } ?? false
+        guard has != shown else { return }
+        var items = navigationItem.leftBarButtonItems ?? []
+        if shown { items.append(switchItem) } else { items.removeAll { $0 === switchItem } }
+        navigationItem.leftBarButtonItems = items
+        navigationItem.leftItemsSupplementBackButton = true
     }
 
     /// A project's mark in the pop-up, as its pill's: orange while it waits on you, blue with a reply to read, a ring
@@ -2501,4 +2602,27 @@ private final class UnfoldTick: NSObject {
     let action: () -> Void
     init(_ action: @escaping () -> Void) { self.action = action }
     @objc func tick() { action() }
+}
+
+/// [sessions-motion] How the Sessions list moves to another view (`SessionsViewController.slide`).
+enum SessionsSlide {
+    case toProjects, toBots, intoProject, outOfProject
+
+    /// Where the new view starts and where the old one goes (points, + is right).
+    func offsets(width: CGFloat) -> (inFrom: CGFloat, outTo: CGFloat) {
+        let side = min(width * 0.18, 80), deep = width
+        switch self {
+        case .toProjects: return (side, -side)
+        case .toBots: return (-side, side)
+        case .intoProject: return (deep, -deep * 0.3)
+        case .outOfProject: return (-deep * 0.3, deep)
+        }
+    }
+
+    var duration: TimeInterval {
+        switch self {
+        case .toProjects, .toBots: HQMotion.move
+        case .intoProject, .outOfProject: 0.42
+        }
+    }
 }

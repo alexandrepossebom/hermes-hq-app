@@ -249,7 +249,7 @@ extension GroupsEndToEndTests {
     @MainActor func testB4_ShowFilterAndNoGroupChats() throws {
         let app = launchSignedIn()
         let filter = app.buttons["bots.filter"]
-        openMenu(app, filter, showing: "Show 1 Hidden Bot")
+        openMenu(app, filter, showing: "Show Hidden Bots (1)")
         let show = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show' AND NOT label BEGINSWITH 'Show Hidden'")).firstMatch
         check(show.exists && show.label.contains("All"), app, "b4-show", "Show › names the current choice: \(show.exists ? show.label : "missing")")
         shot(app, "filter-menu-show")
@@ -265,18 +265,18 @@ extension GroupsEndToEndTests {
         check(token.waitForExistence(timeout: 3) && token.label.contains("Group Chats"), app, "b4-token", "the token reads Group Chats")
         shot(app, "filter-group-chats")
         // The submenu's subtitle follows.
-        openMenu(app, filter, showing: "Show 1 Hidden Bot")
+        openMenu(app, filter, showing: "Show Hidden Bots (1)")
         let showNow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show' AND NOT label BEGINSWITH 'Show Hidden'")).firstMatch
         XCTAssertTrue(showNow.label.contains("Group Chats"), "the subtitle names the choice: \(showNow.label)")
         // A bar button's menu closes on a tap in the page under it (the status bar's strip does not reach it).
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
-        check(waitUntil(timeout: 5) { !app.buttons["Show 1 Hidden Bot"].exists }, app, "b4-menu-open", "the menu closes")
+        check(waitUntil(timeout: 5) { !app.buttons["Show Hidden Bots (1)"].exists }, app, "b4-menu-open", "the menu closes")
         XCTAssertTrue(token.isHittable, "the token can be tapped")
         token.tap()
         check(waitUntil(timeout: 5) { app.cells["bot-row-ivy"].exists && !token.exists }, app, "b4-token-clear", "tapping the token clears it")
 
         // Show › Bots hides the Group Chats block.
-        openMenu(app, filter, showing: "Show 1 Hidden Bot")
+        openMenu(app, filter, showing: "Show Hidden Bots (1)")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show' AND NOT label BEGINSWITH 'Show Hidden'")).firstMatch.tap()
         tapMenu(app, "Bots")
         XCTAssertTrue(waitUntil(timeout: 5) { !self.roomRow(app).exists && !app.cells["section-header-groups"].exists }, "no Group Chats block")
@@ -285,7 +285,7 @@ extension GroupsEndToEndTests {
         shot(app, "filter-bots")
 
         // Show › Group Chats, then delete the only room: No Group Chats, with its button; the Filter button stays.
-        openMenu(app, filter, showing: "Show 1 Hidden Bot")
+        openMenu(app, filter, showing: "Show Hidden Bots (1)")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show' AND NOT label BEGINSWITH 'Show Hidden'")).firstMatch.tap()
         tapMenu(app, "Group Chats")
         XCTAssertTrue(roomRow(app).waitForExistence(timeout: 5))
@@ -309,7 +309,7 @@ extension GroupsEndToEndTests {
         token.tap()
         XCTAssertTrue(waitUntil(timeout: 5) { !token.exists }, "the filter clears")
         pullToRefresh(app)
-        openMenu(app, filter, showing: "Show 1 Hidden Bot")
+        openMenu(app, filter, showing: "Show Hidden Bots (1)")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show' AND NOT label BEGINSWITH 'Show Hidden'")).firstMatch.tap()
         tapMenu(app, "Group Chats")
         XCTAssertTrue(waitUntil(timeout: 15) { title.exists && !app.buttons["New Group Chat"].firstMatch.exists }, "no button with fewer than 2 bots")

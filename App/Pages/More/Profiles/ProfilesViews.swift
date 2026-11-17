@@ -81,8 +81,7 @@ struct ProfilesListView: View {
                     }
                 } footer: { HQSectionFooter {
                     VStack(alignment: .leading, spacing: 6) {
-                        // Owner 2026-11-17 (Mac calls Q5): no "5 profiles" under the list on the Mac (the iPhone keeps it).
-                        if !searching, !DeviceWord.isMac {
+                        if !searching {
                             Text(ProfileName.count(model.rows.count)).accessibilityIdentifier("profiles.count")
                         }
                         if let stale = model.staleReason {

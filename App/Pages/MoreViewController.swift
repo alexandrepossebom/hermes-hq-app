@@ -554,11 +554,7 @@ final class MoreLinksFooter: UICollectionReusableView {
             config.image = UIImage(systemName: button === websiteButton ? "globe" : "chevron.left.forwardslash.chevron.right",
                                    withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .small))
             var text = AttributedString(title)
-            // [Mac AAA 2026-11-17] Q23, owner: in the Desktop Look the words were scaled twice (`preferred` already
-            // carries UI Scale, `system` multiplied it again: about 20 pt on screen, "Website" cut at laptop size). There
-            // they take the footnote size once, as the look's other small outlined buttons; the iOS look is unchanged.
-            text.font = Theme.isDesktop && DeviceWord.isMac ? HQFont.face(ofSize: font.pointSize, weight: .medium)
-                                                            : HQFont.system(ofSize: font.pointSize, weight: .medium)
+            text.font = HQFont.system(ofSize: font.pointSize, weight: .medium)
             config.attributedTitle = text
             config.baseForegroundColor = HQPalette.label2
             if Theme.isDesktop, DeviceWord.isMac, !soft {

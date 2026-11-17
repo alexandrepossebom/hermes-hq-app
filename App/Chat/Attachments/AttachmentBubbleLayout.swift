@@ -48,14 +48,6 @@ nonisolated enum AttachmentBubbleLayout {
             tiles = zip(b.media, laid.frames).map { ($0, $1) }
             more = Array(b.media.dropFirst(tiles.count))
             tileRadius = gridRadius(inFill: !mediaOnly)
-        } else if let only = b.media.first, MediaLayout.cardSingle {
-            // [Mac AAA 2026-11-17] Q4: on the Mac a lone photo is a grid's card, as wide as the grid, with its corner
-            // and hairline, placed as a grid is (alone with a little air, over a caption in the fill).
-            let size = MediaLayout.card(width: only.attachment.pixelWidth, height: only.attachment.pixelHeight,
-                                        maxWidth: maxBubble - 2 * gridInset)
-            album = CGSize(width: size.width + 2 * gridInset, height: size.height + gridInset + 2 * gridPadY)
-            tiles = [(only, CGRect(origin: .zero, size: size))]
-            tileRadius = gridRadius(inFill: !mediaOnly)
         } else if let only = b.media.first {
             album = MediaLayout.single(width: only.attachment.pixelWidth, height: only.attachment.pixelHeight, maxWidth: maxBubble)
             tiles = [(only, CGRect(origin: .zero, size: album))]
@@ -77,13 +69,10 @@ nonisolated enum AttachmentBubbleLayout {
             bubbleW = album.width
             // A tall photo (a phone screenshot) comes out 150 wide; its caption or files would wrap in that sliver.
             // The bubble takes a normal photo's width instead and the whole photo sits centred on a blur of itself.
-            // Q4: on the Mac (a card, `gridInset` in) a grid's width.
-            let inset = tileRadius != nil ? 2 * gridInset : 0
-            let wide = tileRadius != nil ? floor(min(maxBubble - inset, MediaLayout.gridMaxWidth)) + inset
-                                         : floor(min(maxBubble, MediaLayout.singleMax))
+            let wide = floor(min(maxBubble, MediaLayout.singleMax))
             if generated == nil, tiles.count == 1, album.width < wide, max(filesNatural, textNatural) > album.width {
                 album.width = wide
-                tiles[0].frame.size.width = wide - inset
+                tiles[0].frame.size.width = wide
                 bubbleW = wide
                 fits = true
             }
@@ -97,7 +86,7 @@ nonisolated enum AttachmentBubbleLayout {
         if tileRadius != nil {
             groups.append(MediaGroupLayout(frame: CGRect(x: gridInset, y: gridInset + gridPadY, width: album.width - 2 * gridInset,
                                                          height: album.height - gridInset - 2 * gridPadY),
-                                           radius: nil, tiles: tiles, fits: fits, more: more, tileRadius: tileRadius))
+                                           radius: nil, tiles: tiles, more: more, tileRadius: tileRadius))
             y = album.height
         } else if !tiles.isEmpty {
             groups.append(MediaGroupLayout(frame: CGRect(x: 0, y: 0, width: album.width, height: album.height),
@@ -225,13 +214,6 @@ nonisolated enum AttachmentBubbleLayout {
                                                more: Array(items.dropFirst(shown.count)), tileRadius: MediaLayout.replyRadius))
                 y = laid.size.height
                 width = laid.size.width
-            } else if MediaLayout.cardSingle {
-                // [Mac AAA 2026-11-17] Q4: on the Mac one picture is a grid's card, as wide as the grid would be.
-                let size = MediaLayout.card(width: items[0].attachment.pixelWidth, height: items[0].attachment.pixelHeight, maxWidth: maxText)
-                groups.append(MediaGroupLayout(frame: CGRect(origin: .zero, size: size), radius: nil,
-                                               tiles: [(items[0], CGRect(origin: .zero, size: size))], tileRadius: MediaLayout.replyRadius))
-                y = size.height
-                width = size.width
             } else {
                 let size = MediaLayout.single(width: items[0].attachment.pixelWidth, height: items[0].attachment.pixelHeight,
                                               maxWidth: min(maxText, MediaLayout.replyMax))
