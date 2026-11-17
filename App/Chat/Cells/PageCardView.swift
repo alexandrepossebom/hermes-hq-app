@@ -34,9 +34,13 @@ final class PageCardView: UIControl {
     private var dark = false
     private let pictureFrame = UIView()
     private let picture = UIImageView()
-    private let placeholder = UIImageView(image: UIImage(systemName: "chart.xyaxis.line"))
+    /// [page-refine] Until the page is pictured: the shape of a page with a soft light crossing it, not a grey chart
+    /// glyph that read as "this is a chart" on every page, drawn or not (owner 2026-11-17, Grok Bot's card).
+    private let skeleton = PageSkeletonView()
     private let rule = UIView()
-    private let glyph = UIImageView(image: UIImage(systemName: "safari"))
+    private let glyph = UIImageView(image: UIImage(systemName: "doc.richtext"))
+    /// [page-refine] At the caption's end: the card opens bigger. It stands in for the "Tap to open" the hint used to say.
+    private let openGlyph = UIImageView(image: UIImage(systemName: "arrow.up.left.and.arrow.down.right"))
     private let nameLabel = UILabel()
     private let hintLabel = UILabel()
 
@@ -46,22 +50,22 @@ final class PageCardView: UIControl {
         pictureFrame.clipsToBounds = true
         pictureFrame.backgroundColor = ChatPalette.page
         pictureFrame.addSubview(picture)
-        placeholder.contentMode = .scaleAspectFit
-        placeholder.tintColor = ChatPalette.label3
-        placeholder.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 34, weight: .light)
+        openGlyph.contentMode = .center
+        openGlyph.tintColor = ChatPalette.label3
+        openGlyph.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         rule.backgroundColor = ChatPalette.separator
         glyph.contentMode = .scaleAspectFit
-        glyph.tintColor = ChatPalette.tint
+        glyph.tintColor = ChatPalette.label2
         nameLabel.textColor = ChatPalette.label
         nameLabel.lineBreakMode = .byTruncatingMiddle
         hintLabel.textColor = ChatPalette.label2
-        hintLabel.text = "Interactive page · \(DeviceWord.Tap) to open"   // [mac] Mac polish #137: "Click to open" on the Mac
+        hintLabel.lineBreakMode = .byTruncatingMiddle
         pinBadge.contentMode = .center
         pinBadge.tintColor = .white
         pinBadge.backgroundColor = ChatPalette.orange
         pinBadge.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         pinBadge.isHidden = true
-        for view in [pictureFrame, placeholder, rule, glyph, nameLabel, hintLabel, pinBadge] as [UIView] {
+        for view in [pictureFrame, skeleton, rule, glyph, nameLabel, hintLabel, openGlyph, pinBadge] as [UIView] {
             view.isUserInteractionEnabled = false
             addSubview(view)
         }
@@ -99,8 +103,7 @@ final class PageCardView: UIControl {
         layer.cornerCurve = .continuous
         nameLabel.font = style.bodyBold
         hintLabel.font = style.time
-        nameLabel.text = ref.attachment.name
-        accessibilityLabel = "Page, \(ref.attachment.name)"
+        showName(ref, context: context)
         let isDark = traitCollection.userInterfaceStyle == .dark
         guard self.ref != ref || self.context != context || dark != isDark else { showPinned(); return }
         self.ref = ref
@@ -108,6 +111,22 @@ final class PageCardView: UIControl {
         dark = isDark
         showPinned()
         loadPicture()
+    }
+
+    /// [page-refine] The page's own title over its file ("Replies per 100 follow-ups" over "followups.html") once the
+    /// page has been read; the file's name until then, and for a page with no title.
+    private func showName(_ ref: MediaRef, context: MediaContext?) {
+        let file = ref.attachment.name
+        let title = context.flatMap { context in ref.attachment.gatewayPath.flatMap { PageSnapshots.shared.head(path: $0, context: context)?.title } }
+        if let title, !title.isEmpty, title.caseInsensitiveCompare(file) != .orderedSame {
+            nameLabel.text = title
+            hintLabel.text = "Interactive page · \(file)"
+            accessibilityLabel = "Page, \(title), \(file)"
+        } else {
+            nameLabel.text = file
+            hintLabel.text = "Interactive page"
+            accessibilityLabel = "Page, \(file)"
+        }
     }
 
     func reset() {
@@ -127,6 +146,9 @@ final class PageCardView: UIControl {
 
     private func loadPicture() {
         guard let ref, let context, let path = ref.attachment.gatewayPath else { show(nil); return }
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "HQDebugPageSkeleton") { show(nil); return }   // the wait, held for a picture
+        #endif
         let snapshots = PageSnapshots.shared
         if let hit = snapshots.cached(path: path, context: context, dark: dark) { show(hit); return }
         // The last picture stays up while the new one draws (no flash after every turn).
@@ -135,15 +157,30 @@ final class PageCardView: UIControl {
         snapshots.picture(path: path, name: ref.attachment.name, context: context, dark: dark) { [weak self] image in
             guard let self, let current = self.ref, let ctx = self.context, let p = current.attachment.gatewayPath,
                   snapshots.key(path: p, context: ctx, dark: self.dark) == wanted else { return }
-            if let image { self.show(image) } else if self.picture.image == nil { self.show(nil) }
+            self.showName(current, context: ctx)   // the read that drew the picture found the page's title
+            if let image { self.show(image, fresh: true) } else if self.picture.image == nil { self.show(nil, failed: true) }
         }
     }
 
-    private func show(_ image: UIImage?) {
+    /// `fresh`: the picture has just been drawn (it fades in over the skeleton); `failed`: the page couldn't be
+    /// pictured (the skeleton stops: nothing is coming).
+    private func show(_ image: UIImage?, fresh: Bool = false, failed: Bool = false) {
+        let first = picture.image == nil
         picture.image = image
+        if image != nil {
+            skeleton.vanish(animated: fresh)
+            if fresh, first, !HQMotion.reduced {
+                picture.alpha = 0
+                UIView.animate(withDuration: HQMotion.fade) { self.picture.alpha = 1 }   // motion-ok: a fade
+            }
+        } else if failed {
+            skeleton.vanish()
+        } else {
+            skeleton.appear()
+        }
         // Around the picture, the page's own colour (a white page in a dark chat isn't a white box in a dark frame).
         pictureFrame.backgroundColor = image.flatMap(Self.cornerColor) ?? ChatPalette.page
-        placeholder.isHidden = image != nil
+        skeleton.over = pictureFrame.backgroundColor
         setNeedsLayout()
     }
 
@@ -161,7 +198,7 @@ final class PageCardView: UIControl {
         } else {
             picture.frame = CGRect(x: 0, y: 0, width: w, height: h)
         }
-        placeholder.frame = CGRect(x: 0, y: 0, width: w, height: h)
+        skeleton.frame = CGRect(x: 0, y: 0, width: w, height: h)
         pinBadge.frame = CGRect(x: w - 30, y: 8, width: 22, height: 22)
         pinBadge.layer.cornerRadius = 11
         rule.frame = CGRect(x: 0, y: h, width: w, height: HQShape.pixel(traitCollection.displayScale))
@@ -169,8 +206,12 @@ final class PageCardView: UIControl {
         let lineH = nameLabel.font?.lineHeight ?? 20
         glyph.frame = CGRect(x: Self.padH, y: h + Self.padV + (lineH - g) / 2, width: g, height: g)
         let textX = glyph.frame.maxX + 8
-        nameLabel.frame = CGRect(x: textX, y: h + Self.padV, width: w - textX - Self.padH, height: ceil(lineH))
-        hintLabel.frame = CGRect(x: textX, y: nameLabel.frame.maxY + 2, width: w - textX - Self.padH, height: ceil(hintLabel.font?.lineHeight ?? 16))
+        let hintH = ceil(hintLabel.font?.lineHeight ?? 16)
+        let open: CGFloat = 22
+        let textW = w - textX - Self.padH - open - 6
+        nameLabel.frame = CGRect(x: textX, y: h + Self.padV, width: textW, height: ceil(lineH))
+        hintLabel.frame = CGRect(x: textX, y: nameLabel.frame.maxY + 2, width: textW, height: hintH)
+        openGlyph.frame = CGRect(x: w - Self.padH - open, y: h + (bounds.height - h - open) / 2, width: open, height: open)
     }
 
     /// The picture's top-left pixel: the page's background.

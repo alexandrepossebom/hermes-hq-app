@@ -179,7 +179,13 @@ import AVFoundation
         }
         let activity = chat?.session as? ChatActivityProviding
         let send: ((String) -> Void)? = activity.map { provider in { [weak provider] prompt in provider?.sendHidden(prompt, display: nil) } }
-        return HTMLPageSheet.Source(path: path, context: context, send: send, botName: chat?.botName ?? "the bot")
+        // [page-comment] A comment on the page is your own message: it shows in the chat, short, and the bot gets the
+        // part of the page it is about as well.
+        let session = chat?.session
+        let comment: ((String, String) -> Void)? = session.map { session in { [weak session] text, display in
+            if let live = session as? LiveChatSession { live.send(text, display: display) } else { session?.send(text) }
+        } }
+        return HTMLPageSheet.Source(path: path, context: context, send: send, botName: chat?.botName ?? "the bot", comment: comment)
     }
 
     /// Quick Look takes the type; a movie or a sound must also be one AVFoundation can play (a file named .mov that

@@ -25,6 +25,9 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         /// [tasks] A page that isn't a file (a task's Task Page, drawn by the add-on): reads it again, in place of
         /// downloading `path`.
         var read: (@MainActor () async throws -> URL)? = nil
+        /// [page-comment] Sends a comment on the page to the chat's bot as your message: what the bot gets, and what
+        /// the bubble shows. nil when the page wasn't opened from a chat.
+        var comment: ((_ text: String, _ display: String) -> Void)? = nil
     }
 
     /// [tiles] A page opened from Tiles: its name as the title and the file under it (owner 2026-11-03: a plain name,
@@ -61,10 +64,23 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     private let tile: Tile?
     private var webView: WKWebView?
     private let webBox = UIView()
+    /// [page-comment] Holds the web view inside `webBox`: moved up while a comment's box is open (`lift`), clipped by the box.
+    private let webLift = UIView()
     /// [tiles] The page has drawn once: until then the web view is hidden behind a spinner, so the sheet never shows
     /// its own empty colour and then the page's (Mac pass 2026-11-14: a black sheet, then a white page snapping in).
     private var painted = false
-    private let spinner = UIActivityIndicatorView(style: .medium)
+    /// [page-refine] The wait is drawn as the shape of a page (`PageSkeletonView`), not a spinner in an empty sheet.
+    private let skeleton = PageSkeletonView()
+    /// [page-refine] The page's own text (Source), made the first time it is asked for.
+    private var sourceView: UITextView?
+    private var showsSource = false
+    /// [page-comment] Comment is on: a click on the page picks the part to comment on.
+    private var commenting = false
+    private var commentItem: UIBarButtonItem?
+    private var moreItem: UIBarButtonItem?
+    private var modeControl: UISegmentedControl?
+    /// The ink that reads on the page's own colour (`inkBar`): the Source view takes it too.
+    private var pageInk: UIUserInterfaceStyle = .unspecified
     private let status = UILabel()
     /// [glass-audit] Floating over the page: Liquid Glass (flattened in the Desktop Look by ThemeChrome).
     private let statusBar = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
@@ -75,13 +91,12 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     /// [tiles] Where the page was scrolled when it was drawn again (the bot rewrote it, a look change): put back once
     /// it has drawn, so an update in place doesn't throw the reader to the top.
     private var keptScroll: [Double]?
-    private var shareItem: UIBarButtonItem?
     /// [tiles] The tile's page was read from the bot's computer (nil: not yet, or it failed with no copy to show).
     private var tileRead: (() -> Void)?
     private var statusClock: Task<Void, Never>?
 
     /// The page's buttons can send: opened from a chat, or as a tile.
-    private var talks: Bool { source?.send != nil || tile?.send != nil }
+    private var talks: Bool { source?.send != nil || source?.comment != nil || tile?.send != nil }
 
     static func opens(_ url: URL) -> Bool { opens(name: url.lastPathComponent) }
 
@@ -92,7 +107,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     @discardableResult
     static func present(_ url: URL, source: Source? = nil, tile: Tile? = nil, title: String? = nil,
                         from vc: UIViewController) -> HTMLPageSheet {
-        show(url, source: source, tile: tile, title: title ?? tile?.name ?? url.lastPathComponent, from: vc,
+        show(url, source: source, tile: tile, title: title ?? tile?.name ?? titleInPage(url) ?? url.lastPathComponent, from: vc,
              key: source?.path ?? url.standardizedFileURL.path)
     }
 
@@ -215,7 +230,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                         key: tile.id.map { "tile:" + $0 } ?? path)
         page.tileRead = { [weak page] in
             if let page, !page.painted, let backdrop = tile.backdrop { page.view.backgroundColor = backdrop; page.inkBar(for: backdrop) }
-            page?.spinner.startAnimating()
+            page?.skeleton.appear(after: 0)
             page?.readTile(path: path, name: name, context: context)
         }
         page.readTile(path: path, name: name, context: context)
@@ -234,7 +249,6 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                 guard let self else { return }
                 let changed = shown == nil || url != self.file || (try? Data(contentsOf: url)) != shown
                 self.file = url
-                self.shareItem?.isEnabled = true
                 if changed { self.load() }
                 AppLog.trace("chatui", "tile page read again, \(changed ? "changed: drawn again" : "unchanged")")
             } catch is CancellationError {
@@ -247,12 +261,11 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                     return
                 }
                 AppLog.note("chatui", "tile page could not be read: \((error as? MediaLoadError).map { String(describing: $0) } ?? "\(type(of: error))")")
-                self.spinner.stopAnimating()
+                self.skeleton.vanish()
                 // [tiles] Mac pass round 3: the notice sat on the tile's own colour (a light page in dark mode), its
                 // words in the app's light ink, all but unreadable. Nothing of the page shows: the sheet's own colour.
                 self.view.backgroundColor = ChatPalette.page
                 self.navigationController?.navigationBar.overrideUserInterfaceStyle = .unspecified
-                self.spinner.overrideUserInterfaceStyle = .unspecified
                 var notice = UIContentUnavailableConfiguration.empty()
                 notice.image = UIImage(systemName: "exclamationmark.triangle")
                 notice.text = "Couldn’t Open \(self.tile?.name ?? name)"
@@ -262,7 +275,6 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                 notice.button = button
                 notice.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.tileRead?() }
                 self.contentUnavailableConfiguration = notice
-                self.shareItem?.isEnabled = false   // [tiles] nothing to share yet
             }
         }
     }
@@ -294,6 +306,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                                            forMainFrameOnly: true))
         if let handler { content.add(WeakHandler(handler), name: "hermes") }
         let web = WKWebView(frame: .zero, configuration: config)
+        web.isFindInteractionEnabled = true   // [page-refine] Find in Page (the system's bar)
         web.isOpaque = false
         web.backgroundColor = .clear
         web.scrollView.backgroundColor = .clear
@@ -348,13 +361,20 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         view.addSubview(webBox)
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.alpha = 0   // [tiles] shown once the page has drawn (`didFinish`)
-        webBox.addSubview(web)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.hidesWhenStopped = true
-        view.addSubview(spinner)
+        webLift.frame = webBox.bounds
+        webLift.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        webBox.addSubview(webLift)
+        webLift.addSubview(web)
+        skeleton.translatesAutoresizingMaskIntoConstraints = false
+        skeleton.compact = false
+        skeleton.over = tile?.backdrop
+        view.addSubview(skeleton)
         NSLayoutConstraint.activate([
-            spinner.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+            skeleton.topAnchor.constraint(equalTo: webBox.topAnchor),
+            skeleton.bottomAnchor.constraint(equalTo: webBox.bottomAnchor),
+            skeleton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            { let c = skeleton.widthAnchor.constraint(equalTo: view.widthAnchor); c.priority = .defaultHigh; return c }(),
+            skeleton.widthAnchor.constraint(lessThanOrEqualToConstant: 860),
             webBox.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             webBox.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             webBox.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -391,22 +411,17 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             status.bottomAnchor.constraint(equalTo: statusBar.contentView.bottomAnchor, constant: -8),
         ])
 
-        let share = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), primaryAction: UIAction { [weak self] _ in
-            guard let self, let file = self.file else { return }
-            FilePreviewPresenter.shared.share(file, from: self, anchor: nil)
-        })
-        share.accessibilityLabel = "Share"
-        share.isEnabled = file != nil   // [tiles] a tile still being read has nothing to share yet
-        shareItem = share
+        // [page-refine] The bar, as Grok Bot's page has it: Comment by itself, the rest (Find, Reload, Share…) under
+        // one ⋯, and on the Mac Preview | Source and the zoom beside them. Share and Reload each had a button of their
+        // own, which left no room for anything else on a phone's bar.
         var items = navigationItem.rightBarButtonItems ?? []
-        items.append(share)
-        if source != nil {
-            let reload = UIBarButtonItem(image: UIImage(systemName: "arrow.clockwise"), primaryAction: UIAction { [weak self] _ in
-                self?.readAgain(note: nil)
-            })
-            reload.accessibilityLabel = "Reload"
-            items.append(reload)
-        }
+        let more = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
+            UIDeferredMenuElement.uncached { [weak self] done in done(self?.moreActions() ?? []) },
+        ]))
+        more.accessibilityLabel = "More"
+        more.accessibilityIdentifier = "page.more"
+        moreItem = more
+        items.append(more)
         // [tiles] Its Updates on a clock button; the file and when it was updated under its name.
         if let tile {
             if let version = tile.version {
@@ -434,9 +449,39 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                     try? await Task.sleep(for: .seconds(60))
                 }
             }
+        } else {
+            nameFromPage()
+        }
+        // [page-comment] Comment, where the page has a bot to hear it (an earlier version of a tile has none).
+        if canComment {
+            let comment = UIBarButtonItem(image: UIImage(systemName: "bubble.left"), primaryAction: UIAction { [weak self] _ in
+                guard let self else { return }
+                self.setCommenting(!self.commenting)
+            })
+            comment.accessibilityLabel = "Comment on the Page"
+            comment.accessibilityIdentifier = "page.comment"
+            commentItem = comment
+            items.append(comment)
         }
         #if targetEnvironment(macCatalyst)
         items += zoomControls.items   // [mac-pages]
+        // Preview | Source in the bar, as a Mac window's choice is (`ArtifactTextViewController`); the Desktop Look
+        // keeps it under ⋯ (the system's control draws neither half chosen there).
+        if !Theme.isDesktop {
+            let modes = UISegmentedControl(items: ["Preview", "Source"])
+            modes.selectedSegmentIndex = 0
+            modes.addAction(UIAction { [weak self, weak modes] _ in
+                guard let self, let modes else { return }
+                self.setSource(modes.selectedSegmentIndex == 1)
+            }, for: .valueChanged)
+            modes.accessibilityIdentifier = "page.mode"
+            modes.translatesAutoresizingMaskIntoConstraints = false
+            modes.widthAnchor.constraint(lessThanOrEqualToConstant: (220 * HQFont.scale).rounded()).isActive = true
+            modeControl = modes
+            let item = UIBarButtonItem(customView: modes)
+            item.hidesSharedBackground = true   // its own capsule: the bar's glass drew a second ring around it
+            items.append(item)
+        }
         #endif
         navigationItem.rightBarButtonItems = items
 
@@ -452,7 +497,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         // [tiles] A spinner only when drawing takes a moment: a page from this Mac's copy draws before it would show.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, !self.painted, self.contentUnavailableConfiguration == nil else { return }
-            self.spinner.startAnimating()
+            self.skeleton.appear(after: 0)
         }
     }
 
@@ -488,6 +533,9 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     private func load() {
         // The first load waits for the theme (`handTheme`); a tile still being read loads when it lands (`readTile`).
         guard handedPrelude != nil, let file, let webView else { return }
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "HQDebugPageSkeleton") { return }   // the wait, held for a picture
+        #endif
         guard painted else { webView.loadPageFile(file); return }
         // [tiles] Drawn again in place: where it was scrolled is put back once it has drawn (`didFinish`).
         webView.evaluateJavaScript("[scrollX, scrollY]") { [weak self, weak webView] value, _ in
@@ -549,7 +597,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                 self.show(Self.lastCopyNotice(failure), for: 5)
                 return
             }
-            if let url { self.file = url; self.shareItem?.isEnabled = true }
+            if let url { self.file = url }
             self.load()
             if let note { self.show(note, for: 2) }
         }
@@ -573,11 +621,262 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         }
     }
 
+    // MARK: The bar's actions
+
+    /// Under ⋯, read each time it opens (the file may have landed since, the view may have changed).
+    private func moreActions() -> [UIMenuElement] {
+        var out: [UIMenuElement] = []
+        if modeControl == nil {
+            // Preview | Source as a choice of one, where the bar has no switch for it (a phone, the Desktop Look).
+            out.append(UIMenu(options: [.displayInline, .singleSelection], children: [
+                UIAction(title: "Preview", image: UIImage(systemName: "eye"), state: showsSource ? .off : .on) { [weak self] _ in self?.setSource(false) },
+                UIAction(title: "Source", image: UIImage(systemName: "chevron.left.forwardslash.chevron.right"),
+                         attributes: file == nil ? .disabled : [], state: showsSource ? .on : .off) { [weak self] _ in self?.setSource(true) },
+            ]))
+        }
+        var page: [UIMenuElement] = [
+            UIAction(title: "Find in Page", image: UIImage(systemName: "magnifyingglass"), attributes: painted || showsSource ? [] : .disabled) { [weak self] _ in self?.find() },
+        ]
+        if source != nil || tileRead != nil {
+            page.append(UIAction(title: "Reload", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in self?.readAgain(note: nil) })
+        }
+        out.append(UIMenu(options: .displayInline, children: page))
+        var away: [UIMenuElement] = []
+        #if targetEnvironment(macCatalyst)
+        if let file, let app = MacFileWindow.defaultApp(for: file) {
+            away.append(UIAction(title: "Open in \(app)", image: UIImage(systemName: "safari")) { _ in _ = MacFileWindow.openInDefaultApp(file) })
+        }
+        #endif
+        away.append(UIAction(title: "Share…", image: UIImage(systemName: "square.and.arrow.up"), attributes: file == nil ? .disabled : []) { [weak self] _ in self?.share() })
+        out.append(UIMenu(options: .displayInline, children: away))
+        return out
+    }
+
+    private func share() {
+        guard let file else { return }
+        let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+        sheet.popoverPresentationController?.barButtonItem = moreItem   // from its button, not the page's corner
+        present(sheet, animated: true)
+    }
+
+    /// The system's find bar over the page (or over its Source). ⌘F on the Mac while the page has the keys.
+    private func find() {
+        let interaction = showsSource ? sourceView?.findInteraction : webView?.findInteraction
+        interaction?.presentFindNavigator(showingReplace: false)
+    }
+
+    @objc func hqFind(_ sender: Any?) { find() }
+
+    /// [page-refine] A page opened from a chat is named by its own title, with the file under it: "followups.html"
+    /// is the bot's working name, "Replies per 100 follow-ups" is what the page is. A tile keeps the name it was given.
+    static func titleInPage(_ file: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: 64_000)) ?? Data()
+        guard let found = TileNames.head(String(decoding: data, as: UTF8.self)).title, !found.isEmpty,
+              found.caseInsensitiveCompare(file.lastPathComponent) != .orderedSame else { return nil }
+        return found
+    }
+
+    /// The file under the page's title, when the bar shows the title and not the file's name.
+    private func nameFromPage() {
+        guard tile == nil, let name = file?.lastPathComponent, let shown = navigationItem.title ?? title, shown != name else { return }
+        navigationItem.subtitle = name
+    }
+
+    // MARK: Preview | Source
+
+    /// The page's own text in place of the page (or back). Comment is put away first: there is nothing to point at.
+    private func setSource(_ on: Bool) {
+        guard on != showsSource else { return }
+        if on, commenting { setCommenting(false) }
+        if on {
+            guard let file else { modeControl?.selectedSegmentIndex = 0; return }
+            let text = sourceView ?? makeSourceView()
+            fillSource(text, from: file)
+        }
+        showsSource = on
+        Haptics.play(.selection)
+        modeControl?.selectedSegmentIndex = on ? 1 : 0
+        commentItem?.isEnabled = !on
+        sourceView?.isHidden = !on
+        webBox.isHidden = on
+        if on { skeleton.vanish(animated: false) }
+        AppLog.trace("chatui", "html page shows its \(on ? "source" : "preview")")
+    }
+
+    private func makeSourceView() -> UITextView {
+        let text = UITextView()
+        text.isEditable = false
+        text.alwaysBounceVertical = true
+        text.backgroundColor = .clear   // the sheet's own colour (the page's) shows through
+        text.textColor = HQPalette.label
+        text.overrideUserInterfaceStyle = pageInk
+        text.isFindInteractionEnabled = true
+        text.textContainerInset = UIEdgeInsets(top: 14, left: 14, bottom: 24, right: 14)
+        text.accessibilityIdentifier = "html.page.source"
+        text.isHidden = true
+        text.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(text, aboveSubview: webBox)
+        NSLayoutConstraint.activate([
+            text.topAnchor.constraint(equalTo: webBox.topAnchor),
+            text.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            text.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            text.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+        sourceView = text
+        return text
+    }
+
+    /// The most of a file shown as text: past this the view says it shows the start (a page of a few megabytes of
+    /// inlined data made the text view crawl).
+    private static let sourceLimit = 400_000
+
+    private func fillSource(_ text: UITextView, from file: URL) {
+        let whole = (try? String(contentsOf: file, encoding: .utf8)) ?? (try? String(contentsOf: file, encoding: .isoLatin1)) ?? ""
+        let cut = whole.count > Self.sourceLimit
+        // The Mac draws the app at 77 %: 13 pt code came out near 10 pt on the screen (owner 2026-11-16: Mac text too small).
+        #if targetEnvironment(macCatalyst)
+        let size: CGFloat = 16
+        #else
+        let size: CGFloat = 13
+        #endif
+        let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: HQFont.mono(ofSize: size, weight: .regular))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        text.attributedText = NSAttributedString(string: cut ? String(whole.prefix(Self.sourceLimit)) : whole,
+                                                 attributes: [.font: font, .foregroundColor: HQPalette.label, .paragraphStyle: paragraph])
+        if cut { show("Showing the start of this file", for: 4) }
+        // Coloured as code is in a reply, off the main thread (a big page takes a moment).
+        let code = text.attributedText.string
+        Task.detached(priority: .userInitiated) {
+            guard let tokens = SyntaxHighlighter.tokens(code, language: "html") else { return }
+            await MainActor.run { [weak text] in
+                guard let text, text.attributedText.string == code else { return }
+                let coloured = NSMutableAttributedString(attributedString: text.attributedText)
+                SyntaxHighlighter.apply(tokens, to: coloured)
+                let at = text.contentOffset
+                text.attributedText = coloured
+                text.setContentOffset(at, animated: false)
+            }
+        }
+    }
+
+    // MARK: Comment
+
+    /// The page has someone to hear a comment: the chat it was opened from, or its tile's bot.
+    private var canComment: Bool { tile?.version == nil && (source?.comment != nil || tile?.send != nil) }
+
+    private func setCommenting(_ on: Bool) {
+        guard on != commenting, !on || (painted && !showsSource) else { return }
+        commenting = on
+        Haptics.play(.selection)
+        commentItem?.isSelected = on
+        commentItem?.image = UIImage(systemName: on ? "bubble.left.fill" : "bubble.left")
+        commentItem?.accessibilityValue = on ? "On" : nil
+        webView?.evaluateJavaScript("window.__hqComment&&window.__hqComment.set(\(on))")
+        if on {
+            show("\(DeviceWord.Tap) anything on the page to comment", for: 4)   // a hint, then out of the page's way
+        } else {
+            if let box = presentedViewController as? PageCommentBox { box.dismiss(animated: true) }
+            if !waitingForReply, status.text?.hasSuffix("to comment") == true { show(nil) }
+        }
+        AppLog.trace("chatui", "html page comment mode \(on ? "on" : "off")")
+    }
+
+    /// The page named the part that was clicked: the box asks what to say about it.
+    private func comment(on body: [String: Any]) {
+        if body["kind"] as? String == "escape" { setCommenting(false); return }
+        guard commenting, presentedViewController == nil, let webView, let target = PageComment.Target(body) else { return }
+        Haptics.play(.light)
+        let box = PageCommentBox(target: target, onSend: { [weak self] note in
+            self?.lift(0)
+            self?.send(note, about: target)
+        }, onClose: { [weak self] in
+            self?.lift(0)
+            self?.webView?.evaluateJavaScript("window.__hqComment&&window.__hqComment.release()")
+        })
+        let frame = target.frame(in: webView)
+        #if !targetEnvironment(macCatalyst)
+        // A part in the lower half would sit under the keyboard, and a page too short to scroll can't bring it up
+        // itself: the page is lifted while the box is open, so the part being talked about stays in view.
+        let room = webBox.bounds.height
+        if frame.minY > room * 0.38 { lift(frame.minY - room * 0.2) }
+        #endif
+        box.present(from: self, at: frame, in: webView)
+    }
+
+    /// The page moved up by `by` points (0: back where it belongs).
+    private func lift(_ by: CGFloat) {
+        let move = by > 0 ? CGAffineTransform(translationX: 0, y: -by) : .identity
+        guard webLift.transform != move else { return }
+        guard by == 0, !HQMotion.reduced else { webLift.transform = move; return }   // up at once: the box points at it
+        UIView.animate(withDuration: HQMotion.pane) { self.webLift.transform = move }   // motion-ok: the page settling back
+    }
+
+    private func send(_ note: String, about target: PageComment.Target) {
+        let name = file?.lastPathComponent ?? tile?.fileName ?? "the page"
+        let message = PageComment.message(note, about: target, file: name)
+        var sent = true
+        if let send = tile?.send {
+            // [live-tiles] As the tile's own buttons: its bot rewrites the file, read again when it is done.
+            sent = send(message.text, self) { [weak self] in
+                guard let self, self.waitingForReply else { return }
+                self.waitingForReply = false
+                self.readAgain(note: "Updated")
+            }
+        } else if let comment = source?.comment {
+            comment(message.text, message.display)
+        } else {
+            sent = false
+        }
+        guard sent else {
+            webView?.evaluateJavaScript("window.__hqComment&&window.__hqComment.release()")
+            show("Couldn’t send the comment", for: 3)
+            return
+        }
+        AppLog.trace("chatui", "html page comment sent (\(note.count) chars, on \(target.kind.rawValue))")
+        webView?.evaluateJavaScript("window.__hqComment&&window.__hqComment.sent()")
+        waitingForReply = true
+        show("Sent to \(tile?.botName ?? source?.botName ?? "the bot") · the page updates when it answers")
+    }
+
+    #if DEBUG
+    /// The loaded page's title (tests read what a page's script left there).
+    var debugWebTitle: String? { webView?.title }
+    private var toured = false
+
+    /// `-HQDebugPageShow source | comment | find`: the opened page shows its Source, or Comment with the box on its
+    /// first heading or chart, or the find bar, for a picture (a simulator has no finger to tap them).
+    private func debugTour() {
+        guard !toured, let what = UserDefaults.standard.string(forKey: "HQDebugPageShow") else { return }
+        toured = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self else { return }
+            switch what {
+            case "source": self.setSource(true)
+            case "find": self.find()
+            case "comment", "comment-on":
+                self.setCommenting(true)
+                guard what == "comment" else { return }
+                let pick = UserDefaults.standard.string(forKey: "HQDebugPagePick") ?? "h1,h2,svg"
+                self.webView?.evaluateJavaScript("""
+                    (function(){var e=document.querySelector('\(pick)');if(!e)return;var r=e.getBoundingClientRect();
+                    e.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2}))})()
+                    """)
+            default: break
+            }
+        }
+    }
+    #endif
+
     // MARK: Talk-back
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "hermes", message.frameInfo.isMainFrame,
               let body = message.body as? [String: Any], let id = body["id"] as? Int else { return }
+        // [page-comment] The comment script naming the part that was clicked (never a prompt: nothing is sent yet).
+        if let picked = body["comment"] as? [String: Any] { comment(on: picked); return }
         let prompt = (body["prompt"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         func ack(_ ok: Bool, _ error: String? = nil) {
             let result = ok ? "{ok:true}" : "{ok:false,error:'\(error ?? "undelivered")'}"
@@ -624,6 +923,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
               return /rgba\\(.*, 0\\)$|transparent/.test(b) ? getComputedStyle(document.documentElement).backgroundColor : b })()
             """) { [weak self] value, _ in
             guard let self else { return }
+            if self.commenting { webView.evaluateJavaScript("window.__hqComment&&window.__hqComment.set(true)") }
             if let at = self.keptScroll {
                 self.keptScroll = nil
                 // Twice: once now, once after the next frame (a page that draws its charts by script grows then).
@@ -635,12 +935,15 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             // rewrote it) swap in place.
             if !self.painted {
                 self.painted = true
-                self.spinner.stopAnimating()
+                self.skeleton.vanish()
                 UIView.animate(withDuration: HQMotion.quick) {   // motion-ok: a fade and a colour, nothing moves
                     webView.alpha = 1
                     if let colour { self.view.backgroundColor = colour }
                 }
             }
+            #if DEBUG
+            self.debugTour()
+            #endif
             guard let colour else { return }
             self.view.backgroundColor = colour
             // The bar's words and buttons in the ink that reads on the page's colour: white on a light tile in dark mode
@@ -656,7 +959,9 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         navigationController?.navigationBar.overrideUserInterfaceStyle = ink
         // [tiles] Mac pass round 6: the spinner kept the app's dark-mode grey over a white tile's colour, all but
         // invisible: a slow tile opened to what looked like a blank white sheet for as long as the page took.
-        spinner.overrideUserInterfaceStyle = ink
+        skeleton.over = colour
+        pageInk = ink
+        sourceView?.overrideUserInterfaceStyle = ink
         #if targetEnvironment(macCatalyst)
         // [macpass-popups r3] The Mac bar is opaque in the look's own colour: in the Desktop Look dark its near-black
         // stood as a band over a slate tile. The bar takes the page's colour instead, its title fonts kept.
@@ -681,7 +986,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled || ns.domain == "WebKitErrorDomain" && ns.code == 102 { return }
         guard !painted else { return }
         painted = true
-        spinner.stopAnimating()
+        skeleton.vanish()
         webView.alpha = 1
     }
 
@@ -728,7 +1033,8 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         try{window.webkit.messageHandlers.hermes.postMessage({id:id,prompt:String(p)})}catch(e){delete w[id];res({ok:false,error:'undelivered'})}})}};\
         document.addEventListener('click',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-hermes-send]');\
         if(t){e.preventDefault();window.hermes.send(t.getAttribute('data-hermes-send'))}},true);
-        """ : "window.hermes={send:function(){return Promise.resolve({ok:false,error:'undelivered'})}};"
+        """ + PageComment.script(accent: css(ChatPalette.tint))
+        : "window.hermes={send:function(){return Promise.resolve({ok:false,error:'undelivered'})}};"
         return """
         (function(){var m=document.querySelector('meta[name=viewport]');if(!m){m=document.createElement('meta');m.name='viewport';\
         m.content='width=device-width,initial-scale=1';(document.head||document.documentElement).appendChild(m)}\
