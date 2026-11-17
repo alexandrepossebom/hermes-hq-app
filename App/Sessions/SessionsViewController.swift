@@ -2022,7 +2022,7 @@ extension SessionsViewController {
 
     /// [Mac full pass 2026-11-14] The list pane too narrow for "All Bots ⌄" beside Filter, New and Search (UIKit then
     /// drops the "Sessions" title): the bots move into Filter, a Bot › submenu where its All Bots ✓ was.
-    private var botsInFilter: Bool { DeviceWord.isMac && botWordsShown == false && chipBots.count > 1 }
+    private var botsInFilter: Bool { DeviceWord.isMac && botWordsShown == false && chipBots.count > 1 && !headerModel.showsSwitch }
 
     private func withBotPicker(_ elements: [UIMenuElement], picked: String?) -> [UIMenuElement] {
         elements.map { element in
@@ -2353,7 +2353,7 @@ extension SessionsViewController {
         if headerModel.pickedProjects != pickedProjects { headerModel.pickedProjects = pickedProjects; headerChanged = true }
         if headerModel.botPicked != (state.botFilter != nil) { headerModel.botPicked = state.botFilter != nil; headerChanged = true }
         // [projects-switch] The Bots | Projects switch, once there are projects to show (or while they are shown).
-        let showsSwitch = !DeviceWord.isMac && (pills == .projects || state.projects.contains { $0.key != SessionProjects.homeKey })
+        let showsSwitch = pills == .projects || state.projects.contains { $0.key != SessionProjects.homeKey }   // [mac-switch] the Mac's row too
         if headerModel.showsSwitch != showsSwitch { headerModel.showsSwitch = showsSwitch; headerChanged = true }
         // UX study 2026-10-19 #36: the field names what it searches: every bot's chats, or the picked chip's bot's.
         let placeholder = SessionsSearchWords.placeholder(botName: state.botFilter.flatMap { id in bots.first { $0.id == id }?.name })
@@ -2388,8 +2388,11 @@ extension SessionsViewController {
         // [mac-switch] Owner 2026-11-17: the Bots | Projects switch where it can be seen, as on the iPhone (icons and
         // words), at the bar's leading end, at every pane width; the pop-up holds only that view's choices (one place
         // to switch).
-        placeSwitchItem(shown: hasProjects)
-        guard bots.count > 1 || hasProjects, botWordsShown != false else {
+        // [mac-switch] Then (owner: "Shouldn't this be one line lower?") the switch and this pop-up stand on the row
+        // under the bar (`SessionsHeaderView.macRow`) whenever there are projects; the bar keeps "All Bots ⌄" only
+        // without them.
+        placeSwitchItem(shown: false)
+        guard bots.count > 1, !hasProjects, botWordsShown != false else {
             if shown { items.removeAll { $0 === botsScope.item }; navigationItem.rightBarButtonItems = items }
             return
         }
