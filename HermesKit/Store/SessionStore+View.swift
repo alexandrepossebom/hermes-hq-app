@@ -250,7 +250,7 @@ extension SessionStore {
     /// [sessions-ux] The opened groups the list draws open: with project pills (`projectRowsOpenPages`) no project,
     /// whatever was opened before (a project page's sections keep their own).
     var shownOpenGroups: Set<String> {
-        guard projectRowsOpenPages, view.pills == .projects else { return openGroups }
+        guard projectRowsOpenPages else { return openGroups }   // [project-opens-page] on either side
         return openGroups.filter { !SessionListPipeline.isProject($0) }
     }
 

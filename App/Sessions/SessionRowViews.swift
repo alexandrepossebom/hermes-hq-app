@@ -535,6 +535,8 @@ struct SessionHeaderFold {
     var unread: Int
     /// [sessions-collapse] What `total` counts: chats, or the closed "Projects" header's projects.
     var unit = "chat"
+    /// [project-opens-page] A project's row that opens its page rather than unfolding (iPhone, iPad).
+    var opensPage = false
     var toggle: () -> Void
 
     /// "12 chats, 3 new": a closed group's count. [sessions-ux] One word on the page for a reply not read yet: "new",
@@ -682,7 +684,7 @@ struct SessionDateHeaderView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(spokenLabel)
             .accessibilityValue(spokenValue)
-            .accessibilityHint(fold.map { $0.collapsed ? "Shows the chats in this group." : "Hides the chats in this group." } ?? "")
+            .accessibilityHint(fold.map { $0.opensPage ? "Opens the project." : $0.collapsed ? "Shows the chats in this group." : "Hides the chats in this group." } ?? "")
             .accessibilityAddTraits(fold == nil ? .isHeader : [.isHeader, .isButton])
             .accessibilityAction { fold?.toggle() }
             .accessibilityActions {
@@ -954,7 +956,7 @@ struct SessionDateHeaderView: View {
 
     /// Then: Collapsed or Expanded, and [sessions-layout] a project's count, newest chat and time, or New for You's count.
     private var spokenValue: String {
-        var parts = fold.map { [$0.collapsed ? "Collapsed" : "Expanded"] } ?? []
+        var parts = fold.map { $0.opensPage ? [] : [$0.collapsed ? "Collapsed" : "Expanded"] } ?? []
         // [project-sections] An open section says its count here (a closed one's is in its name, as every group's).
         if let tally, fold?.collapsed != true { parts.append(tally == 1 ? "1 chat" : "\(tally) chats") }
         if let summary {

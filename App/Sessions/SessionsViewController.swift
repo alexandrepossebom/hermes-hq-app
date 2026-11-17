@@ -600,7 +600,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         let freshPinned = !searching && freshLayout && id == "pinned"
         let fold: SessionHeaderFold? = store != nil && !searching && SessionListPipeline.folds(group)
             ? SessionHeaderFold(collapsed: group.collapsed, total: group.total, unread: group.unread,
-                                unit: id == SessionListPipeline.projectsId ? "project" : "chat") { [weak self] in self?.toggleGroup(id) }
+                                unit: id == SessionListPipeline.projectsId ? "project" : "chat",
+                                opensPage: store?.projectRowsOpenPages == true && SessionListPipeline.isProject(id)) { [weak self] in self?.toggleGroup(id) }
             : nil
         let dropTarget = id == dropTargetGroup
         // [sessions-layout] A project's header is its summary row. [project-cards] The top of its card: every bot in it,
@@ -678,8 +679,12 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         guard let store else { return }
         // [sessions-ux] Owner 2026-11-16 (things "where you would expect"): with the projects as the pills, a project's
         // row opens its page, as its pill does. It opened in place, so the same project opened two ways on one screen.
-        if store.projectRowsOpenPages, projectLayout, !searching, let key = SessionListPipeline.projectKey(id) {
-            pickProject(key)
+        // [project-opens-page] Owner 2026-11-17 (asked whether an opened project's card was good UI, he agreed to
+        // drop it): on the Bots side too a project's row opens its page, on the Projects side (the switch says where
+        // you are; its Bots side goes back). No project unfolds in place on an iPhone or iPad, so there is one way to
+        // open a project and one New Chat (the bar's).
+        if store.projectRowsOpenPages, !searching, let key = SessionListPipeline.projectKey(id) {
+            if projectLayout { pickProject(key) } else { openProjectPage(key) }
             return
         }
         // [sessions-collapse] "Projects" open has no group of its own: its caption sits over the first project.
@@ -2119,6 +2124,22 @@ extension SessionsViewController {
     }
 
     /// [project-pills] A project pill: that project's chats alone (Filter › Project with it alone); nil: every project.
+    /// [project-opens-page] From the Bots side: the Projects side, with that project's page (as its pill opens it). The
+    /// grouping the Bots side had is kept for the switch to go back to.
+    func openProjectPage(_ key: String) {
+        guard var state = filterStateNow() else { return }
+        Haptics.play(.selection)
+        if state.prefs.pills != .projects {
+            groupBeforeProjects = state.prefs.groupBy
+            SessionFilterApply.apply(.group(.project), to: &state, homeBot: homeBot)
+        }
+        state.prefs.projectFilter = [key]
+        crossfade {
+            self.apply(state, animated: false)
+            self.collectionView.setContentOffset(CGPoint(x: 0, y: -self.collectionView.adjustedContentInset.top), animated: false)
+        }
+    }
+
     func pickProject(_ key: String?) {
         guard var state = filterStateNow() else { return }
         let picked: Set<String> = key.map { [$0] } ?? []

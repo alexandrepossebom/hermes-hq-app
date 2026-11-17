@@ -256,6 +256,22 @@ extension SessionsTests {
         toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(6) { toProjects.exists && !toBots.exists }, "and its lit (Projects) side flips it back")
         XCTAssertTrue(nothingPicked(app), "the bot picked before went with the view")
+        // [project-opens-page] On the Bots side a project's row opens its page too, on the Projects side; the switch's
+        // other side goes back to the Bots side.
+        let bySide = ["Website", "Reading", "App"].map { header(app, $0) }
+        XCTAssertTrue(waitUntil(8) { bySide.contains(where: \.exists) }, "a project's row on the Bots side")
+        let projectRow = bySide.first(where: \.exists)!
+        let projectName = String(projectRow.label.prefix { $0 != "," })
+        XCTAssertFalse(((projectRow.value as? String) ?? "").contains("Collapsed"), "it opens, it doesn't unfold (\(projectRow.value ?? ""))")
+        reveal(app, projectRow)
+        projectRow.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "the row opens \(projectName)'s page")
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "on the Projects side")
+        XCTAssertTrue(app.staticTexts[projectName].exists, "the page is \(projectName)'s")
+        shot(app, "P0c-bots-side-row-opens-page")
+        toBots.tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists && !app.cells["sessions.projectPage"].exists }, "the switch goes back to the Bots side")
+        XCTAssertTrue(waitUntil(6) { !self.chip(app, "research").exists || self.chip(app, "default").exists }, "the bot pills again")
         toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now the projects")
         openFilter(app)
