@@ -89,7 +89,7 @@ final class SettingsRootModel {
     var appIconTitle = AppIcons.wornTitle
     /// §12 File Browser.
     var fileBrowser = FileBrowserPref.isOn
-    /// [session-strip] Other Chats at the Top (default on): the bot's other chats as pills under a chat's bar.
+    /// [session-strip] Other Chats at the Top (opt-in): the bot's other chats as pills under a chat's bar.
     var sessionStrip = SessionStripPref.isOn
     /// Message Reactions (default Off): Tapbacks in a message's menu.
     var messageReactions = MessageReactionsPref.isOn
