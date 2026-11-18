@@ -1,3 +1,4 @@
+import Synchronization
 import Foundation
 import Testing
 @testable import HermesHQNative
@@ -187,6 +188,28 @@ import Testing
         #expect(f.params("session.title").isEmpty, "the opening words were stored: \(f.params("session.title"))")
         event(f, "Composer covers animation") // the gateway's model name still lands
         #expect(f.session.title == "Composer covers animation")
+    }
+
+    /// A chat opened with a voice memo: named from the memo's words, never its `MEDIA:"<path>"` line (owner
+    /// 2026-11-18: memo-first chats were named `MEDIA:"/Users/studi…`).
+    @Test func aVoiceMemoChatIsNamedFromItsTranscript() async {
+        let f = MenusFixtureChat()
+        let said = "Sessions also aren't getting names when you send a voice memo as the first message"
+        let memo = MemoText.reference(path: "/Users/me/.hermes/attachments/voice-memo-72.m4a", said: .text(said))
+        f.session.title = "New Chat"
+        f.session.messages = [ChatMessage(id: "u1", role: .user, parts: [.text(memo)], timestamp: nil, rowId: nil)]
+        f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
+        event(f, "MEDIA:\"/Users/me/.hermes/attachments/voice-memo-72.m4a\"...") // a gateway's instant excerpt
+        #expect(f.session.title == ShortTitle.fallback(for: said), "shows the memo's words: \(f.session.title)")
+        let asked = Mutex<[String]>([])
+        f.session.shortTitleDelay = .zero
+        f.session.titleModel = { message, _ in asked.withLock { $0.append(message) }; return "Voice memo chat names" }
+        f.session.shortenTitleIfNeeded()
+        await f.session.shortTitleTask?.value
+        await f.session.automaticTitleSave?.value
+        #expect(asked.withLock { $0 } == [said], "the on-device model is given the words, not the path")
+        #expect(f.session.title == "Voice memo chat names")
+        #expect(!f.params("session.title").contains { $0["title"]?.string?.hasPrefix("MEDIA:") == true })
     }
 
     @Test func manualNameSurvivesANewChatObject() async throws {

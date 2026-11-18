@@ -15,6 +15,15 @@ nonisolated enum ShortTitle {
 
     /// Whether an opening contains something worth naming. Only suppress complete, standalone social exchanges;
     /// a greeting followed by a request must remain eligible. Unknown wording defaults to a naming request.
+    /// What a chat is named from: a voice memo's words (its transcript and anything typed with it), not its
+    /// `MEDIA:"<path>"` line; empty when the memo has no transcript yet. Any other message as it is.
+    static func namingText(_ message: String) -> String {
+        guard let memo = VoiceMemo.parse(message) else { return message }
+        let said = memo.hasTranscript && memo.transcriptText != VoiceMemo.noSpeech ? memo.transcriptText : ""
+        return [said, memo.rest].filter { !ChatText.trimmed($0).isEmpty }
+            .joined(separator: "\n\n")
+    }
+
     static func isNamingRequest(_ text: String) -> Bool {
         let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
         let tokens = folded.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined()
@@ -31,6 +40,8 @@ nonisolated enum ShortTitle {
     /// phrase can be a real name even when it shares the message's opening words; do not replace it on that guess.
     static func isPlaceholder(_ title: String, firstMessage: String) -> Bool {
         let cleaned = cleanName(title)
+        // A voice memo's opening line used as a name (`MEDIA:"/Users/…`): its file path, never a name.
+        if cleaned.hasPrefix("MEDIA:") { return true }
         let shown = normalized(cleaned)
         if genericTitles.contains(shown) { return true }
         let cut = cutMarker(in: cleaned) != nil

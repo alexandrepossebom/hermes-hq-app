@@ -47,4 +47,17 @@ import Testing
         #expect(ShortTitle.accepted("I just added…", message: hue) == nil)                                 // marked excerpt
         #expect(ShortTitle.accepted("", message: hue) == nil)
     }
+
+    @Test func aVoiceMemoIsNamedFromItsWordsNotItsPath() {
+        let memo = MemoText.reference(path: "/Users/me/.hermes/attachments/voice-memo-72.m4a", said: .text("Plan the Lisbon trip with the kids in March"))
+        #expect(ShortTitle.namingText(memo) == "Plan the Lisbon trip with the kids in March")
+        #expect(ShortTitle.isNamingRequest(ShortTitle.namingText(memo)))
+        #expect(ShortTitle.fallback(for: ShortTitle.namingText(memo)) == "Plan the Lisbon trip with the kids in…")
+        #expect(ShortTitle.namingText(MemoText.reference(path: "/tmp/voice-memo.m4a", said: .empty)).isEmpty)
+        #expect(ShortTitle.namingText(MemoText.reference(path: "/tmp/voice-memo.m4a", said: .off)).isEmpty)
+        #expect(ShortTitle.namingText("Just a typed message") == "Just a typed message")
+        // A name that is the memo's path line is a placeholder, even against the transcript.
+        #expect(ShortTitle.isPlaceholder("MEDIA:\"/Users/studi…", firstMessage: "Plan the Lisbon trip"))
+        #expect(ShortTitle.isPlaceholder("MEDIA:\"/Users/me/.hermes/profiles/…", firstMessage: ""))
+    }
 }

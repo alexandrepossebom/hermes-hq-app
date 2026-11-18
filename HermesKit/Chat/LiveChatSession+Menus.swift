@@ -194,14 +194,15 @@ extension LiveChatSession: ChatSessionActions {
     /// The opening message's text, when the loaded page starts at the chat's start.
     var firstUserText: String? {
         guard !hasOlder else { return nil }
-        return messages.first(where: { $0.role == .user })?.plainText
+        return messages.first(where: { $0.role == .user }).map { ShortTitle.namingText($0.plainText) }
     }
 
     /// The earliest substantive request, only when the beginning of the transcript is known. Greetings and other
     /// conversational openers must not consume the one automatic naming attempt.
     var firstNamingRequest: String? {
         guard !hasOlder else { return nil }
-        return messages.lazy.filter { $0.role == .user }.map(\.plainText).first { ShortTitle.isNamingRequest($0) }
+        return messages.lazy.filter { $0.role == .user }.map { ShortTitle.namingText($0.plainText) }
+            .first { ShortTitle.isNamingRequest($0) }
     }
 
     /// A gateway may use a greeting verbatim as its initial title. Keep it provisional so the first real request can
