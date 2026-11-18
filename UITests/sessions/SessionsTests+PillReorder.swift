@@ -1,7 +1,8 @@
 import XCTest
 
 extension SessionsTests {
-    /// A moving hold crosses working/quiet tiers; a stationary hold still offers Archive and a tap still opens a page.
+    /// [pill-reorder] A hold that moves carries the pill past one in another state and saves the order; a swipe only
+    /// scrolls; a hold that stays offers Archive, and one that then moves takes the pill along instead; a tap opens.
     @MainActor func testPillReorderDragArchiveTapAndPersistence() throws {
         fixture("/__fixture/mode", ["working": ["s-trip"]])
         defer { fixture("/__fixture/mode", ["working": [String]()]) }
@@ -31,6 +32,25 @@ extension SessionsTests {
         XCTAssertTrue(moved, "drag changes order: \(labels(app)); \(rail.debugDescription)")
         guard moved else { return }
         XCTAssertFalse(app.buttons["sessions.chip.project.archive"].exists, "moving hold must not open Archive")
+        XCTAssertFalse(app.cells["sessions.projectPage"].exists, "a drag is not a tap")
+        // A swipe along the rail scrolls it and moves no pill.
+        let before = labels(app)
+        app.buttons["sessions.chip.project.2"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.buttons["sessions.chip.project.1"].coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)),
+                   withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertEqual(labels(app), before, "a swipe does not reorder")
+        // Held until Archive shows, then moved: the choice goes and the pill comes along (and back to where it was).
+        let again = app.buttons["sessions.chip.project.1"]
+        onScreen(app, again).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 1.1, thenDragTo: app.buttons["sessions.chip.project.2"].coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)),
+                   withVelocity: .slow, thenHoldForDuration: 0.4)
+        XCTAssertTrue(waitUntil(8) { labels(app)[1].hasPrefix("Reading project") && labels(app)[2].hasPrefix("App project") }, "held, then dragged: \(labels(app))")
+        XCTAssertFalse(app.buttons["sessions.chip.project.archive"].exists, "the choice went when the pill moved")
+        shot(app, "pill-reorder-after-menu-drag")
+        onScreen(app, app.buttons["sessions.chip.project.2"]).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.5, thenDragTo: app.buttons["sessions.chip.project.1"].coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)),
+                   withVelocity: .slow, thenHoldForDuration: 0.4)
+        XCTAssertTrue(waitUntil(8) { labels(app)[1].hasPrefix("App project") && labels(app)[2].hasPrefix("Reading project") }, "dragged back: \(labels(app))")
         app.terminate()
         app = launch(keepView: true, drag: true, projectPages: true)
         XCTAssertTrue(waitUntil(15) { labels(app)[1].hasPrefix("App project") && labels(app)[2].hasPrefix("Reading project") }, "order survives relaunch: \(labels(app))")

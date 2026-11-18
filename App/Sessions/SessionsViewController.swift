@@ -2453,6 +2453,12 @@ extension SessionsViewController {
             store.setProjectPillOrder(order)
             self.reload(animated: true)
         }
+        headerModel.onOrderProjects = { [weak self] order in
+            guard let self, let store = self.store,
+                  Set(order) == Set(self.headerModel.shownProjects.map(\.key)), Set(order).count == order.count else { return }
+            store.setProjectPillOrder(SessionManualOrder.merged(store.device.projectPillOrder, with: order))
+            self.reload(animated: true)
+        }
         headerModel.onClearStrip = { [weak self] in
             guard let self, var state = self.filterStateNow() else { return }
             Haptics.play(.selection)

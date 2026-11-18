@@ -461,8 +461,10 @@ extension View {
     /// that is inside of it as possible should be liquid glass too"): interactive Liquid Glass with the look off, the
     /// picked one tinted and ringed in the tint, or (`prominent`, a chip) the tint itself. One glass whatever the state,
     /// so a pick changes its tint rather than its view. With the look on, nothing: the caller draws the desktop's piece.
-    func hqPickGlass<S: InsettableShape>(_ selected: Bool, in shape: S, prominent: Bool = false) -> some View {
-        modifier(PickGlass(selected: selected, shape: shape, prominent: prominent))
+    /// `still`: glass that does not answer a touch itself ([pill-reorder]: a pill that is held and dragged draws its own
+    /// lift; the glass's own answer to a long press made the pill fold up and come back when it was let go).
+    func hqPickGlass<S: InsettableShape>(_ selected: Bool, in shape: S, prominent: Bool = false, still: Bool = false) -> some View {
+        modifier(PickGlass(selected: selected, shape: shape, prominent: prominent, still: still))
     }
 
     /// A row of `hqPickGlass` picks in one glass container: glass can't sample glass, so without it a pick lenses its
@@ -553,6 +555,7 @@ private struct PickGlass<S: InsettableShape>: ViewModifier {
     var selected: Bool
     var shape: S
     var prominent: Bool
+    var still = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.hqFlatPicks) private var flat
 
@@ -586,7 +589,7 @@ private struct PickGlass<S: InsettableShape>: ViewModifier {
             let tint: Color? = selected ? (prominent ? ink : Color.hqTint.opacity(0.16)) : nil
             // The ring rides on the content, under the glass's own layer: an overlay after it vanished in a container.
             content.overlay(shape.strokeBorder(Color.hqTint, lineWidth: selected && !prominent ? 2 : 0))
-                .glassEffect(Glass.regular.tint(tint).interactive(), in: shape)
+                .glassEffect(Glass.regular.tint(tint).interactive(!still), in: shape)
         }
     }
 }

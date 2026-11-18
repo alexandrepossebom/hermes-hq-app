@@ -20,6 +20,8 @@ struct BotPillRail<Extra: View>: View {
     var leading: AnyView? = nil
     /// [projects-switch] No All when it would stand alone beside the switch (one bot, nothing New or Working).
     var showsAll = true
+    /// [pill-reorder] Sessions' project rail: its scroll, kept and set by a dragged pill (`ProjectPillRun`).
+    var scroll: PillRailScroll? = nil
     var onPick: (String?) -> Void
     var onPickAll: () -> Void
     @ViewBuilder var extra: () -> Extra
@@ -67,6 +69,7 @@ struct BotPillRail<Extra: View>: View {
                 .padding(.bottom, Theme.isDesktop ? 2 : 4)
                 .hqPickGlassRow()
             }
+            .modifier(PillRailScrolls(scroll: scroll))
             .scrollIndicators(.hidden)
             .hqScrollEdgeFade(width: 20)
             .onAppear { show(leading == nil ? picked : nil, proxy) }   // [project-page-return] Sessions: from the switch

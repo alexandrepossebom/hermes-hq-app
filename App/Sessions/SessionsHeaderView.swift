@@ -45,7 +45,10 @@ final class SessionsHeaderModel {
     @ObservationIgnored var onPickProject: (String?) -> Void = { _ in }
     /// [project-pills] A project pill's hold: Archive Project / Unarchive Project.
     @ObservationIgnored var onArchiveProject: (String, Bool) -> Void = { _, _ in }
+    /// [pill-reorder] VoiceOver's Move Before / Move After: this project onto that one, among the pills shown.
     @ObservationIgnored var onMoveProject: (String, String, [String]) -> Void = { _, _, _ in }
+    /// [pill-reorder] A dragged pill let go: the pills shown, in their new order.
+    @ObservationIgnored var onOrderProjects: ([String]) -> Void = { _ in }
 
     /// [project-pills] The project pills drawn: a status pill (New, Working) keeps the projects it stands for (and the
     /// picked one, so it can be tapped off).
@@ -93,7 +96,8 @@ struct SessionsHeaderView: View {
     @State private var position = ScrollPosition()
     /// [mac] Stress test 2026-10-28 round 7: the width the rail has in the pane.
     @State private var available: CGFloat = 0
-    private static let projectDragType = "com.hermeshq.project-pill.local"
+    /// [pill-reorder] The project rail's scroll, for a dragged pill that reaches an end of it.
+    @State private var pillScroll = PillRailScroll()
     private var moreBefore: Bool { DeviceWord.isMac && railOffset > 1 }
     private var moreAfter: Bool { DeviceWord.isMac && railWidth > 0 && railOffset + railWidth < contentWidth - 1 }
     /// [mac] The rail scrolls (its scroller can show): owner 2026-10-29, the scroller sat on the names under the faces.
@@ -260,55 +264,12 @@ struct SessionsHeaderView: View {
                     allPicked: model.pickedProjects.isEmpty && model.status == nil && !model.botPicked,
                     identifier: "sessions.chip", label: "Projects",
                     leading: AnyView(pillsSwitch(allPicked: model.pickedProjects.isEmpty && model.status == nil && !model.botPicked)),
-                    showsAll: !model.showsSwitch, onPick: { _ in },
+                    showsAll: !model.showsSwitch, scroll: pillScroll, onPick: { _ in },
                     onPickAll: model.onPickAll) {
             statusPills
             if !model.shownStatus.isEmpty, !model.shownProjects.isEmpty { railRule }
-            ForEach(Array(model.shownProjects.enumerated()), id: \.element.key) { index, project in
-                let picked = model.pickedProjects.contains(project.key)
-                let spoken = [project.label + " project", project.state.spoken, project.archived ? "Archived" : nil]
-                    .compactMap { $0 }.joined(separator: ", ")
-                SessionPill(caption: project.label, name: spoken, picked: picked,
-                            identifier: "sessions.chip.project.\(index)", hasFace: true, lead: 12) {
-                    model.onPickProject(picked ? nil : project.key)
-                } face: {
-                    ProjectPillMark(state: project.state, archived: project.archived, picked: picked)
-                }
-                .opacity(project.archived && !picked ? 0.6 : 1)
-                .contextMenu {
-                    Button {
-                        model.onArchiveProject(project.key, !project.archived)
-                    } label: {
-                        Label(project.archived ? "Unarchive Project" : "Archive Project",
-                              systemImage: project.archived ? "tray.and.arrow.up" : "archivebox")
-                    }
-                    .accessibilityIdentifier("sessions.chip.project.archive")
-                }
-                .accessibilityAction(named: project.archived ? "Unarchive Project" : "Archive Project") {
-                    model.onArchiveProject(project.key, !project.archived)
-                }
-                .onDrag {
-                    let provider = NSItemProvider()
-                    let data = Data(project.key.utf8)
-                    provider.registerDataRepresentation(forTypeIdentifier: Self.projectDragType, visibility: .ownProcess) { completion in
-                        completion(data, nil)
-                        return nil
-                    }
-                    return provider
-                }
-                .onDrop(of: [Self.projectDragType], isTargeted: nil) { providers in
-                    guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(Self.projectDragType) }) else { return false }
-                    let shown = model.shownProjects.map(\.key)
-                    provider.loadDataRepresentation(forTypeIdentifier: Self.projectDragType) { data, _ in
-                        guard let data, let source = String(data: data, encoding: .utf8) else { return }
-                        DispatchQueue.main.async {
-                            model.onMoveProject(source, project.key, shown)
-                        }
-                    }
-                    return true
-                }
-                .id(SessionsHeaderModel.projectPillId(project.key))
-            }
+            // [pill-reorder] The pills themselves, and the hold that rearranges them (`ProjectPillRun`).
+            ProjectPillRun(model: model, scroll: pillScroll)
         }
     }
 
@@ -528,6 +489,9 @@ struct SessionPill<Face: View>: View {
     var lead: CGFloat? = nil
     /// [tasks-first] A quiet count after the caption ("Today 6"), in the caption's ink at two-thirds strength.
     var detail: String? = nil
+    /// [pill-reorder] A pill that can be held and dragged (`ProjectPillRun`), and whether it is lifted now: its run
+    /// draws the lift, so its glass stays still under the finger and its words keep their ink while it is carried.
+    var lifted: Bool? = nil
     var action: () -> Void
     @ViewBuilder var face: () -> Face
 
@@ -567,12 +531,12 @@ struct SessionPill<Face: View>: View {
             }
             // Owner 2026-11-01: the rows scroll under the rail (the bar is clear), so in the iOS look each pill is glass,
             // as the bar's buttons beside it are: a row passing under it is blurred, never read through a grey fill.
-            .hqPickGlass(picked, in: Capsule(), prominent: true)
+            .hqPickGlass(picked, in: Capsule(), prominent: true, still: lifted != nil)
             // The touch reaches 44 pt tall around the 34 pt pill.
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .modifier(PillPress(carried: lifted))
         .animation(HQMotion.reduced ? nil : .snappy(duration: 0.2), value: picked)
         .accessibilityLabel(name)
         .accessibilityAddTraits(picked ? .isSelected : [])
@@ -580,8 +544,25 @@ struct SessionPill<Face: View>: View {
     }
 }
 
+/// A pill's press: the plain style, but a pill that can be carried keeps its words' ink while it is ([pill-reorder]).
+private struct PillPress: ViewModifier {
+    /// nil: a pill that is never carried.
+    var carried: Bool?
+
+    func body(content: Content) -> some View {
+        if let carried { content.buttonStyle(Carried(carried: carried)) } else { content.buttonStyle(.plain) }
+    }
+
+    private struct Carried: ButtonStyle {
+        var carried: Bool
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label.opacity(configuration.isPressed && !carried ? 0.55 : 1)
+        }
+    }
+}
+
 /// [sessions-fresh] A status chip's mark: New's dot, Working's still quarter ring (still: the rail draws no motion).
-private struct StatusChipMark: View {
+struct StatusChipMark: View {
     var chip: SessionStatusChip
     var picked: Bool
 
@@ -602,7 +583,7 @@ private struct StatusChipMark: View {
 
 /// [project-pills] A project pill's mark: what its chats are doing. Needs You an orange dot, Ready the tint's dot,
 /// Working the still quarter ring (the rail draws no motion), quiet a folder; archived an archive box.
-private struct ProjectPillMark: View {
+struct ProjectPillMark: View {
     var state: SessionProjectState
     var archived: Bool
     var picked: Bool
