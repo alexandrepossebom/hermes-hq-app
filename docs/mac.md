@@ -241,6 +241,15 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
 - **Sidebar**: Search (⌘K) and New Chat at the top, then the places, then **Tools** (`MacSidebar.addTools`), then the
   bots in their folding groups (`MacSidebarHeading`, folds kept in `HQMacSidebarFoldedGroups`). No Bots list column:
   `RootSplitController.listFolded` is true while Bots is on show, open or folded.
+- **Bots in Sidebar** (owner 2026-11-18, the Mac UX review: "I don't like having the bots visible with the sessions
+  visible … now I have 2 paths to do a thing"; then "an option inside the app to have your bot faces in the sidebar or
+  have them in an icon where you open them up into the first panel where the sessions are now"). On, as it was and
+  unless turned off: the bots are in the sidebar. Off (`MacSidebar.botsInSidebar`, kept in `HQMacBotsInSidebar`): Bots
+  is a row among the places, where Settings › Sidebar orders it (above Sessions by default), the sidebar draws no bots
+  open or folded, and the Bots list is a list column beside the sidebar as Sessions' is (`listFolded` no longer counts
+  Bots), so one list shows at a time. Sessions keeps its Bots | Projects switch. The switch is in Settings › Sidebar
+  and in the sidebar's own menu (a right click between rows, the foot's +), only while Bots is a place. Check:
+  `-HQMacBotsInSidebar NO` with `-HQDebugMacShots <name>`.
 - **Tools** = More's Workspace and Insights pages (`PagesTabs.toolSections`, `toolIDs`, `isTool`). Each is a page tab
   as one added from More is; `MainTabController.setViewControllers` places them after the Settings › Tabs places.
   A tool's menu has Move to Places. Folded, Tools is one button whose menu clicks the hidden rows.

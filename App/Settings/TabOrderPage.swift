@@ -12,6 +12,9 @@ struct TabOrderPage: View {
     /// [kanban-tab-one] Opened from a search for the picker: the list scrolls to it and marks it a moment.
     var revealKanban = false
     @State private var shown = TabOrder.tabs
+    #if targetEnvironment(macCatalyst)
+    @State private var botsInSidebar = MacSidebar.botsInSidebar   // [bots-place]
+    #endif
     /// [kanban-tab-one] The Kanban Tab choice; nil while there is none to make (`kanbanChoice`).
     @State private var kanban: KanbanTabOverride?
     /// [kanban-tab-one] The row a search result marks, as the Settings root marks its own (UX study #108).
@@ -47,6 +50,7 @@ struct TabOrderPage: View {
                 } } footer: { HQSectionFooter {
                     Text(barFooter)
                 } }
+                botsInSidebarSection
                 kanbanSection
                 if !more.isEmpty {
                     Section {
@@ -107,6 +111,29 @@ struct TabOrderPage: View {
     /// doesn't). Drawn as the Settings root drew it: the Menu over the row on the iPhone and iPad (#107), the form's
     /// pop-up on the Mac. The pages stream applies a change at once (never under the finger on that tab), and the
     /// rows above then name the tab as the bar does.
+    /// [bots-place] The Mac's choice (owner 2026-11-18): the bots in the sidebar, or a Bots row whose list opens beside
+    /// the sidebar as Sessions' does. Only while Bots is one of the sidebar's places.
+    @ViewBuilder
+    private var botsInSidebarSection: some View {
+        #if targetEnvironment(macCatalyst)
+        if shown.contains(.main(.bots)) {
+            Section {
+                SwitchRow(title: "Bots in Sidebar", isOn: Binding(get: { botsInSidebar }, set: { on in
+                    Haptics.play(.selection)
+                    botsInSidebar = on
+                    MacSidebar.botsInSidebar = on
+                }))
+                .accessibilityIdentifier("tab-order.bots-in-sidebar")
+                // The sidebar's own menu has the same switch: this one follows it.
+                .onReceive(NotificationCenter.default.publisher(for: MacSidebar.botsInSidebarChanged)) { _ in botsInSidebar = MacSidebar.botsInSidebar }
+            } footer: { HQSectionFooter {
+                Text(botsInSidebar ? "Your bots are listed in the sidebar. Turn this off to have a Bots row that opens the list beside the sidebar, as Sessions does."
+                     : "Bots is a row in the sidebar, and the list of bots opens beside it, as Sessions does.")
+            } }
+        }
+        #endif
+    }
+
     @ViewBuilder
     private var kanbanSection: some View {
         if let account, let kanban {

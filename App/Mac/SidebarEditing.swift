@@ -144,7 +144,15 @@ import UIKit
                 UIAction(title: place.title, image: place.image) { _ in add(place.choice) }
             })
         let settings = UIAction(title: "Sidebar Settings…", image: UIImage(systemName: "gearshape")) { _ in openSettings() }
-        return UIMenu(children: [UIMenu(options: .displayInline, children: [add]), UIMenu(options: .displayInline, children: [settings])])
+        // [bots-place] The bots in the sidebar, or a Bots row whose list opens beside it (while Bots is a place).
+        var view: [UIMenuElement] = []
+        if TabOrder.tabs.contains(.main(.bots)) {
+            view.append(UIAction(title: "Bots in Sidebar", state: MacSidebar.botsInSidebar ? .on : .off) { _ in
+                MacSidebar.botsInSidebar.toggle()
+            })
+        }
+        return UIMenu(children: [UIMenu(options: .displayInline, children: [add]), UIMenu(options: .displayInline, children: view),
+                                 UIMenu(options: .displayInline, children: [settings])])
     }
 
     /// A More row's Control-click: Add to Sidebar, when its page can be there.

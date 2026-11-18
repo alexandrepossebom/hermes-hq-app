@@ -82,6 +82,24 @@ final class MacSidebar: UIView {
     /// [rail-names] The rail's width while its edge is dragged (nil otherwise): it follows the pointer, then settles.
     private(set) static var railDragWidth: CGFloat?
     static let collapsedKey = "HQMacSidebarCollapsed"
+    /// [bots-place] Owner 2026-11-18 (the Mac UX review): "I don't like having the bots visible with the sessions visible
+    /// … now I have 2 paths to do a thing and have to make a subconscious choice every time I move my cursor to that
+    /// side of the app". Then: "an option inside the app to have your bot faces in the sidebar or have them in an icon
+    /// where you open them up into the first panel where the sessions are now". On (as it was, and unless turned off):
+    /// the bots are in the sidebar. Off: Bots is a row above Sessions, and its list opens beside the sidebar as
+    /// Sessions' does, so one list shows at a time. Held here for the launch, as the fold is (`storedCollapsed`).
+    static let botsInSidebarKey = "HQMacBotsInSidebar"
+    static let botsInSidebarChanged = Notification.Name("HQMacBotsInSidebarChanged")
+    private static var storedBotsInSidebar = UserDefaults.standard.object(forKey: botsInSidebarKey) == nil || UserDefaults.standard.bool(forKey: botsInSidebarKey)
+    static var botsInSidebar: Bool {
+        get { storedBotsInSidebar }
+        set {
+            guard newValue != storedBotsInSidebar else { return }
+            storedBotsInSidebar = newValue
+            UserDefaults.standard.set(newValue, forKey: botsInSidebarKey)
+            NotificationCenter.default.post(name: botsInSidebarChanged, object: nil)
+        }
+    }
     /// Folded by the person (kept across launches), or by a narrow window (below).
     static var isCollapsed: Bool { savedCollapsed || (narrowWindow && !openedWhileNarrow) }
     private static var savedCollapsed: Bool {
@@ -539,6 +557,22 @@ final class MacSidebar: UIView {
                 MainActor.assumeIsolated { self?.botsChanged() }
             }
         }
+        // [bots-place] Bots in Sidebar flipped (Settings › Sidebar, the sidebar's own menu): the rows again, and the
+        // Bots list comes beside the sidebar or folds back into it.
+        sceneTokens.append(NotificationCenter.default.addObserver(forName: Self.botsInSidebarChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.rebuild()
+                self.selectionChanged()
+                self.tabs?.split?.listFoldMayHaveChanged()
+            }
+        })
+        #if DEBUG
+        // `-HQDebugBotsInSidebarFlip <s>`: Bots in Sidebar flips that many seconds after the sidebar is made, as the
+        // menu's item does (pair it with `-HQDebugMacShots <name> -HQDebugMacShotsWait <more s>` for the picture after).
+        let flip = UserDefaults.standard.double(forKey: "HQDebugBotsInSidebarFlip")
+        if flip > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + flip) { Self.botsInSidebar.toggle() } }
+        #endif
         // Owner 2026-11-03 (Mac 720): "The bar had black behind it and now doesn't after I moved the window": the first
         // read ran before the window had drawn. Read again whenever the window comes forward or becomes key.
         for name in [UIScene.didActivateNotification, UIWindow.didBecomeKeyNotification, UIWindow.didBecomeVisibleNotification] {
@@ -665,7 +699,9 @@ final class MacSidebar: UIView {
             // [bots-rail] [mac-layout] Bots is the bots themselves, open or folded: its row is left out.
             // [mac-layout] More dissolved: its pages are Tools and the Settings window's; it stays a place out of
             // sight (⌘K's results open from its stack), with no row.
-            if tool { toolRows.append(row) } else if item.tag != HQTab.bots.rawValue, item.tag != HQTab.more.rawValue { placeRows.append(row) }
+            // [bots-place] With the bots out of the sidebar (`botsInSidebar` off), Bots is a row, where Settings › Tabs has it.
+            let botsRow = item.tag == HQTab.bots.rawValue && !Self.botsInSidebar
+            if tool { toolRows.append(row) } else if item.tag != HQTab.bots.rawValue || botsRow, item.tag != HQTab.more.rawValue { placeRows.append(row) }
             let height = row.heightAnchor.constraint(equalToConstant: named ? Self.namedRowHeight : Self.rowHeight)
             height.priority = .required - 1   // [sidebar-feel] a hidden Tools row has no height in its stack (`foldTools`)
             height.isActive = true
@@ -814,7 +850,8 @@ final class MacSidebar: UIView {
     }
 
     /// [mac-layout] The bots are in the sidebar while Bots is one of the places (Settings › Tabs keeps Bots or Sessions).
-    private var showsBots: Bool { tabs?.controller(for: .bots) != nil }
+    /// [bots-place] And while Bots in Sidebar is on: off, Bots is a row among the places and its list is beside the sidebar.
+    private var showsBots: Bool { Self.botsInSidebar && tabs?.controller(for: .bots) != nil }
 
     // MARK: The bots' heads ([bots-rail])
 

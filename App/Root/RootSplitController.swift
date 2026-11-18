@@ -559,7 +559,8 @@ final class RootSplitController: UIViewController {
         // [mac-layout] Owner 2026-11-03 "I like the bots in the sidebar": open or folded, the bots are in the sidebar, so
         // the Bots list never sits beside it; a bot's chat takes the room. Another list folds away while ⌘I's inspector
         // needs its room (`inspectorTakesList`).
-        tabs.shownTab == .bots || listFoldedForInspector || settingsTakesList
+        // [bots-place] With Bots in Sidebar off, the Bots list is beside the sidebar as any place's.
+        (tabs.shownTab == .bots && MacSidebar.botsInSidebar) || listFoldedForInspector || settingsTakesList
         #else
         listHidden && !detailIsEmpty   // [ipad-polish] put away by its button (`setListHidden`)
         #endif
