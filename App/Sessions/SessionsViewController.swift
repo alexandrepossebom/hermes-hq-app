@@ -23,6 +23,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// turned to Projects by hand.
     private var projectPageReturn: (bot: String?, offset: CGFloat)?
     private var pageSign = ""            // [project-pills] the project page's header, as last drawn
+    /// [three-piles] A project's page lists its archived chats as Done: they are read the first time a page shows.
+    private var doneRequested = false
     /// [project-edge-swipe] A swipe in from the leading edge on a project's page goes back, as a pushed page's does.
     private lazy var pageEdgeSwipe: UIScreenEdgePanGestureRecognizer = {
         let swipe = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(pageEdgeSwiped(_:)))
@@ -672,10 +674,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         headerCardPads[ObjectIdentifier(header)] = summary.map { ProjectCardHeader.topPad(open: !$0.collapsed) }
         // [project-sections] A project page's section: its state's mark and its count.
         let pageSection = !searching && SessionListPipeline.isPageSection(id)
-        let marks: [String: SessionProjectState] = ["needs": .needsYou, "ready": .ready, "working": .working]
         let view = SessionDateHeaderView(title: title, onNewChat: onNewChat, onRename: onRename, onDelete: onDelete, fold: fold,
                                          order: order, dropTarget: dropTarget, summary: summary, badge: badge,
-                                         mark: pageSection ? marks[String(id.dropFirst(SessionListPipeline.statePrefix.count))] : nil,
+                                         mark: nil,   // [three-piles] the piles have no state of their own (each row says its own)
                                          tally: pageSection ? group.total : nil,
                                          caption: firstProject ? SessionListPipeline.projectsTitle : nil, onEditCaption: onEdit,
                                          onFoldCaption: onFoldCaption, seeAll: seeAll,
@@ -1424,6 +1425,12 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             // The store has already applied Filter › Show (background runs, pinned runs kept, outside chats). Archived
             // chats join the rest.
             base = showArchived ? store.liveRows + store.archivedSessions : store.liveRows
+            // [three-piles] A project's page: its Done pile is the archived chats, read once (Show › Archived reads
+            // them on its own).
+            if !doneRequested, !showArchived, store.view.pills == .projects, store.view.projectFilter.count == 1 {
+                doneRequested = true
+                Task { await store.loadArchived() }
+            }
             // A chat's menu offers New Chat in its project: the listed bots' projects are read (once a minute at most).
             if !base.isEmpty { store.loadProjects() }
         } else {
@@ -1705,7 +1712,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         refreshStarted = Date()
         refreshGeneration += 1
         let generation = refreshGeneration
-        if showArchived, let store {
+        if showArchived || isProjectPage, let store {   // [three-piles] a project's page: its Done pile too
             Task { [weak self] in
                 let failed = await store.loadArchived()
                 self?.endRefreshing()
@@ -1849,20 +1856,22 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     /// [project-pills] A count on the project page's header: its section to the top.
-    func scrollToPageSection(_ id: String) {
-        // [project-sections] A count's chip opens its section when it was closed, then goes to it.
-        if groups.first(where: { $0.id == id })?.collapsed == true {
-            toggleGroup(id)
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.groups.first(where: { $0.id == id })?.collapsed == false else { return }
-                self.scrollToPageSection(id)
-            }
+    func scrollToPageSection(_ id: String, opening: Bool = true) {
+        // [three-piles] A count's chip goes to the first chat in that state, in Pinned or Active (opened when one of
+        // them was closed and no open pile has such a chat).
+        let states: [String: SessionProjectState] = ["needs": .needsYou, "ready": .ready, "working": .working]
+        guard let wanted = states[String(id.dropFirst(SessionListPipeline.statePrefix.count))] else { return }
+        let piles = groups.filter { SessionListPipeline.isPageSection($0.id) && !SessionListPipeline.pageStartsClosed.contains($0.id) }
+        let found = piles.lazy.flatMap(\.sessions).first { SessionProjectState.of($0).contains(wanted) }
+        if let found, let indexPath = dataSource.indexPath(for: Self.key(found)) {
+            Haptics.play(.selection)
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: !HQMotion.reduced)
             return
         }
-        guard let section = groups.firstIndex(where: { $0.id == id }),
-              collectionView.numberOfSections > section, collectionView.numberOfItems(inSection: section) > 0 else { return }
-        Haptics.play(.selection)
-        collectionView.scrollToItem(at: IndexPath(item: 0, section: section), at: .top, animated: !HQMotion.reduced)
+        let closed = piles.filter(\.collapsed)
+        guard opening, !closed.isEmpty else { return }
+        closed.forEach { toggleGroup($0.id) }
+        DispatchQueue.main.async { [weak self] in self?.scrollToPageSection(id, opening: false) }
     }
 
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
@@ -2209,7 +2218,7 @@ extension SessionsViewController {
     #endif
 
     /// A project's page is on show (the Projects side, one project picked).
-    private var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
+    var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
 
     /// [project-edge-swipe] Back from a project's page, the way it was come into: opened from the Bots side, the Bots
     /// side again (its bot and place, `projectPageReturn`); opened on the Projects side, every project.

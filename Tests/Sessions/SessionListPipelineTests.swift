@@ -63,8 +63,8 @@ import Testing
         groups = Self.run([Self.chat("a")]) { $0.outside = [Self.outside("x", "telegram", ago: 5, profile: "other")]; $0.botFilter = "default" }
         #expect(!groups.contains { $0.id == SessionListPipeline.otherAppsId })
         groups = Self.run([Self.chat("a")]) { $0.outside = outside; $0.prefs.groupBy = .project }
-        #expect(groups.first?.id == "pinned" && groups.dropFirst().first?.id == SessionListPipeline.otherAppsId,
-                "under Pinned, above the projects (the owner groups by project)")
+        // [three-piles] Group By Project: the projects, then the row; the pinned Discord chat is no project's.
+        #expect(groups.map(\.id) == ["project-home", SessionListPipeline.otherAppsId] && groups[0].total == 1)
         groups = Self.run([Self.chat("a")]) { $0.outside = outside; $0.projects = [SessionProjectEntry(key: "p", label: "P")]; $0.prefs.projectFilter = ["p"] }
         #expect(!groups.contains { $0.id == SessionListPipeline.otherAppsId })
         groups = Self.run([], archived: [Self.chat("z")]) { $0.outside = outside; $0.prefs.showArchived = true }
@@ -199,26 +199,28 @@ import Testing
         #expect(groups.last?.sessions.map(\.id) == ["home-new"])
     }
 
-    /// [sessions-fresh] Recent's Projects shows two, or every favorite when there are more (owner: three favorites,
-    /// two shown); See All for the rest.
-    @Test func recentProjectsShowEveryFavorite() {
+    /// [three-piles] The Bots side (Group By Recent) is the chats alone: Pinned, then Recent with every chat, a
+    /// project's too. No project is listed there, favorite or not, whatever Show › Project Chats in Recent was.
+    @Test func recentIsTheChatsAlone() {
         let three: [String: [SessionProject]] = ["default": ["a", "b", "c"].map {
             SessionProject(id: $0, label: $0.uppercased(), root: "/p/\($0)", paths: ["/p/\($0)"])
         }]
         let entries = SessionProjects.menuEntries(three, order: ["default"])
-        let rows = ["a", "b", "c"].enumerated().map { Self.chat($1, ago: Double($0 + 1) * 60, cwd: "/p/\($1)") }
-        func projects(_ favorites: Set<String>) -> [SessionGroup] {
-            Self.run(rows) { $0.projectsByProfile = three; $0.projects = entries; $0.favoriteProjects = favorites }
-                .filter { SessionListPipeline.isProject($0.id) }
+        let rows = ["a", "b", "c"].enumerated().map { Self.chat($1, ago: Double($0 + 1) * 60, cwd: "/p/\($1)") } + [Self.chat("home", ago: 600)]
+        func groups(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(rows) { $0.projectsByProfile = three; $0.projects = entries; edit(&$0) }
         }
-        #expect(projects([]).count == 2 && projects([])[0].projectsTotal == 3)
-        #expect(projects(["/p/c"]).count == 2)
-        let all = projects(["/p/a", "/p/b", "/p/c"])
-        #expect(all.count == 3 && all[0].projectsAll)
+        for run in [groups(), groups { $0.favoriteProjects = ["/p/a", "/p/b", "/p/c"] }, groups { $0.prefs.projectChatsInRecent = false }] {
+            #expect(run.map(\.id) == [SessionListPipeline.recentId])
+            #expect(run[0].sessions.map(\.id) == ["a", "b", "c", "home"])
+        }
+        // The Show menu has no "Project Chats in Recent" to offer.
+        #expect(!SessionListPipeline.recentShowsProjects)
     }
 
-    /// [pinned-in-project] A pinned chat shows in Pinned and stays inside its project, so pinning a project's only
-    /// chat keeps the project (and See All still counts it). Home's pinned chats are Pinned's alone.
+    /// [pinned-in-project] A pinned chat stays inside its project, so pinning a project's only chat keeps the project.
+    /// [three-piles] Group By Project is the projects alone: no Pinned above them, and Home's pinned chats are in
+    /// Home. Group By Recent: Pinned, then every other chat.
     @Test func aPinnedChatStaysInItsProject() {
         let three: [String: [SessionProject]] = ["default": ["a", "b", "c"].map {
             SessionProject(id: $0, label: $0.uppercased(), root: "/p/\($0)", paths: ["/p/\($0)"])
@@ -235,25 +237,22 @@ import Testing
             }
         }
         let recent = run()
-        #expect(recent.first?.id == "pinned" && recent.first?.sessions.map(\.id) == ["home-pin", "a"])
-        let cards = recent.filter { SessionListPipeline.isProject($0.id) }
-        #expect(cards.map(\.id) == ["project-/p/a", "project-/p/b"] && cards[0].projectsTotal == 3)   // A is still there
-        #expect(cards[0].sessions.map(\.id) == ["a"])
-        #expect(recent.last?.id == SessionListPipeline.recentId && recent.last?.sessions.map(\.id) == ["b", "c", "home"])
+        #expect(recent.map(\.id) == ["pinned", SessionListPipeline.recentId])
+        #expect(recent[0].sessions.map(\.id) == ["home-pin", "a"] && recent[1].sessions.map(\.id) == ["b", "c", "home"])
 
         let byProject = run(.project)
-        #expect(byProject.map(\.title) == ["Pinned", "A", "B", "C", "Home"])
-        #expect(byProject[1].sessions.map(\.id) == ["a"] && byProject.last?.sessions.map(\.id) == ["home"])
+        #expect(byProject.map(\.title) == ["A", "B", "C", "Home"])
+        #expect(byProject[0].sessions.map(\.id) == ["a"] && byProject.last?.sessions.map(\.id) == ["home-pin", "home"])
 
-        // Every chat pinned: the project is still listed.
-        let onlyPinned = run(nil, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")])
-        #expect(onlyPinned.map(\.id) == ["pinned", "project-/p/a"])
-        // Home's pinned chat alone makes no Home group.
-        #expect(run(.project, [Self.chat("home-pin", pinned: true)]).map(\.id) == ["pinned"])
+        // Every chat pinned: the project is still listed under Group By Project, and Home with its pinned chat alone.
+        #expect(run(.project, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["project-/p/a"])
+        #expect(run(.project, [Self.chat("home-pin", pinned: true)]).map(\.id) == ["project-home"])
+        #expect(run(nil, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["pinned"])
     }
 
-    /// [sessions-collapse] Group By Recent: Pinned closes (no See All under a closed header), and "Projects" closes
-    /// every project to one closed header counting the projects and their unread chats; a filter opens them again.
+    /// [sessions-collapse] Group By Recent: Pinned closes (no See All under a closed header). Group By Project:
+    /// "Projects" closes every project to one closed header counting the projects and their unread chats; a filter
+    /// opens them again.
     @Test func recentPinnedAndProjectsClose() {
         let three: [String: [SessionProject]] = ["default": ["a", "b", "c"].map {
             SessionProject(id: $0, label: $0.uppercased(), root: "/p/\($0)", paths: ["/p/\($0)"])
@@ -266,43 +265,21 @@ import Testing
             Self.run(rows) { $0.projectsByProfile = three; $0.projects = entries; $0.collapsedGroups = closed; edit(&$0) }
         }
         let open = run([])
-        #expect(open.map(\.id) == ["pinned", "project-/p/a", "project-/p/b", SessionListPipeline.recentId])
+        #expect(open.map(\.id) == ["pinned", SessionListPipeline.recentId])
         #expect(open[0].more == 2)
-        let closed = run(["pinned", SessionListPipeline.projectsId])
-        #expect(closed.map(\.id) == ["pinned", SessionListPipeline.projectsId, SessionListPipeline.recentId])
+        let closed = run(["pinned"])
+        #expect(closed.map(\.id) == ["pinned", SessionListPipeline.recentId])
         #expect(closed[0].collapsed && closed[0].sessions.isEmpty && closed[0].more == 0 && closed[0].total == 5)
-        let projects = closed[1]
-        #expect(projects.collapsed && projects.title == "Projects" && projects.total == 3 && projects.unread == 1)
-        #expect(SessionListPipeline.folds(projects))
-        #expect(!closed[2].collapsed)
+        #expect(!closed[1].collapsed)
         // Group By Project: every project (Home's too) under the one closed header.
         let byProject = run([SessionListPipeline.projectsId]) { $0.prefs.groupBy = .project }
-        #expect(byProject.map(\.id).contains(SessionListPipeline.projectsId))
-        #expect(!byProject.contains { SessionListPipeline.isProject($0.id) })
+        #expect(byProject.map(\.id) == [SessionListPipeline.projectsId])
+        let projects = byProject[0]
+        #expect(projects.collapsed && projects.title == "Projects" && projects.total == 4 && projects.unread == 1)
+        #expect(SessionListPipeline.folds(projects))
         // A status filter shows every match.
-        let filtered = run(["pinned", SessionListPipeline.projectsId]) { $0.prefs.statusFilter = [.unread] }
+        let filtered = run([SessionListPipeline.projectsId]) { $0.prefs.groupBy = .project; $0.prefs.statusFilter = [.unread] }
         #expect(!filtered.contains { $0.id == SessionListPipeline.projectsId || $0.collapsed })
-    }
-
-    /// Show › Project Chats in Recent off (tester, 2026-11-08): a project's chats stay on its card, Recent
-    /// keeps Home's; with no Home chats Recent goes.
-    @Test func projectChatsInRecentOffLeavesThemOnTheirCard() {
-        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
-        let rows = [Self.chat("site", ago: 60, cwd: "/home/hermes/site"), Self.chat("home", ago: 120)]
-        func groups(_ inRecent: Bool, _ rows: [SessionSummary]) -> [SessionGroup] {
-            Self.run(rows) { $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.projectChatsInRecent = inRecent }
-        }
-        func recent(_ groups: [SessionGroup]) -> [String]? { groups.first { $0.id == SessionListPipeline.recentId }?.sessions.map(\.id) }
-        #expect(recent(groups(true, rows)) == ["site", "home"])
-        let off = groups(false, rows)
-        #expect(recent(off) == ["home"])
-        #expect(off.first { SessionListPipeline.isProject($0.id) }?.total == 1)                // the card folds to its summary
-        #expect(recent(groups(false, [rows[0]])) == nil)
-        // Group By Project has no Recent; its groups don't change.
-        let byProject = Self.run(rows) {
-            $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.groupBy = .project; $0.prefs.projectChatsInRecent = false
-        }
-        #expect(byProject.map(\.total) == [1, 1])
     }
 
     @Test func filtersAreAndedAndUnknownProjectsNarrowNothing() {
@@ -346,7 +323,7 @@ import Testing
             return Dictionary(out.map { ($0.id, $0.sessions.map(\.id).sorted()) }, uniquingKeysWith: { a, _ in a })
         }
         #expect(groups(.projects)[SessionListPipeline.recentId] == nil)
-        #expect(groups(.projects)["state-working"] == ["a"] && groups(.projects)["state-ready"] == ["c"])
+        #expect(groups(.projects)["state-active"] == ["a", "c"])
         #expect(groups(.bots)[SessionListPipeline.recentId] == ["a", "c"])
     }
 
@@ -374,23 +351,29 @@ import Testing
             $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.groupBy = .project
         }.filter { SessionListPipeline.isProject($0.id) }.map(\.id)
         #expect(cards == ["project-/home/hermes/site", "project-/home/hermes/reading", "project-home"])
+        // [three-piles] Home is last even when a chat of its own waits on the owner, until it is given a place (Reorder).
+        func homePlace(_ order: [String]) -> Int? {
+            Self.run(rows + [Self.chat("e", status: .needsInput)]) {
+                $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.groupBy = .project; $0.projectOrder = order
+            }.firstIndex { $0.id == "project-home" }
+        }
+        #expect(homePlace([]) == 2 && homePlace([SessionProjects.homeKey, "/home/hermes/site", "/home/hermes/reading"]) == 0)
         var input = SessionListInput(live: rows, now: Self.now, calendar: Self.calendar)
         input.projectsByProfile = Self.projects; input.projects = entries; input.prefs.pills = .projects
         input.archivedProjects = ["/home/hermes/site"]
         #expect(SessionListPipeline.chipCounts(input)[.working] == nil)
     }
 
-    /// [project-sections] Owner 2026-11-16 (picked from three drawings): the page's quiet chats are Pinned, Today, This
-    /// Week and Older; a long section draws three then Show More (never to hide one chat; Needs You and Ready draw
-    /// all); every section closes, and This Week and Older start closed under the sections above them.
-    @Test func aProjectPagesSectionsFoldAndSplitByAge() {
+    /// [three-piles] Owner 2026-11-17 (picked from pictures): a project's page is three piles. Pinned draws every
+    /// pinned chat; Active is one run, what needs the owner first, and a long one draws `pageFirstRows` then Show More
+    /// (never to hide one chat); each pile closes.
+    @Test func aProjectPageIsThreePiles() {
         let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
         let site = "/home/hermes/site", day = 86_400.0
-        var rows = (0..<6).map { Self.chat("w\($0)", ago: Double($0 + 1) * 60, status: .working, cwd: site) }
-        rows += (0..<5).map { Self.chat("r\($0)", ago: Double($0 + 10) * 60, status: .unread, cwd: site) }
-        rows += (0..<4).map { Self.chat("t\($0)", ago: Double($0 + 20) * 60, cwd: site) }
-        rows += [Self.chat("k0", ago: 2 * day, cwd: site), Self.chat("k1", ago: 6 * day, cwd: site),
-                 Self.chat("o0", ago: 7 * day, cwd: site), Self.chat("o1", ago: 90 * day, cwd: site)]
+        var rows = (0..<3).map { Self.chat("q\($0)", ago: Double($0 + 1) * 60, cwd: site) }
+        rows += [Self.chat("w", ago: 5 * 60, status: .working, cwd: site), Self.chat("n", ago: 2 * day, status: .needsInput, cwd: site),
+                 Self.chat("r", ago: 9 * 60, status: .unread, cwd: site), Self.chat("old", ago: 90 * day, cwd: site),
+                 Self.chat("p0", ago: 30 * day, pinned: true, cwd: site), Self.chat("p1", ago: 60, status: .working, pinned: true, cwd: site)]
         func run(_ live: [SessionSummary], _ edit: (inout SessionListInput) -> Void = { _ in }) -> [String: SessionGroup] {
             let groups = Self.run(live) {
                 $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.pills = .projects
@@ -400,35 +383,66 @@ import Testing
         }
         func shape(_ group: SessionGroup?) -> [Int] { group.map { [$0.sessions.count, $0.more, $0.total, $0.collapsed ? 1 : 0] } ?? [] }
         var page = run(rows)
-        #expect(shape(page["ready"]) == [5, 0, 5, 0])                    // what to act on: every chat
-        #expect(shape(page["working"]) == [3, 3, 6, 0] && page["working"]?.sessions.map(\.id) == ["w0", "w1", "w2"])
-        #expect(shape(page["today"]) == [4, 0, 4, 0])                    // four: no row spent hiding one chat
-        #expect(shape(page["week"]) == [0, 0, 2, 1] && shape(page["older"]) == [0, 0, 2, 1])
-        #expect(page["page"]?.busy == 6 && page["page"]?.total == 19)
-        // Show More; a section closed; This Week opened.
-        page = run(rows) { $0.expandedGroups = ["state-working"]; $0.collapsedGroups = ["state-today"]; $0.openGroups = ["state-week"] }
-        #expect(shape(page["working"]) == [6, 0, 6, 0] && page["working"]?.expanded == true)
-        #expect(shape(page["today"]) == [0, 0, 4, 1] && page["week"]?.sessions.map(\.id) == ["k0", "k1"])
-        // The page's first section is never closed to begin with; closed by hand it is.
-        let old = [Self.chat("o0", ago: 30 * day, cwd: site)]
-        #expect(shape(run(old)["older"]) == [1, 0, 1, 0] && shape(run(old) { $0.collapsedGroups = ["state-older"] }["older"]) == [0, 0, 1, 1])
-        // A status filter shows every match.
-        page = run(rows) { $0.prefs.statusFilter = [.working] }
-        #expect(shape(page["working"]) == [6, 0, 6, 0])
-        #expect(SessionListPipeline.folds(SessionGroup(id: "state-week", title: "This Week", sessions: [])))
-        // [sessions-ux] A project whose chats fit one screen draws them all: nothing starts closed, nothing is cut to
-        // Show More; closed by hand a section still closes. One chat more and the long page's rules are back.
-        let few = Array(rows.prefix(5)) + rows.suffix(4) + [Self.chat("t0", ago: 20 * 60, cwd: site)]
-        #expect(few.count == SessionListPipeline.pageFitsWhole)
-        page = run(few)
-        #expect(shape(page["working"]) == [5, 0, 5, 0] && shape(page["week"]) == [2, 0, 2, 0] && shape(page["older"]) == [2, 0, 2, 0])
-        #expect(shape(run(few) { $0.collapsedGroups = ["state-week"] }["week"]) == [0, 0, 2, 1])
-        page = run(few + [Self.chat("t1", ago: 21 * 60, cwd: site)])
-        #expect(shape(page["working"]) == [3, 2, 5, 0] && shape(page["week"]) == [0, 0, 2, 1])
+        #expect(Set(page.keys) == ["page", "pinned", "active"])
+        // Pinned: every pinned chat, the one at work first. Active: needs you, new, working, then the quiet ones by time.
+        #expect(page["pinned"]?.sessions.map(\.id) == ["p1", "p0"])
+        #expect(page["active"]?.sessions.map(\.id) == ["n", "r", "w", "q0", "q1", "q2", "old"])
+        #expect(page["page"]?.needs == 1 && page["page"]?.ready == 1 && page["page"]?.busy == 2 && page["page"]?.total == 9)
+        // A pile closes; a status filter shows every match.
+        #expect(shape(run(rows) { $0.collapsedGroups = ["state-active"] }["active"]) == [0, 0, 7, 1])
+        #expect(shape(run(rows) { $0.collapsedGroups = ["state-active"]; $0.prefs.statusFilter = [.working] }["active"]) == [1, 0, 1, 0])
+        #expect(SessionListPipeline.folds(SessionGroup(id: "state-active", title: "Active", sessions: [])))
+        // A long Active draws its first rows, then Show More; one chat past the cap is drawn (no row spent hiding it).
+        let cap = SessionListPipeline.pageFirstRows
+        let many = (0..<(cap + 5)).map { Self.chat("m\($0)", ago: Double($0 + 1) * 60, cwd: site) }
+        #expect(shape(run(many)["active"]) == [cap, 5, cap + 5, 0])
+        page = run(many) { $0.expandedGroups = ["state-active"] }
+        #expect(shape(page["active"]) == [cap + 5, 0, cap + 5, 0] && page["active"]?.expanded == true)
+        #expect(shape(run(Array(many.prefix(cap + 1)))["active"]) == [cap + 1, 0, cap + 1, 0])
+        // Pinned is never cut.
+        let pins = (0..<(cap + 5)).map { Self.chat("p\($0)", ago: Double($0 + 1) * 60, pinned: true, cwd: site) }
+        #expect(shape(run(pins)["pinned"]) == [cap + 5, 0, cap + 5, 0])
     }
 
-    /// [project-pills] A project pill opens the project page: its header, then Needs You, Ready, Working and the quiet
-    /// chats (a chat in the first it fits). Not with bot pills, two projects, or a status pill.
+    /// [three-piles] Done is the project's archived chats, read for the page whether or not Show › Archived is on:
+    /// closed to its count until opened, off the header's counts. One with a reply not read yet is back in Active.
+    /// Another project's archived chats, and the lists outside the page, are as before.
+    @Test func aProjectPagesDonePile() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        let site = "/home/hermes/site"
+        func archived(_ id: String, ago: Double, status: SessionStatus = .idle, cwd: String? = site) -> SessionSummary {
+            var s = Self.chat(id, ago: ago, status: status, cwd: cwd); s.archived = true; return s
+        }
+        let live = [Self.chat("a", ago: 60, cwd: site), Self.chat("b", ago: 120, cwd: "/home/hermes/reading")]
+        let put = [archived("d0", ago: 600), archived("d1", ago: 300), archived("back", ago: 30, status: .unread),
+                   archived("other", ago: 40, cwd: "/home/hermes/reading")]
+        func run(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(live, archived: put) {
+                $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.pills = .projects
+                $0.prefs.projectFilter = [site]; edit(&$0)
+            }
+        }
+        var page = run()
+        #expect(page.map(\.id) == ["page", "state-active", "state-done"] && page.map(\.title) == ["", "Active", "Done"])
+        #expect(page[1].sessions.map(\.id) == ["back", "a"])
+        #expect(page[2].collapsed && page[2].sessions.isEmpty && page[2].total == 2)
+        #expect(page[0].total == 2 && page[0].ready == 1)
+        page = run { $0.openGroups = ["state-done"] }
+        #expect(!page[2].collapsed && page[2].sessions.map(\.id) == ["d1", "d0"])
+        // Show › Archived on: the same page.
+        #expect(run { $0.prefs.showArchived = true }.map(\.id) == ["page", "state-active", "state-done"])
+        // Only Done chats: the page is its header and the closed pile.
+        let only = Self.run([], archived: [put[0]]) {
+            $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.pills = .projects; $0.prefs.projectFilter = [site]
+        }
+        #expect(only.map(\.id) == ["page", "state-done"] && only[0].total == 0)
+        // Off the page nothing archived is listed.
+        #expect(run { $0.prefs.projectFilter = []; $0.prefs.groupBy = .project }.map(\.total).reduce(0, +) == 2)
+        #expect(Self.ids(run { $0.prefs.pills = .bots; $0.prefs.projectFilter = [] }).sorted() == ["a", "b"])
+    }
+
+    /// [project-pills] A project pill opens the project page: its header, then its piles. Not with bot pills, two
+    /// projects, or a status pill.
     @Test func aProjectPillOpensTheProjectPage() {
         let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
         var both = Self.chat("b", ago: 30, status: .needsInput, cwd: "/home/hermes/site"); both.unread = true
@@ -444,13 +458,10 @@ import Testing
             }
         }
         let page = run()
-        // [project-sections] Owner 2026-11-16: the headings say the chips' words, and the quiet chats are Pinned and
-        // then by when they were last at work.
-        #expect(page.map(\.id) == ["page", "state-needs", "state-ready", "state-working", "state-pinned", "state-today"])
-        #expect(page.map(\.title) == ["", "Needs You", "New", "Working", "Pinned", "Today"])
-        #expect(page[1].sessions.map(\.id) == ["b"] && page[2].sessions.map(\.id) == ["c"] && page[3].sessions.map(\.id) == ["a"])
-        #expect(page[4].sessions.map(\.id) == ["f"] && page[5].sessions.map(\.id) == ["e"])   // "g": research has no Site project
-        #expect(page.dropFirst().map(\.total) == [1, 1, 1, 1, 1])
+        #expect(page.map(\.id) == ["page", "state-pinned", "state-active"])
+        #expect(page.map(\.title) == ["", "Pinned", "Active"])
+        #expect(page[1].sessions.map(\.id) == ["f"] && page[2].sessions.map(\.id) == ["b", "c", "a", "e"])   // "g": research has no Site project
+        #expect(page.dropFirst().map(\.total) == [1, 4])
         let head = page[0]
         #expect(head.pageKey == "/home/hermes/site" && head.latestTitle == "Site" && head.branch == "fix/checkout")
         #expect(head.needs == 1 && head.ready == 1 && head.busy == 1 && head.total == 5 && head.profiles == ["default"])
@@ -537,9 +548,9 @@ import Testing
             $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries
             $0.collapsedGroups = ["pinned"]
         }
-        #expect(groups.map(\.id) == ["pinned", "project-/home/hermes/site"])           // still listed, in place
+        #expect(groups.map(\.id) == ["project-/home/hermes/site", "project-home"])     // [three-piles] the pinned chat is in Home
         #expect(groups.allSatisfy { $0.collapsed && $0.sessions.isEmpty && $0.more == 0 })
-        #expect(groups.map(\.total) == [1, 3])
+        #expect(groups.map(\.total) == [3, 1])
         // A closed project that was opened with Show More stays closed (no Show Less row under a closed header).
         let both = Self.run(Self.projectRows(9, unread: false)) {
             $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries
@@ -579,15 +590,14 @@ import Testing
         // Status › Unread: the closed groups open to show their matches, uncapped.
         var groups = run { $0.prefs.statusFilter = [.unread] }
         #expect(groups.allSatisfy { !$0.collapsed && $0.more == 0 })
-        #expect(Self.ids(groups) == ["pin", "s0", "s3", "s6"])
+        #expect(Self.ids(groups) == ["s0", "s3", "s6", "pin"])
         // Project › Site alone: [project-pills] Group By Project opens the project's page: all nine, uncapped, the
-        // three unread ones under Ready.
+        // three unread ones first in Active.
         groups = run { $0.prefs.projectFilter = ["/home/hermes/site"] }
         #expect(groups.first { $0.id == SessionListPipeline.pageId }?.total == 9)
-        #expect(groups.first { $0.id == "state-ready" }?.sessions.map(\.id).sorted() == ["s0", "s3", "s6"])
-        // [project-sections] Ready draws every chat; the six quiet ones are Today's. [sessions-ux] Nine chats fit one
-        // screen, so all six are drawn (a long page cuts a long section to three, then Show More).
-        #expect(groups.first { $0.id == "state-today" }.map { [$0.sessions.count, $0.more, $0.total] } == [6, 0, 6])
+        let active = groups.first { $0.id == "state-active" }
+        #expect(active?.sessions.prefix(3).map(\.id) == ["s0", "s3", "s6"])
+        #expect(active.map { [$0.sessions.count, $0.more, $0.total] } == [9, 0, 9])
         #expect(groups.allSatisfy { !$0.collapsed })
         // A project filter naming no listed project narrows nothing, so it opens nothing either (C-07).
         groups = run { $0.prefs.projectFilter = ["/gone"] }
@@ -647,26 +657,24 @@ import Testing
             Self.run(rows) { $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries; edit(&$0) }
         }
         let folded = run()
-        #expect(folded.map(\.id) == [SessionListPipeline.newId, reading, "project-home"])
-        #expect(folded[0].sessions.map(\.id) == ["reading-old"])
-        let projects = Array(folded.dropFirst())
+        #expect(folded.map(\.id) == [reading, "project-home"])          // [three-piles] the projects alone
+        let projects = folded
         #expect(projects.allSatisfy { $0.collapsed && $0.sessions.isEmpty && $0.more == 0 })
         let summary = projects[0]
         #expect(summary.total == 3 && summary.unread == 1 && summary.latestTitle == "Fix the header")
         #expect(summary.profiles == ["research", "default"] && summary.newest == Self.now.addingTimeInterval(-100))
         let open = run { $0.openGroups = [reading] }
-        #expect(open[1].sessions.map(\.id) == ["reading-r", "reading-new", "reading-old"] && !open[1].collapsed)
-        #expect(open[1].total == 3 && open[1].unread == 1 && open[1].more == 0 && !open[1].working)
-        // Every chat in New for You: the project still draws all of them.
+        #expect(open[0].sessions.map(\.id) == ["reading-r", "reading-new", "reading-old"] && !open[0].collapsed)
+        #expect(open[0].total == 3 && open[0].unread == 1 && open[0].more == 0 && !open[0].working)
+        // Every chat unread: the project draws all of them, and nothing stands above the projects.
         let allNew = Self.run(rows.map { var s = $0; s.unread = true; return s }) {
             $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries; $0.openGroups = [reading]
         }
         let kept = allNew.first { $0.id == reading }
         #expect(kept?.sessions.count == 3 && kept?.collapsed == false && kept?.total == 3 && kept?.unread == 3)
-        let new = allNew.first { $0.id == SessionListPipeline.newId }
-        #expect(new?.sessions.count == 3 && new?.more == 1)        // and New for You has all four, three then Show More
-        #expect(open[2].collapsed)
-        #expect(run { $0.openGroups = [reading]; $0.collapsedGroups = [reading] }[1].collapsed == false)
+        #expect(!allNew.contains { $0.id == SessionListPipeline.newId || $0.id == "pinned" })
+        #expect(open[1].collapsed)
+        #expect(run { $0.openGroups = [reading]; $0.collapsedGroups = [reading] }[0].collapsed == false)
         // Under Group By Date the new chat moves out of its group instead.
         #expect(Self.run(rows).flatMap(\.sessions).filter { $0.id == "reading-old" }.count == 1)
         #expect(SessionListPipeline.isProject(reading) && !SessionListPipeline.isProject("pinned"))
@@ -708,12 +716,8 @@ import Testing
         #expect(entries.count == 41)
         let clock = ContinuousClock()
         var first: [[String]] = []
-        // [project-cards] Group By Project lists New for You's chats in their projects too.
-        let twice = rows.filter {
-            // [pinned-in-project] A pinned chat is in Pinned and in its project too (Home's is Pinned's alone).
-            $0.pinned ? SessionProjects.key(cwd: $0.cwd, profile: $0.profile, projectsByProfile: projects) != SessionProjects.homeKey
-                      : SessionListPipeline.isNew($0)
-        }.count
+        // [three-piles] Every grouping lists each chat once: Group By Project is the projects alone (no New for You or
+        // Pinned above them to list a chat a second time), and Group By Recent has no project shortcuts.
         var again: [Int] = []
         let took = clock.measure {
             for round in 0..<3 {
@@ -729,15 +733,13 @@ import Testing
                                 + [SessionListPipeline.newId, "pinned", SessionListPipeline.projectsId])   // [sessions-fresh]
                         }
                         out.append(Self.ids(groups))
-                        // [sessions-fresh] Group By Recent's projects are shortcuts to chats Recent lists too.
-                        let shortcuts = group == .date ? groups.filter { SessionListPipeline.isProject($0.id) }.reduce(0) { $0 + $1.sessions.count } : 0
-                        if round == 0 { again.append(group == .project && sort != .tokens && sort != .cost ? twice : shortcuts) }
+                        if group == .date { #expect(!groups.contains { SessionListPipeline.isProject($0.id) }) }
                     }
                 }
                 if round == 0 { first = out } else { #expect(out == first) }           // the same order every time
             }
         }
-        #expect(zip(first, again).allSatisfy { $0.count == 2_000 + $1 && Set($0).count == 2_000 })
+        #expect(first.allSatisfy { $0.count == 2_000 && Set($0).count == 2_000 })
         #expect(took < .seconds(20), "45 passes over 2,000 chats took \(took)")       // a hang guard only; the budget is below
     }
 
@@ -769,17 +771,9 @@ import Testing
                     }
                     best = min(best, took)
                 }
-                // [sessions-fresh] Group By Recent's projects are shortcuts to chats Recent lists too.
-                let counted = group == .date ? groups.filter { !SessionListPipeline.isProject($0.id) } : groups
-                let count = counted.reduce(0) { $0 + max($1.total, $1.sessions.count) }      // a capped project counts its all
-                // [sessions-layout] A project counts its chats in New for You as well (it draws them there only).
-                let flat = sort == .tokens || sort == .cost
-                let twice = group == .project && !flat ? rows.filter {
-                    // [pinned-in-project] A pinned chat is in Pinned and in its project too (Home's is Pinned's alone).
-                    $0.pinned ? SessionProjects.key(cwd: $0.cwd, profile: $0.profile, projectsByProfile: projects) != SessionProjects.homeKey
-                              : SessionListPipeline.isNew($0)
-                }.count : 0
-                #expect(count - twice == 5_000)
+                // [three-piles] Each chat is counted once in every grouping (a capped project counts its all).
+                let count = groups.reduce(0) { $0 + max($1.total, $1.sessions.count) }
+                #expect(count == 5_000)
                 #expect(best < .milliseconds(150), "5,000 chats, Sort By \(sort), Group By \(group): best of five \(best)")
             }
         }

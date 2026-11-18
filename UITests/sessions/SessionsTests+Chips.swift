@@ -256,40 +256,9 @@ extension SessionsTests {
         toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(6) { toProjects.exists && !toBots.exists }, "and its lit (Projects) side flips it back")
         XCTAssertTrue(nothingPicked(app), "the bot picked before went with the view")
-        // [project-opens-page] On the Bots side a project's row opens its page too, on the Projects side; the switch's
-        // other side goes back to the Bots side.
-        let bySide = ["Website", "Reading", "App"].map { header(app, $0) }
-        XCTAssertTrue(waitUntil(8) { bySide.contains(where: \.exists) }, "a project's row on the Bots side")
-        let projectRow = bySide.first(where: \.exists)!
-        let projectName = String(projectRow.label.prefix { $0 != "," })
-        XCTAssertFalse(((projectRow.value as? String) ?? "").contains("Collapsed"), "it opens, it doesn't unfold (\(projectRow.value ?? ""))")
-        reveal(app, projectRow)
-        projectRow.tap()
-        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "the row opens \(projectName)'s page")
-        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "on the Projects side")
-        XCTAssertTrue(app.staticTexts[projectName].exists, "the page is \(projectName)'s")
-        shot(app, "P0c-bots-side-row-opens-page")
-        toBots.tap()
-        XCTAssertTrue(waitUntil(6) { toProjects.exists && !app.cells["sessions.projectPage"].exists }, "the switch goes back to the Bots side")
-        XCTAssertTrue(waitUntil(6) { !self.chip(app, "research").exists || self.chip(app, "default").exists }, "the bot pills again")
-        // [project-page-return] With a bot picked: its project's page shows the whole project, the switch is in view
-        // (the rail scrolled only as far as the project's pill needed), and the way back brings the bot back.
-        tapChip(app, "research")
-        XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
-        let reading = header(app, "Reading")
-        XCTAssertTrue(reading.waitForExistence(timeout: 6), "Research's project, Reading")
-        reveal(app, reading)
-        reading.tap()
-        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "Reading's page")
-        XCTAssertTrue(waitUntil(6) { toBots.exists && toBots.isHittable }, "the switch is in view, no swipe needed")
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND selected == true")).firstMatch.label.hasPrefix("Reading"),
-                      "Reading's pill lit")
-        shot(app, "P0d-page-from-a-bot")
-        toBots.tap()
-        XCTAssertTrue(waitUntil(6) { toProjects.exists && self.chip(app, "research").isSelected }, "back: Research picked again")
-        XCTAssertTrue(waitUntil(6) { self.order(app).allSatisfy { ["s-trip", "s-recipes"].contains($0) } }, "Research's chats (\(order(app)))")
-        tapChip(app, "research")
-        XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) })
+        // [three-piles] The Bots side is the chats alone: no project's row there (the switch goes to the projects).
+        XCTAssertFalse(["Website", "Reading", "App"].contains { header(app, $0).exists }, "no project on the Bots side (\(headers(app)))")
+        XCTAssertTrue(headers(app).contains("Recent"), "\(headers(app))")
         toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now the projects")
         openFilter(app)
@@ -331,11 +300,11 @@ extension SessionsTests {
         // [sessions-ux] One go-to: no New Chat on the page; the bar's Compose starts the chat here and says so.
         XCTAssertFalse(app.buttons["sessions.projectPage.newChat"].exists, "no second New Chat on the page")
         XCTAssertEqual(app.buttons["sessions.compose"].label, "New Chat in Website with Hermes")
-        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["New"] }, "its sections (\(headers(app)))")
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Active"] }, "its piles (\(headers(app)))")
         shot(app, "P2-project-pill-picked")
         // Reading's page: its working chat under Working.
         onScreen(app, pills[1]).tap()
-        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Working"] && self.order(app) == ["s-trip"] }, "Reading's page (\(headers(app)), \(order(app)))")
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Active"] && self.order(app) == ["s-trip"] }, "Reading's page (\(headers(app)), \(order(app)))")
         shot(app, "P2b-project-page-working")
         onScreen(app, pills[1]).tap()
         XCTAssertTrue(waitUntil(6) { !page.exists && self.headers(app).contains("Website") }, "every project again (\(headers(app)))")
@@ -385,20 +354,18 @@ extension SessionsTests {
         let workingChip = app.buttons["sessions.projectPage.working"]
         XCTAssertTrue(workingChip.waitForExistence(timeout: 6), "the Working count's chip")
         XCTAssertEqual(workingChip.label, "Working, 1 chat")
-        // [project-sections] Working first, then the quiet chats by age (a closed section says its count in its name).
-        let quiet = ["Pinned", "Today", "This Week", "Older"]
-        func names() -> [String] { self.headers(app).map { $0.components(separatedBy: ", ").first ?? $0 } }
-        XCTAssertTrue(waitUntil(6) { names().first == "Working" && names().count > 1 && names().dropFirst().allSatisfy(quiet.contains) },
-                      "\(headers(app))")
+        // [three-piles] One Active pile, the working chat first in it.
+        func pile(_ name: String) -> String? { self.headers(app).first { $0 == name || $0.hasPrefix(name + ", ") } }
+        XCTAssertTrue(waitUntil(6) { pile("Active") == "Active" && self.order(app).contains("s-garden") }, "\(headers(app)), \(order(app))")
         shot(app, "P5b-project-page-chips")
-        // A section closes to its heading and count, and its chip opens it again.
-        let workingHeader = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'Working'")).firstMatch
+        // A pile closes to its heading and count, and the count's chip opens it again (and goes to its chat).
+        let activeHeader = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'Active'")).firstMatch
         XCTAssertTrue(row(app, "s-garden").exists)
-        workingHeader.tap()
-        XCTAssertTrue(waitUntil(6) { !self.row(app, "s-garden").exists && self.headers(app).first == "Working, 1 chat" }, "closed (\(headers(app)))")
-        shot(app, "P5c-project-page-section-closed")
+        activeHeader.tap()
+        XCTAssertTrue(waitUntil(6) { !self.row(app, "s-garden").exists && (pile("Active") ?? "").hasPrefix("Active, ") }, "closed (\(headers(app)))")
+        shot(app, "P5c-project-page-pile-closed")
         workingChip.tap()
-        XCTAssertTrue(waitUntil(6) { self.row(app, "s-garden").exists && self.headers(app).first == "Working" }, "its chip opens it (\(headers(app)))")
+        XCTAssertTrue(waitUntil(6) { self.row(app, "s-garden").exists && pile("Active") == "Active" }, "its chip opens it (\(headers(app)))")
         onScreen(app, appPill).tap()
         fixture("/__fixture/mode", ["working": ["s-trip"]])
         XCTAssertTrue(waitUntil(20) { !appPill.label.contains("Working") }, "App is quiet again")
@@ -434,18 +401,9 @@ extension SessionsTests {
             let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
             from.press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
         }
-        // From the Bots side, a bot picked: back is that bot's list again.
+        // The list itself has no page to go back to: the swipe leaves it as it is.
         tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
-        let reading = header(app, "Reading")
-        XCTAssertTrue(reading.waitForExistence(timeout: 6))
-        reveal(app, reading)
-        reading.tap()
-        XCTAssertTrue(page.waitForExistence(timeout: 6), "Reading's page")
-        edgeSwipe()
-        XCTAssertTrue(waitUntil(6) { !page.exists && toProjects.exists && self.chip(app, "research").isSelected },
-                      "the swipe goes back: the Bots side, Research picked again")
-        // The list itself has no page to go back to: the swipe leaves it as it is.
         edgeSwipe()
         XCTAssertTrue(waitUntil(2) { toProjects.exists && self.chip(app, "research").isSelected }, "nothing to go back to")
         tapChip(app, "research")
@@ -462,14 +420,14 @@ extension SessionsTests {
                       "the swipe goes back to every project (\(headers(app)))")
     }
 
-    /// [project-sections] Owner 2026-11-16 (picked from three drawings): a project page's quiet chats are Pinned, Today,
-    /// This Week and Older; each heading has its count; a long section draws three then Show More; This Week and
-    /// Older start closed under the sections above them and open with a tap.
-    @MainActor func test40c_ProjectPageSections() throws {
+    /// [three-piles] Owner 2026-11-17 (picked from pictures, "I like option 1"): a project's page is three piles.
+    /// Pinned; Active, one run (a long one draws its first rows then Show More); Done, the archived chats, closed to
+    /// its count until tapped. On the page the swipe says Done, and Not Done on a chat in Done.
+    @MainActor func test40c_ProjectPageThreePiles() throws {
         let now = Date().timeIntervalSince1970
-        for index in 0..<6 { setRow("s-day-\(index)", ["title": "Today \(index)", "last_active": now - Double(index + 3) * 600]) }
-        for index in 0..<2 { setRow("s-week-\(index)", ["title": "Week \(index)", "last_active": now - Double(index + 2) * 86_400]) }
-        for index in 0..<2 { setRow("s-old-\(index)", ["title": "Old \(index)", "last_active": now - Double(index + 20) * 86_400]) }
+        for index in 0..<17 { setRow("s-act-\(index)", ["title": "Active \(index)", "last_active": now - Double(index + 3) * 600]) }
+        setRow("s-keep", ["title": "Keep close", "pinned": true, "last_active": now - 5 * 86_400])
+        for index in 0..<2 { setRow("s-done-\(index)", ["title": "Done \(index)", "archived": true, "last_active": now - Double(index + 20) * 86_400]) }
         let app = launch()
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         let toProjects = app.buttons["sessions.pills.projects"]
@@ -479,48 +437,50 @@ extension SessionsTests {
         XCTAssertTrue(appPill.waitForExistence(timeout: 10))
         onScreen(app, appPill).tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6))
+        let list = app.collectionViews["sessions.list"]
         func names() -> [String] { self.headers(app) }
-        XCTAssertTrue(waitUntil(8) { names().suffix(2) == ["This Week, 2 chats", "Older, 2 chats"] && names().contains("Today") },
-                      "Today open, This Week and Older closed (\(names()))")
-        let today = order(app).filter { $0.hasPrefix("s-day-") || $0 == "s-garden" }
-        XCTAssertEqual(today.count, 3, "a long section draws three (\(order(app)))")
-        XCTAssertFalse(row(app, "s-week-0").exists)
-        shot(app, "P8-page-sections")
-        // Show More draws the rest of Today.
+        XCTAssertTrue(waitUntil(8) { Array(names().prefix(2)) == ["Pinned", "Active"] }, "Pinned, then Active (\(names()))")
+        XCTAssertEqual(Set(order(app).prefix(2)), ["s-release", "s-keep"], "the pinned chats first (\(order(app)))")
+        XCTAssertFalse(row(app, "s-done-0").exists, "Done's chats are put away")
+        shot(app, "P8-page-three-piles")
+        // Active draws its first rows, then Show More; Done is one closed line under it.
         let more = app.cells["sessions.showMore"].firstMatch
-        XCTAssertTrue(more.waitForExistence(timeout: 4), "Show More under Today")
+        for _ in 0..<6 where !more.exists { list.swipeUp(velocity: .slow) }
+        XCTAssertTrue(more.exists, "Show More under a long Active")
+        XCTAssertTrue(waitUntil(6) { (names().last ?? "").hasPrefix("Done, ") }, "Done closed, with its count (\(names()))")
+        shot(app, "P8b-page-show-more-and-done")
         more.tap()
-        XCTAssertTrue(waitUntil(6) { self.order(app).filter { $0.hasPrefix("s-day-") }.count == 6 }, "all of Today (\(order(app)))")
-        // This Week opens with a tap on its heading.
-        let week = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'This Week'")).firstMatch
-        if !week.isHittable { app.swipeUp() }
-        week.tap()
-        XCTAssertTrue(waitUntil(6) { self.row(app, "s-week-0").exists && names().contains("This Week") }, "This Week open (\(names()))")
-        shot(app, "P9-page-sections-open")
-    }
-    /// [working-header-inset] Owner 2026-11-17: a project page's Working heading had its ring hung 15 pt into the
-    /// margin, about 5 pt from the screen's edge. The ring sits on the rows' edge now: nothing is drawn in the 14 pt
-    /// beside the screen's edge on the heading's line.
-    @MainActor func test40d_ProjectPageWorkingMarkInset() throws {
-        fixture("/__fixture/mode", ["working": ["s-garden"]])
-        defer { fixture("/__fixture/mode", ["working": [String]()]) }
-        let app = launch()
-        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        let toProjects = app.buttons["sessions.pills.projects"]
-        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
-        toProjects.tap()
-        let appPill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
-        XCTAssertTrue(appPill.waitForExistence(timeout: 10))
+        for _ in 0..<4 where !row(app, "s-act-16").exists { list.swipeUp(velocity: .slow) }
+        XCTAssertTrue(row(app, "s-act-16").exists, "all of Active")
+        // Done opens with a tap on its heading.
+        let done = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'Done'")).firstMatch
+        for _ in 0..<4 where !done.isHittable { list.swipeUp(velocity: .slow) }
+        done.tap()
+        for _ in 0..<3 where !row(app, "s-done-1").exists { list.swipeUp(velocity: .slow) }
+        XCTAssertTrue(waitUntil(6) { self.row(app, "s-done-0").exists && names().last == "Done" }, "Done open (\(names()))")
+        shot(app, "P9-page-done-open")
+        // A chat in Done: the swipe takes it back out.
+        row(app, "s-done-0").swipeLeft()
+        let notDone = app.buttons["Not Done"]
+        XCTAssertTrue(notDone.waitForExistence(timeout: 4), "Not Done on a chat in Done")
+        shot(app, "P9b-page-not-done-swipe")
+        notDone.tap()
+        XCTAssertTrue(waitUntil(8) { names().last == "Done" && !self.order(app).suffix(1).contains("s-done-0") }, "back among the active chats (\(order(app)))")
+        // An active chat: the swipe says Done and puts it in the pile.
+        list.swipeDown(velocity: .fast); list.swipeDown(velocity: .fast)
+        XCTAssertTrue(row(app, "s-act-0").waitForExistence(timeout: 6))
+        row(app, "s-act-0").swipeLeft()
+        let markDone = app.buttons["Done"]
+        XCTAssertTrue(markDone.waitForExistence(timeout: 4), "Done on an active chat")
+        shot(app, "P9c-page-done-swipe")
+        markDone.tap()
+        XCTAssertTrue(waitUntil(8) { !self.row(app, "s-act-0").exists || self.order(app).last == "s-act-0" }, "it left Active (\(order(app)))")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Done “Active 0”'")).firstMatch.waitForExistence(timeout: 4), "the Undo pill says so")
+        // Off the page it is an archived chat: not in the list.
         onScreen(app, appPill).tap()
-        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6))
-        let working = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier == 'sessions.header' AND label BEGINSWITH 'Working'")).firstMatch
-        XCTAssertTrue(working.waitForExistence(timeout: 8), "a Working section (\(headers(app)))")
-        shot(app, "P10-page-working-inset")
-        let line = working.frame
-        let image = app.windows.firstMatch.screenshot().image
-        XCTAssertEqual(Self.inkBesideEdge(image, top: line.minY, bottom: line.maxY, width: 14), 0,
-                       "nothing drawn in the 14 pt beside the screen's edge on the Working heading's line (\(line))")
+        XCTAssertTrue(waitUntil(6) { !app.cells["sessions.projectPage"].exists })
+        XCTAssertFalse(row(app, "s-act-0").exists)
+        setRow("s-act-0", ["archived": false], event: true)
     }
 
     /// Pixels unlike the page's ground in the strip `width` points wide at the screen's left edge, between `top` and `bottom`.

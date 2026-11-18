@@ -64,12 +64,8 @@ extension SessionsTests {
         XCTAssertTrue(labelOf(more).contains("3 more"), labelOf(more))
         for index in 1...5 { XCTAssertTrue(row(app, "s-w\(index)").exists, "s-w\(index) among the newest five") }
         XCTAssertFalse(row(app, "s-w6").exists)
-        // The budget chat stays in New for You, above Pinned; its second row is under Website's Show More.
-        XCTAssertTrue(waitUntil(4) {
-            let shown = self.order(app)
-            return (shown.firstIndex(of: "s-budget") ?? .max) < (shown.firstIndex(of: "s-release") ?? -1)
-                && !self.rows(under: "Website", app).contains { $0.hasSuffix("s-budget") }
-        }, "the budget chat stays in New for You (\(order(app)))")
+        // [three-piles] The budget chat, Website's oldest, is under its Show More (no New for You above the projects).
+        XCTAssertTrue(waitUntil(4) { !self.order(app).contains { $0.hasSuffix("s-budget") } }, "the budget chat waits under Show More (\(order(app)))")
         reveal(app, more)
         shot(app, "groups-project")
 
@@ -77,7 +73,7 @@ extension SessionsTests {
         more.tap()
         XCTAssertTrue(row(app, "s-w6").waitForExistence(timeout: 5), "the rest of Website")
         XCTAssertTrue(row(app, "s-w7").exists)
-        XCTAssertTrue(app.cells["session-row-also-s-budget"].exists, "and the budget chat, in New for You too")
+        XCTAssertTrue(row(app, "s-budget").exists, "and the budget chat")
         let less = app.cells["sessions.showMore"].firstMatch
         reveal(app, less)
         XCTAssertTrue(waitUntil(5) { self.labelOf(less).contains("fewer") }, "Show Less (\(labelOf(less)))")
@@ -88,23 +84,19 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(5) { !self.row(app, "s-w6").exists }, "back to five")
         app.swipeDown()
 
-        // A header folds its group again; Pinned closes to its name, the count and the chevron.
+        // A header folds its group again.
         header(app, "Website").tap()
         XCTAssertTrue(waitUntil(5) { !self.row(app, "s-w1").exists }, "Website folded")
         XCTAssertFalse(app.cells["sessions.showMore"].exists, "no Show More under a folded project")
         XCTAssertTrue((header(app, "Website").value as? String)?.hasPrefix("Collapsed") == true)
-        header(app, "Pinned").tap()
-        XCTAssertTrue(waitUntil(5) { !self.row(app, "s-release").exists }, "Pinned closed")
-        XCTAssertEqual(header(app, "Pinned").value as? String, "Collapsed")
         XCTAssertTrue((header(app, "App").value as? String)?.hasPrefix("Collapsed") == true, "the other projects stay folded")
         shot(app, "groups-collapsed")
 
         // Kept across launches.
         app.terminate()
         let again = launch(keepView: true)
-        XCTAssertTrue(row(again, "s-budget").waitForExistence(timeout: 15))
+        XCTAssertTrue(header(again, "Website").waitForExistence(timeout: 15))
         XCTAssertTrue((header(again, "Website").value as? String)?.hasPrefix("Collapsed") == true)
-        XCTAssertEqual(header(again, "Pinned").value as? String, "Collapsed")
         XCTAssertFalse(row(again, "s-w1").exists)
         XCTAssertFalse(row(again, "s-release").exists)
 
@@ -117,7 +109,7 @@ extension SessionsTests {
         openFilter(again)
         tapFilter(again, "status", "status.unread")
         closeFilter(again)
-        XCTAssertTrue(waitUntil(6) { self.rows(under: "New for You", again) == ["s-budget"] && !self.row(again, "s-w1").exists },
+        XCTAssertTrue(waitUntil(6) { !self.row(again, "s-budget").exists && !self.row(again, "s-w1").exists },
                       "folded again without the filter (\(order(again)))")
 
         // Search finds a chat in a closed group.
@@ -125,14 +117,11 @@ extension SessionsTests {
         let field = again.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("release")
-        XCTAssertTrue(row(again, "s-release").waitForExistence(timeout: 6), "search reaches into closed Pinned")
+        XCTAssertTrue(row(again, "s-release").waitForExistence(timeout: 6), "search reaches into a folded project")
         if again.buttons["Cancel"].firstMatch.exists { again.buttons["Cancel"].firstMatch.tap() } else { field.buttons["Clear text"].firstMatch.tap() }
         XCTAssertTrue(waitUntil(6) { !self.row(again, "s-release").exists }, "closed again after the search")
 
         // Open again.
-        XCTAssertTrue(header(again, "Pinned").waitForExistence(timeout: 6))
-        header(again, "Pinned").tap()
-        XCTAssertTrue(row(again, "s-release").waitForExistence(timeout: 5))
         openProject(again, "Website")
         XCTAssertTrue(row(again, "s-w1").waitForExistence(timeout: 5))
     }
@@ -145,7 +134,8 @@ extension SessionsTests {
         tapFilter(app, "group", "group.project")
         closeFilter(app)
         let open = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'sessions.header' AND value == 'Expanded'"))
-        XCTAssertTrue(open.firstMatch.waitForExistence(timeout: 8), "an open header")
+        // [three-piles] Group By Project is the projects alone, each folded to its row; any header open is closed.
+        XCTAssertTrue(waitUntil(8) { self.headers(app).count > 1 }, "the projects' headers (\(headers(app)))")
         for _ in 0..<12 where open.firstMatch.exists {
             open.firstMatch.tap()
             Thread.sleep(forTimeInterval: 0.5)

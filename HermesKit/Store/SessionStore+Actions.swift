@@ -89,6 +89,8 @@ nonisolated struct SessionBranch: Sendable, Hashable {
 
 nonisolated enum SessionActionText {
     static let archivedWayBack = "Find it in Filter and Sort › Show › Archived."
+    /// [three-piles] The same on a project's page, where an archived chat is in the Done pile.
+    static let doneWayBack = "Find it under Done, at the bottom of this project."
     static let deleteMessage = "This chat and its history will be deleted from \(HostWord.phrase)."
     static var branchUnsupported: String { "This gateway can’t branch chats yet. Update Hermes on \(HostWord.updateTarget), then try again." }
     static var projectsUnsupported: String { "This gateway doesn’t have projects yet. Update Hermes on \(HostWord.updateTarget), then try again." }

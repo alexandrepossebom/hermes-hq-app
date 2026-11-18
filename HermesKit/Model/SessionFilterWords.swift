@@ -438,7 +438,7 @@ nonisolated enum SessionFilterMenuModel {
         // Faces under Group By Project too, whose rows are Recent's.
         var faces: [SessionFilterNode] = []
         if prefs.recentRows { faces.append(check("sessions.filter.faces", "Bot Faces", prefs.botFaces, .botFaces, symbol: "face.smiling")) }
-        if SessionListPipeline.isFresh(prefs) {
+        if SessionListPipeline.isFresh(prefs), SessionListPipeline.recentShowsProjects {   // [three-piles] no Projects block: Recent is every chat
             faces.append(check("sessions.filter.projectchats", "Project Chats in Recent", prefs.projectChatsInRecent, .projectChatsInRecent,
                                symbol: "folder"))
         }

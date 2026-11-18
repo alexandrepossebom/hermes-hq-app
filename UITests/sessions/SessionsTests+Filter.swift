@@ -123,18 +123,17 @@ extension SessionsTests {
         XCTAssertTrue(filterItem(app, "group.bot").exists, "Group By Bot with a second bot")
         shot(app, "A4-group-menu")
         tapFilter(app, "group.project")
-        // [sessions-layout] New for You and Pinned, then each project folded to its row (Website keeps its unread chat).
+        // [three-piles] The projects alone, each folded to its row (no New for You or Pinned above them).
         // [project-pills] What needs you first (Website's unread reply), then by the newest chat, Home last.
-        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["New for You", "Pinned", "Website", "App", "Reading", "Home"] },
+        XCTAssertTrue(waitUntil(6) { self.headers(app) == ["Website", "App", "Reading", "Home"] },
                       "one header per project, what needs you first, Home last (\(headers(app)))")
-        XCTAssertEqual(order(app), ["s-budget", "s-release"], "the projects start folded")
+        XCTAssertEqual(order(app), [], "the projects start folded")
         XCTAssertTrue((header(app, "Website").value as? String)?.contains("1 new") == true, "Website counts its unread chat")
         shot(app, "A4-group-project")
         closeFilter(app)
         for project in ["App", "Reading", "Website", "Home"] { openProject(app, project) }
-        // [project-cards] Website's one chat is in New for You and, opened, in Website too (a second row of its own).
-        // [pinned-in-project] Release, pinned, is in App too (a second row of its own).
-        XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget", "s-release", "also-s-budget", "s-garden", "also-s-release", "s-trip", "s-recipes"] },
+        // [three-piles] Each chat once, in its project: Website's unread one, and Release, pinned, in App.
+        XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget", "s-garden", "s-release", "s-trip", "s-recipes"] },
                       "each project opens in place (\(order(app)))")
         shot(app, "A4-group-project-open")
     }

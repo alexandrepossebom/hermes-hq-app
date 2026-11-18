@@ -86,7 +86,7 @@ extension AppModel: SessionsServices {}
             .action("Move Down", "arrow.down", disabled: !moves.down) { [weak self] in self?.host?.moveChat(item, by: 1) },
         ] } ?? []
         let end: [BotMenuNode] = [
-            .action(session.archived ? "Unarchive" : "Archive", session.archived ? "tray.and.arrow.up" : "archivebox") { [weak self] in
+            .action(archiveWords(session).menu, archiveWords(session).symbol) { [weak self] in
                 self?.archive(session)
             },
         ]
@@ -196,11 +196,11 @@ extension AppModel: SessionsServices {}
         }
         delete.image = UIImage(systemName: "trash.fill")
         delete.backgroundColor = .systemRed
-        let archive = UIContextualAction(style: .normal, title: session.archived ? "Unarchive" : "Archive") { [weak self] _, _, done in
+        let archive = UIContextualAction(style: .normal, title: archiveWords(session).swipe) { [weak self] _, _, done in
             done(true)
             self?.archive(session)
         }
-        archive.image = UIImage(systemName: session.archived ? "tray.and.arrow.up.fill" : "archivebox.fill")
+        archive.image = UIImage(systemName: archiveWords(session).symbol + ".fill")
         archive.backgroundColor = Theme.inkSwipe(.systemIndigo)   // [paper-ink]
         let more = UIContextualAction(style: .normal, title: "More") { [weak self] _, _, done in
             done(true)
@@ -532,6 +532,16 @@ extension AppModel: SessionsServices {}
         store?.setUnread(session, !session.unread)
     }
 
+    /// [three-piles] On a project's page an archived chat is in its Done pile, so there the verb is Done (and Not Done
+    /// to take it back out); everywhere else it is Archive and Unarchive. The same write either way.
+    var onProjectPage: Bool { host?.isProjectPage == true && surface === host }
+    func archiveWords(_ session: SessionSummary) -> (menu: String, swipe: String, symbol: String) {
+        if onProjectPage {
+            return session.archived ? ("Mark as Not Done", "Not Done", "arrow.uturn.backward.circle") : ("Mark as Done", "Done", "checkmark.circle")
+        }
+        return session.archived ? ("Unarchive", "Unarchive", "tray.and.arrow.up") : ("Archive", "Archive", "archivebox")
+    }
+
     /// Archive asks nothing: the row goes and "Archived “<title>” · Undo" shows at the tap, with Filter › Archived as
     /// the way back drawn under it (not while Show › Archived is on: the row comes back marked). An Undo tapped before
     /// the gateway answered waits for the archive, then unarchives. On an archived row the same verb unarchives (no
@@ -541,13 +551,15 @@ extension AppModel: SessionsServices {}
         Haptics.play(.selection)
         if session.archived {
             run("Couldn’t Unarchive Chat", owner: session.owner, { try await store.setArchived(session, false) },
-                done: { [weak self] in MenusHUD.show("Unarchived", in: self?.surface?.view) },
+                done: { [weak self] in MenusHUD.show(self?.onProjectPage == true ? "Back in Active" : "Unarchived", in: self?.surface?.view) },
                 retry: { [weak self] in self?.archive(session) })
             return
         }
         let archiving = Task { try await store.setArchived(session, true) }
-        let pill = store.readOnlyGateway ? nil : UndoPill.show(label: "Archived “\(SessionRowView.title(session))”",
-                                                                    wayBack: SessionActionText.archivedWayBack, showsWayBack: !store.view.showArchived, in: surface) { [weak self] in
+        let page = onProjectPage
+        let pill = store.readOnlyGateway ? nil : UndoPill.show(label: "\(page ? "Done" : "Archived") “\(SessionRowView.title(session))”",
+                                                                    wayBack: page ? SessionActionText.doneWayBack : SessionActionText.archivedWayBack,
+                                                                    showsWayBack: page || !store.view.showArchived, in: surface) { [weak self] in
             Task { [weak self] in
                 guard (try? await archiving.value) != nil else { return }     // it failed: the row is back already
                 var archived = session

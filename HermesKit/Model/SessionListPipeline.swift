@@ -164,6 +164,8 @@ nonisolated enum SessionListPipeline {
         var apps = SessionGroup(id: otherAppsId, title: "", sessions: [], total: folders.map(\.total).reduce(0, +),
                                 platforms: order, newest: folders.compactMap(\.newest).max())
         apps.waiting = folders.contains(where: \.waiting)
+        // [three-piles] Group By Project is the projects first: the row comes after them (Home is their last).
+        if input.prefs.groupBy == .project, !isFlat(input.prefs) { return out + [apps] }
         out.insert(apps, at: out.prefix { $0.id == newId || $0.id == "pinned" }.count)   // under New for You and Pinned
         return out
     }
@@ -202,6 +204,10 @@ nonisolated enum SessionListPipeline {
         // A chat in both (archived a moment ago, the recents not read since) is listed once, as the live row.
         var pool = prefs.showArchived ? input.live + input.archived : input.live
         if foldersShown { pool += input.outside.filter(\.pinned) }        // a pinned platform chat sits in Pinned
+        // [three-piles] A project's page lists its archived chats too, as its Done pile (live rows first: a chat in
+        // both is listed once, as the live row).
+        let isPage = prefs.pills == .projects && picked.count == 1 && input.statusChip == nil && !isFlat(prefs)
+        if isPage, !prefs.showArchived { pool += input.archived }
         let hidden = picked.isEmpty ? hiddenProjects(input) : []
         let needsProject = !picked.isEmpty || !hidden.isEmpty || isFresh(prefs) || (prefs.groupBy == .project && !isFlat(prefs))
         var projectOf: [String: String] = [:]
@@ -234,7 +240,7 @@ nonisolated enum SessionListPipeline {
             guard seen.insert(id).inserted else { continue }
             rows.append(session)
         }
-        if prefs.pills == .projects, picked.count == 1, input.statusChip == nil, !isFlat(prefs), let key = picked.first {
+        if isPage, let key = picked.first {
             return projectPage(key, rows: rows, input: input)
         }
         if let chip = input.statusChip {
@@ -272,7 +278,8 @@ nonisolated enum SessionListPipeline {
             $0.pinned ? project($0) != SessionProjects.homeKey && (keepsNew || !lifted.contains(key($0)))
                       : keepsNew || !lifted.contains(key($0))
         }
-        guard !rest.isEmpty || !projectRows.isEmpty else { return out + folders }
+        // [three-piles] Group By Project draws every chat in its project (Home's pinned ones too).
+        guard !rest.isEmpty || !projectRows.isEmpty || prefs.groupBy == .project else { return out + folders }
 
         /// One group per project, by its newest chat (Home last), then the user's order, favorites first.
         func projectGroups(_ rows: [SessionSummary]) -> [SessionGroup] {
@@ -306,7 +313,9 @@ nonisolated enum SessionListPipeline {
         case .date:
             // [sessions-fresh] The projects (Home's chats are Recent's alone), their newest few under "Projects" until
             // See All; then every chat newest first.
-            var projects = projectGroups(projectRows).filter { $0.id != projectPrefix + SessionProjects.homeKey }
+            // [three-piles] Owner 2026-11-17 (picked from pictures: "I like the bots page"): the Bots side is the chats,
+            // Pinned then Recent; the projects are the switch's other side, not a block here too.
+            var projects = recentShowsProjects ? projectGroups(projectRows).filter { $0.id != projectPrefix + SessionProjects.homeKey } : []
             if !projects.isEmpty {
                 // A filter narrowing the list shows every project it finds; See All (and Show Less) only while there are
                 // projects to hide.
@@ -320,7 +329,7 @@ nonisolated enum SessionListPipeline {
             out += projects
             // Show › Project Chats in Recent off: a project's chats stay on its card (See All finds a project past
             // the first few), and Recent keeps Home's.
-            let recent = prefs.projectChatsInRecent ? rest : rest.filter { project($0) == SessionProjects.homeKey }
+            let recent = prefs.projectChatsInRecent || !recentShowsProjects ? rest : rest.filter { project($0) == SessionProjects.homeKey }
             if !recent.isEmpty {
                 out.append(SessionGroup(id: recentId, title: recentTitle, sessions: ranked(sort(recent, by: prefs.sortBy))))
             }
@@ -332,12 +341,23 @@ nonisolated enum SessionListPipeline {
         case .project:
             // [project-pills] In the project pills' order: what needs the owner first (Needs You, Ready, Working, then
             // the quiet ones), the order above within each (Home last by default, but it moves like any project).
-            let groups = projectGroups(projectRows)
+            // [three-piles] The Projects side is the projects alone: no New for You and no Pinned above them (a project's
+            // row counts its new replies, the New pill lists them all, and a pinned chat is on its project's page).
+            // Home's pinned chats are in Home, as any project's.
+            // A pinned chat from another app is no project's: it is on the Other Apps page (and in the Bots side's Pinned).
+            out = []
+            let outsideKeys = Set(input.outside.map(key))
+            let groups = projectGroups(outsideKeys.isEmpty ? sorted : sorted.filter { !outsideKeys.contains(key($0)) })
             func rank(_ group: SessionGroup) -> Int {
                 let states = group.sessions.reduce(into: Set<SessionProjectState>()) { $0.formUnion(SessionProjectState.of($1)) }
                 return (SessionProjectState.allCases.first(where: states.contains) ?? .quiet).rawValue
             }
+            // [three-piles] Home (the chats in no project) is the last row whatever its chats wait on, until the owner
+            // gives it a place of its own (Reorder): it is not a project to keep up with.
+            let home = projectPrefix + SessionProjects.homeKey
+            let homeLast = !input.projectOrder.contains(SessionProjects.homeKey)
             out += groups.enumerated().sorted { a, b in
+                if homeLast, (a.element.id == home) != (b.element.id == home) { return b.element.id == home }
                 let ra = rank(a.element), rb = rank(b.element)
                 return ra != rb ? ra < rb : a.offset < b.offset
             }.map(\.element)
@@ -370,15 +390,19 @@ nonisolated enum SessionListPipeline {
     static let statePrefix = "state-"
 
     /// [project-pills] Owner 2026-11-15: a project pill opens the project as a page of its own: a header (its name,
-    /// folder, branch and bots; how many chats need the owner, are ready to review, are at work; New Chat in it), then
-    /// its chats by what they wait on: Needs You, Ready, Working, then the quiet ones (Pinned, Today, This Week, Older).
-    /// A chat is in the first of these it fits (`SessionProjectState`, its rank).
+    /// folder, branch and bots; how many chats need the owner, have a new reply, are at work), then its chats in
+    /// three piles (see below): Pinned, Active, Done.
     static func projectPage(_ key: String, rows: [SessionSummary], input: SessionListInput) -> [SessionGroup] {
-        var buckets: [SessionProjectState: [SessionSummary]] = [:]
-        for session in rows {
-            let state = SessionProjectState.allCases.first(where: SessionProjectState.of(session).contains) ?? .quiet
-            buckets[state, default: []].append(session)
+        func state(_ session: SessionSummary) -> SessionProjectState {
+            SessionProjectState.allCases.first(where: SessionProjectState.of(session).contains) ?? .quiet
         }
+        // [three-piles] Done is the project's archived chats. One with a reply not read yet, or at work, is back among
+        // the active ones until it is quiet again.
+        let done = rows.filter { $0.archived && state($0) == .quiet }
+        let doneKeys = Set(done.map(Self.key))
+        let rows = done.isEmpty ? rows : rows.filter { !doneKeys.contains(Self.key($0)) }
+        var buckets: [SessionProjectState: [SessionSummary]] = [:]
+        for session in rows { buckets[state(session), default: []].append(session) }
         let label = input.projects.first { $0.key == key }?.label ?? key
         var page = SessionGroup(id: pageId, title: "", sessions: [])
         page.pageKey = key
@@ -393,35 +417,30 @@ nonisolated enum SessionListPipeline {
         page.busy = buckets[.working]?.count ?? 0
         page.total = rows.count
         var out = [page]
-        // [project-sections] Owner 2026-11-16 (picked from three drawings): the quiet chats are Pinned, then by when
-        // they were last at work (Today, This Week, Older) rather than one long "Earlier"; a heading says the chip's
-        // word ("Ready"), with its mark and count; every section folds, and a long one draws its first
-        // `pageFirstRows` then "Show More". Needs You and Ready always draw every chat (they are what to act on).
-        let quiet = buckets[.quiet] ?? []
-        var aged: [String: [SessionSummary]] = [:]
-        for session in quiet where !session.pinned { aged[pageAge(session, input), default: []].append(session) }
+        // [three-piles] Owner 2026-11-17 (picked from pictures, "I like option 1"; before: a heading per state and per
+        // age, seven headings for eight chats): three piles. Pinned, the chats kept close; Active, every other chat in
+        // one run, what needs the owner first (Needs You, New, Working, then the quiet ones in the list's order), each
+        // row saying its own state; Done, the archived ones, closed to its count until tapped.
         let byPref = input.prefs.sortBy == .manual ? SessionSortBy.updated : input.prefs.sortBy
-        let sections: [(id: String, title: String, chats: [SessionSummary], sort: SessionSortBy, capped: Bool)] = [
-            ("needs", "Needs You", buckets[.needsYou] ?? [], .updated, false), ("ready", "New", buckets[.ready] ?? [], .updated, false),
-            ("working", "Working", buckets[.working] ?? [], .updated, true), ("pinned", "Pinned", quiet.filter(\.pinned), byPref, true),
-            ("today", "Today", aged["today"] ?? [], byPref, true), ("week", "This Week", aged["week"] ?? [], byPref, true),
-            ("older", "Older", aged["older"] ?? [], byPref, true)]
+        let ordered = sort(rows, by: byPref).enumerated().sorted { a, b in
+            let ra = state(a.element).rawValue, rb = state(b.element).rawValue
+            return ra != rb ? ra < rb : a.offset < b.offset
+        }.map(\.element)
+        let sections: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] = [
+            ("pinned", "Pinned", ordered.filter(\.pinned), false), ("active", "Active", ordered.filter { !$0.pinned }, true),
+            ("done", "Done", sort(done, by: .updated), true)]
         // A status filter shows every match (a closed section would hide what the filter was set to find).
         let filtered = !input.prefs.statusFilter.isEmpty
-        // [sessions-ux] A project whose chats fit one screen draws them all: nothing starts closed and nothing is cut
-        // to Show More (a project of seven chats opened on two of them, two closed headings and an empty screen).
-        let short = rows.count <= pageFitsWhole
         for section in sections where !section.chats.isEmpty {
-            var group = SessionGroup(id: statePrefix + section.id, title: section.title, sessions: sort(section.chats, by: section.sort))
+            var group = SessionGroup(id: statePrefix + section.id, title: section.title, sessions: section.chats)
             group.total = group.sessions.count
             group.unread = group.sessions.reduce(0) { $0 + ($1.unread ? 1 : 0) }
             if !filtered {
-                // On a long page This Week and Older start closed under the sections above them (never as the page's first).
-                let startsClosed = !short && pageStartsClosed.contains(group.id) && out.count > 1
+                let startsClosed = pageStartsClosed.contains(group.id)
                 if input.collapsedGroups.contains(group.id) || (startsClosed && !input.openGroups.contains(group.id)) {
                     group.collapsed = true
                     group.sessions = []
-                } else if section.capped, !short, group.sessions.count > pageFirstRows + 1 {
+                } else if section.capped, group.sessions.count > pageFirstRows + 1 {
                     if input.expandedGroups.contains(group.id) {
                         group.expanded = true
                     } else {
@@ -435,26 +454,16 @@ nonisolated enum SessionListPipeline {
         return out
     }
 
-    /// [project-sections] The project page: the chats a long section draws before "Show More" (one more than this is
-    /// drawn whole: no row is spent hiding a single chat), and the sections that start closed.
-    static let pageFirstRows = 3
-    /// [sessions-ux] The most chats a project page draws whole, every section open: about what an iPhone's screen
-    /// holds under the page's header (one-line rows and their headings).
-    static let pageFitsWhole = 10
-    static let pageStartsClosed: Set<String> = [statePrefix + "week", statePrefix + "older"]
+    /// [three-piles] The project page: the chats Active (or an opened Done) draws before "Show More" (one more than
+    /// this is drawn whole: no row is spent hiding a single chat), about two screens of one-line rows; and the pile
+    /// that starts closed.
+    static let pageFirstRows = 15
+    static let pageStartsClosed: Set<String> = [statePrefix + "done"]
+    /// [three-piles] The Bots side's "Projects" block (the projects' newest few, then See All), off: see `.date`.
+    static let recentShowsProjects = false
 
     /// A section of the project page ("state-working").
     static func isPageSection(_ groupId: String) -> Bool { groupId.hasPrefix(statePrefix) }
-
-    /// [project-sections] Which of Today, This Week (the six days before) and Older a quiet chat is in, by the day it
-    /// was last at work (a day runs from 4 AM, as the date groups').
-    static func pageAge(_ session: SessionSummary, _ input: SessionListInput) -> String {
-        guard let date = session.lastActive ?? session.startedAt, date.timeIntervalSince1970 > 0 else { return "older" }
-        let day = SessionGrouping.nominalDayStart(date, calendar: input.calendar)
-        let today = SessionGrouping.nominalDayStart(input.now, calendar: input.calendar)
-        let days = input.calendar.dateComponents([.day], from: day, to: today).day ?? 0
-        return days <= 0 ? "today" : days < 7 ? "week" : "older"
-    }
 
     /// A titled group can fold to its header; a project draws its newest `projectFirstRows` until opened. `total` is
     /// every chat the group holds, `more` the ones past the drawn ones. A status or project filter narrowing the list

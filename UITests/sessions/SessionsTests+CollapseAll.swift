@@ -1,6 +1,6 @@
 // [sessions-collapse] Every section on the Sessions page folds, in every view (owner 2026-11-11: "I want to be able to
-// collapse all of the categories on the sessions page for every view"). Group By Recent: Pinned, "Projects" (every
-// project at once, to one closed "Projects" header) and Recent; kept across launches.
+// collapse all of the categories on the sessions page for every view"). Group By Recent: Pinned and Recent; the Projects
+// side: "Projects" (every project at once, to one closed "Projects" header); kept across launches.
 
 import XCTest
 
@@ -24,17 +24,6 @@ extension SessionsTests {
         XCTAssertTrue((header(app, "Pinned").value as? String)?.hasPrefix("Collapsed") == true, "\(header(app, "Pinned").value ?? "")")
         XCTAssertFalse(app.buttons["sessions.seeAll.pinned"].exists, "no See All on a closed Pinned")
 
-        // "Projects" closes every project to one header.
-        let caption = projectsCaption(app)
-        XCTAssertTrue(caption.waitForExistence(timeout: 5), "the Projects caption")
-        // On the word itself (the element's frame reaches up into the break above it).
-        caption.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.75)).tap()
-        let projects = header(app, "Projects")
-        XCTAssertTrue(waitUntil(5) { projects.exists && (projects.value as? String)?.hasPrefix("Collapsed") == true },
-                      "Projects closed (\(headers(app)))")
-        XCTAssertFalse(headers(app).contains { $0.hasPrefix("Website") }, "no project rows under a closed Projects")
-        XCTAssertTrue(projects.label.contains("project"), "it counts projects: \(projects.label)")
-
         // Recent closes too.
         let recent = header(app, "Recent")
         XCTAssertTrue(recent.waitForExistence(timeout: 5))
@@ -48,15 +37,28 @@ extension SessionsTests {
         let again = launch(keepView: true)
         XCTAssertTrue(header(again, "Recent").waitForExistence(timeout: 15))
         XCTAssertTrue((header(again, "Pinned").value as? String)?.hasPrefix("Collapsed") == true)
-        XCTAssertTrue((header(again, "Projects").value as? String)?.hasPrefix("Collapsed") == true)
         XCTAssertTrue((header(again, "Recent").value as? String)?.hasPrefix("Collapsed") == true)
 
         // Each opens again.
-        header(again, "Projects").tap()
-        XCTAssertTrue(projectsCaption(again).waitForExistence(timeout: 5), "Projects open again")
         header(again, "Pinned").tap()
         XCTAssertTrue(row(again, "s-release").waitForExistence(timeout: 5), "Pinned open again")
         header(again, "Recent").tap()
         XCTAssertTrue(waitUntil(5) { (self.header(again, "Recent").value as? String)?.hasPrefix("Expanded") == true }, "Recent open again")
+
+        // [three-piles] The projects are the switch's other side: there "Projects" closes every project to one header.
+        again.buttons["sessions.pills.projects"].tap()
+        XCTAssertTrue(again.buttons["sessions.pills.bots"].waitForExistence(timeout: 8))
+        let caption = projectsCaption(again)
+        XCTAssertTrue(caption.waitForExistence(timeout: 5), "the Projects caption")
+        // On the word itself (the element's frame reaches up into the break above it).
+        caption.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.75)).tap()
+        let projects = header(again, "Projects")
+        XCTAssertTrue(waitUntil(5) { projects.exists && (projects.value as? String)?.hasPrefix("Collapsed") == true },
+                      "Projects closed (\(headers(again)))")
+        XCTAssertFalse(headers(again).contains { $0.hasPrefix("Website") }, "no project rows under a closed Projects")
+        XCTAssertTrue(projects.label.contains("project"), "it counts projects: \(projects.label)")
+
+        projects.tap()
+        XCTAssertTrue(projectsCaption(again).waitForExistence(timeout: 5), "Projects open again")
     }
 }
