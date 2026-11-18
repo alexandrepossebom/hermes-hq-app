@@ -180,7 +180,8 @@ extension SessionStore {
                                                     chatOrder: device.chatOrder, projectOrder: device.projectOrder,
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
                                                     archivedProjects: archivedProjects,
-                                                    botNames: botNames, statusChip: statusChip, now: now, calendar: calendar))
+                                                    botNames: botNames, statusChip: statusChip,
+                                                    liveUnderProjects: projectRowsOpenPages, now: now, calendar: calendar))
     }
 
     // MARK: - Hand-picked orders [manual-order]
@@ -309,9 +310,9 @@ extension SessionStore {
             onChange?()
             return
         }
-        if SessionListPipeline.isPageSection(id) {
-            // [project-sections] A project page's section: some start closed (This Week, Older) and some open, so both
-            // are kept: closed by the user, and opened by the user.
+        if SessionListPipeline.isPageSection(id) || id == SessionListPipeline.recentOlderId {
+            // [project-sections] A project page's pile, [sessions-shape] and Recent's Older: one that starts closed, so
+            // both are kept: closed by the user, and opened by the user.
             var closed = collapsedGroups, opened = openGroups
             if collapsed { closed.insert(id); opened.remove(id) } else { closed.remove(id); opened.insert(id) }
             guard closed != collapsedGroups || opened != openGroups else { return }

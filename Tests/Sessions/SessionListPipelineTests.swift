@@ -22,11 +22,16 @@ import Testing
 
     private static func run(_ live: [SessionSummary], archived: [SessionSummary] = [], _ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
         var input = SessionListInput(live: live, archived: archived, now: now, calendar: calendar)
+        input.openGroups = [SessionListPipeline.recentOlderId]     // [sessions-shape] Older starts closed: open here
         edit(&input)
         return SessionListPipeline.groups(input)
     }
 
     private static func ids(_ groups: [SessionGroup]) -> [String] { groups.flatMap(\.sessions).map(\.id) }
+    /// [sessions-shape] Recent's chats, whichever days they are split into.
+    private static func recent(_ groups: [SessionGroup]) -> [String] { ids(groups.filter { SessionListPipeline.isRecent($0.id) }) }
+    /// The day a chat minutes old is under: the fixed "today" here is midnight, so that is Yesterday's.
+    private static let today = SessionListPipeline.recentId + "-yesterday"
 
     @Test func defaultIsPinnedThenDateGroupsNewestFirst() {
         let groups = Self.run([Self.chat("old", ago: 86_400 * 40), Self.chat("new", ago: 60), Self.chat("pin", ago: 86_400 * 3, pinned: true),
@@ -119,8 +124,8 @@ import Testing
         #expect(Self.ids(Self.run([a, b])) == ["a", "b"])
         let created = Self.run([a, b]) { $0.prefs.sortBy = .created }
         #expect(Self.ids(created) == ["b", "a"])
-        // [sessions-fresh] One Recent run, no date headers.
-        #expect(created.map(\.id) == [SessionListPipeline.recentId] && created.map(\.title) == ["Recent"])
+        // [sessions-shape] Recent by the day it was started.
+        #expect(created.map(\.id) == [Self.today, "recent-week"] && created.map(\.title) == ["Yesterday", "This Week"])
     }
 
     /// [sessions-fresh] Sort By Status under Group By Recent ranks the one Recent run by status, then recency (date
@@ -131,7 +136,7 @@ import Testing
                     Self.chat("working-old", ago: day * 9 + 500, status: .working), Self.chat("idle-old", ago: day * 9),
                     Self.chat("working-now", ago: 300, status: .working)]
         let updated = Self.run(rows)
-        #expect(updated.map(\.id) == [SessionListPipeline.recentId])
+        #expect(updated.map(\.id) == [Self.today, SessionListPipeline.recentOlderId])
         #expect(Self.ids(updated) == ["idle-now", "idle-now2", "working-now", "idle-old", "working-old"])
         let status = Self.run(rows) { $0.prefs.sortBy = .status }
         #expect(status.map(\.id) == [SessionListPipeline.recentId])
@@ -199,28 +204,89 @@ import Testing
         #expect(groups.last?.sessions.map(\.id) == ["home-new"])
     }
 
-    /// [three-piles] The Bots side (Group By Recent) is the chats alone: Pinned, then Recent with every chat, a
-    /// project's too. No project is listed there, favorite or not, whatever Show › Project Chats in Recent was.
-    @Test func recentIsTheChatsAlone() {
+    /// [sessions-shape] Group By Recent's Projects is a shortcut: the starred projects (the newest two while none is
+    /// starred), no See All; a filter narrowing the list shows every project it finds. Recent lists every chat.
+    @Test func recentShowsTheStarredProjects() {
         let three: [String: [SessionProject]] = ["default": ["a", "b", "c"].map {
             SessionProject(id: $0, label: $0.uppercased(), root: "/p/\($0)", paths: ["/p/\($0)"])
         }]
         let entries = SessionProjects.menuEntries(three, order: ["default"])
-        let rows = ["a", "b", "c"].enumerated().map { Self.chat($1, ago: Double($0 + 1) * 60, cwd: "/p/\($1)") } + [Self.chat("home", ago: 600)]
+        let rows = ["a", "b", "c"].enumerated().map { Self.chat($1, ago: Double($0 + 1) * 60, status: $1 == "c" ? .unread : .idle, cwd: "/p/\($1)") }
+            + [Self.chat("home", ago: 600)]
         func groups(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
             Self.run(rows) { $0.projectsByProfile = three; $0.projects = entries; edit(&$0) }
         }
-        for run in [groups(), groups { $0.favoriteProjects = ["/p/a", "/p/b", "/p/c"] }, groups { $0.prefs.projectChatsInRecent = false }] {
-            #expect(run.map(\.id) == [SessionListPipeline.recentId])
-            #expect(run[0].sessions.map(\.id) == ["a", "b", "c", "home"])
+        func projects(_ groups: [SessionGroup]) -> [String] { groups.filter { SessionListPipeline.isProject($0.id) }.compactMap { SessionListPipeline.projectKey($0.id) } }
+        #expect(projects(groups()) == ["/p/a", "/p/b"])                                         // none starred: the newest two
+        #expect(projects(groups { $0.favoriteProjects = ["/p/c"] }) == ["/p/c"])
+        #expect(projects(groups { $0.favoriteProjects = ["/p/a", "/p/b", "/p/c"] }) == ["/p/a", "/p/b", "/p/c"])
+        #expect(groups().allSatisfy { $0.projectsTotal == nil })                                 // no See All
+        #expect(projects(groups { $0.favoriteProjects = ["/p/a"]; $0.prefs.statusFilter = [.unread] }) == ["/p/c"])
+        #expect(Self.recent(groups { $0.favoriteProjects = ["/p/c"] }) == ["a", "b", "c", "home"])
+        // Show › Project Chats in Recent off: the shown projects' chats stay on their rows; the others' are listed.
+        #expect(Self.recent(groups { $0.favoriteProjects = ["/p/c"]; $0.prefs.projectChatsInRecent = false }) == ["a", "b", "home"])
+        // A closed project here draws no chat under its row (that is the Projects side's).
+        #expect(groups { $0.liveUnderProjects = true }.filter { SessionListPipeline.isProject($0.id) }.allSatisfy { $0.collapsed && $0.sessions.isEmpty })
+    }
+
+    /// [sessions-shape] Recent, sorted by a date, is split by the day: Today, Yesterday, This Week, Older. Older starts
+    /// closed under the newer days (never as the only one) and opens; each day folds. Any other sort keeps one Recent.
+    @Test func recentIsSplitByTheDay() {
+        let day = 86_400.0
+        // It is noon (twelve hours after the fixed midnight): two chats this morning, one late last night, and so on.
+        // The days are the calendar's, as a row's own time says them.
+        let rows = [Self.chat("now", ago: -39_600), Self.chat("earlier", ago: -3_600), Self.chat("yesterday", ago: 60),
+                    Self.chat("week", ago: 2 * day + 60), Self.chat("week2", ago: 5 * day + 60), Self.chat("old", ago: 6 * day + 60),
+                    Self.chat("older", ago: 90 * day)]
+        func run(_ live: [SessionSummary] = rows, _ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(live) { $0.openGroups = []; $0.now = Self.now.addingTimeInterval(43_200); edit(&$0) }
         }
-        // The Show menu has no "Project Chats in Recent" to offer.
-        #expect(!SessionListPipeline.recentShowsProjects)
+        var groups = run()
+        #expect(groups.map(\.id) == ["recent-today", "recent-yesterday", "recent-week", "recent-older"])
+        #expect(groups.map(\.title) == ["Today", "Yesterday", "This Week", "Older"])
+        #expect(groups.map { $0.sessions.map(\.id) } == [["now", "earlier"], ["yesterday"], ["week", "week2"], []])
+        #expect(groups[3].collapsed && groups[3].total == 2 && groups.allSatisfy { SessionListPipeline.folds($0) })
+        groups = run { $0.openGroups = [SessionListPipeline.recentOlderId]; $0.collapsedGroups = ["recent-today"] }
+        #expect(groups[3].sessions.map(\.id) == ["old", "older"] && !groups[3].collapsed)
+        #expect(groups[0].collapsed && groups[0].total == 2)
+        // Older alone is open; closed by hand it closes.
+        #expect(run(Array(rows.suffix(2))).map(\.collapsed) == [false])
+        #expect(run(Array(rows.suffix(2))) { $0.collapsedGroups = [SessionListPipeline.recentOlderId] }.map(\.collapsed) == [true])
+        // A status filter shows every match.
+        #expect(run { $0.prefs.statusFilter = [.idle] }.allSatisfy { !$0.collapsed })
+        // Sort By Status, or Manual: one Recent.
+        #expect(run { $0.prefs.sortBy = .status }.map(\.id) == [SessionListPipeline.recentId])
+        #expect(run { $0.prefs.sortBy = .manual }.map(\.title) == ["Recent"])
+    }
+
+    /// [sessions-shape] On the Projects side (a project's row opens its page) a closed project keeps its live chats
+    /// under its row: waiting on the owner first, then a reply not read, then at work, three at most. Its counts are
+    /// of every chat. Not while a project opens in place.
+    @Test func aClosedProjectKeepsItsLiveChatsUnderItsRow() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        let site = "/home/hermes/site"
+        let rows = [Self.chat("quiet", ago: 10, cwd: site), Self.chat("working", ago: 20, status: .working, cwd: site),
+                    Self.chat("new", ago: 300, status: .unread, cwd: site), Self.chat("needs", ago: 900, status: .needsInput, cwd: site),
+                    Self.chat("working2", ago: 30, status: .working, cwd: site), Self.chat("calm", ago: 5, cwd: "/home/hermes/reading"),
+                    Self.chat("loose", ago: 40, status: .unread)]
+        func run(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(rows) {
+                $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.groupBy = .project; $0.liveUnderProjects = true; edit(&$0)
+            }
+        }
+        let groups = run()
+        #expect(groups.map(\.id) == ["project-" + site, "project-/home/hermes/reading", "project-home"])
+        #expect(groups.allSatisfy { $0.collapsed })
+        #expect(groups[0].sessions.map(\.id) == ["needs", "new", "working"] && groups[0].total == 5 && groups[0].unread == 1)
+        #expect(groups[1].sessions.isEmpty && groups[2].sessions.map(\.id) == ["loose"])
+        // Opened in place (the tests' way), or without the switch: as before.
+        #expect(run { $0.openGroups = ["project-" + site] }[0].sessions.count == 5)
+        #expect(run { $0.liveUnderProjects = false }.allSatisfy { $0.sessions.isEmpty })
     }
 
     /// [pinned-in-project] A pinned chat stays inside its project, so pinning a project's only chat keeps the project.
     /// [three-piles] Group By Project is the projects alone: no Pinned above them, and Home's pinned chats are in
-    /// Home. Group By Recent: Pinned, then every other chat.
+    /// Home. Group By Recent: Pinned, the projects' shortcut, then every other chat by the day.
     @Test func aPinnedChatStaysInItsProject() {
         let three: [String: [SessionProject]] = ["default": ["a", "b", "c"].map {
             SessionProject(id: $0, label: $0.uppercased(), root: "/p/\($0)", paths: ["/p/\($0)"])
@@ -237,22 +303,22 @@ import Testing
             }
         }
         let recent = run()
-        #expect(recent.map(\.id) == ["pinned", SessionListPipeline.recentId])
-        #expect(recent[0].sessions.map(\.id) == ["home-pin", "a"] && recent[1].sessions.map(\.id) == ["b", "c", "home"])
+        #expect(recent.map(\.id) == ["pinned", "project-/p/a", "project-/p/b", Self.today])    // A is still there
+        #expect(recent[0].sessions.map(\.id) == ["home-pin", "a"] && recent[1].sessions.map(\.id) == ["a"])
+        #expect(recent[3].sessions.map(\.id) == ["b", "c", "home"])
 
         let byProject = run(.project)
         #expect(byProject.map(\.title) == ["A", "B", "C", "Home"])
         #expect(byProject[0].sessions.map(\.id) == ["a"] && byProject.last?.sessions.map(\.id) == ["home-pin", "home"])
 
-        // Every chat pinned: the project is still listed under Group By Project, and Home with its pinned chat alone.
+        // Every chat pinned: the project is still listed, and Home with its pinned chat alone under Group By Project.
         #expect(run(.project, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["project-/p/a"])
         #expect(run(.project, [Self.chat("home-pin", pinned: true)]).map(\.id) == ["project-home"])
-        #expect(run(nil, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["pinned"])
+        #expect(run(nil, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["pinned", "project-/p/a"])
     }
 
-    /// [sessions-collapse] Group By Recent: Pinned closes (no See All under a closed header). Group By Project:
-    /// "Projects" closes every project to one closed header counting the projects and their unread chats; a filter
-    /// opens them again.
+    /// [sessions-collapse] Group By Recent: Pinned closes (no See All under a closed header), and "Projects" closes
+    /// the projects shown to one closed header counting them and their unread chats; a filter opens them again.
     @Test func recentPinnedAndProjectsClose() {
         let three: [String: [SessionProject]] = ["default": ["a", "b", "c"].map {
             SessionProject(id: $0, label: $0.uppercased(), root: "/p/\($0)", paths: ["/p/\($0)"])
@@ -265,20 +331,20 @@ import Testing
             Self.run(rows) { $0.projectsByProfile = three; $0.projects = entries; $0.collapsedGroups = closed; edit(&$0) }
         }
         let open = run([])
-        #expect(open.map(\.id) == ["pinned", SessionListPipeline.recentId])
+        #expect(open.map(\.id) == ["pinned", "project-/p/a", "project-/p/b", Self.today])
         #expect(open[0].more == 2)
-        let closed = run(["pinned"])
-        #expect(closed.map(\.id) == ["pinned", SessionListPipeline.recentId])
+        let closed = run(["pinned", SessionListPipeline.projectsId])
+        #expect(closed.map(\.id) == ["pinned", SessionListPipeline.projectsId, Self.today])
         #expect(closed[0].collapsed && closed[0].sessions.isEmpty && closed[0].more == 0 && closed[0].total == 5)
-        #expect(!closed[1].collapsed)
+        let projects = closed[1]
+        #expect(projects.collapsed && projects.title == "Projects" && projects.total == 2 && projects.unread == 1)
+        #expect(SessionListPipeline.folds(projects))
+        #expect(!closed[2].collapsed)
         // Group By Project: every project (Home's too) under the one closed header.
         let byProject = run([SessionListPipeline.projectsId]) { $0.prefs.groupBy = .project }
-        #expect(byProject.map(\.id) == [SessionListPipeline.projectsId])
-        let projects = byProject[0]
-        #expect(projects.collapsed && projects.title == "Projects" && projects.total == 4 && projects.unread == 1)
-        #expect(SessionListPipeline.folds(projects))
+        #expect(byProject.map(\.id) == [SessionListPipeline.projectsId] && byProject[0].total == 4)
         // A status filter shows every match.
-        let filtered = run([SessionListPipeline.projectsId]) { $0.prefs.groupBy = .project; $0.prefs.statusFilter = [.unread] }
+        let filtered = run(["pinned", SessionListPipeline.projectsId]) { $0.prefs.statusFilter = [.unread] }
         #expect(!filtered.contains { $0.id == SessionListPipeline.projectsId || $0.collapsed })
     }
 
@@ -289,7 +355,7 @@ import Testing
         // [sessions-fresh] Recent lists every match once (the projects above it are shortcuts to some of them).
         func run(_ edit: @escaping (inout SessionListInput) -> Void) -> [String] {
             let groups = Self.run(rows) { $0.projectsByProfile = Self.projects; $0.projects = entries; edit(&$0) }
-            return (groups.first { $0.id == SessionListPipeline.recentId }?.sessions.map(\.id) ?? []).sorted()
+            return Self.recent(groups).sorted()
         }
         #expect(run { $0.prefs.statusFilter = [.unread] } == ["a", "b"])
         #expect(run { $0.prefs.statusFilter = [.unread, .working] } == ["a", "b", "c"])
@@ -322,9 +388,9 @@ import Testing
             }
             return Dictionary(out.map { ($0.id, $0.sessions.map(\.id).sorted()) }, uniquingKeysWith: { a, _ in a })
         }
-        #expect(groups(.projects)[SessionListPipeline.recentId] == nil)
+        #expect(groups(.projects)[Self.today] == nil)
         #expect(groups(.projects)["state-active"] == ["a", "c"])
-        #expect(groups(.bots)[SessionListPipeline.recentId] == ["a", "c"])
+        #expect(groups(.bots)[Self.today] == ["a", "c"])
     }
 
     /// [project-pills] A project's state comes from its chats; an archived project's chats leave the list (project
@@ -580,9 +646,9 @@ import Testing
     @Test func statusGroupsAndRecentFoldAndNeitherIsCapped() {
         let rows = (0..<9).map { Self.chat("d\($0)", ago: Double($0 + 1) * 60, status: $0 < 7 ? .working : .idle) }
         var groups = Self.run(rows)
-        #expect(groups.map(\.id) == [SessionListPipeline.recentId] && groups[0].sessions.count == 9 && groups[0].more == 0)
+        #expect(groups.map(\.id) == [Self.today] && groups[0].sessions.count == 9 && groups[0].more == 0)
         #expect(SessionListPipeline.folds(groups[0]))
-        groups = Self.run(rows) { $0.collapsedGroups = [SessionListPipeline.recentId] }
+        groups = Self.run(rows) { $0.collapsedGroups = [Self.today] }
         #expect(groups[0].collapsed && groups[0].sessions.isEmpty && groups[0].total == 9)
         groups = Self.run(rows) { $0.prefs.groupBy = .status; $0.collapsedGroups = ["status-done"] }
         #expect(groups.map(\.id) == ["status-working", "status-done"])
@@ -629,7 +695,7 @@ import Testing
         let rows = [Self.chat("idle", ago: 10), Self.chat("unread", ago: 60, status: .unread),
                     Self.chat("waits", ago: 30, status: .needsInput), Self.chat("pin-unread", ago: 90, status: .unread, pinned: true),
                     Self.chat("pin", ago: 20, pinned: true), Self.chat("old-unread", ago: 86_400 * 9, status: .unread)]
-        #expect(Self.run(rows).map(\.id) == ["pinned", SessionListPipeline.recentId])
+        #expect(Self.run(rows).map(\.id) == ["pinned", Self.today, SessionListPipeline.recentOlderId])
         func run(_ rows: [SessionSummary], _ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
             Self.run(rows) { $0.prefs.groupBy = .status; edit(&$0) }
         }
@@ -732,8 +798,8 @@ import Testing
         #expect(entries.count == 41)
         let clock = ContinuousClock()
         var first: [[String]] = []
-        // [three-piles] Every grouping lists each chat once: Group By Project is the projects alone (no New for You or
-        // Pinned above them to list a chat a second time), and Group By Recent has no project shortcuts.
+        // [three-piles] Group By Project is the projects alone (no New for You or Pinned above them to list a chat a
+        // second time). [sessions-shape] Group By Recent's projects are shortcuts to chats Recent lists too.
         var again: [Int] = []
         let took = clock.measure {
             for round in 0..<3 {
@@ -743,19 +809,19 @@ import Testing
                         let groups = Self.run(rows) {
                             $0.prefs.sortBy = sort; $0.prefs.groupBy = group; $0.projectsByProfile = projects; $0.projects = entries
                             // Every project opened with Show More, so every chat is drawn.
-                            $0.openGroups = Set(entries.map { SessionListPipeline.projectPrefix + $0.key })
+                            $0.openGroups = Set(entries.map { SessionListPipeline.projectPrefix + $0.key } + [SessionListPipeline.recentOlderId])
                             $0.expandedGroups = Set(entries.map { SessionListPipeline.projectPrefix + $0.key }
                                 + (0..<12).map { SessionListPipeline.botPrefix + "bot\($0)" }     // [manual-order] Group By Bot
                                 + [SessionListPipeline.newId, "pinned", SessionListPipeline.projectsId])   // [sessions-fresh]
                         }
                         out.append(Self.ids(groups))
-                        if group == .date { #expect(!groups.contains { SessionListPipeline.isProject($0.id) }) }
+                        if round == 0 { again.append(group == .date ? groups.filter { SessionListPipeline.isProject($0.id) }.reduce(0) { $0 + $1.sessions.count } : 0) }
                     }
                 }
                 if round == 0 { first = out } else { #expect(out == first) }           // the same order every time
             }
         }
-        #expect(first.allSatisfy { $0.count == 2_000 && Set($0).count == 2_000 })
+        #expect(zip(first, again).allSatisfy { $0.count == 2_000 + $1 && Set($0).count == 2_000 })
         #expect(took < .seconds(20), "45 passes over 2,000 chats took \(took)")       // a hang guard only; the budget is below
     }
 
@@ -787,8 +853,10 @@ import Testing
                     }
                     best = min(best, took)
                 }
-                // [three-piles] Each chat is counted once in every grouping (a capped project counts its all).
-                let count = groups.reduce(0) { $0 + max($1.total, $1.sessions.count) }
+                // [three-piles] Each chat is counted once (a capped project counts its all). [sessions-shape] Group By
+                // Recent's projects are shortcuts to chats Recent lists too.
+                let counted = group == .date ? groups.filter { !SessionListPipeline.isProject($0.id) } : groups
+                let count = counted.reduce(0) { $0 + max($1.total, $1.sessions.count) }
                 #expect(count == 5_000)
                 #expect(best < .milliseconds(150), "5,000 chats, Sort By \(sort), Group By \(group): best of five \(best)")
             }
