@@ -1528,6 +1528,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        if let make = makeTopStrip {   // [session-strip]
+            makeTopStrip = nil
+            if topAccessory == nil, let strip = make() { setTopAccessory(strip) }
+        }
         ChatPerf.mark("chat.viewWillAppear")
         applyChatColour()   // [bot-colour] the face may have changed while this chat was covered
         if attached { activity.setAttached(true) }     // [activity] uncovered by a pop: this chat's polls run again
@@ -4823,6 +4827,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         topAccessoryTop = top
         tableView.alwaysBounceVertical = true   // a short chat can still be pulled, which rolls the panel up
     }
+
+    /// [session-strip] The bot's other chats under the bar (SessionStrip.swift), offered as the screen is made and
+    /// taken when it first appears, unless something else (a task's page) has put its own panel there by then.
+    var makeTopStrip: (() -> UIViewController?)?
 
     /// [tasks] The pinned panel's height (the page measures what it draws and caps it); 0 lays it away. `insets`: the
     /// transcript starts under it (a bar); false, it covers the transcript and the chat's layout stays as it is.
