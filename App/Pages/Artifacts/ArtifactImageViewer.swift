@@ -50,8 +50,8 @@ final class ArtifactImageViewer: UIViewController, UIPageViewControllerDataSourc
         pages.dataSource = self
         pages.delegate = self
         pages.setViewControllers([page(index)], direction: .forward, animated: false)
-        // [mac] Stress test 2026-10-28 #55: trailing on the Mac.
-        navigationItem.hqPlaceClose(UIBarButtonItem.hqClose(action: UIAction { [weak self] _ in
+        // [mac] Stress test 2026-10-28 #55: trailing on the Mac; owner 2026-11-18: filled there (`PhotoViewerChrome`).
+        navigationItem.hqPlaceClose(PhotoViewerChrome.close(action: UIAction { [weak self] _ in
             self?.dismiss(animated: true)
         }))
         let share = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), primaryAction: nil)
@@ -109,6 +109,7 @@ final class ArtifactImageViewer: UIViewController, UIPageViewControllerDataSourc
     }
 
     private func toggleChrome() {
+        if PhotoViewerChrome.barsStay { return }   // [mac] Owner 2026-11-18: a click on the image took Done away
         let hidden = !(navigationController?.isNavigationBarHidden ?? false)
         navigationController?.setNavigationBarHidden(hidden, animated: true)
         navigationController?.setToolbarHidden(hidden, animated: true)
@@ -204,9 +205,9 @@ final class ZoomImagePage: UIViewController, UIScrollViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        scroll.frame = view.bounds
-        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        scroll.frame = PhotoViewerChrome.room(view)   // [mac] Owner 2026-11-18: between the bars on the Mac (layout)
         scroll.delegate = self
+        PhotoViewerChrome.prepare(scroll)
         scroll.maximumZoomScale = 4
         scroll.showsVerticalScrollIndicator = false
         scroll.showsHorizontalScrollIndicator = false
@@ -283,7 +284,14 @@ final class ZoomImagePage: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        let room = PhotoViewerChrome.room(view)
+        if scroll.frame != room { scroll.frame = room }
         layoutImage()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        if DeviceWord.isMac { view.setNeedsLayout() }
     }
 
     private func layoutImage() {

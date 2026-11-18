@@ -17,6 +17,42 @@ extension UIKeyCommand {
     var pagesForward: Bool { input == UIKeyCommand.inputRightArrow }
 }
 
+/// [mac] The photo viewers' chrome on the Mac (owner 2026-11-18: "a weird blur on the top and bottom and it's hard to see
+/// where to click to close"). The photo lives between the bars, never under their blurred edges; the bars stay put (a
+/// click on the photo took Done away); Done is a filled button on the black bar. The iPhone and iPad keep the system's
+/// full-screen photo under bars that a tap hides.
+@MainActor enum PhotoViewerChrome {
+    /// The bars stay on show when the photo is clicked.
+    static var barsStay: Bool { DeviceWord.isMac }
+
+    /// Where a page draws its photo: the whole page, or on the Mac the page between the bars (its safe area).
+    static func room(_ view: UIView) -> CGRect { DeviceWord.isMac ? view.bounds.inset(by: view.safeAreaInsets) : view.bounds }
+
+    /// A page's zooming scroll view: on the Mac no blurred edge where a zoomed photo meets the bars.
+    static func prepare(_ scroll: UIScrollView) {
+        guard DeviceWord.isMac else { return }
+        scroll.topEdgeEffect.isHidden = true
+        scroll.bottomEdgeEffect.isHidden = true
+    }
+
+    /// The viewer's close: `hqClose`, on the Mac drawn as a filled button (white 18 %, as the arrows' round buttons sit on
+    /// the black; a capsule, the Desktop Look's corner there) so Done reads as something to click.
+    static func close(action: UIAction) -> UIBarButtonItem {
+        let close = UIBarButtonItem.hqClose(action: action)
+        #if targetEnvironment(macCatalyst)
+        if let button = close.customView as? UIButton, var config = button.configuration {
+            config.background.backgroundColor = UIColor(white: 1, alpha: 0.18)
+            config.cornerStyle = Theme.isDesktop ? .fixed : .capsule
+            config.background.cornerRadius = MacPush.radius
+            config.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14)
+            button.configuration = config
+            button.sizeToFit()
+        }
+        #endif
+        return close
+    }
+}
+
 /// The Mac's previous / next buttons over a photo pager, vertically centred at its sides. Nothing on the iPhone or iPad.
 @MainActor final class PhotoPagerArrows {
     private var buttons: [UIButton] = []

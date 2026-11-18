@@ -12,6 +12,7 @@
 //            pictures; each with a 2× crop of the strip above the box
 //   model    the model selector from Chat › Choose Model… at 1280 × 800, then at 1000 × 700 and 820 × 700 with the
 //            inspector open (the name steps aside), each with its frame in `<name>-rest.txt`
+//   viewer   the photo viewer over a picture of the window and over a white page, with crops of its top and foot
 // Pictures `<name>-r<nn>-<label>.png`, crops `…-crop.png`, notes `<name>-rest.txt`.
 
 #if DEBUG && targetEnvironment(macCatalyst)
@@ -323,6 +324,54 @@ extension MacShots {
                 }
                 await snap("task chat model selector", wait: 0.3)
                 (top() as? MacPickPanel)?.close()
+            }
+        }
+
+        // `viewer`: the photo viewer over a picture of the window itself (a screenshot of the app, the owner's report
+        // 2026-11-18), then over a white page, each with 2× crops of the strips under the top bar and over the toolbar
+        // and the frames of Done, the bars and the photo in the log.
+        if wanted.contains("viewer") {
+            await go(tabs.controller(for: .bots))
+            let shot = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "viewer-photo-app.png")
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = window.screen.scale
+            let app = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+                _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            try? app.pngData()?.write(to: shot)
+            let white = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "viewer-photo-white.png")
+            let page = UIGraphicsImageRenderer(size: CGSize(width: 1600, height: 1000)).image { context in
+                UIColor.white.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 1600, height: 1000))
+                let words: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 44, weight: .semibold), .foregroundColor: UIColor.darkGray]
+                ("A white page edge to edge" as NSString).draw(at: CGPoint(x: 40, y: 20), withAttributes: words)
+                ("Its foot" as NSString).draw(at: CGPoint(x: 40, y: 920), withAttributes: words)
+            }
+            try? page.pngData()?.write(to: white)
+            let context = MediaContext(accountId: MediaContext.demoAccount, profile: "default")
+            let items = [(shot, app.size, "app"), (white, page.size, "white")].map { url, size, label in
+                MediaItem(attachment: MessageAttachment(kind: .image, source: .gateway(path: url.path), name: url.lastPathComponent,
+                                                        pixelWidth: Int(size.width * app.scale), pixelHeight: Int(size.height * app.scale)),
+                          index: 0, context: context, label: "Photo, \(label)")
+            }
+            for index in items.indices {
+                guard let presenter = top() else { continue }
+                MediaViewerController.present(from: presenter, items: items, index: index) { _ in nil }
+                try? await Task.sleep(for: .seconds(2.5))
+                if let nav = top() as? UINavigationController, let toolbar = nav.toolbar {
+                    let bar = nav.navigationBar
+                    let close = views(UIButton.self, in: nav.view).first { $0.window != nil && ($0.configuration?.title == "Done" || $0.accessibilityLabel == "Close") }
+                    let photo = views(UIImageView.self, in: nav.view).filter { $0.window != nil && $0.image != nil && $0.bounds.width > 200 }.max { $0.bounds.width < $1.bounds.width }
+                    log += "viewer \(items[index].label): bar \(describe(bar)); toolbar \(describe(toolbar)); close \(describe(close)); photo \(describe(photo))\n"
+                    let barFoot = bar.convert(bar.bounds, to: window).maxY
+                    let toolTop = toolbar.convert(toolbar.bounds, to: window).minY
+                    await snap("viewer \(index + 1)")
+                    await snap("viewer \(index + 1) top", crop: CGRect(x: 0, y: 0, width: window.bounds.width, height: barFoot + 40), wait: 0.2)
+                    await snap("viewer \(index + 1) foot", crop: CGRect(x: 0, y: toolTop - 40, width: window.bounds.width,
+                                                                       height: window.bounds.height - toolTop + 40), wait: 0.2)
+                }
+                top()?.dismiss(animated: false)
+                try? await Task.sleep(for: .seconds(1))
             }
         }
 

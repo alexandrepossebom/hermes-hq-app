@@ -64,7 +64,8 @@ final class MediaViewerController: UIViewController, UIPageViewControllerDataSou
         pages.delegate = self
         pages.setViewControllers([page(index)], direction: .forward, animated: false)
 
-        let close = UIBarButtonItem.hqClose(action: UIAction { [weak self] _ in self?.dismiss(animated: true) })
+        // [mac] Owner 2026-11-18: a filled Done on the Mac (`PhotoViewerChrome`).
+        let close = PhotoViewerChrome.close(action: UIAction { [weak self] _ in self?.dismiss(animated: true) })
         close.accessibilityLabel = "Close"
         close.accessibilityIdentifier = "viewer.close"
         navigationItem.hqPlaceClose(close)   // [mac] Stress test 2026-10-28 #55: trailing on the Mac
@@ -124,6 +125,7 @@ final class MediaViewerController: UIViewController, UIPageViewControllerDataSou
     private func toggleChrome() {
         // Under VoiceOver activating the photo keeps Close, Share and Save where they are.
         if HQAccessibility.voiceOver && !chromeHidden { return }
+        if PhotoViewerChrome.barsStay { return }   // [mac] Owner 2026-11-18: a click on the photo took Done away
         chromeHidden.toggle()
         arrows?.update(index: index, count: items.count, hidden: chromeHidden)
         navigationController?.setNavigationBarHidden(chromeHidden, animated: true)
@@ -237,6 +239,7 @@ final class MediaPageController: UIViewController, UIScrollViewDelegate {
         scroll.bouncesZoom = true
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.decelerationRate = .fast
+        PhotoViewerChrome.prepare(scroll)   // [mac] no blurred edge over a zoomed photo at the bars
         view.addSubview(scroll)
         imageView.contentMode = .scaleAspectFit
         imageView.isAccessibilityElement = true
@@ -258,11 +261,12 @@ final class MediaPageController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if scroll.frame != view.bounds {
-            scroll.frame = view.bounds
+        let room = PhotoViewerChrome.room(view)   // [mac] Owner 2026-11-18: between the bars on the Mac
+        if scroll.frame != room {
+            scroll.frame = room
             fitted = false
         }
-        spinner.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        spinner.center = CGPoint(x: room.midX, y: room.midY)
         if !fitted { fit() }
     }
 
@@ -360,14 +364,21 @@ final class MediaPageController: UIViewController, UIScrollViewDelegate {
         if first || isAtMinimumZoom { fitted = false; view.setNeedsLayout() }
     }
 
+    /// [mac] The room between the bars (`PhotoViewerChrome.room`) follows the bars.
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        if DeviceWord.isMac { view.setNeedsLayout() }
+    }
+
     /// Aspect-fit at the minimum zoom, 5 × that at the most; centred while smaller than the screen.
     private func fit() {
-        guard let image = imageView.image, image.size.width > 0, image.size.height > 0, view.bounds.width > 0 else { return }
+        guard let image = imageView.image, image.size.width > 0, image.size.height > 0, scroll.bounds.width > 0,
+              scroll.bounds.height > 0 else { return }
         fitted = true
         scroll.zoomScale = 1
         imageView.frame = CGRect(origin: .zero, size: image.size)
         scroll.contentSize = image.size
-        let fit = min(view.bounds.width / image.size.width, view.bounds.height / image.size.height)
+        let fit = min(scroll.bounds.width / image.size.width, scroll.bounds.height / image.size.height)
         scroll.minimumZoomScale = fit
         scroll.maximumZoomScale = fit * 5
         scroll.zoomScale = fit

@@ -939,9 +939,16 @@ centred while smaller than the screen. Double-tap toggles between fit and **2.5Ã
 tap (after the double-tap window, 320 ms) toggles the chrome (`R:src/image-zoom.ts:41-108`). The chat itself never
 pinch-zooms (the owner kept page pinch-zoom off, `M:finish-everything-push.md`).
 
+On the Mac (owner 2026-11-18: "a weird blur on the top and bottom and it's hard to see where to click to close"): the
+page's scroll view fills only the space between the bars (`MediaPageController.room`, the view's safe area), so the
+photo fits there and nothing of it runs under the bars' blurred edges (its scroll edge effects are hidden too, for a
+zoomed photo); a click on the photo leaves the chrome where it is, as Preview does â€” Done never goes away.
+
 ### 9.3 Chrome (system bars, glass by the system)
 
 - Navigation bar: leading **close** (`UIBarButtonItem(systemItem: .close)`, label "Close", id `viewer.close`); title.
+  On the Mac it is the trailing **Done** every Mac sheet has (`hqPlaceClose`), drawn as a filled button (white 18 %,
+  capsule; the Desktop Look's corner) so it reads on the black bar (owner 2026-11-18).
 - Bottom toolbar: **Share** (`square.and.arrow.up`, id `viewer.share`) leading; **Save** (`square.and.arrow.down`,
   label "Save", id `viewer.save`) trailing. The web's viewer bar has Share and Done (`R:build/fe-convo-gates.ts:754-756`;
   `R:build/audit-b-gates.ts:44-46`).
