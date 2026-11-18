@@ -330,7 +330,7 @@ extension SessionsTests {
         XCTAssertTrue(app.staticTexts["sessions.projectPage.place"].label.contains("~/site"), "its folder")
         // [sessions-ux] One go-to: no New Chat on the page; the bar's Compose starts the chat here and says so.
         XCTAssertFalse(app.buttons["sessions.projectPage.newChat"].exists, "no second New Chat on the page")
-        XCTAssertEqual(app.buttons["sessions.compose"].label, "New Chat in Website")
+        XCTAssertEqual(app.buttons["sessions.compose"].label, "New Chat in Website with Hermes")
         XCTAssertTrue(waitUntil(6) { self.headers(app) == ["New"] }, "its sections (\(headers(app)))")
         shot(app, "P2-project-pill-picked")
         // Reading's page: its working chat under Working.

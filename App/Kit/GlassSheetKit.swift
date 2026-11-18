@@ -459,11 +459,24 @@ extension UITableViewCell {
         let visible = list.bounds.insetBy(dx: 0, dy: -400)
         let path = UIBezierPath()
         for section in sections(of: list) where section.card && section.box.intersects(visible) && section.box.height > 1 {
-            path.append(UIBezierPath(roundedRect: section.box.insetBy(dx: 0.5, dy: 0.5), cornerRadius: max(0, radius - 0.5)))
+            path.append(Self.outline(section.box.insetBy(dx: 0.5, dy: 0.5), radius: max(0, radius - 0.5)))
         }
         stroke.frame = CGRect(origin: .zero, size: list.contentSize)
         stroke.path = path.cgPath
         stroke.strokeColor = HQPalette.cardEdge.resolvedColor(with: list.traitCollection).cgColor
+    }
+
+    /// A card's outline with the cards' own corners. Owner 2026-11-17 (a screenshot of New Chat inside a project, the
+    /// one-row card ringed): "This button isn't fitting in its space properly. Look around the edges of it." A card of
+    /// one row is not much taller than twice its corner, and there `UIBezierPath(roundedRect:cornerRadius:)` gives up
+    /// its corner and draws a capsule (it does so once the corner passes about a third of the short side), while the
+    /// row's own fill keeps its corner: the fill's four corners stood outside the line. Such a card gets plain
+    /// quarter-circle corners of the same radius, which follow the fill; a taller card keeps the smooth corner.
+    static func outline(_ box: CGRect, radius: CGFloat) -> UIBezierPath {
+        let short = min(box.width, box.height)
+        guard radius * 3.06 > short else { return UIBezierPath(roundedRect: box, cornerRadius: radius) }
+        let corner = min(radius, short / 2)
+        return UIBezierPath(cgPath: CGPath(roundedRect: box, cornerWidth: corner, cornerHeight: corner, transform: nil))
     }
 
     /// Each section's rows as one box, and whether a row in it that shows draws a card (one that doesn't show is

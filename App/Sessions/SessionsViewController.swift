@@ -524,11 +524,21 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         let pageRegistration = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, _ in
             guard let self, let group = self.groups.first(where: { $0.id == SessionListPipeline.pageId }), let key = group.pageKey else { return }
             let bots = group.profiles.map { self.owners[$0]?.name ?? Self.readableProfileName($0) }
+            // [project-default-bot] The ⋯: which bot Compose starts a chat with here, and a chat with another.
+            let choices = self.organizer?.projectBotChoices(key: key) ?? []
+            let menu: ProjectPageHeader.BotMenu? = choices.count < 2 ? nil : ProjectPageHeader.BotMenu(
+                bots: choices, usual: self.organizer?.projectDefaultBot(key: key),
+                onPick: { [weak self] choice in
+                    Haptics.play(.selection)
+                    self?.store?.setProjectBotChoice(key, choice)
+                    self?.reload(animated: false)
+                },
+                onNewChatWith: { [weak self] in self?.organizer?.newChat(inProject: key, profile: nil, asks: true) })
             let header = ProjectPageHeader(
                 name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
                 onJump: { [weak self] section in self?.scrollToPageSection(section) },
-                onSoftCard: BackdropCards.on(self))
+                onSoftCard: BackdropCards.on(self), menu: menu)
             cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
             cell.accessibilityIdentifier = "sessions.projectPage"
             cell.backgroundConfiguration = .clear()
@@ -1274,7 +1284,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 if home { self?.organizer?.compose(profile: profile) } else { self?.organizer?.newChat(inProject: key, profile: profile) }
             },
             onOther: { [weak self] in
-                if home { self?.organizer?.compose(profile: nil) } else { self?.organizer?.newChat(inProject: key, profile: nil) }
+                if home { self?.organizer?.compose(profile: nil) } else { self?.organizer?.newChat(inProject: key, profile: nil, asks: true) }
             })
     }
 
@@ -1509,7 +1519,10 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         }
         // [project-pills] The project page's header redraws when what it says changes.
         if let page = groups.first(where: { $0.id == SessionListPipeline.pageId }) {
-            let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","),
+            let usual = page.pageKey.map { key in
+                (organizer?.projectDefaultBot(key: key) ?? "?") + (organizer?.projectBotChoices(key: key).map(\.name).joined(separator: ",") ?? "")
+            } ?? ""
+            let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","), usual,
                         "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)"].joined(separator: "|")
             if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
             pageSign = sign
@@ -2373,7 +2386,10 @@ extension SessionsViewController {
         if headerModel.strip != strip { headerModel.strip = strip; headerChanged = true }
         // [sessions-ux] Compose says where its chat starts while one project is picked (it is that page's New Chat).
         let composeIn = pickedProjects.count == 1 ? state.projects.first { pickedProjects.contains($0.key) && $0.key != SessionProjects.homeKey }?.label : nil
-        barCapsule?.composeItem?.accessibilityLabel = composeIn.map { "New Chat in \($0)" } ?? "New Chat"
+        // [project-default-bot] And with which bot, when the project has a default one (no bot's pill picked).
+        let composeBot = composeIn == nil || state.botFilter != nil ? nil
+            : pickedProjects.first.flatMap { organizer?.projectDefaultBot(key: $0) }.flatMap { id in bots.first { $0.id == id }?.name }
+        barCapsule?.composeItem?.accessibilityLabel = composeIn.map { "New Chat in \($0)" + (composeBot.map { " with \($0)" } ?? "") } ?? "New Chat"
         if headerChanged { view.setNeedsLayout() }
     }
 

@@ -88,6 +88,9 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     /// [own-folder] Each bot's own folder (profile → the folder its own chat runs in), as last learned
     /// (SessionStore+OwnFolder.swift).
     var botFolders: [String: String] = [:]
+    /// [project-default-bot] The bot each project's New Chat starts with (project key → profile, or
+    /// `ProjectDefaultBot.ask`); a project not named has nothing chosen.
+    var projectBots: [String: String] = [:]
 
     init() {}
 
@@ -95,6 +98,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
         case chatOrder, projectOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
+        case projectBots
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +119,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         openGroups = (try? c.decodeIfPresent([String: [String]].self, forKey: .openGroups)) ?? [:]
         archivedProjects = (try? c.decodeIfPresent([String].self, forKey: .archivedProjects)) ?? []
         botFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botFolders)) ?? [:]
+        projectBots = (try? c.decodeIfPresent([String: String].self, forKey: .projectBots)) ?? [:]
     }
 }
 

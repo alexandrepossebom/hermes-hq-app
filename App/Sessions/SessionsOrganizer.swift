@@ -370,7 +370,9 @@ extension AppModel: SessionsServices {}
     /// A project's New Chat (its header's +, Compose with Filter › Project on one project): a new chat in the
     /// project's folder, with the picked chip's bot, else Choose a Bot (every bot). A bot without the project is given
     /// it first (same name and folder), so the chat lists under the project rather than under Home.
-    func newChat(inProject key: String, profile: String? = nil) {
+    /// [project-default-bot] With no bot picked the project's default bot starts the chat at once (`ProjectDefaultBot`);
+    /// `asks` (New Chat With…, a card's Other Bots…) always opens the chooser.
+    func newChat(inProject key: String, profile: String? = nil, asks: Bool = false) {
         guard let store else { return }
         let holders = store.projectHolders(key: key)
         let label = holders.first?.project.label ?? store.projectEntries().first { $0.key == key }?.label
@@ -387,7 +389,30 @@ extension AppModel: SessionsServices {}
         }
         // [sessions-ux] The chooser says which project the chat starts in, the project's own bots first (it read
         // "Choose a Bot" over every bot, Hermes first, with no word of the project).
-        if let profile { start(profile) } else { chooseBot(project: (label, holders.map(\.profile)), start) }
+        if let profile { start(profile); return }
+        let usual = projectDefaultBot(key: key)
+        if !asks, let usual { start(usual); return }
+        chooseBot(project: (label, holders.map(\.profile)), usual: (usual, { [weak self] bot in
+            self?.store?.setProjectBotChoice(key, bot)
+        }), start)
+    }
+
+    /// [project-default-bot] The bot a project's New Chat starts with; nil asks.
+    func projectDefaultBot(key: String) -> String? {
+        guard let store else { return nil }
+        let bots = services.bots
+        let own = store.projectHolders(key: key).map(\.profile).filter { id in
+            bots.contains { $0.id == id && (!$0.hidden || id == "default") }
+        }
+        return ProjectDefaultBot.resolve(stored: store.projectBotChoice(key), own: own, bots: bots.map(\.id))
+    }
+
+    /// [project-default-bot] The bots a project's Default Bot menu offers: Hermes first, hidden ones left out (the one
+    /// chosen stays).
+    func projectBotChoices(key: String) -> [(id: String, name: String)] {
+        let usual = projectDefaultBot(key: key)
+        let bots = services.bots.filter { !$0.hidden || $0.id == "default" || $0.id == usual }
+        return (bots.filter { $0.id == "default" } + bots.filter { $0.id != "default" }).map { ($0.id, $0.name) }
     }
 
     /// A bot without the project: `projects.create` for it with the project's name and folder, then the new chat there.
@@ -419,7 +444,10 @@ extension AppModel: SessionsServices {}
     /// out, as the chips leave them out (Hermes is always offered).
     /// `project`: a project's New Chat: its name (the sheet is "New Chat", its first heading "In <project>") and the
     /// bots that have it, which are listed first; the others follow under "Other Bots".
-    func chooseBot(project: (name: String, bots: [String])? = nil, _ picked: @escaping (String) -> Void) {
+    /// [project-default-bot] `usual`: the project's default bot (its row says Default) and what a hold on a row's Make
+    /// Default calls.
+    func chooseBot(project: (name: String, bots: [String])? = nil,
+                   usual: (bot: String?, set: (String) -> Void)? = nil, _ picked: @escaping (String) -> Void) {
         let bots = services.bots.filter { !$0.hidden || $0.id == "default" || project?.bots.contains($0.id) == true }
         guard bots.count > 1, let host else { picked(bots.first?.id ?? "default"); return }
         let ordered = bots.filter { $0.id == "default" } + bots.filter { $0.id != "default" }
@@ -440,7 +468,8 @@ extension AppModel: SessionsServices {}
             picked(id)
         }
         // [ui-sizing] The scaled root, as every hosted page: its bot names stayed 17 pt beside 75 pt faces at 150 %.
-        let picker = UIHostingController(rootView: HQScaledRoot(ChooseBotView(groups: groups) { bot in
+        let picker = UIHostingController(rootView: HQScaledRoot(ChooseBotView(groups: groups, usual: usual?.bot,
+                                                                                  project: project?.name, setUsual: usual?.set) { bot in
             guard let sheet = box.sheet, sheet.presentingViewController != nil else { deliver(bot.id); return }
             sheet.dismiss(animated: true) { deliver(bot.id) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { deliver(bot.id) }
@@ -837,6 +866,11 @@ private final class SlowHUDBox {
 struct ChooseBotView: View {
     struct Group { var title: String?; var bots: [Bot] }
     var groups: [Group]
+    /// [project-default-bot] The project's default bot: its row says Default. A hold on a row offers Make Default
+    /// (`setUsual`), which leaves the sheet open.
+    @State var usual: String? = nil
+    var project: String? = nil
+    var setUsual: ((String) -> Void)? = nil
     var pick: (Bot) -> Void
 
     var body: some View {
@@ -851,11 +885,27 @@ struct ChooseBotView: View {
                             HeadImage(raw: bot.head, profile: bot.id, size: HQFont.scaled(32), working: false)
                             Text(bot.name).foregroundStyle(Color.hqLabel)
                             Spacer(minLength: 0)
+                            if usual == bot.id {
+                                Text("Default").font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
+                                    .accessibilityIdentifier("choose-bot-default-mark")
+                            }
                         }
                         .frame(minHeight: HQFont.scaled(44))
                         .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("choose-bot-\(bot.id)")
+                    .contextMenu {
+                        if let setUsual, usual != bot.id {
+                            Button {
+                                Haptics.play(.selection)
+                                usual = bot.id
+                                setUsual(bot.id)
+                            } label: {
+                                Label(project.map { "Make Default for \($0)" } ?? "Make Default", systemImage: "checkmark.circle")
+                            }
+                            .accessibilityIdentifier("choose-bot-make-default")
+                        }
+                    }
                 }
             } header: {
                 if let title = group.title { Text(title).accessibilityIdentifier("choose-bot-heading") }

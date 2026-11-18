@@ -477,6 +477,7 @@ final class AppModel: AppServices {
             sessions.showOutsideChats = false
             sessions.resetGroupFolds()
             sessions.resetOrders()                 // [manual-order]
+            sessions.resetProjectBotChoices()      // [project-default-bot]
             LostSends.shared.purge(accountId: accountId)
             attachments.debugReset()
         }

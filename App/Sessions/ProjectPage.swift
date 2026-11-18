@@ -33,6 +33,19 @@ struct ProjectPageHeader: View {
     /// [project-header-card] The section stands on a soft card already (Soft Cards, the page's picture showing): no card
     /// of its own.
     var onSoftCard = false
+    /// [project-default-bot] The header's ⋯: New Chat With… and Default Bot. Nil (one bot): no ⋯.
+    var menu: BotMenu? = nil
+
+    /// [project-default-bot] Owner 2026-11-17: "a project should be able to have a default bot". The bar's Compose
+    /// starts the chat with it at once; this menu says which bot that is, changes it, and starts a chat with another.
+    struct BotMenu {
+        var bots: [(id: String, name: String)]
+        /// The default bot; nil asks.
+        var usual: String?
+        /// A bot's profile, or `ProjectDefaultBot.ask`.
+        var onPick: (String) -> Void
+        var onNewChatWith: () -> Void
+    }
 
     /// The folder as people write it: a home folder as "~".
     static func shortFolder(_ path: String) -> String {
@@ -126,12 +139,16 @@ struct ProjectPageHeader: View {
             // [sessions-ux] Owner 2026-11-10 ("There should be one go-to"): no New Chat here. The bar's Compose, a thumb
             // away, starts the chat in this project (and says so: "New Chat in <project>"); the capsule beside the
             // name was a second button for the same thing.
-            Text(name)
-                .font(Font.hq(.title3).weight(.bold))
-                .foregroundStyle(Color.hqLabel)
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-                .frame(height: HQFont.scaled(carded ? 26 : 30))
+            HStack(spacing: 4) {
+                Text(name)
+                    .font(Font.hq(.title3).weight(.bold))
+                    .foregroundStyle(Color.hqLabel)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                if let menu { moreButton(menu) }
+            }
+            .frame(height: HQFont.scaled(carded ? 26 : 30))
             if !meta.isEmpty {
                 Text(meta)
                     .font(Font.hq(.footnote))
@@ -160,6 +177,24 @@ struct ProjectPageHeader: View {
         .padding(.horizontal, carded ? lead - Self.cardPad : 0)
         .padding(.top, carded ? 2 : 8)   // [sessions-ux] the name stood 7 pt under the pills, closer than any heading under it
         .padding(.bottom, carded ? 0 : 6)
+    }
+
+    /// [project-default-bot] The ⋯ at the name's end: its glyph stands on the card's inner edge, its touch 44 pt across.
+    private func moreButton(_ menu: BotMenu) -> some View {
+        HeaderMoreButton(label: "Actions for \(name)", identifier: "sessions.projectPage.more", glyph: Theme.isDesktop ? 14 : 17,
+                         cap: 22, height: HQFont.scaled(carded ? 26 : 30), above: 8) {
+            Button(action: menu.onNewChatWith) { Label("New Chat With…", systemImage: "square.and.pencil") }
+            Picker(selection: Binding(get: { menu.usual ?? ProjectDefaultBot.ask }, set: { menu.onPick($0) })) {
+                ForEach(menu.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
+                Divider()
+                Text("Ask Every Time").tag(ProjectDefaultBot.ask)
+            } label: {
+                Label("Default Bot", systemImage: "person.crop.circle.badge.checkmark")
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("sessions.projectPage.defaultBot")
+        }
+        .padding(.trailing, -13)
     }
 
     private func counts(words: Bool) -> some View {

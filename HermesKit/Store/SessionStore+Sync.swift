@@ -19,6 +19,7 @@ extension SessionStore: GatewaySynced {
             "botGroupOrder": .array(device.botGroupOrder.map { .string($0) }),
             "favoriteProjects": .array(device.favoriteProjects.map { .string($0) }),
             "archivedProjects": .array(device.archivedProjects.map { .string($0) }),       // [project-pills]
+            "projectBots": .object(device.projectBots.mapValues { .string($0) }),          // [project-default-bot]
             "colors": .object(device.colors.mapValues { .number(Double($0)) }),
             "sortBy": .string(view.sortBy.rawValue),
             "groupBy": .string(view.groupBy.rawValue),
@@ -39,6 +40,9 @@ extension SessionStore: GatewaySynced {
             for (key, raw) in value["colors"]?.object ?? [:] where device.colors[key] == nil {
                 if let index = raw.int { device.colors[key] = index }
             }
+            for (key, raw) in value["projectBots"]?.object ?? [:] where device.projectBots[key] == nil {
+                if let bot = raw.string { device.projectBots[key] = bot }
+            }
         } else {
             device.chatOrder = joined(strings("chatOrder"), device.chatOrder)
             device.projectOrder = joined(strings("projectOrder"), merge == .firstContact ? device.projectOrder : [])
@@ -48,6 +52,12 @@ extension SessionStore: GatewaySynced {
             var colors = merge == .firstContact ? device.colors : [:]
             for (key, raw) in value["colors"]?.object ?? [:] { if let index = raw.int { colors[key] = index } }
             device.colors = colors
+            // [project-default-bot] A gateway copy written before this had no such part: the device keeps its own.
+            if let remote = value["projectBots"]?.object {
+                var chosen = merge == .firstContact ? device.projectBots : [:]
+                for (key, raw) in remote { if let bot = raw.string { chosen[key] = bot } }
+                device.projectBots = chosen
+            }
             var prefs = view
             if let raw = value["sortBy"]?.string, let sort = SessionSortBy(rawValue: raw) { prefs.sortBy = sort }
             if let raw = value["groupBy"]?.string, let group = SessionGroupBy(rawValue: raw) { prefs.groupBy = group }

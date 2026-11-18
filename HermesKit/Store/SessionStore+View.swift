@@ -119,6 +119,26 @@ extension SessionStore {
                                            archived: archivedProjects, showArchived: view.showArchived)
     }
 
+    /// [project-default-bot] What was chosen for a project's New Chat: a bot's profile, `ProjectDefaultBot.ask`, or nil.
+    func projectBotChoice(_ key: String) -> String? { device.projectBots[key] }
+
+    /// [project-default-bot] Default Bot: `choice` is a bot's profile or `ProjectDefaultBot.ask`. Kept with the other
+    /// hand-picked parts (synced).
+    func setProjectBotChoice(_ key: String, _ choice: String) {
+        guard device.projectBots[key] != choice else { return }
+        device.projectBots[key] = choice
+        AppLog.trace("sessions", "project default bot \(choice == ProjectDefaultBot.ask ? "asks" : "set") (\(device.projectBots.count) chosen)")
+        persistState()
+        onChange?()
+    }
+
+    /// [project-default-bot] UI tests: no project has a bot chosen.
+    func resetProjectBotChoices() {
+        guard !device.projectBots.isEmpty else { return }
+        device.projectBots = [:]
+        persistState()
+    }
+
     /// [project-pills] Projects the owner archived (keys).
     var archivedProjects: Set<String> { Set(device.archivedProjects) }
 
