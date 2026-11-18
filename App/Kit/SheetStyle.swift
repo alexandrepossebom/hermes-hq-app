@@ -591,6 +591,10 @@ extension UISheetPresentationController {
     /// with the sheet open switches it (ThemeChrome.styleSheet).
     /// `everyHeight`: glass at full height too (New Job, owner 2026-10-31: "the entire pop-up should be liquid glass").
     /// iOS turns a full-height sheet solid by itself; this sheet asks for the glass as its own background instead.
+    /// [sheet-over-picture] Before `hqGlassPage()`: this sheet opens over a chat, so in Dark its glass is tinted with
+    /// the page colour instead of going grey, or pale with a picture behind it.
+    func hqGlassOverChat() { SheetGlass.markOverChat(self) }
+
     func hqGlassPage(everyHeight: Bool = false) {
         SheetGlass.install()
         objc_setAssociatedObject(self, SheetGlass.key, true, .OBJC_ASSOCIATION_RETAIN)
@@ -674,6 +678,25 @@ struct ChatLeadEnvironmentKey: EnvironmentKey {
         objc_setAssociatedObject(sheet, traitOnlyKey, true, .OBJC_ASSOCIATION_RETAIN)
     }
 
+    /// [sheet-over-picture] A glass page that opens over a chat (`hqGlassOverChat()`): the Add context sheet.
+    private static let overChatKey = malloc(1)!
+
+    static func markOverChat(_ sheet: UISheetPresentationController) {
+        objc_setAssociatedObject(sheet, overChatKey, true, .OBJC_ASSOCIATION_RETAIN)
+    }
+
+    /// Owner 2026-11-18, of the Add context sheet in Dark: "the buttons are black and the pop up is light". Plain
+    /// glass in Dark is a mid grey over a plain chat and a pale wash over a bright chat picture (as the message bar
+    /// was), with the sheet's dark cards standing black on it. Such a sheet's glass takes the page colour at the bar's
+    /// strength (`ChatBarGlass.alpha`) in Dark, with or without a picture. Nil is the system's plain glass: Light.
+    private static func overChatEffect(_ sheet: UISheetPresentationController) -> UIVisualEffect? {
+        let traits = sheet.presentedViewController.traitCollection
+        guard objc_getAssociatedObject(sheet, overChatKey) != nil, traits.userInterfaceStyle == .dark else { return nil }
+        let glass = UIGlassEffect(style: .regular)
+        glass.tintColor = ChatPalette.page.resolvedColor(with: traits).withAlphaComponent(ChatBarGlass.alpha)
+        return glass
+    }
+
     static func tracksGlass(_ sheet: UISheetPresentationController) -> Bool {
         isGlassPage(sheet) || objc_getAssociatedObject(sheet, traitOnlyKey) != nil
     }
@@ -693,7 +716,7 @@ struct ChatLeadEnvironmentKey: EnvironmentKey {
                 sheet.backgroundEffect = UIColorEffect(color: ours ? HQPalette.groupedPage : HQPalette.page)
             }
         } else if ours {
-            sheet.backgroundEffect = nil
+            sheet.backgroundEffect = overChatEffect(sheet)
         } else if let stash = objc_getAssociatedObject(sheet, stashKey) as? Box {
             sheet.backgroundEffect = stash.effect
             objc_setAssociatedObject(sheet, stashKey, nil, .OBJC_ASSOCIATION_RETAIN)

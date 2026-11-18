@@ -106,6 +106,22 @@ import UniformTypeIdentifiers
 
     @objc required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// [sheet-over-picture] On the app's glass, tinted with the page colour in Dark (the sheet's own traits are known
+    /// by now; a Light/Dark switch with it open applies it again).
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        guard let sheet = sheetPresentationController else { return }
+        sheet.hqGlassOverChat()
+        sheet.hqGlassPage()
+        if !watchesStyle {
+            watchesStyle = true
+            registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (page: ComposerContextSheet, _) in
+                page.sheetPresentationController?.hqGlassPage()
+            }
+        }
+    }
+    private var watchesStyle = false
+
     @MainActor final class Bridge {
         weak var controller: UIViewController?
         /// The sheet sizes to its content (up to the large detent), so nothing sits under its bottom edge.
@@ -138,6 +154,12 @@ import UniformTypeIdentifiers
         let bridge: Bridge
         let onPhoto: (NSItemProvider) -> Void
         @State private var submenu: UIMenu?
+        @Environment(\.colorScheme) private var scheme
+
+        /// The tiles' and the card's fill. In Dark the sheet's glass is tinted with the page colour
+        /// ([sheet-over-picture]), about the grouped card's own, so a card of that colour had no shape: there they are
+        /// a lift of white over the glass instead.
+        private var cardFill: Color { scheme == .dark ? Color.white.opacity(0.09) : Color.hqGroupedCard }
 
         static let photosID = "composer.plus.photos"
 
@@ -217,14 +239,14 @@ import UniformTypeIdentifiers
             .contentShape(Rectangle())
             if let action = element as? UIAction {
                 Button { bridge.perform(action) } label: { face }
-                    .buttonStyle(TileStyle())
+                    .buttonStyle(TileStyle(fill: cardFill))
                     .disabled(action.attributes.contains(.disabled))
                     .accessibilityLabel(action.title)
                     .accessibilityHint(action.subtitle ?? "")
                     .accessibilityIdentifier(action.accessibilityIdentifier ?? "")
             } else if let group = element as? UIMenu {
                 Button { withAnimation(HQMotion.reduced ? nil : .snappy) { submenu = group } } label: { face }
-                    .buttonStyle(TileStyle())
+                    .buttonStyle(TileStyle(fill: cardFill))
                     .accessibilityLabel(group.title)
             }
         }
@@ -275,7 +297,7 @@ import UniformTypeIdentifiers
                     rowButton(element)
                 }
             }
-            .background(Color.hqGroupedCard, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .background(cardFill, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
 
@@ -322,11 +344,12 @@ import UniformTypeIdentifiers
         }
 
         private struct TileStyle: ButtonStyle {
+            let fill: Color
             @Environment(\.isEnabled) private var enabled
             func makeBody(configuration: Configuration) -> some View {
                 configuration.label
                     .opacity(enabled ? 1 : 0.4)
-                    .background(configuration.isPressed ? Color.hqFill3 : Color.hqGroupedCard,
+                    .background(configuration.isPressed ? Color.hqFill3 : fill,
                                 in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
         }

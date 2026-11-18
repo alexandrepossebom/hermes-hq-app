@@ -53,4 +53,61 @@ extension ComposerUITests {
         XCTAssertTrue(app.buttons["composer.tray.tile.0"].waitForExistence(timeout: 20), "the photo is in the tray")
         IPad.shot(app, "composer-recent-photo-in-tray", in: self)
     }
+
+    /// Owner 2026-11-18: in Dark the sheet "looks awful: the buttons are black and the pop up is light" (plain glass is a
+    /// mid grey in Dark, and shows a bright chat picture through, as the message bar did: E-23). In Dark the sheet's
+    /// glass takes the page colour, with or without a picture; in Light it stays plain glass. A white picture at Dim 0
+    /// is the worst case (0.31 before, with a 0.12 bar).
+    @MainActor func testContextSheetStaysDarkOverABrightPictureInDark() throws {
+        let picture = FileManager.default.temporaryDirectory.appendingPathComponent("context-sheet-background.png")
+        let white = UIGraphicsImageRenderer(size: CGSize(width: 60, height: 120)).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 60, height: 120))
+        }
+        try XCTUnwrap(white.pngData()).write(to: picture)
+        for (mode, pictured) in [("dark", true), ("light", true), ("dark", false)] {
+            let background = pictured ? ["-HQDebugChatBackground", picture.path, "-HQDebugChatBackgroundDim", "0"] : []
+            let (_, app) = try start(arguments: background + ["-HQDebugAppearance", mode])
+            app.buttons["composer.plus"].tap()
+            let title = app.staticTexts["Add context"]
+            XCTAssertTrue(title.waitForExistence(timeout: 8))
+            let privacyOK = app.buttons["OK"]
+            if privacyOK.waitForExistence(timeout: 5) { privacyOK.tap() }
+            Thread.sleep(forTimeInterval: 2)
+            let shot = app.screenshot()
+            IPad.shot(app, "composer-add-context-\(pictured ? "white-picture" : "no-picture")-\(mode)", in: self)
+            // The sheet's own surface: beside the title, and the gap under the last row (no card, no photo there).
+            let link = app.buttons["composer.plus.link"].frame
+            let head = Self.medianLuminance(shot, in: title.frame.insetBy(dx: -24, dy: -4))
+            let foot = Self.medianLuminance(shot, in: CGRect(x: link.minX + 30, y: link.maxY + 4, width: link.width - 60, height: 12))
+            if mode == "dark" {
+                XCTAssertLessThan(head, 0.12, "Dark\(pictured ? " over a white picture" : ""): the sheet reads as a dark surface (luminance \(head))")
+                XCTAssertLessThan(foot, 0.12, "Dark: under the last row too (luminance \(foot))")
+            } else {
+                XCTAssertGreaterThan(head, 0.6, "Light: the sheet stays light (luminance \(head))")
+            }
+            app.terminate()
+        }
+    }
+
+    /// The median relative luminance (0…1) of the screenshot inside `rect` (points): the words on it don't move it.
+    private static func medianLuminance(_ shot: XCUIScreenshot, in rect: CGRect) -> Double {
+        let image = shot.image
+        guard let cg = image.cgImage, rect.width > 4, rect.height > 4 else { return -1 }
+        let scale = image.scale
+        let box = CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale).integral
+        guard let crop = cg.cropping(to: box) else { return -1 }
+        let w = crop.width, h = crop.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let context = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: w, height: h))
+        func linear(_ v: UInt8) -> Double { let c = Double(v) / 255; return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        var values: [Double] = []
+        for i in stride(from: 0, to: bytes.count, by: 16) {
+            values.append(0.2126 * linear(bytes[i]) + 0.7152 * linear(bytes[i + 1]) + 0.0722 * linear(bytes[i + 2]))
+        }
+        values.sort()
+        return values.isEmpty ? -1 : values[values.count / 2]
+    }
 }
