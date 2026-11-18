@@ -345,6 +345,78 @@ import Testing
         #expect(f.session.title == "Form layout review")
     }
 
+    @Test func firstRequestAfterGreetingNamesOnceAndStaysStable() async {
+        let f = MenusFixtureChat()
+        f.session.title = "New Chat"
+        f.session.shortTitleDelay = .zero
+        f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
+        let asked = Mutex<[String]>([])
+        f.session.titleModel = { text, _ in asked.withLock { $0.append(text) }; return "Database pool repair" }
+        func user(_ id: String, _ text: String) -> ChatMessage {
+            ChatMessage(id: id, role: .user, parts: [.text(text)], timestamp: nil, rowId: nil)
+        }
+        f.session.messages = [user("u1", "Hello!")]
+        f.session.receiveAutomaticTitle("Hello!")
+        f.session.receiveAutomaticTitle("Friendly greeting")
+        #expect(f.session.title == "New Chat")
+        f.session.dispatch(GatewayEvent(type: "message.complete", sessionId: f.rid1, seq: nil, payload: ["status": "complete"]))
+        #expect(!f.session.shortTitleTried)
+        let request = "Please investigate the database connection pool timeout errors"
+        f.session.messages.append(user("u2", request))
+        f.session.dispatch(GatewayEvent(type: "message.complete", sessionId: f.rid1, seq: nil, payload: ["status": "complete"]))
+        await f.session.shortTitleTask?.value
+        await f.session.automaticTitleSave?.value
+        #expect(asked.withLock { $0 } == [request])
+        #expect(f.session.title == "Database pool repair")
+        #expect(f.params("session.title").last?["title"] == "Database pool repair")
+        f.session.messages.append(user("u3", "Now check the network configuration"))
+        f.session.shortenTitleIfNeeded()
+        await f.session.shortTitleTask?.value
+        #expect(asked.withLock { $0 } == [request])
+        #expect(f.session.title == "Database pool repair")
+    }
+
+    @Test func greetingWaitsAndUnknownHistoryDoesNotPickALaterRequest() async {
+        let f = MenusFixtureChat()
+        f.session.title = "New Chat"
+        f.session.shortTitleDelay = .zero
+        f.session.messages = [ChatMessage(id: "u1", role: .user, parts: [.text("Hello!")], timestamp: nil, rowId: nil),
+                              ChatMessage(id: "u2", role: .user, parts: [.text("Please investigate the database timeout")], timestamp: nil, rowId: nil)]
+        f.session.hasOlder = true
+        f.session.shortenTitleIfNeeded()
+        #expect(!f.session.shortTitleTried)
+        f.session.hasOlder = false
+        let asked = Mutex<[String]>([])
+        f.session.titleModel = { text, _ in asked.withLock { $0.append(text) }; return nil }
+        f.session.shortenTitleIfNeeded()
+        await f.session.shortTitleTask?.value
+        await f.session.automaticTitleSave?.value
+        #expect(asked.withLock { $0 } == ["Please investigate the database timeout"])
+        #expect(f.session.title == ShortTitle.fallback(for: "Please investigate the database timeout"))
+    }
+
+    @Test(arguments: [false, true])
+    func gatewayOrManualNameWinsWhileRequestModelIsRunning(manual: Bool) async throws {
+        let f = MenusFixtureChat()
+        f.session.title = "New Chat"
+        f.session.shortTitleDelay = .zero
+        f.session.messages = [ChatMessage(id: "u1", role: .user, parts: [.text("Hello!")], timestamp: nil, rowId: nil),
+                              ChatMessage(id: "u2", role: .user, parts: [.text("Please investigate the database timeout")], timestamp: nil, rowId: nil)]
+        f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
+        let gate = MenusGate()
+        let calls = Mutex(0)
+        f.session.titleModel = { _, _ in calls.withLock { $0 += 1 }; await gate.wait(); return "Database pool repair" }
+        f.session.shortenTitleIfNeeded()
+        #expect(await waitUntil { calls.withLock { $0 } == 1 })
+        if manual { _ = try await f.session.rename(to: "My chosen name") }
+        else { f.session.receiveAutomaticTitle("Gateway database diagnosis") }
+        gate.release()
+        await f.session.shortTitleTask?.value
+        await f.session.automaticTitleSave?.value
+        #expect(f.session.title == (manual ? "My chosen name" : "Gateway database diagnosis"))
+        #expect(!f.params("session.title").contains { $0["title"] == "Database pool repair" })
+    }
+
     @Test func fittingGatewayPhraseIsShownWithoutARewrite() {
         let f = MenusFixtureChat()
         f.session.title = "New Chat"

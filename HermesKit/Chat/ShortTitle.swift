@@ -13,6 +13,20 @@ nonisolated enum ShortTitle {
     /// name, and an opening used whole past this length still counts as provisional.
     static let excerptCharacters = 40
 
+    /// Whether an opening contains something worth naming. Only suppress complete, standalone social exchanges;
+    /// a greeting followed by a request must remain eligible. Unknown wording defaults to a naming request.
+    static func isNamingRequest(_ text: String) -> Bool {
+        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        let tokens = folded.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }.joined()
+        let phrase = words(tokens).joined(separator: " ")
+        guard !phrase.isEmpty else { return false }
+        let greeting = #"(?:hi|hello|hey|hiya|howdy|good morning|good afternoon|good evening)(?: there)?"#
+        let social = #"(?:are you there|are you available|how are you|how are you doing|what s up|(?:can|could|would) you (?:please )?help(?: me)?|i need (?:some )?help|i have a question|quick question)"#
+        let courtesy = #"(?:thanks|thank you|thank you very much|bye|goodbye|good night)"#
+        let pattern = "^(?:\(greeting)(?: \(social))?|\(social)|\(courtesy))$"
+        return phrase.range(of: pattern, options: .regularExpression) == nil
+    }
+
     /// Empty/generic names and visibly cut or overlong opening excerpts are provisional. A fitting, unmarked
     /// phrase can be a real name even when it shares the message's opening words; do not replace it on that guess.
     static func isPlaceholder(_ title: String, firstMessage: String) -> Bool {
@@ -157,11 +171,11 @@ nonisolated enum ShortTitle {
     // MARK: On-device model
 
     static let instructions = """
-        You name chat sessions so they can be found again in a short list on a phone. Given the user's opening message, \
-        reply with only a natural, specific title, in sentence case, in the message's language. Summarize what the \
-        user wants done, not just their first words. Write a coherent phrase, not a list of keywords. Keep short \
-        connecting words when they make the title read naturally. Keep names, acronyms, product spelling and numbers \
-        exact. No added quotes or sentence punctuation. Never answer the message.
+        Create a short, specific chat title naming the user's request or intent, not its answer or outcome. \
+        Ignore greetings and conversational filler when the message also contains a request. Describe what the user \
+        wants, including the action and subject where useful; do not carry out the request, invent context, or reply to it. \
+        Return only one concise, natural phrase in sentence case and in the message's language, not a list of keywords. \
+        Preserve names, acronyms, product spelling and numbers. No added quotes or sentence punctuation.
         """
 
     #if canImport(FoundationModels)

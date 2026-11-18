@@ -197,6 +197,20 @@ extension LiveChatSession: ChatSessionActions {
         return messages.first(where: { $0.role == .user })?.plainText
     }
 
+    /// The earliest substantive request, only when the beginning of the transcript is known. Greetings and other
+    /// conversational openers must not consume the one automatic naming attempt.
+    var firstNamingRequest: String? {
+        guard !hasOlder else { return nil }
+        return messages.lazy.filter { $0.role == .user }.map(\.plainText).first { ShortTitle.isNamingRequest($0) }
+    }
+
+    /// A gateway may use a greeting verbatim as its initial title. Keep it provisional so the first real request can
+    /// name the chat, including after reopening; a composed gateway title is still authoritative.
+    private var greetingTitle: Bool {
+        guard let first = firstUserText, !ShortTitle.isNamingRequest(first) else { return false }
+        return ShortTitle.normalized(title) == ShortTitle.normalized(first)
+    }
+
     /// Only automatic names are adjusted. Existing named chats and explicit Rename / /title choices stay intact.
     func receiveAutomaticTitle(_ raw: String, alreadyStored: Bool = true) {
         guard !isBotChat else { return }
@@ -208,6 +222,8 @@ extension LiveChatSession: ChatSessionActions {
         }
         let awaitingModel = ManualChatTitles.isAwaitingModel(title, account: account.id, profile: profile, id: storedSessionId)
         guard !titleManuallySet, needsShortTitle || automaticTitleIsLocal || awaitingModel else { return }
+        // A gateway can name a greeting before the user has said what this chat is for.
+        if let first = firstUserText, !ShortTitle.isNamingRequest(first), firstNamingRequest == nil { return }
         let first = firstUserText ?? ""
         let opening = ShortTitle.isPlaceholder(raw, firstMessage: first)
         // An opening excerpt is no improvement on an existing name, even if its older save was skipped.
@@ -238,7 +254,7 @@ extension LiveChatSession: ChatSessionActions {
     }
 
     private var needsShortTitle: Bool {
-        !isBotChat && !titleManuallySet && ShortTitle.isPlaceholder(automaticTitleSource ?? title, firstMessage: firstUserText ?? "")
+        !isBotChat && !titleManuallySet && (greetingTitle || ShortTitle.isPlaceholder(automaticTitleSource ?? title, firstMessage: firstUserText ?? ""))
     }
 
     /// A gateway's composed name that was cut ("My account has been…"), still open to a better automatic name:
@@ -256,7 +272,7 @@ extension LiveChatSession: ChatSessionActions {
     /// rules. A cut gateway name is only ever replaced by a model's name, never by the opening excerpt.
     func shortenTitleIfNeeded() {
         guard !shortTitleTried, needsShortTitle || cutComposedName != nil,
-              let first = firstUserText, !ChatText.trimmed(first).isEmpty else { return }
+              let first = firstNamingRequest else { return }
         shortTitleTried = true
         shortTitleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: self?.shortTitleDelay ?? .seconds(5))

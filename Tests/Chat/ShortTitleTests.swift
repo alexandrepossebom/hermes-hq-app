@@ -4,6 +4,18 @@ import Testing
 @Suite struct ShortTitleTests {
     let hue = "I just added another Philips hue ceiling light in the bonus/play room. Set it up."
 
+    @Test func namingRequestsExcludeOnlyStandaloneGreetingsAndCourtesies() {
+        for text in ["", "  \n", "!!!", "Hi", "HELLO there!!!", "Hey, are you there?",
+                     "Hi, how are you?", "Can you help?", "Hey, could you help me?", "Good morning!", "Thanks!", "Thank you."] {
+            #expect(!ShortTitle.isNamingRequest(text), "Unexpected request: \(text)")
+        }
+        for text in ["Hi, can you help me debug my iOS app?", "Hello! Plan a trip to Tokyo",
+                     "Hey\nWhat is 2+2?", "How are you handling errors in Swift?",
+                     "Hi there, what is the weather?", "Summarize this", "你好，请帮我写代码", "2+2?"] {
+            #expect(ShortTitle.isNamingRequest(text), "Missed request: \(text)")
+        }
+    }
+
     @Test func openingWordsArePlaceholders() {
         #expect(ShortTitle.isPlaceholder("I just added another…", firstMessage: hue))
         #expect(ShortTitle.isPlaceholder("I just added another Philips hue ceiling light in", firstMessage: hue))
