@@ -156,7 +156,7 @@ final class MacRailHead: UIControl {
     private var hovered = false
     #if DEBUG
     /// [Mac AAA 2026-11-16] The frame tour: drawn as under the pointer.
-    func debugHover() { hovered = true; recolor() }
+    func debugHover(_ on: Bool = true) { hovered = on; recolor() }
     #endif
     /// [rail-tile] The soft tile behind the face: the open chat's mark, fainter under the pointer.
     private let tile = UIView()
@@ -317,7 +317,10 @@ final class MacRailHead: UIControl {
     static var workingLine: CGFloat { (16 * MacSidebar.chrome).rounded() }
 
     private func describe() {
-        toolTip = named || inRow ? nil : item.name   // [rail-names] the name is on show already
+        // [rail-peek] On the rail the peek card names the head at once (with its last message): no system tooltip a
+        // second later on top of it. The open sidebar's rows keep theirs (`layoutSubviews`).
+        toolTip = nil
+        if MacRailPeek.shared.anchor === self { MacRailPeek.shared.show(for: self) }   // a reply landed under the pointer
         name.text = item.name
         if inRow {
             switch item {
@@ -370,11 +373,62 @@ final class MacRailHead: UIControl {
     @objc private func hover(_ recognizer: UIHoverGestureRecognizer) {
         hovered = recognizer.state == .began || recognizer.state == .changed
         recolor()
+        guard !inRow else { return }
+        if recognizer.state == .began, !isHighlighted { MacRailPeek.shared.show(for: self) }
+        if !hovered { MacRailPeek.shared.hide(from: self) }
+    }
+
+    /// [rail-peek] The peek card's words: the face, the name, and what the row's second line says (the last message,
+    /// or what the bot is doing / waiting on), as the Bots list writes it.
+    var peekLine: (text: String, tone: BotList.Tone) {
+        switch item {
+        case .bot(let bot):
+            let line = BotList.secondLine(bot)
+            if BotList.rowStatus(bot) == .idle, let prefix = bot.previewPrefix?.trimmingCharacters(in: .whitespaces), !prefix.isEmpty,
+               bot.preview?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false, !line.text.hasPrefix(prefix) {
+                return (prefix + " " + line.text, line.tone)
+            }
+            return line
+        case .room(let room):
+            let line = room.line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (line.isEmpty ? "No messages yet" : line, .secondary)
+        }
+    }
+    /// [rail-peek] When the line was said ("11:42 AM", "Yesterday"), as the Bots row's time; none while it works or waits.
+    var peekTime: String {
+        switch item {
+        case .bot(let bot): BotList.rowStatus(bot) == .idle ? ListTime.string(bot.lastActive) : ""
+        case .room(let room): room.running ? "" : ListTime.string(room.time)
+        }
+    }
+    var peekFace: AnyView {
+        let size = MacRailPeek.faceSize
+        switch item {
+        case .bot(let bot): return AnyView(BotAvatar(bot: bot, size: size, tile: true, faceArc: false, presence: true))
+        case .room(let room): return AnyView(GroupAvatar(image: room.image, faces: room.faces, size: size))
+        }
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        // A roster redraw takes heads out of the stack and puts them back in the same turn: only a head still out of the
+        // window on the next one takes the card away; one put back keeps it, moved to where the head now is.
+        guard newWindow == nil, MacRailPeek.shared.anchor === self else { return }
+        DispatchQueue.main.async { [weak self] in
+            if let self, self.window != nil { MacRailPeek.shared.follow(); return }
+            if MacRailPeek.shared.anchor == nil || MacRailPeek.shared.anchor === self { MacRailPeek.shared.hide() }
+        }
     }
 
     // [Mac AAA 2026-11-16] A head's press is its tile in the sidebar's press grey, as a row's press is (the face dimmed
     // to 72 %, the one control on the rail that darkened under a click while the places beside it filled).
-    override var isHighlighted: Bool { didSet { if isHighlighted != oldValue { recolor() } } }
+    override var isHighlighted: Bool {
+        didSet {
+            guard isHighlighted != oldValue else { return }
+            recolor()
+            if isHighlighted { MacRailPeek.shared.hide(from: self) }   // [rail-peek] a click opens the chat: the card goes
+        }
+    }
 
     /// [rail-tile] Neutral, a step lighter than the glass in dark and darker in light (Slack's), whatever the accent: the
     /// head's own colours stay the loudest thing in it.
@@ -1137,6 +1191,276 @@ final class MacSidebarEmptyHint: UIView {
     func recolor() {
         label.font = MacSidebar.font(MacSidebar.sized(12.5, MacSidebar.scheme.hint))
         label.textColor = MacSidebar.quietInk   // [Mac AAA 2026-11-16] label 3 was 2.1:1 in light
+    }
+}
+
+/// [rail-peek] Owner 2026-11-18 (a Grok picture: a card beside a head reading "Grok Bot / Want to grab 25 minutes later
+/// today?"): the pointer on a head of the folded rail shows, at once, a card beside it with the bot's face, its name and
+/// its last message (or what it's doing / waiting on, in the row's colour), so a glance down the rail reads each chat
+/// without opening it. One card for the window: it follows the pointer from head to head, stays with its head as the
+/// rail scrolls, and goes when the pointer leaves, a click opens the chat, or the head leaves the window. It takes no
+/// clicks (the pointer is on the head, never on it). VoiceOver already reads the same words from the head's label.
+@MainActor final class MacRailPeek {
+    static let shared = MacRailPeek()
+    /// The head it is beside (weak: a roster redraw can drop the head under the pointer).
+    private(set) weak var anchor: MacRailHead?
+    private var card: Card?
+
+    /// The face in the card's title line.
+    static var faceSize: CGFloat { (32 * MacSidebar.chrome).rounded() }
+
+    func show(for head: MacRailHead) {
+        guard let window = head.window else { return }
+        let card: Card
+        if let existing = self.card, existing.window === window {
+            card = existing
+        } else {
+            self.card?.removeFromSuperview()
+            card = Card()
+            window.addSubview(card)
+            self.card = card
+        }
+        let moving = anchor != nil && anchor !== head && !card.isHidden && card.alpha > 0.5
+        anchor = head
+        card.fill(name: head.item.name, time: head.peekTime, line: head.peekLine, face: head.peekFace)
+        window.bringSubviewToFront(card)
+        let from = card.center
+        place()
+        guard anchor === head else { return }   // its head is scrolled out of sight
+        if moving {
+            // Head to head down the rail it stays up and glides to the next one, its words already swapped.
+            let to = card.center
+            card.center = from
+            HQMotion.spring(duration: 0.3, damping: 0.86, changes: { card.center = to; card.alpha = 1; card.transform = .identity },
+                            reduced: { card.center = to; card.alpha = 1; card.transform = .identity })
+            return
+        }
+        if card.isHidden || card.alpha < 0.05 {
+            // At once, never a wait (the system tooltip's wait is what it replaces): it rises from the rail's side,
+            // a few points in and a touch small, as a macOS popover settles. Reduce Motion: a fade alone.
+            card.isHidden = false
+            card.alpha = 0
+            card.transform = HQMotion.reduced ? .identity : CGAffineTransform(translationX: -6, y: 0).scaledBy(x: 0.97, y: 0.97)
+        }
+        HQMotion.spring(duration: 0.32, damping: 0.84, changes: {
+            card.alpha = 1
+            card.transform = .identity
+        }, reduced: { card.alpha = 1 })
+    }
+
+    /// The rail scrolled under the pointer: the card keeps to its head.
+    func follow() { if anchor != nil { place() } }
+
+    /// The pointer left `head` (or it was clicked or removed): the card goes, unless it has moved to another head.
+    func hide(from head: MacRailHead) {
+        guard anchor === head || anchor == nil else { return }
+        hide()
+    }
+
+    func hide() {
+        anchor = nil
+        guard let card, !card.isHidden else { return }
+        UIView.animate(withDuration: HQMotion.quick, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseIn]) {   // motion-ok: opacity only
+            card.alpha = 0
+        } completion: { _ in
+            if self.anchor == nil { card.isHidden = true; card.transform = .identity }
+        }
+    }
+
+    /// Beside its head: 8 pt past the head's tile, centred on it, kept inside the window. A head scrolled out of the
+    /// rail's view takes the card with it.
+    func place() {
+        guard let head = anchor, let card, let window = card.window, head.window === window else { hide(); return }
+        let tile = head.convert(head.bounds, to: window)
+        if !Self.visible(head, in: window) { hide(); return }
+        let size = card.fit(maxWidth: min(Card.maxWidth, window.bounds.width - tile.maxX - 24))
+        let tileRight = head.convert(CGPoint(x: head.bounds.midX + MacBotsRail.tileSide / 2, y: 0), to: window).x
+        var y = tile.midY - size.height / 2
+        y = min(max(y, window.safeAreaInsets.top + 6), window.bounds.height - size.height - 6)
+        // Clear of the rail's own edge, so it reads as lifted over the chat rather than tucked half under the rail.
+        var rail: UIView? = head.superview
+        while let view = rail, !(view is MacSidebar) { rail = view.superview }
+        let railRight = rail.map { $0.convert($0.bounds, to: window).maxX } ?? tileRight
+        let frame = CGRect(x: (max(tileRight + 10, railRight + 10)).rounded(), y: y.rounded(), width: size.width, height: size.height)
+        card.bounds = CGRect(origin: .zero, size: frame.size)
+        card.center = CGPoint(x: frame.midX, y: frame.midY)
+    }
+
+    /// The head's middle is inside every clipping view between it and the window (the rail's scroll view).
+    private static func visible(_ head: UIView, in window: UIWindow) -> Bool {
+        let middle = CGPoint(x: head.bounds.midX, y: head.bounds.midY)
+        var view = head.superview
+        while let next = view, next !== window {
+            if next.clipsToBounds, !next.bounds.contains(head.convert(middle, to: next)) { return false }
+            view = next.superview
+        }
+        return true
+    }
+
+    #if DEBUG
+    /// The card's frame and words, for the rail tour's log.
+    var debugState: String {
+        guard let card, !card.isHidden, card.alpha > 0 else { return "peek: none" }
+        return "peek: \(card.debugWords) frame \(card.frame.integral)"
+    }
+    #endif
+
+    /// The card: a raised panel beside the rail. Two shadows (a wide soft one for its lift, a tight one where it meets
+    /// the window), a hairline edge, and a faint light along its top edge in dark so it reads as a surface, not a hole.
+    /// The face, the name and the time on one line, the message under it (three lines at most).
+    final class Card: UIView {
+        static var maxWidth: CGFloat { (420 * MacSidebar.chrome).rounded() }
+        static var minWidth: CGFloat { (250 * MacSidebar.chrome).rounded() }
+        private let panel = UIView()
+        private let contact = UIView()
+        private let sheen = CAGradientLayer()
+        private let face = UIView()
+        private var faceHost: (UIView & UIContentView)?
+        private let name = UILabel()
+        private let time = UILabel()
+        private let line = UILabel()
+        private var inset: CGFloat { (18 * MacSidebar.chrome).rounded() }
+        private var gap: CGFloat { (10 * MacSidebar.chrome).rounded() }
+        private var lead: CGFloat { (10 * MacSidebar.chrome).rounded() }
+        private var radius: CGFloat { (20 * MacSidebar.chrome).rounded() }
+
+        init() {
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+            accessibilityElementsHidden = true   // the head's own label already reads these words
+            accessibilityIdentifier = "mac-rail.peek"
+            backgroundColor = .clear
+            // The lift: wide and soft, below the card.
+            layer.shadowColor = UIColor.black.cgColor
+            layer.shadowOffset = CGSize(width: 0, height: 10)
+            layer.shadowRadius = 24
+            // Where it meets the window: tight.
+            contact.layer.shadowColor = UIColor.black.cgColor
+            contact.layer.shadowOffset = CGSize(width: 0, height: 1)
+            contact.layer.shadowRadius = 2
+            contact.layer.cornerCurve = .continuous
+            contact.backgroundColor = .clear
+            addSubview(contact)
+            panel.layer.cornerCurve = .continuous
+            panel.layer.borderWidth = 1 / max(UIScreen.main.scale, 1)
+            panel.clipsToBounds = true
+            addSubview(panel)
+            sheen.startPoint = CGPoint(x: 0.5, y: 0)
+            sheen.endPoint = CGPoint(x: 0.5, y: 1)
+            panel.layer.addSublayer(sheen)
+            name.numberOfLines = 1
+            name.lineBreakMode = .byTruncatingTail
+            time.numberOfLines = 1
+            time.setContentCompressionResistancePriority(.required, for: .horizontal)
+            line.numberOfLines = 3
+            line.lineBreakMode = .byTruncatingTail
+            for view in [face, name, time, line] as [UIView] { panel.addSubview(view) }
+            registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (card: Card, _: UITraitCollection) in card.recolor() }
+            recolor()
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+        /// White in light; in dark a raised grey a step over the window's own, as macOS draws a popover.
+        private static let fill = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.19, alpha: 1) : .white }
+        private static let edge = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.14) : UIColor(white: 0, alpha: 0.09) }
+
+        private func recolor() {
+            let dark = traitCollection.userInterfaceStyle == .dark
+            panel.backgroundColor = Self.fill
+            panel.layer.borderColor = Self.edge.resolvedColor(with: traitCollection).cgColor
+            layer.shadowOpacity = dark ? 0.45 : 0.14
+            contact.layer.shadowOpacity = dark ? 0.5 : 0.1
+            // The top's faint light: dark only (white on white is nothing).
+            sheen.colors = [UIColor(white: 1, alpha: dark ? 0.06 : 0).cgColor, UIColor(white: 1, alpha: 0).cgColor]
+            time.textColor = HQPalette.label3
+        }
+
+        private var tone: BotList.Tone = .secondary
+
+        func fill(name text: String, time stamp: String, line words: (text: String, tone: BotList.Tone), face view: AnyView) {
+            name.text = text
+            name.font = MacSidebar.font(18, weight: .semibold)
+            name.textColor = HQPalette.label
+            time.text = stamp
+            time.font = MacSidebar.font(14)
+            time.isHidden = stamp.isEmpty
+            // Hermes previews are one line already (the gateway's cut); breaks in a status read as spaces.
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = (3 * MacSidebar.chrome).rounded()
+            style.lineBreakMode = .byTruncatingTail
+            tone = words.tone
+            let colour: UIColor = switch words.tone {
+            case .secondary: HQPalette.label2
+            case .tint: HQPalette.tint
+            case .attention: HQPalette.orange
+            }
+            line.attributedText = NSAttributedString(string: words.text.replacingOccurrences(of: "\n", with: " "), attributes: [
+                .font: MacSidebar.font(17), .foregroundColor: colour, .paragraphStyle: style,
+            ])
+            let configuration = UIHostingConfiguration { view.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(\.hqBadgeRing, Color(uiColor: Self.fill)) }.margins(.all, 0)
+            if let faceHost {
+                faceHost.configuration = configuration
+            } else {
+                let host = configuration.makeContentView()
+                host.backgroundColor = .clear
+                host.isUserInteractionEnabled = false
+                face.addSubview(host)
+                faceHost = host
+            }
+            recolor()
+            setNeedsLayout()
+        }
+
+        /// Its size for words up to `maxWidth` wide (as narrow as they let it be, never under `minWidth`).
+        func fit(maxWidth: CGFloat) -> CGSize {
+            let side = MacRailPeek.faceSize
+            let inner = max(Self.minWidth - inset * 2, maxWidth - inset * 2)
+            let timeWidth = time.isHidden ? 0 : time.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: side)).width.rounded(.up) + gap
+            let nameWidth = name.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: side)).width.rounded(.up)
+            let lineSize = line.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude))
+            let width = min(inner, max(Self.minWidth - inset * 2, side + gap + nameWidth + timeWidth, lineSize.width.rounded(.up)))
+            let lineHeight = line.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height.rounded(.up)
+            let height = inset + side + (line.attributedText?.length ?? 0 > 0 ? lead + lineHeight : 0) + inset
+            let size = CGSize(width: width + inset * 2, height: height)
+            bounds.size = size
+            layoutSubviews()
+            return size
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            panel.frame = bounds
+            panel.layer.cornerRadius = radius
+            contact.frame = bounds
+            contact.layer.cornerRadius = radius
+            let path = UIBezierPath(roundedRect: bounds, cornerRadius: radius).cgPath
+            layer.shadowPath = path
+            contact.layer.shadowPath = path
+            sheen.frame = CGRect(x: 0, y: 0, width: bounds.width, height: min(bounds.height, 28))
+            let side = MacRailPeek.faceSize
+            face.frame = CGRect(x: inset, y: inset, width: side, height: side)
+            faceHost?.frame = face.bounds
+            let nameHeight = name.font.lineHeight.rounded(.up)
+            var right = bounds.width - inset
+            if !time.isHidden {
+                let width = time.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: side)).width.rounded(.up)
+                let height = (time.font?.lineHeight ?? 16).rounded(.up)
+                // On the name's baseline, not its middle: the smaller time sits on the same line of type.
+                let baseline = inset + (side - nameHeight) / 2 + name.font.ascender
+                time.frame = CGRect(x: right - width, y: (baseline - (time.font?.ascender ?? 12)).rounded(), width: width, height: height)
+                right -= width + gap
+            }
+            name.frame = CGRect(x: inset + side + gap, y: inset + (side - nameHeight) / 2, width: max(0, right - inset - side - gap), height: nameHeight)
+            let top = inset + side + lead
+            line.frame = CGRect(x: inset, y: top, width: bounds.width - inset * 2, height: max(0, bounds.height - top - inset))
+        }
+
+        #if DEBUG
+        var debugWords: String { "\"\(name.text ?? "")\" \(time.text ?? "") / \"\(line.text ?? "")\" (\(tone))" }
+        #endif
     }
 }
 #endif

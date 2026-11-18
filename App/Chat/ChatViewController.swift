@@ -1371,12 +1371,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [Mac AAA 2026-11-17] A pick panel over the box (Models, Commands): gone by its foot, so the gap under it is clean.
         if let panel = MacPickPanel.over(composer) { lower(view.convert(panel, from: nil).maxY) }
         #endif
-        // [Mac AAA 2026-11-17] Owner's choice ("Fade before the pill"): the activity / helpers pill and its opened card
-        // move the fade too, so no line passes behind the pill with its two ends showing. The arrow alone does not.
-        let shelf = activity.shelf
-        if shelf.hasActivity, !shelf.isHidden, shelf.alpha > 0.01, shelf.frame.height > 1 {
-            lower(shelf.frame.minY + (shelf.expanded ? 0 : ActivityShelfView.pillMargin) - clear)
-        }
+        // [no-pill-band] Owner 2026-11-18 ("The pill above the text input has a full width background behind it…
+        // Remove that"): fading the whole width out above the activity pill (17 Nov's "Fade before the pill") left an
+        // empty band across the chat. The pill and its card float over the rows again, as the arrow does; their
+        // page-coloured backing (`ActivityShelfView.backing`) keeps the words under them out of the glass.
         return top.map { view.convert(CGPoint(x: 0, y: $0), to: edgeHost).y }
     }
 
