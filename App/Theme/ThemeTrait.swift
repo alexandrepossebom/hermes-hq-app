@@ -14,7 +14,7 @@ nonisolated struct ThemeGenerationTrait: UITraitDefinition {
 /// [bot-colour] The colour a chat paints your messages with over the theme's (`BotMessageColour`): set on a chat's
 /// screen, so everything drawn in it (bubbles, their text, memos, reactions) resolves to it. nil: the theme's.
 /// The value is a plain number (0: none), as the theme's generation is: a named colour's place in its list, or a
-/// custom colour's `RRGGBB` with bit 32 set.
+/// custom colour's `RRGGBB` with bit 32 set, a face's with bit 33.
 nonisolated struct ChatColourTrait: UITraitDefinition {
     static let defaultValue: UInt64 = 0
     static let affectsColorAppearance = true
@@ -25,6 +25,7 @@ nonisolated struct ChatColourTrait: UITraitDefinition {
         switch colour {
         case .preset(let preset)?: UInt64((MessageColour.Preset.allCases.firstIndex(of: preset) ?? 0) + 1)
         case .custom(let hex)?: 1 << 32 | UInt64(hex & 0xFFFFFF)
+        case .face(let hex)?: 1 << 33 | UInt64(hex & 0xFFFFFF)
         case .theme?, .botFace?, nil: 0
         }
     }
@@ -32,6 +33,7 @@ nonisolated struct ChatColourTrait: UITraitDefinition {
     static func colour(_ code: UInt64) -> MessageColour? {
         if code == 0 { return nil }
         if code & (1 << 32) != 0 { return .custom(UInt32(code & 0xFFFFFF)) }
+        if code & (1 << 33) != 0 { return .face(UInt32(code & 0xFFFFFF)) }
         let presets = MessageColour.Preset.allCases
         return code <= UInt64(presets.count) ? .preset(presets[Int(code) - 1]) : nil
     }

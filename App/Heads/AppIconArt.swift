@@ -27,6 +27,10 @@ nonisolated enum AppIconArt {
     /// Hermes's own colour: the one its dot-matrix head (`Head.defaultMatrixHead("default")`) wears, so the icons stay
     /// as they were when the bots' default became Shapes.
     static var hermesColour: Head.ColorName { Head.defaultMatrixHead(profile: "default").color }
+    /// [face-colour] The icons keep the bright teal they were drawn and shipped in (the alternate icons are bundled
+    /// pictures, so the picker's live preview must match them), though teal faces are deeper since 2026-11-17 (white
+    /// words on a bot's messages, `HeadTones`).
+    static let iconAccent: UInt32 = 0x22BCD8
 
     /// The icon, `pixels` square, opaque.
     static func image(_ art: AppIconChoice.Art, variant: Variant, pixels: Int = 1024) -> CGImage? {
@@ -104,6 +108,7 @@ nonisolated enum AppIconArt {
         // Straight on: the pose with the eyes upright in the middle of the face (at rest a head looks off to one side,
         // which on an icon reads as turned away).
         var layout = HeadGeometry.layout(head, state: .thinking, compact: false, darkPage: variant != .light)
+        layout.fill = HeadRGB(iconAccent)
         if variant == .tinted {
             layout.fill = HeadRGB(0xF4F4F4)
             layout.face = layout.face.map { mark in
@@ -131,6 +136,7 @@ nonisolated enum AppIconArt {
     /// the light icon, lit ones glowing on the dark, white LEDs on black when tinted.
     static func matrix(_ variant: Variant, in ctx: CGContext) {
         var design = MatrixDesign(Head.defaultMatrixHead(profile: "default"))
+        design.color = iconAccent
         if variant == .tinted { design.mono = true }
         let size = MatrixHead.drawn
         // The outline's own box decides the square, so a narrow outline is as tall as a round one is wide.

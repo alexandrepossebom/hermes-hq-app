@@ -30,10 +30,10 @@ nonisolated enum HeadDescribe {
         (JSRegex(#"\b(blue|sky|azure|navy)\b"#), ["color": "sky"], "blue"),
         (JSRegex(#"\b(teal|cyan|aqua|turquoise)\b"#), ["color": "teal"], "teal"),
         (JSRegex(#"\b(mint|seafoam)\b"#), ["color": "mint"], "mint"),
-        (JSRegex(#"\b(green|lime)\b"#), ["color": "lime"], "green"),
+        (JSRegex(#"\b(green|lime)\b"#), ["color": "grass"], "green"),
         (JSRegex(#"\b(red|coral|crimson|scarlet)\b"#), ["color": "coral"], "red"),
-        (JSRegex(#"\b(orange|peach|amber)\b"#), ["color": "peach"], "orange"),
-        (JSRegex(#"\b(yellow|gold\w*|butter)\b"#), ["color": "butter"], "yellow"),
+        // [face-colour] No yellow face reads white words: yellow and gold are the orange.
+        (JSRegex(#"\b(orange|peach|amber|yellow|gold\w*|butter)\b"#), ["color": "peach"], "orange"),
         (JSRegex(#"\b(pink|rose|magenta|bubblegum)\b"#), ["color": "pink"], "pink"),
         (JSRegex(#"\b(white|cream|paper|beige|ivory)\b"#), ["color": "paper"], "white"),
         (JSRegex(#"\b(black|ink|noir)\b"#), ["color": "ink"], "black"),

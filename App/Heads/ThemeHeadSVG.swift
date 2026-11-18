@@ -28,27 +28,27 @@ nonisolated enum ThemeHeadSVG {
     static let ink = "#0A0A0A"
     static let tones: [String: Tone] = [
         "ink": Tone(panel: "#F7F5F0", accent: "#2EC4B6", light: "#A8F0E8", deep: "#148F86"),
-        "mint": Tone(panel: "#BDEEDF", accent: "#1FCFA5", light: "#B4F8E4", deep: "#0C8F70"),
-        "teal": Tone(panel: "#AEE6EE", accent: "#22BCD8", light: "#B8F2FB", deep: "#0E8098"),
-        "sky": Tone(panel: "#BCD9FF", accent: "#4A93FF", light: "#CBE0FF", deep: "#1F5FC4"),
-        "lilac": Tone(panel: "#D7CCFF", accent: "#9479FF", light: "#DDD3FF", deep: "#5B3FD0"),
-        "pink": Tone(panel: "#FFC7E1", accent: "#FF66AD", light: "#FFD3E8", deep: "#C7327A"),
-        "coral": Tone(panel: "#FFC4B6", accent: "#FF7057", light: "#FFD5CB", deep: "#C5432D"),
-        "peach": Tone(panel: "#FFDAB6", accent: "#FFA043", light: "#FFE3C4", deep: "#C96C14"),
-        "butter": Tone(panel: "#FBE69C", accent: "#FFCE2E", light: "#FFF1B5", deep: "#C29100"),
-        "lime": Tone(panel: "#D6F1A6", accent: "#96DB3C", light: "#E0F8B6", deep: "#5E9E12"),
+        "mint": Tone(panel: "#BDEEDF", accent: "#078267", light: "#B4F8E4", deep: "#045845"),
+        "teal": Tone(panel: "#AEE6EE", accent: "#057E93", light: "#B8F2FB", deep: "#005564"),
+        "sky": Tone(panel: "#BCD9FF", accent: "#2770D9", light: "#CBE0FF", deep: "#0048A2"),
+        "lilac": Tone(panel: "#D7CCFF", accent: "#795CDF", light: "#DDD3FF", deep: "#5321B5"),
+        "pink": Tone(panel: "#FFC7E1", accent: "#CC3582", light: "#FFD3E8", deep: "#9C025D"),
+        "coral": Tone(panel: "#FFC4B6", accent: "#CD422C", light: "#FFD5CB", deep: "#9F1B04"),
+        "peach": Tone(panel: "#FFDAB6", accent: "#C15003", light: "#FFE3C4", deep: "#8E3901"),
+        "butter": Tone(panel: "#FFDAB6", accent: "#C15003", light: "#FFE3C4", deep: "#8E3901"),
+        "lime": Tone(panel: "#B3E8C6", accent: "#03843C", light: "#C2ECD1", deep: "#065B28"),
         "paper": Tone(panel: "#E7E1D3", accent: "#EFE9DB", light: "#FFFFFF", deep: "#8F8672"),
-        "red": Tone(panel: "#F9B8B7", accent: "#EF3B36", light: "#FAC6C5", deep: "#A72926"),
-        "grass": Tone(panel: "#B3E8C6", accent: "#2DBE60", light: "#C2ECD1", deep: "#208543"),
+        "red": Tone(panel: "#F9B8B7", accent: "#DE2627", light: "#FAC6C5", deep: "#9B1B1A"),
+        "grass": Tone(panel: "#B3E8C6", accent: "#03843C", light: "#C2ECD1", deep: "#065B28"),
         "forest": Tone(panel: "#B0CEBF", accent: "#23784E", light: "#BFD8CC", deep: "#195437"),
         "cobalt": Tone(panel: "#B4C4FF", accent: "#2E5BFF", light: "#C2CFFF", deep: "#2040B3"),
         "denim": Tone(panel: "#B8C4E0", accent: "#3A5BA8", light: "#C6CFE6", deep: "#294076"),
         "grape": Tone(panel: "#D0B8F9", accent: "#7C3AED", light: "#D9C6FA", deep: "#5729A6"),
         "plum": Tone(panel: "#D5BAD9", accent: "#8A3F96", light: "#DDC7E1", deep: "#612C69"),
-        "magenta": Tone(panel: "#F4AFD5", accent: "#E0218A", light: "#F6BFDD", deep: "#9D1761"),
-        "rose": Tone(panel: "#FFE2EB", accent: "#FFAFC8", light: "#FFE8EF", deep: "#B37B8C"),
+        "magenta": Tone(panel: "#F4AFD5", accent: "#D91585", light: "#F6BFDD", deep: "#980F5C"),
+        "rose": Tone(panel: "#FFC7E1", accent: "#CC3582", light: "#FFD3E8", deep: "#9C025D"),
         "wine": Tone(panel: "#E3B4C2", accent: "#B03055", light: "#E8C3CE", deep: "#7B223C"),
-        "caramel": Tone(panel: "#ECD5C2", accent: "#C98A55", light: "#EFDDCE", deep: "#8D613C"),
+        "caramel": Tone(panel: "#D5C2B7", accent: "#8A5638", light: "#DDCEC5", deep: "#613C27"),
         "cocoa": Tone(panel: "#D5C2B7", accent: "#8A5638", light: "#DDCEC5", deep: "#613C27"),
         "slate": Tone(panel: "#CACED4", accent: "#6B7688", light: "#D4D7DC", deep: "#4B535F"),
     ]
@@ -618,10 +618,10 @@ nonisolated enum ThemeHeadSVG {
     // MARK: Orb (`render.ts:137-166`)
 
     static let neighbour: [String: [String]] = [
-        "ink": ["#2EC4B6", "#4A93FF", "#9479FF"], "mint": ["#1FCFA5", "#4A93FF", "#D7F36B"], "teal": ["#22BCD8", "#9479FF", "#6BF3C8"],
-        "sky": ["#4A93FF", "#9479FF", "#22D8C8"], "lilac": ["#9479FF", "#FF66AD", "#4A93FF"], "pink": ["#FF66AD", "#FFA043", "#9479FF"],
-        "coral": ["#FF7057", "#FFCE2E", "#FF66AD"], "peach": ["#FFA043", "#FF66AD", "#FFCE2E"], "butter": ["#FFCE2E", "#FF8A3D", "#FFF3A8"],
-        "lime": ["#96DB3C", "#22BCD8", "#F2F06B"], "paper": ["#D9D2C2", "#FFFFFF", "#A39A86"],
+        "ink": ["#2EC4B6", "#2770D9", "#795CDF"], "mint": ["#078267", "#2770D9", "#D7F36B"], "teal": ["#057E93", "#795CDF", "#6BF3C8"],
+        "sky": ["#2770D9", "#795CDF", "#22D8C8"], "lilac": ["#795CDF", "#CC3582", "#2770D9"], "pink": ["#CC3582", "#C15003", "#795CDF"],
+        "coral": ["#CD422C", "#C15003", "#CC3582"], "peach": ["#C15003", "#CC3582", "#FF8A3D"], "butter": ["#C15003", "#CC3582", "#FF8A3D"],
+        "paper": ["#D9D2C2", "#FFFFFF", "#A39A86"],
     ]
 
     static func orb(_ head: HeadRecord, _ tone: Tone, _ id: String, plain: Bool = false) -> Made {

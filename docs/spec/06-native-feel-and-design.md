@@ -1168,13 +1168,13 @@ Rows sit on the page colour (`src/phone-tabs.css:151`).
 
   | colour | accent | colour | accent | colour | accent |
   |---|---|---|---|---|---|
-  | red | `#EF3B36` | coral | `#FF7057` | peach | `#FFA043` |
-  | butter | `#FFCE2E` | lime | `#96DB3C` | grass | `#2DBE60` |
-  | mint | `#1FCFA5` | teal | `#22BCD8` | sky | `#4A93FF` |
-  | cobalt | `#2E5BFF` | lilac | `#9479FF` | grape | `#7C3AED` |
-  | rose | `#FFAFC8` | pink | `#FF66AD` | magenta | `#E0218A` |
+  | red | `#DE2627` | coral | `#CD422C` | peach | `#C15003` |
+  | butter (retired, as orange) | `#C15003` | lime (retired, as grass) | `#03843C` | grass | `#03843C` |
+  | mint | `#078267` | teal | `#057E93` | sky | `#2770D9` |
+  | cobalt | `#2E5BFF` | lilac | `#795CDF` | grape | `#7C3AED` |
+  | rose (retired, as pink) | `#CC3582` | pink | `#CC3582` | magenta | `#D91585` |
   | plum | `#8A3F96` | denim | `#3A5BA8` | forest | `#23784E` |
-  | wine | `#B03055` | cocoa | `#8A5638` | caramel | `#C98A55` |
+  | wine | `#B03055` | cocoa | `#8A5638` | caramel (retired, as cocoa) | `#8A5638` |
   | ink | `#0A0A0A` on a light page, `#F4F4F2` on a dark page (grey rim `#636366`, 14 units, when the mode is unknown) | slate | `#6B7688` | paper | `#EFE9DB` (rim `#B8AD95`) |
 
 - **Eyes** (`shapes.ts:132-145`):

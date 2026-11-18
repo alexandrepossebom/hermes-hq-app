@@ -170,6 +170,11 @@ nonisolated enum MessageColour: Sendable, Hashable {
     case botFace
     case preset(Preset)
     case custom(UInt32)
+    /// [face-colour] A bot face's own colour, painted exactly as the face is drawn, light and dark, with white words
+    /// (owner 2026-11-17: "We shouldn't have any allowed bot face colors that require us to change the color of the text
+    /// bubble. They should always match"). Every face colour reads white at 4.5:1 (`HeadTones`). Never stored: a bot's
+    /// pick stores "face", and the face gives this.
+    case face(UInt32)
 
     enum Preset: String, Sendable, Hashable, CaseIterable {
         case blue, indigo, purple, pink, red, orange, green, teal, graphite
@@ -212,7 +217,7 @@ nonisolated enum MessageColour: Sendable, Hashable {
         case .theme: nil
         case .botFace: "botFace"
         case .preset(let preset): preset.rawValue
-        case .custom(let hex): String(format: "#%06X", hex & 0xFFFFFF)
+        case .custom(let hex), .face(let hex): String(format: "#%06X", hex & 0xFFFFFF)
         }
     }
 }

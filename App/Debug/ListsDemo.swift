@@ -18,6 +18,7 @@ enum ListsDemo {
             guard UserDefaults.standard.bool(forKey: "HQDemoRealChat") else { return DemoChatViewController(model: model) }
             let session = UserDefaults.standard.bool(forKey: "HQDemoHelpers")
                 ? DemoHelpersSession(count: 24, title: model.title) : FakeChatSession(count: 24, title: model.title)
+            session.openedHead = model.head
             let chat = ChatViewController(session: session)
             // `-HQDemoSend <text>` (with -HQDemoHoldStep): a turn running, so the bar's Working… shows.
             if let text = UserDefaults.standard.string(forKey: "HQDemoSend") {

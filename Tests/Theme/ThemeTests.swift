@@ -1675,7 +1675,7 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
             let set = ThemeResolver.resolve(state)
             for t in [set.light, set.dark] {
                 #expect(t.meText == .white, "\(name)")
-                #expect(Self.reads(.white, on: t.meBubble) >= ThemeResolver.messageInk, "\(name)")
+                #expect(Self.reads(.white, on: t.meBubble) >= 4.5, "\(name)")
             }
         }
         for hex: UInt32 in [0xFFFFFF, 0xFFE100, 0x7FFFD4, 0xFFAFC8] {
@@ -1689,6 +1689,58 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         var cobalt = ThemeState.default
         cobalt.messageColour = .custom(0x2E5BFF)
         #expect(ThemeResolver.resolve(cobalt).light.meBubble == RGBA(hex: 0x2E5BFF), "reads already: untouched")
+    }
+
+    /// [face-colour] Owner 2026-11-17: "They should always match." Every face colour but paper reads white at 4.5:1, and
+    /// a bot's messages are exactly its face's colour, light and dark; an ink face keeps its black (mid grey in dark).
+    @Test func yourMessagesAreExactlyTheFacesColour() {
+        // Ink's accent is never drawn (an ink face is black): it is left out, as paper is.
+        for (name, tone) in HeadTones.tones where name != .paper && name != .ink {
+            #expect(Self.reads(.white, on: RGBA(hex: tone.accent)) >= 4.5, "\(name) \(String(tone.accent, radix: 16))")
+        }
+        for name in Head.ColorName.allCases where name != .paper && name != .ink {
+            var head = Head()
+            head.color = name
+            var state = ThemeState.default
+            state.messageColour = head.messageColour
+            let set = ThemeResolver.resolve(state)
+            let face = RGBA(hex: HeadTones.tones[name]!.accent)
+            #expect(set.light.meBubble == face && set.dark.meBubble == face, "\(name)")
+            #expect(set.light.meText == .white && set.dark.meText == .white, "\(name)")
+        }
+        // The face colour survives the chat's trait and its stored form reads back as a colour.
+        #expect(ChatColourTrait.colour(ChatColourTrait.code(.face(0x8D6F01))) == .face(0x8D6F01))
+        // A face colour too light for white (a newer palette) still reads: it goes through the custom rule.
+        var light = ThemeState.default
+        light.messageColour = .face(0xFFCE2E)
+        let t = ThemeResolver.resolve(light).light
+        #expect(Self.reads(t.meText, on: t.meBubble) >= 4.5)
+    }
+
+    /// [face-colour] Owner 2026-11-17, of the deepened butter: "Gold? Seriously?". Butter, lime, rose and caramel are out
+    /// of the picker and drawn as orange, grass, pink and cocoa wherever a bot has one; peach is a vivid orange. Names
+    /// stay readable, and a default head keeps its place in the list (so no bot moves to another colour family).
+    @MainActor @Test func theMuddyColoursAreRetired() {
+        let stand: [(Head.ColorName, Head.ColorName)] = [(.butter, .peach), (.lime, .grass), (.rose, .pink), (.caramel, .cocoa)]
+        for (old, new) in stand {
+            #expect(HeadTones.tones[old]! == HeadTones.tones[new]!, "\(old) is drawn as \(new)")
+            #expect(!HeadRecord.pickerShapeColors.contains(old.rawValue) && !HeadRecord.pickerThemeColors.contains(old.rawValue))
+            #expect(HeadRecord.offered(old.rawValue) == new.rawValue)
+            #expect(ThemeHeadSVG.tones[old.rawValue]!.accent == ThemeHeadSVG.tones[new.rawValue]!.accent)
+            #expect(HeadLabels.colors[old.rawValue] == HeadLabels.colors[new.rawValue])
+        }
+        #expect(HeadTones.accent(.peach) == HeadRGB(0xC15003) && HeadLabels.colors["peach"] == "Orange")
+        #expect(HeadRecord.pickerShapeColors.count == 20 && Head.ColorName(rawValue: "butter") == .butter)
+        // Every face colour the Swift tones and the themed heads' tones give is the same one.
+        for (name, tone) in HeadTones.tones where name != .ink && name != .paper {
+            #expect(ThemeHeadSVG.tones[name.rawValue]?.accent == "#" + String(format: "%06X", tone.accent), "\(name)")
+        }
+        // A roll never lands on a retired colour.
+        var random = SeededRandom(seed: 7)
+        for _ in 0..<400 {
+            let head = HeadRecord.roll({ random.next() }, theme: "shape")
+            #expect(HeadRecord.retired[head.color] == nil, "\(head.color)")
+        }
     }
 
     /// Tinted takes the picture only as far as the words keep a little past 4.5:1 on a light picture.
@@ -1737,7 +1789,7 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
     }
 
     @Test func aPickWinsThenTheFaceWhereChatBubblesSaysSo() {
-        let face = MessageColour.custom(0x2DBE60)
+        let face = MessageColour.face(0x03843C)
         #expect(BotMessageColour.effective(app: .theme, bot: .app, face: face) == nil)
         #expect(BotMessageColour.effective(app: .preset(.pink), bot: .app, face: face) == nil, "the app's colour is already the theme's")
         #expect(BotMessageColour.effective(app: .botFace, bot: .app, face: face) == face)
@@ -1759,7 +1811,7 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
     @Test func aFaceGivesItsAccentInkBlackAndPaperTheGreyPill() {
         var head = Head()
         head.color = .grass
-        #expect(head.messageColour == .custom(0x2DBE60))
+        #expect(head.messageColour == .face(0x03843C))
         head.color = .ink
         #expect(head.messageColour == .custom(0x0A0A0A))
         var black = ThemeState.default

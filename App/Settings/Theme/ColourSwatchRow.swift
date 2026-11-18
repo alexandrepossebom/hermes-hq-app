@@ -164,13 +164,14 @@ extension MessageColour {
     var swatchID: String {
         switch self {
         case .theme: "theme"
-        case .custom: "custom"
+        case .custom, .face: "custom"
         case .botFace, .preset: stored ?? "theme"
         }
     }
 
     var customHex: UInt32? {
         if case .custom(let hex) = self { return hex }
+        if case .face(let hex) = self { return hex }
         return nil
     }
 
@@ -179,6 +180,7 @@ extension MessageColour {
         case .theme: "Theme"
         case .botFace: "Bot’s Face"
         case .custom: "Custom"
+        case .face: "Bot’s Face"
         case .preset(let preset):
             switch preset {
             case .blue: "Blue"

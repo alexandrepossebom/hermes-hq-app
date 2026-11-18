@@ -238,7 +238,7 @@ struct HeadModelTests {
         head.tile = .dark
         #expect(HeadGeometry.layout(head, compact: true, darkPage: true).eyeColor == HeadRGB(0x1A1A1A))
         head.tile = .none
-        #expect(HeadGeometry.layout(head, compact: true, darkPage: false).fill == HeadRGB(0x2DBE60))
+        #expect(HeadGeometry.layout(head, compact: true, darkPage: false).fill == HeadRGB(0x03843C))
         #expect(HeadGeometry.layout(head, compact: true, darkPage: false).eyeColor == HeadRGB(0xFFFFFF))
         #expect(HeadGeometry.layout(head, compact: true, darkPage: true).eyeColor == HeadRGB(0x1A1A1A))
     }
@@ -294,13 +294,13 @@ struct HeadModelTests {
         func px(_ v: Double) -> Int { Int(((1.64 * v - 327.7) * 168 / 1024).rounded()) }
         let (left, right, eyeY) = (px(542), px(662), px(416))
         #expect(left == 92 && right == 124 && eyeY == 58)
-        #expect(pixels.isNear(84, 84, red: 0x2D, green: 0xBE, blue: 0x60))      // the fill, #2DBE60
+        #expect(pixels.isNear(84, 84, red: 0x03, green: 0x84, blue: 0x3C))      // the fill, #03843C
         #expect(pixels.alpha(0, 0) == 0 && pixels.alpha(167, 167) == 0 && pixels.alpha(167, 0) == 0)
         #expect(pixels.isNear(left, eyeY, red: 255, green: 255, blue: 255))
         #expect(pixels.isNear(right, eyeY, red: 255, green: 255, blue: 255))
         // Upside down the eyes would sit low; mirrored, the left eye would sit left of the middle.
-        #expect(pixels.isNear(left, 167 - eyeY, red: 0x2D, green: 0xBE, blue: 0x60))
-        #expect(pixels.isNear(167 - left, eyeY, red: 0x2D, green: 0xBE, blue: 0x60))
+        #expect(pixels.isNear(left, 167 - eyeY, red: 0x03, green: 0x84, blue: 0x3C))
+        #expect(pixels.isNear(167 - left, eyeY, red: 0x03, green: 0x84, blue: 0x3C))
         // The eyes alone: nothing but the eyes.
         let faceImage = try #require(HeadRenderer.makeImage(layout, side: 56, scale: 3, parts: .face))
         let face = try #require(Pixels(faceImage))

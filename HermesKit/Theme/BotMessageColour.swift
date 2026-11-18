@@ -20,7 +20,7 @@ nonisolated enum BotMessageColour {
             if text == "face" { self = .face; return }
             let colour = MessageColour(stored: text)
             switch colour {
-            case .preset, .custom: self = .colour(colour)
+            case .preset, .custom, .face: self = .colour(colour)
             case .theme, .botFace: self = .app
             }
         }

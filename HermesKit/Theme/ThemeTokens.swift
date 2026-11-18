@@ -277,6 +277,20 @@ nonisolated enum ThemeResolver {
         switch colour {
         case .theme, .botFace:
             return
+        case .face(let hex):
+            // [face-colour] Exactly the face, light and dark, with white words (every face colour reads white at
+            // 4.5:1). A colour that somehow doesn't (a face colour from a newer build's palette) goes through the
+            // custom rule below instead, so the words always read.
+            let face = RGBA(hex: hex)
+            guard RGBA.white.contrast(with: face) >= 4.5 else {
+                paintMessage(&t, .custom(hex), dark: dark)
+                return
+            }
+            t.meBubble = face
+            t.meText = .white
+            t.meTime = RGBA.white.alpha(dark ? 0.88 : 0.85)
+            t.rowAccent = face
+            return
         case .custom(let hex):
             let seed = RGBA(hex: hex)
             if dark, seed.labL < 10 {

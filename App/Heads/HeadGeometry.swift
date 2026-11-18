@@ -82,19 +82,26 @@ nonisolated struct ShapeHeadLayout: Hashable, Sendable {
 
 // MARK: - Colours (`robot.ts` TONES, `shapes.ts:113-133`)
 
+/// [face-colour] Every accent but paper's reads white at 4.5:1, so a bot's messages are exactly its face's colour with
+/// white words (owner 2026-11-17: "We shouldn't have any allowed bot face colors that require us to change the color of
+/// the text bubble. They should always match"). Mint, teal, sky, lilac, pink, coral, peach, butter, lime, red, grass,
+/// magenta, rose and caramel were deepened to it (the owner picked that over black words on the bright ones), then the
+/// muddy ones were trimmed (owner, of the olive gold: "Gold? Seriously?"): peach is a vivid orange, and butter, lime,
+/// rose and caramel are out of the picker (`HeadRecord.retired`), each drawn as its stand-in (orange, grass, pink,
+/// cocoa) wherever a bot already has it; their panels are as they were. `ThemeHeadSVG.tones` carries the same accents.
 nonisolated enum HeadTones {
     static let ink = HeadRGB(0x0A0A0A)
     static func accent(_ c: Head.ColorName) -> HeadRGB { HeadRGB(tones[c]!.accent) }
     static func panel(_ c: Head.ColorName) -> HeadRGB { HeadRGB(tones[c]!.panel) }
     static let tones: [Head.ColorName: (panel: UInt32, accent: UInt32)] = [
-        .ink: (0xF7F5F0, 0x2EC4B6), .mint: (0xBDEEDF, 0x1FCFA5), .teal: (0xAEE6EE, 0x22BCD8),
-        .sky: (0xBCD9FF, 0x4A93FF), .lilac: (0xD7CCFF, 0x9479FF), .pink: (0xFFC7E1, 0xFF66AD),
-        .coral: (0xFFC4B6, 0xFF7057), .peach: (0xFFDAB6, 0xFFA043), .butter: (0xFBE69C, 0xFFCE2E),
-        .lime: (0xD6F1A6, 0x96DB3C), .paper: (0xE7E1D3, 0xEFE9DB), .red: (0xF9B8B7, 0xEF3B36),
-        .grass: (0xB3E8C6, 0x2DBE60), .forest: (0xB0CEBF, 0x23784E), .cobalt: (0xB4C4FF, 0x2E5BFF),
+        .ink: (0xF7F5F0, 0x2EC4B6), .mint: (0xBDEEDF, 0x078267), .teal: (0xAEE6EE, 0x057E93),
+        .sky: (0xBCD9FF, 0x2770D9), .lilac: (0xD7CCFF, 0x795CDF), .pink: (0xFFC7E1, 0xCC3582),
+        .coral: (0xFFC4B6, 0xCD422C), .peach: (0xFFDAB6, 0xC15003), .butter: (0xFFDAB6, 0xC15003),
+        .lime: (0xB3E8C6, 0x03843C), .paper: (0xE7E1D3, 0xEFE9DB), .red: (0xF9B8B7, 0xDE2627),
+        .grass: (0xB3E8C6, 0x03843C), .forest: (0xB0CEBF, 0x23784E), .cobalt: (0xB4C4FF, 0x2E5BFF),
         .denim: (0xB8C4E0, 0x3A5BA8), .grape: (0xD0B8F9, 0x7C3AED), .plum: (0xD5BAD9, 0x8A3F96),
-        .magenta: (0xF4AFD5, 0xE0218A), .rose: (0xFFE2EB, 0xFFAFC8), .wine: (0xE3B4C2, 0xB03055),
-        .caramel: (0xECD5C2, 0xC98A55), .cocoa: (0xD5C2B7, 0x8A5638), .slate: (0xCACED4, 0x6B7688),
+        .magenta: (0xF4AFD5, 0xD91585), .rose: (0xFFC7E1, 0xCC3582), .wine: (0xE3B4C2, 0xB03055),
+        .caramel: (0xD5C2B7, 0x8A5638), .cocoa: (0xD5C2B7, 0x8A5638), .slate: (0xCACED4, 0x6B7688),
     ]
 }
 

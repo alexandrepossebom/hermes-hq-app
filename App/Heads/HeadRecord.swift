@@ -21,6 +21,15 @@ nonisolated struct HeadRecord: Hashable, Sendable {
     /// The editor's order, six to a row (`SHAPE_COLORS`).
     static let shapeColors = ["red", "coral", "peach", "butter", "lime", "grass", "mint", "teal", "sky", "cobalt", "lilac", "grape",
                               "rose", "pink", "magenta", "plum", "denim", "forest", "wine", "cocoa", "caramel", "ink", "slate", "paper"]
+    /// [face-colour] Colours out of the picker since 2026-11-17 (owner: deepened for white words they were muddy, "Gold?
+    /// Seriously?"), each with the colour a head that has one is drawn in (`HeadTones` gives them its tones). Kept in the
+    /// lists above, which a roll and a default head pick from by place, so no bot's face moves to a new colour.
+    static let retired: [String: String] = ["butter": "peach", "lime": "grass", "rose": "pink", "caramel": "cocoa"]
+    /// A colour as offered: a retired one is its stand-in.
+    static func offered(_ colour: String) -> String { retired[colour] ?? colour }
+    /// The editor's swatches: the lists without the retired colours.
+    static let pickerShapeColors = shapeColors.filter { retired[$0] == nil }
+    static let pickerThemeColors = themeColors.filter { retired[$0] == nil }
     static let antennas = ["none", "bulb", "twin", "bolt", "ring"]
     static let ears = ["none", "headset", "bolts", "fins"]
     static let mouths = ["none", "smile", "open", "cat", "grille"]
@@ -285,7 +294,7 @@ nonisolated struct HeadRecord: Hashable, Sendable {
         let persona = theme == "persona"
         var head = HeadRecord()
         head.theme = theme
-        head.color = any(random, theme == "shape" ? shapeColors : themeColors)
+        head.color = offered(any(random, theme == "shape" ? shapeColors : themeColors))
         head.seed = 1 + Int((random() * 1e6).rounded(.down))
         head.shape = any(random, offeredShapes)
         head.face = persona
@@ -329,7 +338,7 @@ nonisolated struct HeadRecord: Hashable, Sendable {
         if theme == "matrix" {
             // Native only: drawn after every other field, so the other themes' sequences are the web's. Every outline
             // equally; no glasses, antenna or ears.
-            head.color = any(random, shapeColors.filter { $0 != "slate" && $0 != "paper" })
+            head.color = offered(any(random, shapeColors.filter { $0 != "slate" && $0 != "paper" }))
             head.tile = "none"
             head.form = any(random, outlines)
             head.look = weighted(random, [("slits", 5), ("ovals", 2), ("dots", 2), ("happy", 1), ("googly", 1), ("sleepy", 0.7),
@@ -450,9 +459,9 @@ nonisolated enum HeadTopics {
         (JSRegex(#"\b(research\w*|paper\w*|stud(y|ies)|scholar\w*|read\w*|librar\w*|book\w*)\b"#), ["glyph": "📚", "color": "lilac", "visor": "goggles", "face": "pill", "hair": "long"]),
         (JSRegex(#"\b(code\w*|coding|dev\w*|engineer\w*|program\w*|bug\w*|debug\w*|review\w*|repo\w*)\b"#), ["glyph": "💻", "color": "teal", "visor": "screen", "face": "bars", "pattern": "grid"]),
         (JSRegex(#"\b(writ\w*|draft\w*|blog\w*|editor\w*|copy|muse|idea\w*|stor(y|ies)|poet\w*)\b"#), ["glyph": "✍️", "color": "pink", "face": "sparkle", "pattern": "bloom"]),
-        (JSRegex(#"\b(ops|server\w*|infra\w*|sysadmin|devops|home\s?lab|network\w*|monitor\w*|uptime)\b"#), ["glyph": "🛠️", "color": "butter", "ears": "bolts", "face": "bars", "pattern": "grid"]),
-        (JSRegex(#"\b(garden\w*|plant\w*|water\w*|farm\w*|green\w*|grow\w*)\b"#), ["glyph": "🌵", "color": "lime", "face": "happy", "pattern": "bloom"]),
-        (JSRegex(#"\b(money|financ\w*|budget\w*|ledger|account\w*|invoice\w*|tax\w*|bank\w*|trad\w*)\b"#), ["glyph": "💰", "color": "butter", "visor": "goggles", "face": "side"]),
+        (JSRegex(#"\b(ops|server\w*|infra\w*|sysadmin|devops|home\s?lab|network\w*|monitor\w*|uptime)\b"#), ["glyph": "🛠️", "color": "peach", "ears": "bolts", "face": "bars", "pattern": "grid"]),
+        (JSRegex(#"\b(garden\w*|plant\w*|water\w*|farm\w*|green\w*|grow\w*)\b"#), ["glyph": "🌵", "color": "grass", "face": "happy", "pattern": "bloom"]),
+        (JSRegex(#"\b(money|financ\w*|budget\w*|ledger|account\w*|invoice\w*|tax\w*|bank\w*|trad\w*)\b"#), ["glyph": "💰", "color": "peach", "visor": "goggles", "face": "side"]),
         (JSRegex(#"\b(music|song\w*|playlist\w*|audio|podcast\w*|dj)\b"#), ["glyph": "🎧", "color": "lilac", "ears": "headset", "face": "content", "pattern": "wave"]),
         (JSRegex(#"\b(calendar|schedul\w*|meeting\w*|plan\w*|agenda|remind\w*|todo\w*|task\w*)\b"#), ["glyph": "📅", "color": "peach", "face": "pill", "pattern": "ring"]),
         (JSRegex(#"\b(news|headline\w*|press|brief\w*|digest)\b"#), ["glyph": "📰", "color": "paper", "visor": "goggles", "face": "side"]),
@@ -497,9 +506,9 @@ nonisolated enum HeadLabels {
     static let mouths: [String: String] = ["none": "None", "smile": "Smile", "open": "Oh", "cat": "Cat", "grille": "Line"]
     static let colors: [String: String] = [
         "ink": "Ink", "mint": "Mint", "teal": "Teal", "sky": "Sky", "lilac": "Lilac", "pink": "Bubblegum", "coral": "Coral",
-        "peach": "Peach", "butter": "Butter", "lime": "Lime", "paper": "Paper", "red": "Red", "grass": "Grass", "forest": "Forest",
-        "cobalt": "Cobalt", "denim": "Denim", "grape": "Grape", "plum": "Plum", "magenta": "Magenta", "rose": "Rose", "wine": "Wine",
-        "caramel": "Caramel", "cocoa": "Cocoa", "slate": "Slate",
+        "peach": "Orange", "butter": "Orange", "lime": "Grass", "paper": "Paper", "red": "Red", "grass": "Grass", "forest": "Forest",
+        "cobalt": "Cobalt", "denim": "Denim", "grape": "Grape", "plum": "Plum", "magenta": "Magenta", "rose": "Bubblegum", "wine": "Wine",
+        "caramel": "Cocoa", "cocoa": "Cocoa", "slate": "Slate",
     ]
     static let tiles: [String: String] = ["dark": "Dark", "light": "Light", "color": "Color", "none": "None"]
     /// A dot-matrix head's outline names (in the `form` field).

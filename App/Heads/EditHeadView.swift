@@ -562,11 +562,12 @@ struct EditHeadView: View {
 
     // MARK: Colours
 
-    /// A Shapes or dot-matrix head has 24 colours; the other themes the first eleven (plus the draft's own, carried over).
+    /// A Shapes or dot-matrix head has 20 colours; the other themes the first eight (plus the draft's own, carried over).
     private var palette: [String] {
-        if model.draft.theme == "shape" || model.draft.theme == "matrix" { return HeadRecord.shapeColors }
-        let colours = HeadRecord.themeColors
-        return colours.contains(model.draft.color) ? colours : colours + [model.draft.color]
+        // [face-colour] Without the retired colours: a head that has one shows its stand-in ticked.
+        if model.draft.theme == "shape" || model.draft.theme == "matrix" { return HeadRecord.pickerShapeColors }
+        let colours = HeadRecord.pickerThemeColors, own = HeadRecord.offered(model.draft.color)
+        return colours.contains(own) ? colours : colours + [own]
     }
 
     private var colours: some View {
@@ -574,7 +575,7 @@ struct EditHeadView: View {
             heading("Color", HeadLabels.colors[model.draft.color])
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 12) {
                 ForEach(palette, id: \.self) { colour in
-                    let selected = model.draft.color == colour
+                    let selected = HeadRecord.offered(model.draft.color) == colour
                     Button { model.set { $0.color = colour } } label: {
                         Circle()
                             .fill(Self.swatch(colour))

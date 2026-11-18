@@ -8,7 +8,10 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
     let title: String
     /// `-HQDemoBotTalk`: Inbox's chat, with Inbox's face.
     let profile = ChatDemo.flag("-HQDemoBotTalk") ? "inbox" : "demo"
-    var head: JSONValue? { ChatDemo.flag("-HQDemoBotTalk") ? FakeChatSession.inboxHead : nil }
+    var head: JSONValue? { openedHead ?? (ChatDemo.flag("-HQDemoBotTalk") ? FakeChatSession.inboxHead : nil) }
+    /// [face-colour] The face of the bot this demo chat stands in for (`-HQDemoOpen` with -HQDemoRealChat), so the chat's
+    /// colour comes from that face as a real bot's chat does.
+    var openedHead: JSONValue?
     var layoutScope: String { "demo-account|\(profile)|\(title)" }
     /// `-HQDemoSessionOf <bot>`: the chat is one of that bot's sessions (its name shows under the title).
     var botName: String { ChatDemo.argument("-HQDemoSessionOf") ?? title }

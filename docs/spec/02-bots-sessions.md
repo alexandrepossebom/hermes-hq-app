@@ -1019,10 +1019,10 @@ scales to 0.001 (`shapes.ts:58-59,175`).
    | ink | `#0A0A0A`; `#F4F4F2` on a dark page | `#F4F4F2` | `#0A0A0A` | `#0A0A0A` |
    | paper | `#EFE9DB` | `#EFE9DB` | `#D9D0BD` | `#FFFDF8` |
 
-   Accents: red `#EF3B36`, coral `#FF7057`, peach `#FFA043`, butter `#FFCE2E`, lime `#96DB3C`, grass `#2DBE60`,
-   mint `#1FCFA5`, teal `#22BCD8`, sky `#4A93FF`, cobalt `#2E5BFF`, lilac `#9479FF`, grape `#7C3AED`, rose `#FFAFC8`,
-   pink `#FF66AD`, magenta `#E0218A`, plum `#8A3F96`, denim `#3A5BA8`, forest `#23784E`, wine `#B03055`,
-   cocoa `#8A5638`, caramel `#C98A55`, slate `#6B7688`, ink `#2EC4B6` (accent unused for fill), paper `#EFE9DB`.
+   Accents: red `#DE2627`, coral `#CD422C`, peach (shown as Orange) `#C15003`, butter (retired: drawn as orange) `#C15003`, lime (retired: drawn as grass) `#03843C`, grass `#03843C`,
+   mint `#078267`, teal `#057E93`, sky `#2770D9`, cobalt `#2E5BFF`, lilac `#795CDF`, grape `#7C3AED`, rose (retired: drawn as pink) `#CC3582`,
+   pink `#CC3582`, magenta `#D91585`, plum `#8A3F96`, denim `#3A5BA8`, forest `#23784E`, wine `#B03055`,
+   cocoa `#8A5638`, caramel (retired: drawn as cocoa) `#8A5638`, slate `#6B7688`, ink `#2EC4B6` (accent unused for fill), paper `#EFE9DB`.
    **Rim** (`shapes.ts:120`): a bare `paper` head always, and a bare `ink` head drawn with the page mode unknown
    (`dark` option omitted: desktop mirror PNG, notifications), get `stroke` `#B8AD95` / `#636366`, width 14. The
    phone always passes the page mode for Shapes heads (`S/ui-heads/icon-render.ts:5-7`, `S/ui-heads/bot-head.tsx:109`), so on
