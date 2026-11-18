@@ -103,6 +103,17 @@ enum DesktopLookTourHooks {
             return nil
         }
         guard let list = first(top.view) else { return }
+        // 99999 or more: to the list's very end, and again once it has settled there (on Soft Cards the room under the
+        // last card is only set as the list's end comes near).
+        if points >= 99999 {
+            func end() {
+                let foot = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
+                list.setContentOffset(CGPoint(x: 0, y: max(-list.adjustedContentInset.top, foot)), animated: false)
+            }
+            end()
+            for wait in [0.8, 1.6, 2.4, 3.2] { after(wait) { end() } }
+            return
+        }
         list.setContentOffset(CGPoint(x: 0, y: points - list.adjustedContentInset.top), animated: true)
     }
 

@@ -556,6 +556,7 @@ class BackdropCardView: UICollectionReusableView {
         let picture = (list as? UITableView)?.backgroundView
         let edges = Self.edges(of: boxes.map { ($0.first, $0.last) }, noteExtra: noteExtra)
         lift(on ? edges.first?.top : nil, in: list)
+        foot(on ? edges.last?.bottom : nil, in: list, read: list.bounds.maxY + 600)
         for (index, plate) in plates.enumerated() {
             guard index < boxes.count else { plate.isHidden = true; continue }
             let section = boxes[index]
@@ -633,6 +634,28 @@ class BackdropCardView: UICollectionReusableView {
         lifted = wanted
         if resting { list.contentOffset.y = -list.adjustedContentInset.top }
         restEdge()
+    }
+
+    /// How much room is added under the list's end so its last card clears the bar (`foot`).
+    private var footed: CGFloat = 0
+
+    /// Owner 2026-11-17 (a screenshot of Status & Maintenance): "a lot of pages can't scroll enough to get the bottom
+    /// card out from behind the menu." A card reaches past its words (`rim`, a note's `notePad`), but the list ends where
+    /// its last words do, so scrolled to the end the last card's foot stayed under the tab bar. As `lift` does at the
+    /// top, the list's end is moved so the last card stands one gap over the bar (or whatever is under the list).
+    /// `bottom`: the lowest card's foot in the list, or nil with no cards; `read`: how far down the sections were read.
+    /// Changed only while the list's end is among them (a page with lines under its last card, More's links, needs none).
+    private func foot(_ bottom: CGFloat?, in list: UIScrollView, read: CGFloat) {
+        var wanted: CGFloat = footed
+        if let bottom {
+            let end = list.contentSize.height
+            if end <= read { wanted = max(0, BackdropCards.onPixel(bottom + BackdropCards.gap - end, in: list)) }
+        } else {
+            wanted = 0
+        }
+        guard abs(wanted - footed) > 0.5 else { return }
+        list.contentInset.bottom += wanted - footed
+        footed = wanted
     }
 
     /// A list moved up by `lifted` (negative: up), `past` its resting place: nothing is under the bar yet, so no edge.
