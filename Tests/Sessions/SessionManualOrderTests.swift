@@ -53,6 +53,19 @@ import Testing
         #expect(SessionManualOrder.moved(["a", "b"], from: 5, to: 0) == ["a", "b"])
     }
 
+    @Test func projectPillMoveCrossesTiersAndPreservesHiddenProjects() {
+        #expect(SessionManualOrder.movedProject("a", onto: "x", shown: ["a", "x", "b"], saved: ["hidden", "a", "x", "b"]) == ["hidden", "x", "a", "b"])
+        #expect(SessionManualOrder.movedProject("b", onto: "a", shown: ["a", "x", "b"], saved: []) == ["b", "a", "x"])
+        #expect(SessionManualOrder.movedProject("a", onto: "a", shown: ["a"], saved: []) == nil)
+        #expect(SessionManualOrder.movedProject("missing", onto: "a", shown: ["a"], saved: []) == nil)
+        #expect(SessionManualOrder.movedProject("a", onto: "b", shown: ["a", "a", "b"], saved: []) == nil)
+        let defaults = SessionsDeviceState()
+        #expect(defaults.projectPillOrder.isEmpty && defaults.projectOrder.isEmpty)
+        var state = defaults; state.projectPillOrder = ["x", "a"]; state.projectOrder = ["a", "x"]
+        let decoded = try! JSONDecoder().decode(SessionsDeviceState.self, from: JSONEncoder().encode(state))
+        #expect(decoded.projectPillOrder == ["x", "a"] && decoded.projectOrder == ["a", "x"])
+    }
+
     // MARK: Sort By Manual
 
     @Test func manualKeepsTheDraggedOrderInRecent() {

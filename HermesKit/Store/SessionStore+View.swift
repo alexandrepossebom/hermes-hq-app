@@ -113,10 +113,18 @@ extension SessionStore {
             let key = SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: projectsByProfile)
             newest[key] = max(newest[key] ?? -.infinity, SessionListPipeline.recency(session))
         }
-        return SessionProjects.pillEntries(projectEntries(order: order, bot: botFilter), newest: newest,
+        let defaults = SessionProjects.pillEntries(projectEntries(order: order, bot: botFilter), newest: newest,
                                            order: device.projectOrder, favorites: Set(device.favoriteProjects),
                                            states: SessionProjects.states(mine, projectsByProfile: projectsByProfile),
                                            archived: archivedProjects, showArchived: view.showArchived)
+        return SessionManualOrder.ordered(defaults, id: { $0.key }, by: device.projectPillOrder)
+    }
+
+    func setProjectPillOrder(_ ids: [String]) {
+        guard device.projectPillOrder != ids else { return }
+        device.projectPillOrder = ids
+        persistState()
+        onChange?()
     }
 
     /// [project-default-bot] What was chosen for a project's New Chat: a bot's profile, `ProjectDefaultBot.ask`, or nil.
