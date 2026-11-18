@@ -18,7 +18,8 @@ nonisolated enum ShortTitle {
     /// What a chat is named from: a voice memo's words (its transcript and anything typed with it), not its
     /// `MEDIA:"<path>"` line; empty when the memo has no transcript yet. Any other message as it is.
     static func namingText(_ message: String) -> String {
-        guard let memo = VoiceMemo.parse(message) else { return message }
+        // A picture's or file's ref line (`@image:/…`) is never a name; the words around it are.
+        guard let memo = VoiceMemo.parse(message) else { return AttachmentHydration.liftText(message).text }
         let said = memo.hasTranscript && memo.transcriptText != VoiceMemo.noSpeech ? memo.transcriptText : ""
         return [said, memo.rest].filter { !ChatText.trimmed($0).isEmpty }
             .joined(separator: "\n\n")
@@ -36,12 +37,17 @@ nonisolated enum ShortTitle {
         return phrase.range(of: pattern, options: .regularExpression) == nil
     }
 
+    private static let attachmentLinePrefixes = ["[The user attached", "[Image attached", "[Examine it with", "@image:", "@file:", "@folder:"]
+
     /// Empty/generic names and visibly cut or overlong opening excerpts are provisional. A fitting, unmarked
     /// phrase can be a real name even when it shares the message's opening words; do not replace it on that guess.
     static func isPlaceholder(_ title: String, firstMessage: String) -> Bool {
         let cleaned = cleanName(title)
         // A voice memo's opening line used as a name (`MEDIA:"/Users/…`): its file path, never a name.
         if cleaned.hasPrefix("MEDIA:") { return true }
+        // The gateway's own attachment wrapper (`[The user attached an image: …]`, `[Image attached at: …]`,
+        // `@image:`), which it can slice into an instant name when the message opens with a picture.
+        if attachmentLinePrefixes.contains(where: { cleaned.hasPrefix($0) }) { return true }
         let shown = normalized(cleaned)
         if genericTitles.contains(shown) { return true }
         let cut = cutMarker(in: cleaned) != nil
