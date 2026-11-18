@@ -175,7 +175,17 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if chipToReveal != nil { revealChosenChip(animated: false) }
-        if let row = chipRowScrollView() { chipFade.attach(to: row) }   // item 20
+        if let row = chipRowScrollView() {   // item 20
+            // Owner 2026-11-17 (a screenshot of the board on Soft Cards): the chips ran on past the card to the
+            // screen's edge. The fade owns the row's mask, so it is also what cuts the row at the card's sides.
+            var sides: (left: CGFloat, right: CGFloat) = (0, 0)
+            if BackdropCards.on(self), let list = collectionView {
+                sides = (max(0, list.bounds.minX + BackdropCards.side - row.frame.minX),
+                         max(0, row.frame.maxX - (list.bounds.maxX - BackdropCards.side)))
+            }
+            chipFade.sides = sides
+            chipFade.attach(to: row)
+        }
         // [mac] Stress test 2026-10-28 #9: the window grew or shrank under an empty status; centre it again.
         if DeviceWord.isMac, let collectionView, let dataSource, abs(collectionView.bounds.height - emptyTopHeight) > 1 {
             var snapshot = dataSource.snapshot()
@@ -1235,10 +1245,19 @@ final class KanbanCardBackground: UICollectionReusableView {
 /// KVO-observable under Auto Layout, so the owning controller's `viewDidLayoutSubviews` drives the layout side, the
 /// same technique as `ComposerTextView`'s vertical edge fade drives from its own `layoutSubviews`).
 final class HorizontalEdgeFade: NSObject {
+    /// The fade's mask is named so a card's own sideways cut (`BackdropCardLayout`) leaves this row to it.
+    static let maskName = "hq.horizontalEdgeFade"
     private weak var scrollView: UIScrollView?
     private let mask = CAGradientLayer()
     private var offsetObserver: NSKeyValueObservation?
     var width: CGFloat = 20
+    /// How far in from the row's own edges it is cut (a card's sides on Soft Cards); the fades stand there.
+    var sides: (left: CGFloat, right: CGFloat) = (0, 0)
+
+    override init() {
+        super.init()
+        mask.name = Self.maskName
+    }
 
     /// Call on every layout pass of the owning controller (it recomputes the mask's frame for the current bounds)
     /// and whenever the row's own scroll view might have changed.
@@ -1270,8 +1289,10 @@ final class HorizontalEdgeFade: NSObject {
         // The mask's frame is read in the layer's own coordinate space, which for a scrolled view starts at
         // `bounds.origin` (not (0, 0)): using the scroll view's own `bounds` keeps the mask over the visible
         // viewport as it scrolls (a hardcoded zero origin hid the whole row once contentInset shifted `bounds`).
-        mask.frame = scrollView.bounds
-        let band = min(0.3, width / w)
+        let shown = max(0, w - sides.left - sides.right)
+        guard shown > 0 else { return }
+        mask.frame = CGRect(x: scrollView.bounds.minX + sides.left, y: scrollView.bounds.minY, width: shown, height: scrollView.bounds.height)
+        let band = min(0.3, width / shown)
         mask.startPoint = CGPoint(x: 0, y: 0.5)
         mask.endPoint = CGPoint(x: 1, y: 0.5)
         mask.colors = [(leading ? UIColor.clear : UIColor.black).cgColor, UIColor.black.cgColor, UIColor.black.cgColor,

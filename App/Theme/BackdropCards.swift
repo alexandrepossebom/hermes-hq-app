@@ -206,6 +206,8 @@ class BackdropCardLayout: UICollectionViewCompositionalLayout {
         // the screen's: it is cut at the card's sides.
         for strip in list.subviews {
             guard let strip = strip as? UIScrollView else { continue }
+            // Kanban's chips: their edge fade is the row's mask and makes the same cut (a second mask replaced it).
+            if strip.layer.mask?.name == HorizontalEdgeFade.maskName { continue }
             let card = frames.first { $0.minY <= strip.frame.midY && strip.frame.midY <= $0.maxY }
             SidewaysClip.set(card.map { (left: $0.minX - strip.frame.minX, right: strip.frame.maxX - $0.maxX) }, on: strip)
         }
@@ -281,8 +283,8 @@ private final class SidewaysClip: NSObject {
     @MainActor static func set(_ sides: (left: CGFloat, right: CGFloat)?, on strip: UIScrollView) {
         let clip = objc_getAssociatedObject(strip, key) as? SidewaysClip
         guard let sides, sides.left > 0 || sides.right > 0 else {
-            if clip != nil {
-                strip.layer.mask = nil
+            if let clip {
+                if strip.layer.mask === clip.mask { strip.layer.mask = nil }
                 objc_setAssociatedObject(strip, key, nil, .OBJC_ASSOCIATION_RETAIN)
             }
             return
