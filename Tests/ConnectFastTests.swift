@@ -498,6 +498,10 @@ nonisolated final class StalePoolServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "hqn.tests.stale-pool")
     private let opened = Mutex(0)
     private var answered = false     // on `queue`
+    /// Which connection (1, 2, …) each request came on, in order: [1, 1, 2] is the pooled one reused, then URLSession's
+    /// own second try on a fresh one.
+    private let arrivals = Mutex<[Int]>([])
+    var requestConnections: [Int] { arrivals.withLock { $0 } }
 
     init() throws {
         let parameters = NWParameters.tcp
@@ -530,20 +534,21 @@ nonisolated final class StalePoolServer: @unchecked Sendable {
     func stop() { listener.cancel() }
 
     private func serve(_ connection: NWConnection) {
-        opened.withLock { $0 += 1 }
+        let number = opened.withLock { $0 += 1; return $0 }
         connection.start(queue: queue)
-        read(connection)
+        read(connection, number)
     }
 
-    private func read(_ connection: NWConnection) {
+    private func read(_ connection: NWConnection, _ number: Int) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 16) { [weak self] data, _, done, error in
             guard let self, let data, error == nil, !done else { return connection.cancel() }
             // A request starts with its method; anything else is the rest of the last one (its body).
-            guard ["GET ", "POST "].contains(where: { data.starts(with: Data($0.utf8)) }) else { return self.read(connection) }
+            guard ["GET ", "POST "].contains(where: { data.starts(with: Data($0.utf8)) }) else { return self.read(connection, number) }
+            self.arrivals.withLock { $0.append(number) }
             guard !self.answered else { return connection.forceCancel() }   // a reset, as a dead tunnel answers
             self.answered = true
             let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\n"
-            connection.send(content: Data((head + "{}").utf8), completion: .contentProcessed { _ in self.read(connection) })
+            connection.send(content: Data((head + "{}").utf8), completion: .contentProcessed { _ in self.read(connection, number) })
         }
     }
 }
@@ -558,21 +563,36 @@ struct StalePoolTests {
     }
 
     /// The ticket's retry at once is for this: a kept-alive connection that died answers -1005, marked as pooled.
+    /// URLSession does not always send the second request on the kept-alive connection: when the first one is not back
+    /// in its pool yet it dials a fresh one (about one run in seven in a loop of 200; the unit run failed on it now and
+    /// then). The server says which connection each request came on, so such a run is seen for what it is, checked as
+    /// a fresh connection (not marked), and the pooled case is tried again.
     @Test func aLostPooledConnectionSaysItWasReused() async throws {
-        let server = try StalePoolServer()
-        let port = try await server.start()
-        defer { server.stop() }
-        let transport = HTTPTransport()
-        defer { transport.invalidate() }
-        _ = try await transport.data(for: post(port, "/first"), pool: .bulk, ceiling: 1 << 16)
-        do {
-            _ = try await transport.data(for: post(port, "/second"), pool: .bulk, ceiling: 1 << 16)
-            Issue.record("the second request on the kept-alive connection was answered")
-        } catch let lost as URLError {
-            #expect(lost.code == .networkConnectionLost, "\(lost.code.rawValue)")
-            #expect(lost.onReusedConnection)
+        var pooledSeen = false
+        for _ in 0..<8 where !pooledSeen {
+            let server = try StalePoolServer()
+            let port = try await server.start()
+            defer { server.stop() }
+            let transport = HTTPTransport()
+            defer { transport.invalidate() }
+            _ = try await transport.data(for: post(port, "/first"), pool: .bulk, ceiling: 1 << 16)
+            try await Task.sleep(for: .milliseconds(20))   // lets the answered connection settle back into the pool
+            do {
+                _ = try await transport.data(for: post(port, "/second"), pool: .bulk, ceiling: 1 << 16)
+                Issue.record("the second request was answered")
+            } catch let lost as URLError {
+                let arrivals = server.requestConnections
+                #expect(lost.code == .networkConnectionLost, "\(lost.code.rawValue)")
+                if arrivals.dropFirst().first == 1 {
+                    pooledSeen = true
+                    #expect(lost.onReusedConnection, "each request's connection: \(arrivals)")
+                } else {
+                    #expect(!lost.onReusedConnection, "a fresh connection is not marked: \(arrivals)")
+                }
+            }
+            #expect(server.connections <= 2, "the pooled one, and at most URLSession's own second try")
         }
-        #expect(server.connections <= 2, "the pooled one, and at most URLSession's own second try")
+        #expect(pooledSeen, "the second request never went out on the kept-alive connection")
     }
 
     /// A fresh connection the gateway drops at once is its answer: not marked, so the ticket goes to the redial rules.
