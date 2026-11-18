@@ -183,7 +183,7 @@ nonisolated enum UpdateGroups {
             ahead: for i in m.message..<min(messages.count, m.message + UpdateGroups.reach + 1) {
                 for (r, row) in at(i).enumerated() where i > m.message || r > m.row {
                     if UpdateGroups.endsTalk(row) { break ahead }
-                    if UpdateGroups.isBotTalk(row) { talked = true }
+                    if UpdateGroups.isTalk(row) { talked = true }
                     // A later reply written to the other bot isn't the answer that lets this one fold: with only
                     // such replies after it, this is the last thing the bot said to you.
                     if talked, UpdateGroups.isBotsReply(row), !writesToBot(i) { answered = true; break ahead }
@@ -194,7 +194,7 @@ nonisolated enum UpdateGroups {
                 let own = at(i)
                 for row in own[..<(i == m.message ? m.row : own.count)].reversed() {
                     if UpdateGroups.endsTalk(row) { return false }
-                    if UpdateGroups.isBotTalk(row) { return true }
+                    if UpdateGroups.isTalk(row) { return true }
                 }
             }
             return false
@@ -307,6 +307,24 @@ nonisolated enum UpdateGroups {
         if case .backgroundResult(let b) = row.kind { return b.sentTo || (b.delivery && !b.cron) }
         return false
     }
+
+    /// [quiet] This bot's own background work that finished ("Background task finished: npm test", "Helper finished: …").
+    /// Its replies to these fold as a talk's do: a bot that runs its builds and tests in the background woke on each
+    /// one and wrote you a bubble, stacking "still running", "that notice is for a run I already reported" and "gate
+    /// passed" down the chat between your messages (owner, 2026-11-18: "sessions on HQ are including a lot of internal
+    /// chatter"). Its first answer after your message and its last word before your next one keep their bubbles.
+    static func isWorkFinished(_ row: ChatRow) -> Bool {
+        guard case .backgroundResult(let b) = row.kind, b.helperRequestID == nil, b.group == nil,
+              !b.delivery, !b.cron, !b.aside, !b.voice, !b.note, !b.sentTo else { return false }
+        return b.process || helperFinished.test(b.title)
+    }
+
+    /// `BackgroundResults.plainTitle`'s words for a finished helper: "Helper finished", "Helpers stopped early",
+    /// "3 helpers finished".
+    private static let helperFinished = TRx(#"^(?:\d+ )?[Hh]elpers? (?:finished|failed|stopped early|cancelled|interrupted|timed out|stalled)\b"#)
+
+    /// [exchange] A row a bot's replies fold around: bots talking, or [quiet] its own background work finishing.
+    static func isTalk(_ row: ChatRow) -> Bool { isBotTalk(row) || isWorkFinished(row) }
 
     /// [exchange] The same other bot on a "To" row and a "From" row (both keyed by its profile when the roster knows it).
     static func sameBot(_ a: ChatSender, _ b: ChatSender) -> Bool {
@@ -456,7 +474,7 @@ nonisolated enum UpdateGroups {
             var scan = range.lowerBound - 1, replied = false, earliest: Int?
             look: while scan >= 0, range.lowerBound - scan <= reach {
                 for row in rows.at(scan).reversed() {
-                    if endsTalk(row) || (replied && isBotTalk(row)) { break look }
+                    if endsTalk(row) || (replied && isTalk(row)) { break look }
                     // A reply written to the other bot folds nothing before it, so the search goes on past it.
                     if isBotsReply(row) { a = min(a, scan); earliest = scan; if !rows.writesToBot(scan) { replied = true } }
                 }

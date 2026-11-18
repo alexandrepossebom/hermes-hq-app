@@ -58,6 +58,13 @@ nonisolated enum SessionManualOrder {
         return ids
     }
 
+    /// Move the visible run as a whole, keeping filtered-out saved projects.
+    static func movedProject(_ source: String, onto target: String, shown: [String], saved: [String]) -> [String]? {
+        guard source != target, let from = shown.firstIndex(of: source), let to = shown.firstIndex(of: target),
+              Set(shown).count == shown.count else { return nil }
+        return merged(saved, with: moved(shown, from: from, to: to))
+    }
+
     /// Groups (project or bot groups, already in their default order) in the user's order, favorite projects first
     /// (in that same order). `key`: the group's project key or profile.
     static func groups(_ groups: [SessionGroup], key: (SessionGroup) -> String, order: [String], favorites: Set<String> = []) -> [SessionGroup] {

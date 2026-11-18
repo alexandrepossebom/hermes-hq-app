@@ -237,6 +237,9 @@ extension LiveChatSession: ChatSessionActions {
         let waiting = !alreadyStored || opening || short.hasSuffix("…")
         ManualChatTitles.awaitModel(waiting ? short : nil, account: account.id, profile: profile, id: storedSessionId)
         applyTitle(short, rowTitle: short)
+        // The opening words are shown, never stored: the app's write counts as a user's rename on the gateway, which
+        // then refuses its own model's name for the chat ("Check the animation here. It's covered…" for good).
+        guard first.isEmpty || !(opening || short == ShortTitle.fallback(for: first)) else { return }
         // Even a short gateway name must be reasserted after an older automatic write already on the wire.
         guard short != raw || !alreadyStored || automaticTitleSave != nil else { return }
         let previous = automaticTitleSave

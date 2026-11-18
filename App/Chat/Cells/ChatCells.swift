@@ -1873,9 +1873,19 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
     private func setLive(_ on: Bool) {
         live = on
         let spins = on && currentGlyph != .thinking
+        // [updates] A group line ("1 helper working · 2 dispatched") is centred and leads with its own marks: the
+        // spinner takes the lead mark's place, as it takes a tool's glyph. Left in the glyph's slot at the press area's
+        // edge, it sat half under the mark (owner, 2026-11-18).
+        // `layoutGroup` has just shown the marks it draws, so a hidden lead is one this line doesn't have.
+        let lead = isGroup ? marks.first.map(\.view).flatMap { $0.isHidden ? nil : $0 } : nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         glyph.isHidden = spins || showsFace || isGroup
+        if let lead {
+            lead.isHidden = spins
+            spinner.frame = CGRect(x: lead.frame.midX - spinner.frame.width / 2, y: lead.frame.midY - spinner.frame.height / 2,
+                                   width: spinner.frame.width, height: spinner.frame.height).integral
+        }
         CATransaction.commit()
         spinner.isHidden = !spins
         Shimmer.set(on, on: titleLabel)

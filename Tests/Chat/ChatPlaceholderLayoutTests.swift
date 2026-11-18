@@ -62,4 +62,49 @@ import Testing
         #expect(!face.isHidden)
         #expect(try #require(view.subviews.first { $0 is UIVisualEffectView }).isHidden)
     }
+
+    /// The keyboard lays the intro out inside its own animation. The face must fade as it folds away (and fade back in),
+    /// not stay drawn whole above the shrinking card until the keys settle; a pass that changes nothing animates nothing.
+    @Test func faceFadesWithTheKeyboardInsteadOfPopping() throws {
+        let backdrop = Backdrop.chats
+        let oldSource = backdrop.source
+        let oldSame = backdrop.sameAsApp
+        if case .photo = oldSource { Issue.record("Requires a simulator without a saved photo"); return }
+        defer {
+            if case .preset(let preset) = oldSource { backdrop.setPreset(preset) } else { backdrop.clear() }
+            backdrop.setSameAsApp(oldSame)
+        }
+        backdrop.setPreset(.aurora)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        let view = ChatPlaceholderView(frame: CGRect(x: 0, y: 0, width: 402, height: 600))
+        window.addSubview(view)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        view.mode = .empty(name: "Scout", head: nil, profile: "scout",
+                           intro: .init(role: "Helping with your projects.", talk: true, info: true, name: true))
+        view.layoutIfNeeded()
+        let stack = try #require(view.subviews.first { $0 is UIStackView } as? UIStackView)
+        let face = try #require(stack.arrangedSubviews.first)
+        #expect(!face.isHidden && face.alpha == 1)
+
+        func keyboard(_ height: CGFloat) {
+            UIView.animate(withDuration: 0.3) {
+                view.frame.size.height = height
+                view.layoutIfNeeded()
+            }
+        }
+        keyboard(300)
+        #expect(face.isHidden)
+        #expect(face.alpha == 0)
+        #expect(face.layer.animation(forKey: "opacity") != nil, "the face fades out with the keys")
+        face.layer.removeAllAnimations()
+
+        keyboard(300)   // the same room again: nothing changes, nothing animates
+        #expect(face.layer.animation(forKey: "opacity") == nil)
+
+        keyboard(600)
+        #expect(!face.isHidden)
+        #expect(face.alpha == 1)
+        #expect(face.layer.animation(forKey: "opacity") != nil, "the face fades back in as the keys leave")
+    }
 }

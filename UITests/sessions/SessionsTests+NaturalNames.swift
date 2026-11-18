@@ -39,7 +39,8 @@ extension SessionsTests {
         shot(app, "natural-name-\(opening ? "offline" : "grammar")-\(desktop ? "desktop" : "ios")")
         XCTAssertTrue(named, title.label)
         if opening {
-            XCTAssertTrue(waitUntil(8) { self.rpc("session.title").contains { $0["title"] as? String == expected } })
+            XCTAssertFalse(waitUntil(3) { self.rpc("session.title").contains { $0["title"] as? String == expected } },
+                           "the opening words are shown, never stored: the gateway would take them as a rename")
             expected = "Form layout review"
             setRow("s-trip", ["title": expected])
             fixture("/__fixture/emit", ["type": "session.title", "session_id": "s-trip", "payload": ["title": expected]])

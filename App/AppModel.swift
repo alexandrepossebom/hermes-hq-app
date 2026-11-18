@@ -499,6 +499,7 @@ final class AppModel: AppServices {
         // [/sessions-m9]
         sessions.onChange = { [weak self] in
             self?.onSessionsChange?()
+            NotificationCenter.default.post(name: SessionStrip.listChanged, object: nil)   // [session-strip]
             self?.onLaunchListsChange?()              // [restore]
             self?.refreshNotificationDirectory()      // [notifications]
             self?.intentsListsChanged()               // [intents]
@@ -711,6 +712,7 @@ final class AppModel: AppServices {
         groupsHub.rosterChanged()                     // [groups] membership and the mirror ride on the roster
         syncHub.rosterChanged()                       // [sync] another device's pins, orders and settings ride on it too
         onBotsChange?()
+        NotificationCenter.default.post(name: SessionStrip.listChanged, object: nil)   // [session-strip]
         refreshNotificationDirectory()                // [notifications]
         onLaunchListsChange?()                        // [restore]
         shareRosterChanged()                          // [share]
@@ -1239,6 +1241,7 @@ final class AppModel: AppServices {
             }
             live.onNotice = { [weak screen] text in screen?.showNotice(text) }
         }
+        SessionStrip.offer(to: screen, model: model, app: self)   // [session-strip] the bot's other chats under the bar
         return screen
     }
 }

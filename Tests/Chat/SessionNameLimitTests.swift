@@ -156,13 +156,37 @@ import Testing
             if attempt == 1 { await gate.wait() }
             return ["title": p["title"] ?? ""]
         }
-        event(f, "Please investigate...") // the app saves its own, longer opening excerpt over this
+        f.session.receiveAutomaticTitle("Database pool timeout", alreadyStored: false) // an on-device name, saved
         #expect(await waitUntil { f.params("session.title").count == 1 })
         event(f, "Database pool repair")
         gate.release()
         await f.session.automaticTitleSave?.value
         #expect(f.session.title == "Database pool repair")
         #expect(f.params("session.title").last?["title"]?.string == "Database pool repair")
+    }
+
+    /// The app's write is a user's rename on the gateway, which then refuses its own model's name: the opening words
+    /// are shown while a name is coming, never stored (owner 2026-11-18: "Check the animation here. It's covered…").
+    @Test(arguments: [true, false]) func openingWordsAreShownButNeverStored(fromGateway: Bool) async {
+        let f = MenusFixtureChat()
+        let message = "Check the animation here. It's covered by the composer when the keyboard opens"
+        f.session.title = "New Chat"
+        f.session.messages = [ChatMessage(id: "u1", role: .user, parts: [.text(message)], timestamp: nil, rowId: nil)]
+        f.script.on("session.title") { p, _ in ["title": p["title"] ?? ""] }
+        if fromGateway {
+            event(f, "Check the animation here...")
+        } else {
+            f.session.shortTitleDelay = .zero
+            f.session.titleModel = { _, _ in nil } // no on-device model
+            f.session.shortenTitleIfNeeded()
+            await f.session.shortTitleTask?.value
+        }
+        await f.session.automaticTitleSave?.value
+        #expect(f.session.title == ShortTitle.fallback(for: message))
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(f.params("session.title").isEmpty, "the opening words were stored: \(f.params("session.title"))")
+        event(f, "Composer covers animation") // the gateway's model name still lands
+        #expect(f.session.title == "Composer covers animation")
     }
 
     @Test func manualNameSurvivesANewChatObject() async throws {
