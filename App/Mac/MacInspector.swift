@@ -6,17 +6,22 @@ import UIKit
 /// chat's trailing edge that ⌘I (Chat › Inspector) and the bar's ◨ button show and hide, as Linear's details, Slack's
 /// thread pane and Keynote's inspector do. Its tabs show the chat on show beside it, live: Info (what the Chat Info
 /// sheet showed), Steps (the latest turn's, as the thinking row's sheet), Files (the chat's folder, when it has one)
-/// and Helpers (the turn's subagents, each with its page).
+/// and Helpers (the turn's subagents, each with its page). [bot-chat-sessions] And Chats: every chat of the bot's
+/// (`BotChatsPanel`).
 /// Detail stays beside the chat instead of covering it; closed, the chat has the whole width.
 final class MacInspector: UIViewController {
     enum Tab: Int, CaseIterable {
         case info, steps, files, helpers
+        /// [bot-chat-sessions] Every chat of the bot's whose chat is beside the panel (last: the tab kept across
+        /// launches is stored by number).
+        case chats
         var title: String {
             switch self {
             case .info: "Info"
             case .steps: "Steps"
             case .files: "Files"
             case .helpers: "Helpers"
+            case .chats: "Chats"
             }
         }
     }
@@ -295,7 +300,14 @@ final class MacInspector: UIViewController {
         guard next !== chat else { return }
         let had = chat != nil
         chat = next
-        if isViewLoaded, Self.isShown { fill() }
+        // [bot-chat-sessions] The Chats tab stays as it is while one of its rows opens (its place in the list, no
+        // flash): it takes the chat now beside it and marks that row.
+        if isViewLoaded, Self.isShown, shownTab == .chats, taskChat == nil, let next,
+           let panel = (content as? UINavigationController)?.viewControllers.first as? BotChatsPanel, next.makeChatsPanel != nil {
+            panel.follow(next)
+        } else if isViewLoaded, Self.isShown {
+            fill()
+        }
         // Beside a page that isn't a chat (Sessions' list, Jobs, a tool) the panel makes way, and comes back with a chat.
         if Self.isShown, had != (next != nil) { onShownChange?() }
     }
@@ -419,6 +431,8 @@ final class MacInspector: UIViewController {
             return (chat.menus?.makeFilesPage(), ("folder", "No Folder", "This chat isn’t working in a folder, so there are no files to show."))
         case .helpers:
             return (chat.activity.makeHelpersPanel(), ("person.2", "", ""))
+        case .chats:
+            return (chat.makeChatsPanel?(), ("bubble.left.and.bubble.right", "No Chats", "A bot’s chats are listed here, beside any chat with it."))
         }
     }
 }

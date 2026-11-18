@@ -4834,6 +4834,11 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// [session-strip] The bot's other chats under the bar (SessionStrip.swift), offered as the screen is made and
     /// taken when it first appears, unless something else (a task's page) has put its own panel there by then.
     var makeTopStrip: (() -> UIViewController?)?
+    #if targetEnvironment(macCatalyst)
+    /// [bot-chat-sessions] The Mac inspector's Chats tab for this chat (every chat of its bot's); nil for a chat with
+    /// no bot of its own (a group room).
+    var makeChatsPanel: (() -> BotChatsPanel?)?
+    #endif
 
     /// [tasks] The pinned panel's height (the page measures what it draws and caps it); 0 lays it away. `insets`: the
     /// transcript starts under it (a bar); false, it covers the transcript and the chat's layout stays as it is.

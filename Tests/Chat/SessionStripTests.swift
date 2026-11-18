@@ -96,4 +96,45 @@ struct SessionStripTests {
                                               currentId: "x", onBotChat: false, now: now)
         #expect(shown.map(\.id) == ["", "x"])
     }
+
+    // [bot-chat-sessions] The Mac: the strip holds only what is live; the Chats tab lists every chat, in groups.
+
+    @Test("The Mac's strip leaves out a chat that was only touched in the last day: working, unread, pinned, on screen or gone through this run")
+    func slim() {
+        let chats = [chat("recent", ago: 600), chat("busy", ago: 900, running: true), chat("unread", ago: 1200, unread: true),
+                     chat("pinned", ago: 1800, pinned: true), chat("here", ago: 2400), chat("seen", ago: 3000)]
+        let shown = SessionStripRules.entries(bot: bot(), sessions: chats, profile: "hermes-hq", currentId: "here", onBotChat: false,
+                                              kept: ["seen"], recent: false, now: now)
+        #expect(shown.map(\.id) == ["bc", "busy", "unread", "pinned", "here", "seen"])
+        #expect(entries(chats, current: "here").map(\.id).contains("recent"))
+    }
+
+    @Test("Every chat of the bot's, newest first: not another bot's, an archived one, a job's run, a tool's or its own Bot Chat")
+    func every() {
+        let all = SessionStripRules.chats(bot: bot(), sessions: [chat("old", ago: 9 * 86_400), chat("new", ago: 60),
+                                                                 chat("theirs", ago: 60, profile: "ivy"), chat("gone", ago: 60, archived: true),
+                                                                 chat("job", ago: 60, source: "cron"), chat("tool", ago: 60, source: "tool"),
+                                                                 chat("bc", ago: 30)], profile: "hermes-hq")
+        #expect(all.map(\.id) == ["new", "old"])
+    }
+
+    @Test("The Chats tab's groups: Working, Pinned, Today, Yesterday, Earlier, each chat in the first that fits, empty ones left out")
+    func groups() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let noon = calendar.startOfDay(for: now).addingTimeInterval(12 * 3600)
+        func at(_ id: String, hours: Double, running: Bool = false, pinned: Bool = false) -> SessionSummary {
+            var row = SessionSummary(id: id, profile: "hermes-hq", title: id, preview: nil, lastActive: noon.addingTimeInterval(-hours * 3600),
+                                     source: "desktop", unread: false, isRunning: running)
+            row.pinned = pinned
+            return row
+        }
+        let chats = [at("morning", hours: 3), at("busy", hours: 30, running: true), at("pinned-busy", hours: 31, running: true, pinned: true),
+                     at("yesterday", hours: 20), at("pinned", hours: 200, pinned: true), at("last-week", hours: 170)]
+        let groups = SessionStripRules.groups(chats, now: noon, calendar: calendar)
+        #expect(groups.map(\.title) == ["Working", "Pinned", "Today", "Yesterday", "Earlier"])
+        #expect(groups.map { $0.chats.map(\.id) } == [["busy", "pinned-busy"], ["pinned"], ["morning"], ["yesterday"], ["last-week"]])
+        #expect(SessionStripRules.groups([at("morning", hours: 3)], now: noon, calendar: calendar).map(\.title) == ["Today"])
+        #expect(SessionStripRules.groups([], now: noon, calendar: calendar).isEmpty)
+    }
 }

@@ -127,7 +127,7 @@ extension AppModel: ChatMenuHosting {
     /// [macpass-chat r4] A chat put in place of another in the right pane (Branch, /new) is set on the pane's own stack,
     /// which the split never hears: the Sessions list, the sidebar and the inspector kept following the old chat. They
     /// follow the new one once it is in place (the old one stays first on the stack until the change has played).
-    private static func markPane(_ navigation: UINavigationController) {
+    static func markPane(_ navigation: UINavigationController) {
         var holder = navigation.parent
         while let next = holder, !(next is RootSplitController) { holder = next.parent }
         guard let split = holder as? RootSplitController else { return }
@@ -143,12 +143,16 @@ extension AppModel: ChatMenuHosting {
             AppLog.note("chat", "/new: no bot or no stack for \(AppLog.tag(chat.profile)); nothing opened")
             return false
         }
+        var stack = navigation.viewControllers
+        // [bot-chat-sessions] A second click while the first one's chat is still coming in (a double-click on the
+        // strip's +): the screen it would replace has already left the stack, so a second new chat was made and pushed
+        // over the first, with a Back between them.
+        guard let index = stack.firstIndex(where: { $0 === screen }) else { return false }
         Haptics.play(.soft)
         let next = makeChatScreen(newChat(for: bot))
         next.hidesBottomBarWhenPushed = true
         next.navigationItem.largeTitleDisplayMode = .never
-        var stack = navigation.viewControllers
-        if let index = stack.firstIndex(where: { $0 === screen }) { stack.remove(at: index) }
+        stack.remove(at: index)
         stack.append(next)
         navigation.setViewControllers(stack, animated: true)
         Self.markPane(navigation)

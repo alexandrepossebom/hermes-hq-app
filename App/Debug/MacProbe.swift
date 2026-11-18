@@ -16,6 +16,7 @@
 //                   keyboard, the / list's marked row, the list the arrows walk (its order, the row open, whether its
 //                   marked row is in view), the Terminal's tabs
 //   shortcuts <name> Help › Keyboard Shortcuts' sections and rows, as the sheet would list them now
+//   tap <name> <label> what a click on that control or table row does (its own action, the row's selection)
 //   set <key> <value> a launch default changed while the app runs (`HQDebugTypeToChat insert`; "-" removes it)
 //   quit            ends the app (the tour's wait is long)
 
@@ -57,6 +58,10 @@ import UIKit
                     let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
                     write(press(bits.count > 1 ? bits[1] : ""), to: folder.appending(path: "\(name)-\(bits[0])"), "txt")
                 case "release": release()
+                case "tap":
+                    // [bot-chat-sessions] tap <file> <label>: that control's own action, or that table row's selection
+                    let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
+                    write(tap(bits.count > 1 ? bits[1] : ""), to: folder.appending(path: "\(name)-\(bits[0])"), "txt")
                 case "pins":
                     // [rest-hands 2026-11-17] pins <file>: pin the stand-in's artifacts as tiles from the Artifacts list
                     // on show (the stand-ins have no tiles), as the rest tour does.
@@ -375,6 +380,23 @@ import UIKit
         else { PointerEffects.press(view, true) }
         held.append(view)
         return "pressed \(type(of: view)) '\(view.accessibilityLabel ?? "")'"
+    }
+
+    /// What a click on it does, without a pointer: a control's primary action, a table row's selection.
+    private static func tap(_ label: String) -> String {
+        guard let (view, _) = locate(label) else { return "none" }
+        if let control = view as? UIControl {
+            control.sendActions(for: control.allControlEvents.contains(.primaryActionTriggered) ? .primaryActionTriggered : .touchUpInside)
+            return "tapped \(type(of: view)) '\(view.accessibilityLabel ?? "")'"
+        }
+        if let cell = view as? UITableViewCell {
+            var up: UIView? = cell.superview
+            while let here = up, !(here is UITableView) { up = here.superview }
+            guard let table = up as? UITableView, let path = table.indexPath(for: cell) else { return "no table" }
+            table.delegate?.tableView?(table, didSelectRowAt: path)
+            return "selected row \(path.section).\(path.row) '\(view.accessibilityLabel ?? "")'"
+        }
+        return "not tappable \(type(of: view))"
     }
 
     private static func release() {

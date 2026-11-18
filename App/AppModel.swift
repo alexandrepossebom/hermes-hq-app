@@ -96,6 +96,16 @@ final class AppModel: AppServices {
     private var needsInputSessions: Set<String> = []
     /// The Sessions tab is the one showing (its list refreshes on the on-screen cadence only then, spec 03 §7.7).
     private var sessionsListShown = false
+    /// [bot-chat-sessions] The Mac's strip under a chat's bar and its Chats tab, while they are drawn: a list of chats
+    /// is on screen beside the chat, so the chats are read at the on-screen pace (10 s after a change), not the 150 s
+    /// of a chat with no list in sight. A strip said to hold what is live would otherwise show a reply minutes late.
+    private var chatListsOnShow: Set<ObjectIdentifier> = []
+    func setChatList(_ owner: AnyObject, shown: Bool) {
+        let id = ObjectIdentifier(owner)
+        guard chatListsOnShow.contains(id) != shown else { return }
+        if shown { chatListsOnShow.insert(id) } else { chatListsOnShow.remove(id) }
+        if focusedChat != nil { showListsBesideChat() }
+    }
     /// [m9/ipad] Two panes: the lists stay on screen beside the chat on show.
     private var listsBesideChat = false
     /// [notifications] When this account's socket was first ready (permission is never asked during the replay right after).
@@ -287,7 +297,7 @@ final class AppModel: AppServices {
     /// A chat is on show: on a phone the lists are off screen (their reads wait the longer gap); in two panes the
     /// list beside the chat is still seen, so Sessions keeps its on-screen cadence while its tab is the one showing.
     private func showListsBesideChat() {
-        let sessionsSeen = listsBesideChat && sessionsListShown
+        let sessionsSeen = (listsBesideChat && sessionsListShown) || !chatListsOnShow.isEmpty
         botStore?.setListVisible(listsBesideChat)
         sessionStore?.setListVisible(sessionsSeen)
         sessionStore?.setChatFocused(!sessionsSeen)   // [perf] the off-screen list reads at the longer gap meanwhile
