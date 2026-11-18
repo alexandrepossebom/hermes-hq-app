@@ -4066,6 +4066,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if !isAtBottom { scrollToBottom(animated: true) }
         following = true
         let before = session.messages.last?.id
+        // [send-while-busy] A memo follows Settings › Chat › Send While Replying as typed words do (owner 2026-11-18):
+        // Steer puts it into the running reply, Queue keeps it waiting behind it.
+        if composer.sendsToQueue { (session as? ChatSendQueueing)?.queuesNextSend = true }
         memos.sendMemo(memo, text: text)
         (session as? ChatChangeFlushing)?.flushChanges()
         if flushScheduled {

@@ -20,8 +20,8 @@ nonisolated struct MemoFile: Codable, Hashable, Sendable {
 
 /// A chat that can send voice memos and keep one memo draft (adopted by `LiveChatSession`).
 protocol ChatVoiceMemos: AnyObject {
-    /// Sends `memo` (with `text` typed beside it, possibly "") through the upload pipeline (spec §4.2); queues while a
-    /// reply runs (V13).
+    /// Sends `memo` (with `text` typed beside it, possibly "") through the upload pipeline (spec §4.2); while a
+    /// reply runs it steers into it, or queues for a queued send (V13).
     func sendMemo(_ memo: MemoFile, text: String)
     /// The memo waiting in this chat's composer (a draft chip), persisted per chat (spec §3.6).
     var memoDraft: MemoFile? { get }

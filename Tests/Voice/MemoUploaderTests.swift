@@ -298,11 +298,13 @@ struct MemoUploaderTests {
         #expect(FileManager.default.fileExists(atPath: memo.path), "the recording stays on the phone")
     }
 
-    @Test func aMemoQueuesWhileAReplyRuns() async throws {
+    /// Send While Replying set to Queue (or Send › Queue): the memo waits behind the reply (V13).
+    @Test func aQueuedMemoWaitsWhileAReplyRuns() async throws {
         let (client, memo) = try setUp()
         let s = await session(client)
         s.send("first")
         #expect(s.isRunning)
+        s.queuesNextSend = true
         s.sendMemo(memo, text: "after")
         #expect(s.queuedMessages.count == 1)
         #expect(s.queuedMessages.first?.memo == memo)
@@ -317,6 +319,7 @@ struct MemoUploaderTests {
         let (client, memo) = try setUp()
         let s = await session(client)
         s.send("first")
+        s.queuesNextSend = true
         s.sendMemo(memo, text: "after")
         let id = try #require(s.queuedMessages.first?.id)
         // Delete (audit 863 02-1): nothing comes back, neither the draft chip nor the words; the recording goes.
@@ -324,6 +327,50 @@ struct MemoUploaderTests {
         #expect(s.queuedMessages.isEmpty)
         #expect(s.memoDraft == nil)
         #expect(!FileManager.default.fileExists(atPath: memo.path))
+    }
+
+    /// Owner 2026-11-18: "when I send a voice memo [to a bot that's working] it does not abide by the same rules" as
+    /// text. With Send While Replying on Steer (the default) a memo goes into the running reply as typed words do.
+    @Test func aMemoSteersIntoTheRunningReply() async throws {
+        let (client, memo) = try setUp()
+        client.onCall { method, params, attempt in
+            if method == "session.redirect" { return ["status": "redirected", "text": params["text"] ?? ""] }
+            return try VoiceFakeClient.defaultCall(method, params, attempt)
+        }
+        let s = await session(client)
+        s.send("first")
+        #expect(s.isRunning)
+        s.sendMemo(memo, text: "")
+        // Its bubble shows at once, playing the recording; nothing waits in the queue.
+        let bubble = try #require(s.messages.last)
+        #expect(bubble.role == .user)
+        #expect(VoiceMemo.parse(bubble.plainText)?.path == memo.path)
+        #expect(s.queuedMessages.isEmpty)
+        #expect(await waitUntil(timeout: .seconds(5)) { client.entries("rpc session.redirect").count == 1 })
+        let text = try #require(client.entries("rpc session.redirect").first?.params?["text"]?.string)
+        #expect(text.contains("Pick up milk on the way home."), "the steer carries the transcript: \(text)")
+        #expect(text.contains("voice-memo.wav"), "and the staged memo's reference: \(text)")
+        #expect(await waitUntil(timeout: .seconds(2)) { s.messages.last(where: { $0.role == .user })?.isPending == false })
+        #expect(client.entries("rpc prompt.submit").count == 1, "the memo never went out as a turn of its own")
+        #expect(s.queuedMessages.isEmpty)
+        #expect(s.memoDraft == nil)
+    }
+
+    /// A steer the gateway turns down (the reply ended first): the memo joins the queue as a memo item, never lost.
+    @Test func aMemoSteerTurnedDownJoinsTheQueue() async throws {
+        let (client, memo) = try setUp()
+        client.onCall { method, params, attempt in
+            if method == "session.redirect" { return ["status": "rejected"] }
+            return try VoiceFakeClient.defaultCall(method, params, attempt)
+        }
+        let s = await session(client)
+        s.send("first")
+        s.sendMemo(memo, text: "after")
+        #expect(await waitUntil(timeout: .seconds(5)) { s.queuedMessages.count == 1 })
+        #expect(s.queuedMessages.first?.memo == memo)
+        #expect(s.queuedMessages.first?.text == "after")
+        #expect(!s.messages.contains { VoiceMemo.parse($0.plainText)?.path == memo.path }, "its bubble went; the queue card holds it")
+        #expect(FileManager.default.fileExists(atPath: memo.path))
     }
 }
 
@@ -390,6 +437,7 @@ struct MemoSendLifecycleTests {
         _ = await waitUntil(timeout: .seconds(5)) { s.openSettled }
         s.send("A slow one please")
         #expect(s.isRunning)
+        s.queuesNextSend = true
         s.sendMemo(memo, text: "and the eggs")
         #expect(s.queuedMessages.count == 1)
         s.stopObserving()
@@ -413,6 +461,7 @@ struct MemoSendLifecycleTests {
         _ = await waitUntil(timeout: .seconds(5)) { s.openSettled }
         s.send("A slow one please")
         #expect(s.isRunning)
+        s.queuesNextSend = true
         s.sendMemo(memo, text: "and the eggs")
         #expect(s.queuedMessages.count == 1)
         s.stopObserving()

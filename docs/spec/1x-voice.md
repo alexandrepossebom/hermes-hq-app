@@ -43,7 +43,7 @@ code** (build 238), except where a `DECISION` row in §0.1 says otherwise and gi
 | V10 | Waveform bar count in a bubble | Draw `min(48, floor((waveWidth + 2) / 4))` bars resampled from the 48 peaks, so the shape is never clipped. | The web draws 48 and clips its overflow (`W:src/phone-ui-voice.css:163-165`). At the bubble's minimum width that hides the end of the memo and its progress. |
 | V11 | Microphone-permission copy | Use the bundle's display name ("HQ Native", which is what iOS Settings lists). Drop "and talk with <Bot>" until Talk ships. | The web says "Hermes HQ … to record memos and talk with Ivy" (`W:src/ui-voice/memo-live.ts:303`). The words must match what the owner sees in Settings. |
 | V12 | Settings keys | `hq.voice.sendOnRelease` (Bool, default **true**) and `hq.voice.memoSpeed` (1, 1.5 or 2, default 1), both in `UserDefaults.standard`. The switch UI belongs to the settings stream. | `W:src/ui-voice/flags.ts:10-18`; `W:src/ui-voice/memo-player.ts:8-22`. |
-| V13 | Memo while a reply runs | It goes into the existing local queue as a memo item and drains with `queued:true`. It never steers or redirects. | Attachments always queue (`NAT:docs/spec/04-send-stream-stop.md:789-809`). |
+| V13 | Memo while a reply runs | It follows Settings › Chat › Send While Replying as typed words do (owner 2026-11-18). Steer (the default): its bubble shows under the running reply, it stages, then `session.redirect` carries its prompt; turned down, it joins the queue. Queue (or Send › Queue, ⌘Return): the existing local queue as a memo item, drained with `queued:true`. | Until 2026-11-18 a memo always queued, which the owner hit as "it wouldn't send; I had to stop and send". |
 | V14 | Background playback | Not this round. No `UIBackgroundModes audio`. Playback pauses when the app leaves the screen. | The web has none (`W:ios/App/App/Info.plist:69-72`). Adding it later needs Now Playing and its own review. |
 
 ## 1. What the owner approved (quote these, never contradict them)
@@ -131,7 +131,7 @@ nonisolated struct MemoFile: Codable, Hashable, Sendable {
 
 /// A chat that can send voice memos and keep one memo draft (adopted by LiveChatSession).
 protocol ChatVoiceMemos: AnyObject {
-    /// Sends `memo` (with `text` typed beside it, possibly "") through §4.2; queues while a reply runs (V13).
+    /// Sends `memo` (with `text` typed beside it, possibly "") through §4.2; steers into a running reply, or queues for a queued send (V13).
     func sendMemo(_ memo: MemoFile, text: String)
     /// The memo waiting in this chat's composer (a draft chip), persisted per chat (§3.6).
     var memoDraft: MemoFile? { get }
@@ -699,6 +699,12 @@ The order and parameters are exact. Every session-scoped RPC names `profile`. RE
 
 ### 4.4 While a reply runs (V13)
 
+- Steer (Send While Replying's default, and no Stop unwinding, open question or memo of the turn's own still staging):
+  the memo's bubble shows at once under the running reply, the live reply sealed above it (`beginSteer`). It stages as
+  §4.2 (a)–(f), the bubble takes its prompt, then `session.redirect` sends it after any steer still in flight. Stop while
+  it stages hands it back as the draft chip. Turned down, or its staging failed: the bubble goes and it joins the queue
+  as below (the drain reuses the staging); after a Stop, that queue is paused.
+- Queued (Send While Replying set to Queue, Send › Queue, ⌘Return, or a reply that can't take a steer):
 - A memo sent while `turn.busy` (or with the queue non-empty and not parked) becomes
   `QueuedMessage(id, text: typed, memo: file)`.
 - The queue card row reads "**Voice Memo 0:12**", plus " · " and the first line of the typed text if any, with a

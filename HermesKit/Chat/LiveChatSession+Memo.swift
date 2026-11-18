@@ -80,10 +80,18 @@ extension LiveChatSession: ChatVoiceMemos {
         return "memo \(Int(context.memo.seconds.rounded()))s, \(words), typed \(context.typed.count) chars"
     }
 
-    /// A memo (and the words typed beside it). While a reply runs it waits in the local queue as a memo item and drains
-    /// with `queued:true`; it never steers or redirects (V13).
+    /// A memo (and the words typed beside it). While a reply runs it goes into that reply as typed words do (owner
+    /// 2026-11-18: "when I send a voice memo, it does not abide by the same rules"): staged, then `session.redirect`
+    /// with its prompt. A queued send (Settings › Chat › Send While Replying set to Queue, Send › Queue, ⌘Return), or a
+    /// reply that can't take a steer, keeps the old V13 path: the local queue as a memo item, drained with `queued:true`.
     func sendMemo(_ memo: MemoFile, text: String) {
+        let toQueue = queuesNextSend
+        queuesNextSend = false
         flushDeltas()
+        if !toQueue, memoSteers(typed: text) {
+            steerMemo(memo, typed: text)
+            return
+        }
         let waitInLine = turn.busy || (!queuedMessages.isEmpty && !isQueueParked)
         unparkQueue()   // verify round 3: a fresh message resumes a parked queue (as `send`)
         if waitInLine {
@@ -94,6 +102,96 @@ extension LiveChatSession: ChatVoiceMemos {
             return
         }
         beginMemoSend(memo, typed: text, queued: false)
+    }
+
+    /// A memo sent now can go into the running reply: the rules typed words follow (`steersTyped`), less the ones about
+    /// the words themselves, and never while the running turn is a memo of its own still staging (nothing to steer yet).
+    func memoSteers(typed: String) -> Bool {
+        let ownStaging = turn.userAnchorId.map { memoSends[$0]?.submitted == false } ?? false
+        return turn.busy && !ownStaging && !turn.interrupted && !turn.stopTerminalPending && !turn.submitHeld
+            && turn.waitingForOwner == nil && turn.preparingSendId == nil
+            && !redirectUnsupported && !SteerRule.isSlashCommand(ChatText.trimmed(typed)) && prompts.isEmpty
+    }
+
+    /// The memo's bubble shows at once under the running reply (playing the local file, "Transcribing…"); it stages as
+    /// any memo send does, then steers with its prompt after any steer still in flight (sending order). Stop while it
+    /// stages hands it back as the draft (`memoStopWhileStaging`). Not taken, or staging failed: it joins the queue as a
+    /// memo item (the drain reuses this staging), so nothing recorded is lost.
+    func steerMemo(_ memo: MemoFile, typed: String) {
+        let steer = beginSteer(shown: MemoText.optimistic(localPath: memo.path, typed: typed))
+        let localId = steer.localId
+        let epoch = stopEpoch
+        memoSends[localId] = MemoSendContext(memo: memo, typed: typed, epoch: epoch, accountId: account.id)
+        let previous = typedSteerChain
+        let run = Task { await self.runMemoSteer(steer, previous: previous, epoch: epoch) }
+        memoSends[localId]?.task = run
+        typedSteerChain = run
+    }
+
+    private func runMemoSteer(_ steer: SteerHandle, previous: Task<Void, Never>?, epoch: Int) async {
+        let localId = steer.localId
+        guard memoSends[localId] != nil else { return }
+        let storedId = await ensureStoredId()
+        guard let context = memoSends[localId] else { await previous?.value; return }
+        memoSends[localId]?.storedId = storedId
+        let staged: StagedMemo
+        do {
+            staged = try await MemoUploader(client: client).stage(context.memo, profile: profileParam, storedId: storedId) { params in
+                try await self.memoAttach(params)
+            }
+        } catch {
+            await previous?.value
+            guard memoSends[localId] != nil else { return }   // Stop withdrew it while it staged
+            AppLog.note("send", "memo steer \(AppLog.tag(localId)): staging failed: \(LiveChatSession.logError(error)); queued")
+            memoSteerNotTaken(steer, context: context, epoch: epoch)
+            return
+        }
+        guard memoSends[localId] != nil else { await previous?.value; return }
+        if stopEpoch != epoch { withdrawStoppedSend(localId: localId, text: context.typed); await previous?.value; return }
+        let prompt = MemoText.prompt(reference: staged.reference, typed: context.typed)
+        updateMessage(localId) { m in m.parts = [.text(prompt)] }
+        if let gatewayPath = staged.gatewayPath, memoStoresAreMine {
+            MemoAccountStores.shared.cache?.alias(gatewayPath, to: URL(fileURLWithPath: context.memo.path))
+            MemoAccountStores.shared.shapes?.link(context.memo.path, to: gatewayPath)
+        }
+        memoSends[localId]?.gatewayPath = staged.gatewayPath
+        memoSends[localId]?.submitted = true
+        if let failure = staged.transcriptFailure, memoStoresAreMine {
+            NotificationCenter.default.post(name: MemoSessionNotice.post, object: self,
+                                            userInfo: [MemoSessionNotice.scopeKey: memoScope, MemoSessionNotice.detailKey: failure,
+                                                       MemoSessionNotice.botKey: botName,
+                                                       MemoSessionNotice.kindKey: MemoSessionNotice.Kind.noTranscript.rawValue])
+        }
+        changes.markState()
+        scheduleFlush()
+        await previous?.value   // an earlier steer goes in first
+        AppLog.trace("send", "memo steer \(AppLog.tag(localId)) on \(logIds): \(Self.memoLogWords(context))")
+        if await finishSteer(steer, text: prompt) != .failed {
+            _ = memoSendFinished(localId, .acknowledged)
+            return
+        }
+        memoSteerNotTaken(steer, context: context, epoch: epoch)
+    }
+
+    /// The steer went nowhere: its bubble goes and the memo waits in the queue (paused after a Stop, as typed words do).
+    /// Its staging stays remembered, so the drain doesn't upload or transcribe it again.
+    private func memoSteerNotTaken(_ steer: SteerHandle, context: MemoSendContext, epoch: Int) {
+        memoSends.removeValue(forKey: steer.localId)
+        if indexById[steer.localId] != nil {
+            turn.correctionIds.remove(steer.localId)
+            removeMessage(steer.localId)
+        }
+        queuedMessages.append(QueuedMessage(id: nextQueuedId(), text: context.typed, memo: context.memo))
+        if stopEpoch != epoch {
+            parkQueue()
+            changes.markState()
+            scheduleFlush()
+            return
+        }
+        unparkQueue()
+        changes.markState()
+        scheduleFlush()
+        if turn.busy { onNotice?(SteerRule.failedNotice) } else { drainQueueHead() }
     }
 
     func beginMemoSend(_ memo: MemoFile, typed: String, queued: Bool) {
