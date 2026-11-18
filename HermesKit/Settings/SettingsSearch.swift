@@ -155,8 +155,6 @@ nonisolated enum SettingsSearch {
         .init(id: "app:haptics", label: "Haptics", context: soundsSection, keywords: ["vibration", "taptic", "taps", "buzz", "feedback"], target: .root("row:haptics")),
         .init(id: "app:attachment-limit", label: "Largest Attachment", context: "Chat", keywords: ["megabytes", "size", "file size", "limit", "mb", "upload"], target: .root("attachment-limit")),
         .init(id: "app:file-browser", label: fileBrowserLabel, context: "Chat", keywords: ["file browser", "files", "folder", "project folder", "workspace"], target: .root("row:file-browser")),
-        // [session-strip] Not on the Mac (the row isn't drawn there: its sidebar lists the chats).
-        .init(id: "app:session-strip", label: "Other Chats at the Top", context: "Chat", keywords: ["session strip", "sessions", "chats", "switch chats", "pills", "top bar", "move between chats", "other sessions"], target: .root("row:session-strip")),
         .init(id: "app:message-reactions", label: "Message Reactions", context: "Chat", keywords: ["reactions", "tapback", "tapbacks", "emoji", "react", "like", ChatRowNotes.messageReactions], target: .root("row:message-reactions")),
         .init(id: "app:intro-splash", label: introSplashLabel, context: "Chat", keywords: ["intro splash", "intro", "greeting", "empty chat", "face", "welcome"], target: .root("row:intro-splash")),
         .init(id: "app:completion-sound", label: "Completion Sound", context: soundsSection, keywords: ["sound", "chime", "cue", "reply finished"], target: .root("row:completion-sound")),

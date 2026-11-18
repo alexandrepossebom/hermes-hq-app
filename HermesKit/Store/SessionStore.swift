@@ -80,8 +80,6 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     /// [manual-order] Group By Project: the projects (keys, Home's too) and Group By Bot: the bots (profiles), in the
     /// order the user put them in. Empty: newest chat first (Home last).
     var projectOrder: [String] = []
-    /// Device-only rail order; never included in gateway sync. Empty preserves tiered defaults.
-    var projectPillOrder: [String] = []
     var botGroupOrder: [String] = []
     /// [manual-order] Projects marked Favorite: always first under Group By Project (owner, 2026-10-29).
     var favoriteProjects: [String] = []
@@ -99,7 +97,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     // Fields added later decode as absent, so an older file keeps its unread state.
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
-        case chatOrder, projectOrder, projectPillOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
+        case chatOrder, projectOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
         case projectBots
     }
 
@@ -116,7 +114,6 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         collapsedGroups = (try? c.decodeIfPresent([String: [String]].self, forKey: .collapsedGroups)) ?? [:]
         chatOrder = (try? c.decodeIfPresent([String].self, forKey: .chatOrder)) ?? []
         projectOrder = (try? c.decodeIfPresent([String].self, forKey: .projectOrder)) ?? []
-        projectPillOrder = (try? c.decodeIfPresent([String].self, forKey: .projectPillOrder)) ?? []
         botGroupOrder = (try? c.decodeIfPresent([String].self, forKey: .botGroupOrder)) ?? []
         favoriteProjects = (try? c.decodeIfPresent([String].self, forKey: .favoriteProjects)) ?? []
         openGroups = (try? c.decodeIfPresent([String: [String]].self, forKey: .openGroups)) ?? [:]

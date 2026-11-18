@@ -2444,15 +2444,6 @@ extension SessionsViewController {
             self?.store?.setArchivedProject(key, on)
             self?.reload(animated: true)
         }
-        headerModel.onMoveProject = { [weak self] source, target, shown in
-            guard let self, let store = self.store,
-                  shown == self.headerModel.shownProjects.map(\.key),
-                  let order = SessionManualOrder.movedProject(source, onto: target, shown: shown,
-                                                               saved: store.device.projectPillOrder) else { return }
-            Haptics.play(.selection)
-            store.setProjectPillOrder(order)
-            self.reload(animated: true)
-        }
         headerModel.onClearStrip = { [weak self] in
             guard let self, var state = self.filterStateNow() else { return }
             Haptics.play(.selection)

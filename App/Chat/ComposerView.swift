@@ -593,7 +593,12 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: ComposerView, _) in view.restyleText() }
         // [Mac AAA 2026-11-17] The line's colour is resolved once (a layer colour): a switch between light and dark
         // draws it again.
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: ComposerView, _) in view.restrokeBox() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: ComposerView, _) in
+            view.restrokeBox()
+            view.setNeedsLayout()   // [bar-over-picture] the bar's glass tint follows Light and Dark
+        }
+        // [bar-over-picture] A chat background picked or removed while the chat is open: the bar's glass follows.
+        NotificationCenter.default.addObserver(self, selector: #selector(backdropChanged), name: Backdrop.didChange, object: nil)
         // At accessibility sizes the line cap follows the keyboard (`maxLines`): measure again once it has come or gone.
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardSettled), name: UIResponder.keyboardDidShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardSettled), name: UIResponder.keyboardDidHideNotification, object: nil)
@@ -878,6 +883,8 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// [mac] The iOS look's one box: rounded, not the Desktop Look's square corners.
     static let macBoxRadius: CGFloat = MacMessageBox.radius
     private var appliedFieldRadius: CGFloat = -1
+    /// [bar-over-picture] The bar's glass tint as last applied (`ChatBarGlass`).
+    private var appliedBarTint: UIColor?
 
     /// True in the iOS look on the iPhone and iPad: the field's glass is the whole row's bar. [desktop-composer] In the
     /// iPhone's Desktop Look too, unless Theme › Text Box › Desktop is picked.
@@ -923,10 +930,10 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
             // bar's own outline, never the accent (a blue ring read as a web form field, owner 2026-10-15).
             // [mac-message-box] The iOS look's box: one even line all round, a step stronger while typing.
             restrokeBox()
-        } else if field.effect == nil {
-            let glass = UIGlassEffect(style: .regular)
-            glass.isInteractive = true
-            field.effect = glass
+        } else if field.effect == nil || appliedBarTint != ChatBarGlass.tint(traitCollection) {
+            let tint = ChatBarGlass.tint(traitCollection)
+            appliedBarTint = tint
+            field.effect = ChatBarGlass.effect(traitCollection, interactive: true)
             field.backgroundColor = nil
         }
         let radius = desktop ? (Theme.isDesktop ? ChatMetrics.fieldRadius : Self.macBoxRadius) : barRadius
@@ -945,6 +952,8 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
         guard Theme.isDesktop else { return round }
         return min(round, ChatMetrics.bubbleRadius + toolbarPad)
     }
+
+    @objc private func backdropChanged() { setNeedsLayout() }
 
     /// `holdsGlass`: a container effect instead of none (it draws nothing itself, and lets a glass disc inside draw).
     private func flatten(_ part: UIVisualEffectView, holdsGlass: Bool = false) {
@@ -1703,4 +1712,27 @@ final class ComposerPullGate: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+}
+
+/// [bar-over-picture] Owner 2026-11-18, on a chat in Dark over a picture that glows bright behind the message bar: "the
+/// bottom section looks washed out". Plain Liquid Glass shows the picture through it, so a bright patch there turned the
+/// bar (and the Talk tip over it) a pale wash, the hint and the model pill faint on it. In Dark over a chat background
+/// the glass is tinted with the page colour at 60 % (the owner's pick, option C of four renders, over B at 35 % and a
+/// shade behind the bar); it still reads as glass but as the dark surface the mode promises. Light and a chat without a
+/// picture keep the plain glass, as the owner asked ("only when it has a background pic and the phone is in dark mode").
+@MainActor enum ChatBarGlass {
+    static let alpha: CGFloat = 0.6
+
+    /// The tint the bar's glass takes for `traits`; nil for plain glass.
+    static func tint(_ traits: UITraitCollection) -> UIColor? {
+        guard traits.userInterfaceStyle == .dark, Backdrop.chats.shows else { return nil }
+        return ChatPalette.page.resolvedColor(with: traits).withAlphaComponent(alpha)
+    }
+
+    static func effect(_ traits: UITraitCollection, interactive: Bool) -> UIGlassEffect {
+        let glass = UIGlassEffect(style: .regular)
+        glass.isInteractive = interactive
+        glass.tintColor = tint(traits)
+        return glass
+    }
 }

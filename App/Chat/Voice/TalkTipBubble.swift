@@ -103,6 +103,19 @@ final class TalkTipBubble: UIView {
             outer.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -4),
         ])
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (bubble: TalkTipBubble, _) in bubble.arrange() }
+        // [bar-over-picture] The card stands over the same bright stretch of picture as the message bar: its glass
+        // takes the bar's tint (`ChatBarGlass`), in Dark over a chat background only.
+        retintGlass()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (bubble: TalkTipBubble, _) in bubble.retintGlass() }
+        NotificationCenter.default.addObserver(self, selector: #selector(retintGlass), name: Backdrop.didChange, object: nil)
+    }
+
+    private var appliedTint: UIColor?
+    @objc private func retintGlass() {
+        let tint = ChatBarGlass.tint(traitCollection)
+        guard tint != appliedTint else { return }
+        appliedTint = tint
+        glass.effect = ChatBarGlass.effect(traitCollection, interactive: false)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }

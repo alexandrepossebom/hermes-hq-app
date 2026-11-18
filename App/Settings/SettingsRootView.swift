@@ -82,15 +82,12 @@ final class SettingsRootModel {
     static func searchRowShown(_ entry: SettingsSearchEntry) -> Bool {
         (entry.id != "app:thinking-drive" || thinkingBarShown)
             && (entry.id != "app:new-chat-project" || NewChatKeyBot.mode == .session)
-            && (entry.id != "app:session-strip" || !DeviceWord.isMac)   // [session-strip]
     }
     var introSplash = IntroSplash.isOn
     /// [app-icons] The icon the app wears (Appearance › App Icon's value).
     var appIconTitle = AppIcons.wornTitle
     /// §12 File Browser.
     var fileBrowser = FileBrowserPref.isOn
-    /// [session-strip] Other Chats at the Top (opt-in): the bot's other chats as pills under a chat's bar.
-    var sessionStrip = SessionStripPref.isOn
     /// Message Reactions (default Off): Tapbacks in a message's menu.
     var messageReactions = MessageReactionsPref.isOn
     /// [send-while-busy] What Send does with typed words while a reply runs.
@@ -237,7 +234,7 @@ final class SettingsRootModel {
         case "row:haptics", "row:completion-sound", "row:sound": .sounds
         case "row:fewer-timestamps", "row:show-file-changes", "row:attachment-limit", "row:new-chat-asks-project", "row:wait-for-models",
              "row:send-while-busy", "row:open-links-in", "row:new-chat-mode", "row:new-chat-key", "row:new-chat-project",
-             "row:resume-last-chat", "row:tips", "row:intro-splash", "row:file-browser", "row:session-strip", "row:message-reactions": .chat
+             "row:resume-last-chat", "row:tips", "row:intro-splash", "row:file-browser", "row:message-reactions": .chat
         default: nil
         }
     }
@@ -1226,16 +1223,6 @@ struct SettingsRootView: View {
             }
             .accessibilityIdentifier("settings.file-browser")
             .revealRow("row:file-browser", model.revealed)
-            if !DeviceWord.isMac {   // [session-strip] the Mac's sidebar lists them beside the chat
-                Toggle(isOn: Binding(get: { model.sessionStrip }, set: { on in
-                    model.sessionStrip = on
-                    SessionStripPref.isOn = on
-                })) {
-                    SettingsRowLabel(title: "Other Chats at the Top", systemImage: "capsule")
-                }
-                .accessibilityIdentifier("settings.session-strip")
-                .revealRow("row:session-strip", model.revealed)
-            }
             Toggle(isOn: Binding(get: { model.messageReactions }, set: { on in
                 model.messageReactions = on
                 MessageReactionsPref.isOn = on
@@ -1256,7 +1243,6 @@ struct SettingsRootView: View {
                     ? " ⌘N opens the ⌘N bot’s own chat, ready to type; ⌥⌘N starts a new chat like the one you’re in; ⇧⌘N asks for a bot and project."
                     : " ⌘N starts a new chat with the ⌘N bot, in its project, at once; ⌥⌘N starts one with the bot and project of the chat"
                       + " you’re in; ⇧⌘N asks for both.") : "")
-                 + (DeviceWord.isMac ? "" : " Other Chats at the Top shows a bot’s other recent chats as buttons under a chat’s title, so one tap moves between them.")
                  + " Message Reactions adds Tapbacks to a message’s menu, and lets the bot react to yours."
                  + (model.configStore != nil ? " Reopen Last Chat on Launch is saved on \(HostWord.phrase)." : ""))
         } } }

@@ -504,6 +504,59 @@ final class VoiceMemoEndToEndTests: XCTestCase {
         XCTAssertTrue(mic(app).waitForExistence(timeout: 4), "back to idle")
     }
 
+    // MARK: E-23 The bar stays dark over a bright picture in Dark
+
+    /// Owner 2026-11-18: in Dark over a picture that glows bright at the bottom, the message bar and the Talk tip over it
+    /// \"look washed out\" (plain glass shows the picture through). In Dark over a chat background their glass takes the
+    /// page colour (`ChatBarGlass`); in Light it stays plain glass. A white picture at Dim 0 is the worst case: plain
+    /// glass over it measured 0.23 luminance in Dark (mid grey), the tinted glass 0.05.
+    @MainActor func testE23_BarStaysDarkOverABrightPictureInDark() throws {
+        let picture = FileManager.default.temporaryDirectory.appendingPathComponent("e23-background.png")
+        let white = UIGraphicsImageRenderer(size: CGSize(width: 60, height: 120)).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 60, height: 120))
+        }
+        try XCTUnwrap(white.pngData()).write(to: picture)
+        for mode in ["dark", "light"] {
+            let app = launch(["-HQDebugChatBackground", picture.path, "-HQDebugChatBackgroundDim", "0", "-HQDebugAppearance", mode])
+            openChat(app, "default")
+            Thread.sleep(forTimeInterval: 1)
+            let shot = app.screenshot()
+            attachScreenshot(app, "E23-bar-over-white-\(mode)")
+            let bar = Self.medianLuminance(shot, in: app.textViews["composer.text"].frame)
+            let tip = app.descendants(matching: .any)["memo.tip"]
+            let card: Double? = tip.exists ? Self.medianLuminance(shot, in: tip.frame.insetBy(dx: 0, dy: 4)) : nil
+            if mode == "dark" {
+                XCTAssertLessThan(bar, 0.12, "Dark: the bar reads as a dark surface over a white picture (luminance \(bar))")
+                if let card { XCTAssertLessThan(card, 0.12, "Dark: the Talk tip too (luminance \(card))") }
+            } else {
+                XCTAssertGreaterThan(bar, 0.8, "Light: the bar keeps its plain glass (luminance \(bar))")
+            }
+            app.terminate()
+        }
+    }
+
+    /// The median relative luminance (0…1) of the screenshot inside `rect` (points): the words on it don't move it.
+    private static func medianLuminance(_ shot: XCUIScreenshot, in rect: CGRect) -> Double {
+        let image = shot.image
+        guard let cg = image.cgImage, rect.width > 4, rect.height > 4 else { return -1 }
+        let scale = image.scale
+        let box = CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale).integral
+        guard let crop = cg.cropping(to: box) else { return -1 }
+        let w = crop.width, h = crop.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let context = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: w, height: h))
+        func linear(_ v: UInt8) -> Double { let c = Double(v) / 255; return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        var values: [Double] = []
+        for i in stride(from: 0, to: bytes.count, by: 16) {
+            values.append(0.2126 * linear(bytes[i]) + 0.7152 * linear(bytes[i + 1]) + 0.0722 * linear(bytes[i + 2]))
+        }
+        values.sort()
+        return values.isEmpty ? -1 : values[values.count / 2]
+    }
+
     // MARK: E-22 Fixing the heard words in review
 
     /// [live words] Spec 3x-live-words §3.1.1: in review a tap on the words opens them for editing where they are; Send

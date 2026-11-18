@@ -45,7 +45,6 @@ final class SessionsHeaderModel {
     @ObservationIgnored var onPickProject: (String?) -> Void = { _ in }
     /// [project-pills] A project pill's hold: Archive Project / Unarchive Project.
     @ObservationIgnored var onArchiveProject: (String, Bool) -> Void = { _, _ in }
-    @ObservationIgnored var onMoveProject: (String, String, [String]) -> Void = { _, _, _ in }
 
     /// [project-pills] The project pills drawn: a status pill (New, Working) keeps the projects it stands for (and the
     /// picked one, so it can be tapped off).
@@ -93,7 +92,6 @@ struct SessionsHeaderView: View {
     @State private var position = ScrollPosition()
     /// [mac] Stress test 2026-10-28 round 7: the width the rail has in the pane.
     @State private var available: CGFloat = 0
-    private static let projectDragType = "com.hermeshq.project-pill.local"
     private var moreBefore: Bool { DeviceWord.isMac && railOffset > 1 }
     private var moreAfter: Bool { DeviceWord.isMac && railWidth > 0 && railOffset + railWidth < contentWidth - 1 }
     /// [mac] The rail scrolls (its scroller can show): owner 2026-10-29, the scroller sat on the names under the faces.
@@ -286,26 +284,6 @@ struct SessionsHeaderView: View {
                 }
                 .accessibilityAction(named: project.archived ? "Unarchive Project" : "Archive Project") {
                     model.onArchiveProject(project.key, !project.archived)
-                }
-                .onDrag {
-                    let provider = NSItemProvider()
-                    let data = Data(project.key.utf8)
-                    provider.registerDataRepresentation(forTypeIdentifier: Self.projectDragType, visibility: .ownProcess) { completion in
-                        completion(data, nil)
-                        return nil
-                    }
-                    return provider
-                }
-                .onDrop(of: [Self.projectDragType], isTargeted: nil) { providers in
-                    guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(Self.projectDragType) }) else { return false }
-                    let shown = model.shownProjects.map(\.key)
-                    provider.loadDataRepresentation(forTypeIdentifier: Self.projectDragType) { data, _ in
-                        guard let data, let source = String(data: data, encoding: .utf8) else { return }
-                        DispatchQueue.main.async {
-                            model.onMoveProject(source, project.key, shown)
-                        }
-                    }
-                    return true
                 }
                 .id(SessionsHeaderModel.projectPillId(project.key))
             }
