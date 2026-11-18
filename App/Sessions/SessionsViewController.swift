@@ -23,6 +23,15 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// turned to Projects by hand.
     private var projectPageReturn: (bot: String?, offset: CGFloat)?
     private var pageSign = ""            // [project-pills] the project page's header, as last drawn
+    /// [project-edge-swipe] A swipe in from the leading edge on a project's page goes back, as a pushed page's does.
+    private lazy var pageEdgeSwipe: UIScreenEdgePanGestureRecognizer = {
+        let swipe = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(pageEdgeSwiped(_:)))
+        swipe.edges = view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? .right : .left
+        swipe.delegate = self
+        return swipe
+    }()
+    /// The swipe has gone back already (once per swipe).
+    private var pageEdgeSwipeSpent = false
     /// The Other Apps page while it is in the stack (its rows' actions and reloads go through this list).
     private weak var otherAppsPage: OtherAppsViewController?
     /// The roster by profile, rebuilt once per reload: rows draw their owner's name and head from it.
@@ -199,6 +208,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             collectionView.dragInteractionEnabled = !UserDefaults.standard.bool(forKey: "HQDebugNoDrag")
         }
         view.addSubview(collectionView)
+        #if !targetEnvironment(macCatalyst)
+        view.addGestureRecognizer(pageEdgeSwipe)   // [project-edge-swipe]
+        #endif
         ListBarAppearance.pinTitle(in: self, softEdgeAround: collectionView)   // owner 2026-11-01: every tab's top
         pageBackdrop = PageBackdrop.install(in: self, clearing: [collectionView])   // [backdrop] Theme › App Background
         // [soft-cards] A project's rows draw their piece of card, or none on a soft card: drawn again as that flips.
@@ -2186,6 +2198,36 @@ extension SessionsViewController {
     /// A project's page is on show (the Projects side, one project picked).
     private var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
 
+    /// [project-edge-swipe] Back from a project's page, the way it was come into: opened from the Bots side, the Bots
+    /// side again (its bot and place, `projectPageReturn`); opened on the Projects side, every project.
+    func leaveProjectPage() {
+        guard isProjectPage else { return }
+        AppLog.note("sessions", "project page: back by swipe")
+        if projectPageReturn != nil { pickPills(.bots) } else { pickProject(nil) }
+    }
+
+    /// [project-edge-swipe] Owner 2026-11-17: "Swiping from the left edge when in a project should go back a page when
+    /// there is a page to go back to." It goes back once the finger has come in a little way, or on a flick.
+    @objc private func pageEdgeSwiped(_ swipe: UIScreenEdgePanGestureRecognizer) {
+        let sign: CGFloat = swipe.edges == .right ? -1 : 1
+        let travel = swipe.translation(in: view).x * sign
+        switch swipe.state {
+        case .began: pageEdgeSwipeSpent = false
+        case .changed where !pageEdgeSwipeSpent && travel > 44,
+             .ended where !pageEdgeSwipeSpent && travel > 16 && swipe.velocity(in: view).x * sign > 300:
+            pageEdgeSwipeSpent = true
+            leaveProjectPage()
+        default: break
+        }
+    }
+
+    /// VoiceOver's two-finger scrub leaves a project's page too.
+    override func accessibilityPerformEscape() -> Bool {
+        guard isProjectPage else { return super.accessibilityPerformEscape() }
+        leaveProjectPage()
+        return true
+    }
+
     /// [sessions-motion] The list moving to another view: the old one (a picture of it) slides out and fades as the new
     /// one slides in from the other side, the pills cross-fading above. Sideways for the switch (a short way: the same
     /// place, another view of it), a page's width into and out of a project (a step deeper, as a page pushed and
@@ -2478,6 +2520,20 @@ extension SessionsViewController {
 }
 
 // UX study #89: the empty state is the list's background, not `contentUnavailableConfiguration`.
+/// [project-edge-swipe] The leading-edge swipe only on a project's page, and there ahead of the list's own pans (a
+/// row's swipe actions, the scroll), as a pushed page's Back swipe is.
+extension SessionsViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === pageEdgeSwipe else { return true }
+        return isProjectPage && !searching && navigationController?.topViewController === self
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === pageEdgeSwipe && isProjectPage && (other.view?.isDescendant(of: collectionView) ?? false)
+    }
+}
+
 extension SessionsViewController: PaneListEmptiness {
     var paneListIsEmpty: Bool { isViewLoaded && collectionView?.backgroundView != nil }
 }

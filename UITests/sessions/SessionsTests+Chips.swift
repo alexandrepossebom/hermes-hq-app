@@ -421,6 +421,47 @@ extension SessionsTests {
         toBots.tap()
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").exists && rail.label == "Bots" }, "the bot pills again")
     }
+    /// [project-edge-swipe] Owner 2026-11-17: "Swiping from the left edge when in a project should go back a page when
+    /// there is a page to go back to." Back the way the page was come into; on the list itself the swipe does nothing.
+    @MainActor func test40e_EdgeSwipeLeavesProjectPage() throws {
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
+        let page = app.cells["sessions.projectPage"]
+        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
+        func edgeSwipe() {
+            let window = app.windows.firstMatch
+            let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
+            from.press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
+        }
+        // From the Bots side, a bot picked: back is that bot's list again.
+        tapChip(app, "research")
+        XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
+        let reading = header(app, "Reading")
+        XCTAssertTrue(reading.waitForExistence(timeout: 6))
+        reveal(app, reading)
+        reading.tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "Reading's page")
+        edgeSwipe()
+        XCTAssertTrue(waitUntil(6) { !page.exists && toProjects.exists && self.chip(app, "research").isSelected },
+                      "the swipe goes back: the Bots side, Research picked again")
+        // The list itself has no page to go back to: the swipe leaves it as it is.
+        edgeSwipe()
+        XCTAssertTrue(waitUntil(2) { toProjects.exists && self.chip(app, "research").isSelected }, "nothing to go back to")
+        tapChip(app, "research")
+        XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) })
+        // On the Projects side, a project's pill: back is every project.
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists })
+        let website = app.buttons["sessions.chip.project.0"]
+        XCTAssertTrue(website.waitForExistence(timeout: 6))
+        onScreen(app, website).tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "Website's page")
+        edgeSwipe()
+        XCTAssertTrue(waitUntil(6) { !page.exists && toBots.exists && self.nothingPicked(app) && self.headers(app).contains("Website") },
+                      "the swipe goes back to every project (\(headers(app)))")
+    }
+
     /// [project-sections] Owner 2026-11-16 (picked from three drawings): a project page's quiet chats are Pinned, Today,
     /// This Week and Older; each heading has its count; a long section draws three then Show More; This Week and
     /// Older start closed under the sections above them and open with a tap.
