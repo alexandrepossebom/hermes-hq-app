@@ -129,6 +129,87 @@ final class SessionStripTests: XCTestCase {
         shot(app, "strip-5-off")
     }
 
+    /// Full opt-in journey: do not pass a launch-argument override for the preference.
+    /// Run on a newly created simulator so the first assertion is a genuine install default.
+    @MainActor func testAcceptance_RealSettingsAndRelaunch() throws {
+        let app = launch(useStoredStrip: true)
+        open(app, work)
+        XCTAssertFalse(app.otherElements["chat.strip"].exists, "fresh install has no strip")
+        XCTAssertFalse(app.buttons["chat.strip.new"].exists)
+        shot(app, "acceptance-fresh-off")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        settingsStrip(app, expected: "0", turnTo: "1")
+        app.tabBars.buttons["Sessions"].tap()
+        open(app, work)
+        XCTAssertTrue(app.otherElements["chat.strip"].waitForExistence(timeout: 15))
+        try account.control("/__fixture/mode", ["prompts": "hold"])
+        let field = app.textViews["composer.text"]
+        field.tap()
+        field.typeText("Please check the garden plan.")
+        app.buttons["composer.send"].tap()
+        try account.control("/__fixture/mode", ["live": [work: "working"]])
+        hideKeys(app)
+        XCTAssertTrue(waitUntil(20) { self.pill(app, "Garden plan").label.contains("Working") })
+        shot(app, "acceptance-working")
+        app.buttons["chat.strip.new"].tap()
+        XCTAssertTrue(app.textViews["composer.text"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitUntil(15) { self.selected(app).isEmpty }, "new chat is not the original")
+        XCTAssertTrue(pill(app, "Garden plan").label.contains("Working"), "original remains working")
+        shot(app, "acceptance-fresh-chat")
+        hideKeys(app)
+        let original = pill(app, "Garden plan")
+        if !original.isHittable { app.otherElements["chat.strip"].swipeRight() }
+        original.tap()
+        XCTAssertTrue(waitUntil(20) { self.selected(app).first?.label.hasPrefix("Garden plan") == true })
+        XCTAssertTrue(app.buttons["composer.stop"].waitForExistence(timeout: 15), "resumed original is still working")
+        let rpc = try account.control("/__fixture/state")["rpc"] as? [[String: Any]] ?? []
+        func calls(_ method: String) -> [[String: Any]] { rpc.filter { $0["method"] as? String == method } }
+        let creates = calls("session.create")
+        XCTAssertEqual(creates.count, 1, "plus creates exactly one gateway session")
+        XCTAssertEqual((creates.first?["params"] as? [String: Any])?["profile"] as? String, "default", "same bot")
+        let resumes = calls("session.resume").compactMap { ($0["params"] as? [String: Any])?["session_id"] as? String }
+        XCTAssertTrue(resumes.contains("s-new-1"), "new session is resumed")
+        XCTAssertEqual(resumes.last, work, "the original was resumed on return")
+        shot(app, "acceptance-returned")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        settingsStrip(app, expected: "1", turnTo: "0")
+        app.terminate()
+        if let i = app.launchArguments.firstIndex(of: "-HQDebugResetAccounts") {
+            app.launchArguments.removeSubrange(i...i+1)
+        }
+        app.launch()
+        XCTAssertTrue(app.collectionViews["sessions.list"].waitForExistence(timeout: 30))
+        settingsStrip(app, expected: "0", turnTo: nil)
+        app.tabBars.buttons["Sessions"].tap()
+        open(app, work)
+        XCTAssertFalse(app.otherElements["chat.strip"].exists, "off persists after relaunch")
+        shot(app, "acceptance-relaunched-off")
+    }
+
+    @MainActor func settingsStrip(_ app: XCUIApplication, expected: String, turnTo: String?) {
+        let more = app.tabButton(id: "tab-more", label: "More")
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let row = app.cells["more-row-settings"]
+        if !row.waitForExistence(timeout: 5) { more.tap() }
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        XCTAssertTrue(app.buttons["settings.gateway-card"].waitForExistence(timeout: 15))
+        let toggle = app.switches["settings.session-strip"]
+        for _ in 0..<14 {
+            if toggle.exists && toggle.isHittable && toggle.frame.maxY < app.windows.firstMatch.frame.height - 100 { break }
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(toggle.exists && toggle.isHittable, "actual Settings switch")
+        XCTAssertEqual(toggle.value as? String, expected)
+        shot(app, "acceptance-setting-\(expected)")
+        if let turnTo {
+            let inner = toggle.switches.firstMatch
+            (inner.exists ? inner : toggle).tap()
+            XCTAssertTrue(waitUntil(5) { toggle.value as? String == turnTo })
+        }
+    }
+
     // MARK: Helpers
 
     @MainActor func selected(_ app: XCUIApplication) -> [XCUIElement] {
@@ -154,13 +235,13 @@ final class SessionStripTests: XCTestCase {
         _ = waitUntil(3) { !app.keyboards.firstMatch.exists }
     }
 
-    @MainActor func launch(extra: [String] = []) -> XCUIApplication {
+    @MainActor func launch(extra: [String] = [], useStoredStrip: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-HQDebugSessionsTab", "YES", "-HQDebugHUDSeconds", "5", "-HQDebugResetTheme", "YES",
                                "-dispatch.notifications.asked", "YES", "-HQDebugNoSwipePeek", "YES", "-HQDebugResetSessionsView", "YES",
                                "-HQDebugResetUnread", "YES", "-HQDebugNoDrag", "YES"]
             + (env["HQN_SESSIONS_DARK"] == "1" ? ["-HQDebugAppearance", "dark"] : [])
-            + (extra.contains("-hqn.sessionStrip") ? [] : ["-hqn.sessionStrip", "YES"]) + extra
+            + (useStoredStrip || extra.contains("-hqn.sessionStrip") ? [] : ["-hqn.sessionStrip", "YES"]) + extra
         if !Self.signedIn { app.launchArguments += ["-HQDebugResetAccounts", "YES"] }
         _ = addUIInterruptionMonitor(withDescription: "the app's own alerts") { _ in true }
         app.launch()
