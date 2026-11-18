@@ -28,8 +28,10 @@ struct ProjectPageHeader: View {
     var ready: Int
     var working: Int
     var total: Int
-    /// A count's section id (`SessionListPipeline.statePrefix` + needs / ready / working).
+    /// A count tapped ("needs", "ready", "working"): the page narrows to those chats, or back to all of them.
     var onJump: (String) -> Void
+    /// [page-count-chips] The counts the page is narrowed to (lit): New's narrowing lights Needs You and New.
+    var lit: Set<String> = []
     /// [project-header-card] The section stands on a soft card already (Soft Cards, the page's picture showing): no card
     /// of its own.
     var onSoftCard = false
@@ -211,11 +213,14 @@ struct ProjectPageHeader: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
+    /// [page-count-chips] A count the page is narrowed to. New's narrowing lights New, and Needs You while it counts a chat.
+    private func isLit(_ id: String, _ count: Int) -> Bool { lit.contains(id) && (count > 0 || id != "needs") }
+
     /// One count: its mark, the number and the word, in a small capsule. A zero is dimmed and takes no tap.
     private func chip<Mark: View>(_ count: Int, _ word: String, id: String, words: Bool = true,
                                   @ViewBuilder mark: () -> Mark) -> some View {
         Button {
-            onJump(SessionListPipeline.statePrefix + id)
+            onJump(id)
         } label: {
             HStack(spacing: 5) {
                 mark()
@@ -227,12 +232,16 @@ struct ProjectPageHeader: View {
             .padding(.horizontal, 9)
             .frame(minHeight: HQFont.scaled(24))
             .background(Capsule().fill(chipFill))
+            // [page-count-chips] Lit while the page is narrowed to it: the tint's ring, as a picked pill says "on".
+            .overlay { if isLit(id, count) { Capsule().strokeBorder(Color.hqTint, lineWidth: 1.5) } }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(count == 0)
-        .opacity(count == 0 ? 0.45 : 1)
+        // A lit count takes the tap at zero too (its last chat read): the way back to every chat.
+        .disabled(count == 0 && !isLit(id, count))
+        .opacity(count == 0 && !isLit(id, count) ? 0.45 : 1)
         .accessibilityLabel("\(word), \(count) \(count == 1 ? "chat" : "chats")")
+        .accessibilityAddTraits(isLit(id, count) ? .isSelected : [])
         .accessibilityIdentifier("sessions.projectPage.\(id)")
     }
 }

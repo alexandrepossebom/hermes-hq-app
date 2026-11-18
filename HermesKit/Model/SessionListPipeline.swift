@@ -206,7 +206,8 @@ nonisolated enum SessionListPipeline {
         if foldersShown { pool += input.outside.filter(\.pinned) }        // a pinned platform chat sits in Pinned
         // [three-piles] A project's page lists its archived chats too, as its Done pile (live rows first: a chat in
         // both is listed once, as the live row).
-        let isPage = prefs.pills == .projects && picked.count == 1 && input.statusChip == nil && !isFlat(prefs)
+        // [page-count-chips] A status pill keeps the page: it narrows the piles to the chats in that state.
+        let isPage = prefs.pills == .projects && picked.count == 1 && !isFlat(prefs)
         if isPage, !prefs.showArchived { pool += input.archived }
         let hidden = picked.isEmpty ? hiddenProjects(input) : []
         let needsProject = !picked.isEmpty || !hidden.isEmpty || isFresh(prefs) || (prefs.groupBy == .project && !isFlat(prefs))
@@ -426,11 +427,23 @@ nonisolated enum SessionListPipeline {
             let ra = state(a.element).rawValue, rb = state(b.element).rawValue
             return ra != rb ? ra < rb : a.offset < b.offset
         }.map(\.element)
+        // [page-count-chips] Owner 2026-11-18 ("Now the Needs you, new, working pills don't do anything": they went to
+        // sections the piles replaced). A count's pill, like the rail's New or Working, narrows the piles to the chats
+        // it counts (New: waiting on the owner or a reply not read, and one read since the page was last left); Done
+        // is left out, the header and its counts stay. Tapped again, every chat is back.
+        let shown = input.statusChip.map { chip in
+            ordered.filter { session in
+                switch chip {
+                case .new: state(session) == .needsYou || state(session) == .ready || input.keepNew.contains(Self.key(session))
+                case .working: state(session) == .working
+                }
+            }
+        } ?? ordered
         let sections: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] = [
-            ("pinned", "Pinned", ordered.filter(\.pinned), false), ("active", "Active", ordered.filter { !$0.pinned }, true),
-            ("done", "Done", sort(done, by: .updated), true)]
-        // A status filter shows every match (a closed section would hide what the filter was set to find).
-        let filtered = !input.prefs.statusFilter.isEmpty
+            ("pinned", "Pinned", shown.filter(\.pinned), false), ("active", "Active", shown.filter { !$0.pinned }, true),
+            ("done", "Done", input.statusChip == nil ? sort(done, by: .updated) : [], true)]
+        // A status filter or pill shows every match (a closed section would hide what it was set to find).
+        let filtered = !input.prefs.statusFilter.isEmpty || input.statusChip != nil
         for section in sections where !section.chats.isEmpty {
             var group = SessionGroup(id: statePrefix + section.id, title: section.title, sessions: section.chats)
             group.total = group.sessions.count

@@ -539,7 +539,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             let header = ProjectPageHeader(
                 name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
-                onJump: { [weak self] section in self?.scrollToPageSection(section) },
+                onJump: { [weak self] count in self?.pickPageCount(count) },
+                lit: self.store?.statusChip.map { $0 == .working ? ["working"] : ["needs", "ready"] } ?? [],
                 onSoftCard: BackdropCards.on(self), menu: menu)
             cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
             cell.accessibilityIdentifier = "sessions.projectPage"
@@ -1530,7 +1531,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 (organizer?.projectDefaultBot(key: key) ?? "?") + (organizer?.projectBotChoices(key: key).map(\.name).joined(separator: ",") ?? "")
             } ?? ""
             let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","), usual,
-                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)"].joined(separator: "|")
+                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")"].joined(separator: "|")
             if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
             pageSign = sign
         }
@@ -1856,22 +1857,11 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     }
 
     /// [project-pills] A count on the project page's header: its section to the top.
-    func scrollToPageSection(_ id: String, opening: Bool = true) {
-        // [three-piles] A count's chip goes to the first chat in that state, in Pinned or Active (opened when one of
-        // them was closed and no open pile has such a chat).
-        let states: [String: SessionProjectState] = ["needs": .needsYou, "ready": .ready, "working": .working]
-        guard let wanted = states[String(id.dropFirst(SessionListPipeline.statePrefix.count))] else { return }
-        let piles = groups.filter { SessionListPipeline.isPageSection($0.id) && !SessionListPipeline.pageStartsClosed.contains($0.id) }
-        let found = piles.lazy.flatMap(\.sessions).first { SessionProjectState.of($0).contains(wanted) }
-        if let found, let indexPath = dataSource.indexPath(for: Self.key(found)) {
-            Haptics.play(.selection)
-            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: !HQMotion.reduced)
-            return
-        }
-        let closed = piles.filter(\.collapsed)
-        guard opening, !closed.isEmpty else { return }
-        closed.forEach { toggleGroup($0.id) }
-        DispatchQueue.main.async { [weak self] in self?.scrollToPageSection(id, opening: false) }
+    /// [page-count-chips] A count on a project's page tapped: the page narrows to those chats, as the rail's New or
+    /// Working pill narrows it (Needs You and New are both New's); tapped while lit, every chat is back.
+    func pickPageCount(_ count: String) {
+        let chip: SessionStatusChip = count == "working" ? .working : .new
+        pickStatus(store?.statusChip == chip ? nil : chip)
     }
 
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],

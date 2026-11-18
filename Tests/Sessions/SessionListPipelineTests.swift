@@ -426,6 +426,7 @@ import Testing
         #expect(page.map(\.id) == ["page", "state-active", "state-done"] && page.map(\.title) == ["", "Active", "Done"])
         #expect(page[1].sessions.map(\.id) == ["back", "a"])
         #expect(page[2].collapsed && page[2].sessions.isEmpty && page[2].total == 2)
+        #expect(run { $0.statusChip = .new }.map(\.id) == ["page", "state-active"])     // [page-count-chips] narrowed: no Done
         #expect(page[0].total == 2 && page[0].ready == 1)
         page = run { $0.openGroups = ["state-done"] }
         #expect(!page[2].collapsed && page[2].sessions.map(\.id) == ["d1", "d0"])
@@ -467,7 +468,22 @@ import Testing
         #expect(head.needs == 1 && head.ready == 1 && head.busy == 1 && head.total == 5 && head.profiles == ["default"])
         #expect(!run { $0.prefs.pills = .bots }.contains { $0.id == "page" })
         #expect(!run { $0.prefs.projectFilter = ["/home/hermes/site", "/home/hermes/reading"] }.contains { $0.id == "page" })
-        #expect(!run { $0.statusChip = .working }.contains { $0.id == "page" })
+        // [page-count-chips] A status pill (the rail's, or a count on the page) keeps the page and narrows its piles:
+        // Working to the chat at work; New to the ones waiting on the owner or not read, and one read since the page
+        // was last left. The header's counts stay, and Done is left out.
+        let working = run { $0.statusChip = .working }
+        #expect(working.map(\.id) == ["page", "state-active"] && working[1].sessions.map(\.id) == ["a"])
+        #expect(working[0].needs == 1 && working[0].ready == 1 && working[0].busy == 1 && working[0].total == 5)
+        #expect(run { $0.statusChip = .new }.dropFirst().flatMap(\.sessions).map(\.id) == ["b", "c"])
+        let kept = run { $0.statusChip = .new; $0.keepNew = [SessionListPipeline.key(branch)] }
+        #expect(kept.dropFirst().flatMap(\.sessions).map(\.id) == ["b", "c", "e"])
+        // A closed pile opens for its matches; a pill with no match leaves the header alone.
+        #expect(run { $0.statusChip = .working; $0.collapsedGroups = ["state-active"] }[1].sessions.map(\.id) == ["a"])
+        let quiet = Self.run([branch]) {
+            $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.pills = .projects
+            $0.prefs.projectFilter = ["/home/hermes/site"]; $0.statusChip = .working
+        }
+        #expect(quiet.map(\.id) == ["page"] && quiet[0].total == 1)
         // A project with no chats yet still opens: its header (and New Chat) alone.
         let empty = Self.run([]) {
             $0.projectsByProfile = Self.projects; $0.projects = entries; $0.prefs.pills = .projects; $0.prefs.projectFilter = ["/home/hermes/site"]
