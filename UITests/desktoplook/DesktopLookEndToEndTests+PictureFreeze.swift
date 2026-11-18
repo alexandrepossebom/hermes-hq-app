@@ -11,7 +11,7 @@ extension DesktopLookEndToEndTests {
         let app = launchSignedIn(["-HQDebugDesktopLook", "NO", "-HQDebugAppBackground", "aurora",
                                   "-HQDebugAppBackgroundCards", "YES"])
         openSettings(app)
-        openTheme(app)
+        showLook(app)   // [appearance-groups] a row of Appearance
         let look = app.switches["theme.desktopLook"]
         XCTAssertEqual(look.value as? String, "0", "the iOS look to start")
         shot(app, "picture-cards-theme-ios-look")

@@ -1053,7 +1053,10 @@ final class AppModel: AppServices {
         // A turn sent before the chat's stored id came back: it counts under the id now, so its end clears Working…
         // (TurnWorking.resolved), and its off-screen end names the id too.
         chat.onStoredIdResolved = { [weak self, weak chat] id in
-            guard let self, let chat, chat.reportsRunning || chat.externalWorking else { return }
+            guard let self, let chat else { return }
+            // [read-sync] A chat started here is read on the gateway from the start, so every device's dot agrees.
+            if chat.startsNew { self.sessionStore?.trackStartedChat(id: id, profile: chat.profile) }
+            guard chat.reportsRunning || chat.externalWorking else { return }
             if let rid = chat.runtimeSessionId, let tracked = self.runningChats[rid], tracked.storedId == nil {
                 self.runningChats[rid] = (tracked.profile, id)
             }

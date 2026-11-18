@@ -66,11 +66,11 @@ final class DesktopLookEndToEndTests: XCTestCase {
 
         // Desktop Look on: its two options appear, the docked tab bar replaces the system one. The look's own page
         // opens on the switch just used, not at the top a screen above it (UX study #110).
+        // [appearance-groups] The switch and UI Scale are rows of Appearance; High Contrast stays on Theme.
         showLook(app)
         flip(app, "theme.desktopLook")
-        XCTAssertTrue(waitUntil(timeout: 3) { look.isHittable }, "the look's page opens on its switch")
-        XCTAssertTrue(app.switches["theme.highContrast"].waitForExistence(timeout: 5), "High Contrast appears")
-        XCTAssertTrue(text(app, Self.contrastNote).exists)
+        XCTAssertTrue(waitUntil(timeout: 3) { look.isHittable }, "the switch stays in view")
+        reveal(app, app.buttons["theme.uiScale.100"])
         let scale = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'theme.uiScale.'"))
         XCTAssertTrue(app.buttons["theme.uiScale.100"].waitForExistence(timeout: 3), "UI Scale appears")
         XCTAssertEqual(scale.count, 5, "five presets on one row")
@@ -82,10 +82,15 @@ final class DesktopLookEndToEndTests: XCTestCase {
         reveal(app, app.buttons["theme.uiScale.125"])
         app.buttons["theme.uiScale.125"].tap()
         XCTAssertTrue(waitUntil(timeout: 3) { app.buttons["theme.uiScale.125"].isSelected })
+        showTheme(app)
+        XCTAssertTrue(app.switches["theme.highContrast"].waitForExistence(timeout: 5), "High Contrast appears")
+        reveal(app, app.switches["theme.highContrast"])
+        XCTAssertTrue(text(app, Self.contrastNote).exists)
         flip(app, "theme.highContrast")
         XCTAssertEqual(app.switches["theme.highContrast"].value as? String, "1")
         shot(app, "theme-midnight-contrast-125")
 
+        showAppearance(app)   // Done is on the sheet's first pages; this Theme page was pushed from Appearance
         app.buttons["Done"].firstMatch.tap()
         let bar = app.otherElements["desktop-tab-bar"]
         XCTAssertTrue(bar.waitForExistence(timeout: 5), "the docked tab bar shows behind the sheet")
@@ -109,19 +114,24 @@ final class DesktopLookEndToEndTests: XCTestCase {
         showLook(again)
         XCTAssertTrue(again.switches["theme.desktopLook"].waitForExistence(timeout: 5))
         XCTAssertEqual(again.switches["theme.desktopLook"].value as? String, "1", "the look survived")
-        XCTAssertEqual(again.switches["theme.highContrast"].value as? String, "1", "High Contrast survived")
+        reveal(again, again.buttons["theme.uiScale.125"])
         XCTAssertTrue(again.buttons["theme.uiScale.125"].isSelected, "UI Scale survived")
         XCTAssertTrue(card(again, "midnight").isSelected, "the skin survived")
+        reveal(again, again.switches["theme.highContrast"])
+        XCTAssertEqual(again.switches["theme.highContrast"].value as? String, "1", "High Contrast survived")
 
         // Look off: the options leave (their choices are kept), the system tab bar is back (B8, D3).
         showLook(again)
         flip(again, "theme.desktopLook")
-        XCTAssertTrue(waitUntil(timeout: 3) { again.switches["theme.desktopLook"].isHittable }, "the iOS look's page opens on the switch")
+        XCTAssertTrue(waitUntil(timeout: 3) { again.switches["theme.desktopLook"].isHittable }, "the switch stays in view")
+        reveal(again, again.buttons["theme.uiScale.125"])
+        XCTAssertTrue(again.buttons["theme.uiScale.125"].isSelected, "UI Scale is the same in the iOS look")
+        showTheme(again)
         XCTAssertTrue(waitUntil(timeout: 5) { !again.switches["theme.highContrast"].exists }, "High Contrast leaves with the look")
         flip(again, "theme.desktopLook")
-        XCTAssertTrue(again.buttons["theme.uiScale.125"].waitForExistence(timeout: 5))
-        XCTAssertTrue(again.buttons["theme.uiScale.125"].isSelected, "the scale choice came back with the look")
-        XCTAssertEqual(again.switches["theme.highContrast"].value as? String, "1", "and the contrast choice")
+        showTheme(again)
+        reveal(again, again.switches["theme.highContrast"])
+        XCTAssertEqual(again.switches["theme.highContrast"].value as? String, "1", "the contrast choice came back with the look")
         flip(again, "theme.desktopLook")
         again.buttons["Done"].firstMatch.tap()
         XCTAssertTrue(waitUntil(timeout: 5) { !again.otherElements["desktop-tab-bar"].exists }, "the docked bar is gone")
@@ -160,12 +170,10 @@ final class DesktopLookEndToEndTests: XCTestCase {
         shot(app, "look-off-tabs-3-after")
     }
 
+    /// Settings › Appearance › Theme, from the Settings list.
     @MainActor func openTheme(_ app: XCUIApplication) {
-        let row = app.buttons["settings.theme-row"]
-        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
-        row.tap()
+        showTheme(app)
         XCTAssertTrue(themeOpens(app, timeout: 8), "the Theme page opens")
-        showLook(app)
     }
 
     /// The Bots bar's buttons, by label: their sizes (glass capsules and the look's smaller glyphs differ).
@@ -288,6 +296,7 @@ final class DesktopLookEndToEndTests: XCTestCase {
         XCTAssertTrue(themeOpens(app), "the Theme page opens")
         for _ in 0..<40 { flip(app, "theme.desktopLook") }
         XCTAssertEqual(app.switches["theme.desktopLook"].value as? String, "0", "an even number of flips ends off")
+        showTheme(app)
         XCTAssertFalse(app.switches["theme.highContrast"].exists)
         flip(app, "theme.desktopLook")
         app.buttons["Done"].firstMatch.tap()
@@ -322,9 +331,7 @@ final class DesktopLookEndToEndTests: XCTestCase {
         rowA.tap()
         XCTAssertTrue(waitUntil(timeout: 10) { rowA.exists && rowA.isSelected }, "A is in use again")
         app.navigationBars["Gateways"].buttons.element(boundBy: 0).tap()
-        let themeRow = app.descendants(matching: .any)["settings.theme-row"]
-        for _ in 0..<5 where !(themeRow.exists && themeRow.isHittable) { app.swipeUp() }
-        themeRow.tap()
+        showTheme(app)
         XCTAssertTrue(themeOpens(app, timeout: 8), "the Theme page opens")
 
         let addA = app.buttons["Add to \(a.hostPort)"], addB = app.buttons["Add to \(b.hostPort)"]
@@ -485,8 +492,8 @@ final class DesktopLookEndToEndTests: XCTestCase {
     // MARK: - Settings › Appearance › Chat Bubbles and Backgrounds (the iOS look only)
 
     /// The slider saves when let go (it survives a relaunch). [theme-pages] Chat Bubbles and Backgrounds are rows of
-    /// their own under Appearance beside Theme (they were its tabs), not there in the Desktop Look, and the choice is
-    /// still there when the look goes off again.
+    /// their own under Appearance (they were Theme's tabs). [appearance-groups] In the Desktop Look too, where Chat
+    /// Bubbles holds that look's Corners; the iOS look's choice is still there when the look goes off again.
     @MainActor func testL14_BubbleCornersSaveOnReleaseAndStayOutOfTheLook() throws {
         let app = launchSignedIn(["-HQDebugOpenTheme", "YES", "-HQDebugThemeBubbles", "YES"])
         XCTAssertTrue(themeOpens(app), "Chat Bubbles opens")
@@ -506,27 +513,33 @@ final class DesktopLookEndToEndTests: XCTestCase {
         XCTAssertTrue(kept.waitForExistence(timeout: 20))
         XCTAssertEqual(kept.value as? String, "24 points", "saved, not only drawn")
 
-        // The Desktop Look: Theme, but no Chat Bubbles or Backgrounds row beside it.
+        // [appearance-groups] The Desktop Look: both rows stay. Chat Bubbles holds the look's own Corners and Text Box
+        // (they were on Theme); Backgrounds says the look keeps its plain pages.
         stop(again)
         let look = XCUIApplication()
         look.launchArguments = ["-HQDebugDesktopLook", "YES", "-HQDebugOpenSettings", "YES"]
         look.launch()
-        let lookTheme = look.descendants(matching: .any)["settings.theme-row"]
-        XCTAssertTrue(lookTheme.waitForExistence(timeout: 20), "Settings opens")
-        for _ in 0..<6 where !lookTheme.isHittable { look.swipeUp() }
-        XCTAssertFalse(look.descendants(matching: .any)["settings.chat-bubbles-row"].exists, "no Chat Bubbles in the Desktop Look")
-        XCTAssertFalse(look.descendants(matching: .any)["settings.backgrounds-row"].exists, "no Backgrounds in the Desktop Look")
+        showAppearance(look)
+        let lookBubbles = look.buttons["settings.chat-bubbles-row"]
+        XCTAssertTrue(lookBubbles.waitForExistence(timeout: 20), "Chat Bubbles in the Desktop Look")
+        XCTAssertTrue(look.buttons["settings.backgrounds-row"].exists, "Backgrounds in the Desktop Look")
         shot(look, "theme-pages-look")
+        lookBubbles.tap()
+        XCTAssertTrue(look.sliders["theme.bubbleCorners"].waitForExistence(timeout: 5), "the look's own Corners")
+        XCTAssertEqual(look.sliders["theme.bubbleCorners"].value as? String, "4 points", "4 pt, the desktop app's, not the iOS look's 24")
+        XCTAssertTrue(look.descendants(matching: .any)["theme.desktopComposer"].exists, "and its Text Box")
+        shot(look, "theme-pages-look-bubbles")
 
         // The iOS look again: both rows, each opening its own page; the corners kept while the look was on.
         stop(look)
         let back = XCUIApplication()
         back.launchArguments = ["-HQDebugDesktopLook", "NO", "-HQDebugOpenSettings", "YES"]
         back.launch()
+        showAppearance(back)
         let bubblesRow = back.buttons["settings.chat-bubbles-row"]
-        XCTAssertTrue(back.buttons["settings.theme-row"].waitForExistence(timeout: 20), "Settings opens")
+        XCTAssertTrue(back.buttons["settings.theme-row"].waitForExistence(timeout: 20), "Appearance opens")
         for _ in 0..<6 where !(bubblesRow.exists && bubblesRow.isHittable) { back.swipeUp() }
-        XCTAssertTrue(bubblesRow.exists, "Chat Bubbles beside Theme")
+        XCTAssertTrue(bubblesRow.exists, "Chat Bubbles under Chats")
         XCTAssertTrue(back.buttons["settings.backgrounds-row"].exists, "Backgrounds beside it")
         shot(back, "theme-pages-appearance")
         bubblesRow.tap()
@@ -558,9 +571,7 @@ final class DesktopLookEndToEndTests: XCTestCase {
 
         var seen = Set<String>()
         for skin in ["everforest", "midnight"] {
-            let row = app.buttons["settings.theme-row"]
-            for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
-            row.tap()
+            let row = app.buttons["settings.appearance-row"]
             let picked = card(app, skin)
             XCTAssertTrue(picked.waitForExistence(timeout: 8), "the Theme page opens")
             picked.tap()
@@ -571,6 +582,8 @@ final class DesktopLookEndToEndTests: XCTestCase {
             XCTAssertFalse(["F2F2F7", "000000", "FFFFFF", "1C1C1E"].contains(page), "\(skin): not a system grey, got #\(page)")
             XCTAssertTrue(seen.insert(page).inserted, "each skin has its own page colour")
             shot(app, "grouped-\(skin)-theme")
+            app.navigationBars.buttons.firstMatch.tap()      // Back to Appearance
+            XCTAssertTrue(app.buttons["settings.theme-row"].waitForExistence(timeout: 5), "Appearance under Theme")
             app.navigationBars.buttons.firstMatch.tap()      // Back to Settings
             XCTAssertTrue(app.buttons["settings.gateway-card"].waitForExistence(timeout: 5) || row.waitForExistence(timeout: 5))
             XCTAssertTrue(waitUntil(timeout: 5) { self.gutter(app) == page }, "\(skin): the Settings root is #\(page), got #\(gutter(app))")
@@ -592,9 +605,7 @@ final class DesktopLookEndToEndTests: XCTestCase {
         XCTAssertTrue(seen.contains(gutter(again)), "Midnight is still on the Settings root after a relaunch, got #\(gutter(again))")
 
         // The buttons of the desktop themes section are full-size touch targets (stress round 1: 34 pt).
-        let themeRow = again.buttons["settings.theme-row"]
-        for _ in 0..<6 where !(themeRow.exists && themeRow.isHittable) { again.swipeUp() }
-        themeRow.tap()
+        showTheme(again)
         let copy = again.buttons["theme.desktop.copyLink"]
         XCTAssertTrue(themeOpens(again, timeout: 8), "the Theme page opens")
         reveal(again, copy)    // the card's last row, at the page's foot
@@ -692,6 +703,7 @@ final class DesktopLookEndToEndTests: XCTestCase {
 
     /// A skin's card, scrolled into view.
     @MainActor func card(_ app: XCUIApplication, _ id: String) -> XCUIElement {
+        showTheme(app)   // [appearance-groups] from Appearance, where the look's switch is
         let element = app.buttons["theme.skin.\(id)"]
         reveal(app, element)
         // The list may still be settling from the last swipe (repair run: "Failed to not hittable" on a card in view).
@@ -710,14 +722,45 @@ final class DesktopLookEndToEndTests: XCTestCase {
         return waitUntil(timeout: timeout) { grid.exists || slider.exists || look.exists || page.exists }
     }
 
-    /// The Desktop Look switch, in view ([look-in-themes] the page's first row). [theme-pages] Picking a tab used to put
-    /// the page back at its top; now it scrolls up, since a row far above the screen is not built at all.
+    /// The Desktop Look switch, in view. [appearance-groups] It is a row of Appearance (it headed the Theme page): from
+    /// Theme, Back goes there; from Settings, the Appearance row opens it.
     @MainActor func showLook(_ app: XCUIApplication) {
         let look = app.switches["theme.desktopLook"]
+        if !look.exists { showAppearance(app) }
         for _ in 0..<10 where !(look.exists && look.isHittable) {
             if declineSavePassword(app) { continue }
             if look.exists, look.frame.midY > app.frame.midY { app.swipeUp() } else { app.swipeDown() }
         }
+    }
+
+    /// [appearance-groups] Appearance's page on show: Back from a page pushed over it (Theme, Chat Bubbles), or the
+    /// Appearance row of the Settings list.
+    @MainActor func showAppearance(_ app: XCUIApplication) {
+        let list = app.descendants(matching: .any).matching(identifier: "settings.appearance-list").firstMatch
+        let row = app.buttons["settings.appearance-row"]
+        let pushed = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'settings.theme' OR identifier == 'settings.chat-bubbles' OR identifier BEGINSWITH 'theme.skin.'")).firstMatch
+        _ = waitUntil(timeout: 20) { list.exists || row.exists || pushed.exists }
+        if list.exists { return }
+        if row.exists {
+            for _ in 0..<6 where !row.isHittable { app.swipeDown() }
+            row.tap()
+        } else {
+            let back = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Appearance' OR label == 'Back'")).firstMatch
+            if back.exists { back.tap() }
+        }
+        _ = list.waitForExistence(timeout: 5)
+    }
+
+    /// [appearance-groups] The Theme page on show: its row of Appearance tapped when the page isn't already up.
+    @MainActor func showTheme(_ app: XCUIApplication) {
+        let grid = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'theme.skin.'")).firstMatch
+        let page = app.descendants(matching: .any).matching(identifier: "settings.theme").firstMatch
+        if grid.exists || page.exists { return }
+        showAppearance(app)
+        let row = app.buttons["settings.theme-row"]
+        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeDown() }
+        row.tap()
+        _ = waitUntil(timeout: 8) { grid.exists || page.exists }
     }
 
     /// Scrolls until the element is on screen: down the page while it is unbuilt or below the screen (the iOS look's
@@ -733,7 +776,10 @@ final class DesktopLookEndToEndTests: XCTestCase {
     @MainActor func flip(_ app: XCUIApplication, _ id: String) {
         declineSavePassword(app)
         let toggle = app.switches[id]
-        if id == "theme.desktopLook" { showLook(app) } else { reveal(app, toggle) }
+        if id == "theme.desktopLook" { showLook(app) } else {
+            if id == "theme.highContrast" { showTheme(app) }   // [appearance-groups] High Contrast stays on Theme
+            reveal(app, toggle)
+        }
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), id)
         let before = toggle.value as? String
         let inner = toggle.switches.firstMatch

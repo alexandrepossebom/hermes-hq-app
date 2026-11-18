@@ -1,0 +1,427 @@
+// Settings › Appearance, regrouped (owner 2026-11-18: "we just kept cramming in new features"). Every look setting,
+// grouped by what it changes:
+//   Look             Light or Dark, Theme (the themes only), Desktop Look
+//   Text Size        UI Scale
+//   Chats            Chat Bubbles (the Desktop Look's Corners and Text Box too), Backgrounds; on the Mac, Thinking Bar
+//   Bots & Sessions  Density, Chats Under Bots, Working Ring
+//   App              Tabs, Top Edge, App Icon
+// The Mac's Appearance category draws these groups in its pane. On the iPhone and iPad they are a page of their own
+// behind one Appearance row of the Settings list (owner's pick, 2026-11-18).
+
+import SwiftUI
+import UIKit
+
+/// The rows a search result can land on that Appearance draws (`row:<id>`).
+enum AppearanceRows {
+    static let lightOrDark = "row:appearance"
+    static let desktopLook = "row:desktop-look"
+    static let uiScale = "row:ui-scale"
+    static let density = "row:density"
+    static let workingRing = "row:working-ring"
+    static let topEdge = "row:top-edge"
+    static let thinkingBar = "row:thinking-drive"
+
+    /// Whether Appearance draws `row` on this device (Thinking Bar is under Sounds & Haptics off the Mac).
+    static func contains(_ row: String) -> Bool {
+        switch row {
+        case lightOrDark, desktopLook, uiScale, density, workingRing, topEdge: true
+        case thinkingBar: DeviceWord.isMac
+        default: false
+        }
+    }
+}
+
+enum AppearancePage {
+    static let title = "Appearance"
+
+    /// `reveal`: a row (`AppearanceRows`) the page scrolls to and marks a moment, as the Settings list marks its own.
+    static func make(model: SettingsRootModel, router: SettingsRouter, reveal: String? = nil) -> UIViewController {
+        let page = SettingsPageController(title: title, AppearancePageView(model: model, router: router, reveal: reveal))
+        page.view.accessibilityIdentifier = "settings.appearance-page"
+        page.view.backgroundColor = HQPalette.page
+        return page
+    }
+}
+
+struct AppearancePageView: View {
+    @Bindable var model: SettingsRootModel
+    let router: SettingsRouter
+    var reveal: String?
+    @State private var revealed: String?
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List { Group {
+                AppearanceSections(model: model, router: router, revealed: revealed)
+            }.hqMacSettingsRowInsets() }
+            .hqMacForm(settings: true)
+            .hqGroupedPage()
+            .listStyle(.insetGrouped)
+            .accessibilityIdentifier("settings.appearance-list")
+            .onAppear { model.refresh() }   // App Icon's value, back from its page
+            .task {
+                // A beat for the push to land before the list scrolls, then the mark for a moment.
+                guard let reveal else { return }
+                try? await Task.sleep(for: .milliseconds(350))
+                HQMotion.withAnimation { proxy.scrollTo(reveal, anchor: .center) }
+                revealed = reveal
+                try? await Task.sleep(for: .seconds(1.4))
+                revealed = nil
+            }
+        }
+    }
+}
+
+/// Appearance's groups, as list sections.
+struct AppearanceSections: View {
+    enum Part: String {
+        case look, size, chats, lists, app
+
+        var title: String {
+            switch self {
+            case .look: "Look"
+            case .size: "Text Size"
+            case .chats: "Chats"
+            case .lists: "Bots & Sessions"
+            case .app: "App"
+            }
+        }
+    }
+
+    @Bindable var model: SettingsRootModel
+    let router: SettingsRouter
+    /// The row a search result marks.
+    var revealed: String?
+    @AppStorage(WorkingRing.key) private var workingRing = true
+
+    var body: some View {
+        let _ = Theme.touch()
+        let state = Theme.shared.state
+        look(state)
+        size(state)
+        chats(state)
+        lists(state)
+        app(state)
+    }
+
+    private func header(_ part: Part) -> some View { HQSectionLabel { Text(part.title) } }
+
+    // MARK: Notes
+
+    static var compactNote: String {
+        // [mac] The Mac's bots are in the sidebar, and its rows have one line of preview whatever the density.
+        DeviceWord.isMac
+            ? "Compact fits more in the sidebar's bots and on the Sessions page: smaller faces and shorter rows."
+            : "Compact fits more on the Bots and Sessions pages: smaller faces, shorter rows and one line of preview."
+    }
+
+    private func lookNote(_ state: ThemeState) -> String {
+        [AppearanceSetting.forcedBySkin.map { "\(state.skin.label) has only a \($0 == .dark ? "dark" : "light") look." },
+         ThemeFeature.desktopLook ? ThemeSettingsView.lookNote : nil].compactMap { $0 }.joined(separator: " ")
+    }
+
+    private func listsNote(_ state: ThemeState) -> String {
+        [state.desktopLook ? nil : Self.compactNote, SettingsSearch.workingRingNote].compactMap { $0 }.joined(separator: " ")
+    }
+
+    // MARK: Look
+
+    @ViewBuilder private func look(_ state: ThemeState) -> some View {
+        Section {
+            lightOrDark
+            themeRow(state)
+            desktopLookRow(state)
+        } header: { header(.look) } footer: { HQSectionFooter { Text(lookNote(state)) } }
+    }
+
+    private func themeRow(_ state: ThemeState) -> some View {
+        NavRow(title: "Theme", systemImage: "paintpalette", value: state.skin.label) {
+            router.push(ThemeSettingsController(services: model.services))
+        }
+        .accessibilityIdentifier("settings.theme-row")
+    }
+
+    @ViewBuilder private func desktopLookRow(_ state: ThemeState) -> some View {
+        if ThemeFeature.desktopLook {
+            Toggle(isOn: Binding(get: { state.desktopLook }, set: { on in
+                Haptics.play(.selection)
+                Theme.shared.setDesktopLook(on)
+            })) {
+                SettingsRowLabel(title: "Desktop Look", systemImage: "desktopcomputer")
+            }
+            .tint(state.desktopLook ? Color.hqTintText : nil)
+            .accessibilityIdentifier("theme.desktopLook")
+            .revealRow(AppearanceRows.desktopLook, revealed)
+        }
+    }
+
+    /// Light or Dark: a value alone while a one-look skin is picked, the form's pop-up on the Mac, a menu on the iPhone.
+    @ViewBuilder private var lightOrDark: some View {
+        if let forced = AppearanceSetting.forcedBySkin {
+            // [desktoplook2] A skin with one look: the row says so instead of offering a choice that does nothing.
+            LabeledContent {
+                Text(forced.title).foregroundStyle(Color.hqLabel2)
+            } label: {
+                SettingsRowLabel(title: "Light or Dark", systemImage: "circle.lefthalf.filled")
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings.appearance")
+            .revealRow(AppearanceRows.lightOrDark, revealed)
+        } else if DeviceWord.isMac {
+            // [mac] Stress test 2026-10-28 round 6: the form's bordered pop-up (`MacPopUp`), as on every Settings page.
+            HStack(spacing: 12) {
+                SettingsRowLabel(title: "Light or Dark", macSymbol: "circle.lefthalf.filled")
+                Spacer(minLength: 16)
+                MacPopUp(label: "Light or Dark", selection: $model.appearance, options: AppearanceSetting.allCases) { $0.title }
+                    .accessibilityIdentifier("settings.appearance")
+                    .hqMacSettingsControl()
+            }
+            .onChange(of: model.appearance) { _, value in
+                AppearanceSetting.current = value
+            }
+            .revealRow(AppearanceRows.lightOrDark, revealed)
+        } else {
+            // UX study 2026-10-21 #60: a menu Picker drops its Label's icon, so the title is the row's label and the
+            // picker only its value, with the Menu over the row (#107).
+            SettingsMenuRowFace(label: SettingsRowLabel(title: "Light or Dark", systemImage: "circle.lefthalf.filled"), value: model.appearance.title)
+                .overlay {
+                    Menu {
+                        Picker("Light or Dark", selection: $model.appearance) {
+                            ForEach(AppearanceSetting.allCases) { Text($0.title).tag($0) }
+                        }
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Light or Dark")
+                    .accessibilityValue(model.appearance.title)
+                    .accessibilityIdentifier("settings.appearance")
+                }
+                .onChange(of: model.appearance) { _, value in
+                    Haptics.play(.selection)
+                    AppearanceSetting.current = value
+                }
+                .revealRow(AppearanceRows.lightOrDark, revealed)
+        }
+    }
+
+    // MARK: Text Size
+
+    @ViewBuilder private func size(_ state: ThemeState) -> some View {
+        Section {
+            UIScaleRow(state: state, symbol: "textformat.size")
+                .revealRow(AppearanceRows.uiScale, revealed)
+        } header: { header(.size) } footer: { HQSectionFooter { Text(ThemeSettingsView.scaleNote) } }
+    }
+
+    // MARK: Chats
+
+    @ViewBuilder private func chats(_ state: ThemeState) -> some View {
+        Section {
+            chatBubblesRow(state)
+            backgroundsRow(state)
+            macThinkingBarRow
+        } header: { header(.chats) } footer: {
+            if DeviceWord.isMac && model.thinkingBarShown { HQSectionFooter {
+                // [macpass-settings r2] Mac words: the bar is moved with the pointer or the arrow keys, not dragged up.
+                Text("Thinking Bar is how the model panel’s thinking bar looks as you raise the thinking level.")
+            } }
+        }
+    }
+
+    /// In the Desktop Look the page holds that look's own Corners and Text Box.
+    private func chatBubblesRow(_ state: ThemeState) -> some View {
+        NavRow(title: "Chat Bubbles", systemImage: "bubble.left.and.bubble.right",
+               value: state.desktopLook ? "\(state.desktopCorners) pt" : BubbleStyles.shown(state.bubbleStyle).title) {
+            SettingsNavigator.openRoot("chat-bubbles", router: router)
+        }
+        .accessibilityIdentifier("settings.chat-bubbles-row")
+    }
+
+    /// The Desktop Look keeps its plain pages: the row says so, and its pages keep the pictures for the iOS look.
+    private func backgroundsRow(_ state: ThemeState) -> some View {
+        NavRow(title: "Backgrounds", systemImage: "photo.on.rectangle", value: state.desktopLook ? "Off in Desktop Look" : nil) {
+            SettingsNavigator.openRoot("backgrounds", router: router)
+        }
+        .accessibilityIdentifier("settings.backgrounds-row")
+    }
+
+    /// [thinking-drive] Thinking Bar on the Mac. [macpass-settings2] The iPhone has it under Sounds & Haptics for its
+    /// feel (a haptic rev); the Mac has no haptics and the drive makes no sound, so it is a look.
+    /// [mac] Not in the Desktop Look, where the bar draws calmly whatever the drive (Mac polish #37).
+    @ViewBuilder private var macThinkingBarRow: some View {
+        if DeviceWord.isMac, model.thinkingBarShown {
+            HStack(spacing: 12) {
+                SettingsRowLabel(title: "Thinking Bar", systemImage: "gauge.with.dots.needle.67percent")
+                Spacer(minLength: 16)
+                MacPopUp(label: "Thinking Bar", selection: Binding(get: { model.thinkingDrive }, set: { (value: ThinkingDrive) in
+                    model.thinkingDrive = value
+                    ThinkingDrive.chosen = value
+                }), options: ThinkingDrive.allCases) { $0.title }
+                    .accessibilityIdentifier("settings.thinking-drive")
+                    .hqMacSettingsControl()
+            }
+            .revealRow(AppearanceRows.thinkingBar, revealed)
+        }
+    }
+
+    // MARK: Bots & Sessions
+
+    @ViewBuilder private func lists(_ state: ThemeState) -> some View {
+        Section {
+            // [density] The iOS look's; the Desktop Look keeps its own rows.
+            if !state.desktopLook {
+                DensityRow(state: state, symbol: "rectangle.compress.vertical")
+                    .revealRow(AppearanceRows.density, revealed)
+            }
+            // [chats-under] The line beside each bot's chats on the Bots page, in both looks (owner 2026-11-08).
+            BotChatsStyleRow { router.push(BotChatsStyleSettings.make()) }
+            workingRingRow(state)
+        } header: { header(.lists) } footer: { HQSectionFooter { Text(listsNote(state)) } }
+    }
+
+    /// [working-ring] The ring that travels round a working bot or chat. The switch itself ticks (a system control).
+    private func workingRingRow(_ state: ThemeState) -> some View {
+        Toggle(isOn: Binding(get: { workingRing }, set: { on in
+            WorkingRing.isOn = on
+            AppLog.trace("settings", "working ring \(on ? "on" : "off")")
+        })) {
+            SettingsRowLabel(title: SettingsSearch.workingRingLabel, systemImage: "circle.dashed")
+        }
+        .tint(state.desktopLook ? Color.hqTintText : nil)
+        .accessibilityIdentifier("theme.workingRing")
+        .revealRow(AppearanceRows.workingRing, revealed)
+    }
+
+    // MARK: App
+
+    /// [chat-soft-edge] No Top Edge in the Desktop Look: its tabs have their own backing and chats are always soft.
+    private func topEdgeShown(_ state: ThemeState) -> Bool { TopEdgeStyle.offered && !state.desktopLook }
+
+    private func topEdgeRow(_ state: ThemeState) -> some View {
+        TopEdgeRow(state: state, symbol: "rectangle.topthird.inset.filled")
+            .revealRow(AppearanceRows.topEdge, revealed)
+    }
+
+    @ViewBuilder private func app(_ state: ThemeState) -> some View {
+        Section {
+            tabsRow
+            if topEdgeShown(state) { topEdgeRow(state) }
+            appIconRow
+        } header: { header(.app) } footer: {
+            if topEdgeShown(state) { HQSectionFooter { Text(ThemeSettingsView.topEdgeNote(state)) } }
+        }
+    }
+
+    /// [taborder] [mac] Mac polish #131: "Sidebar" on the Mac, which has no tab bar, with a sidebar's glyph.
+    private var tabsRow: some View {
+        NavRow(title: SettingsWords.tabsPageTitle(), systemImage: DeviceWord.isMac ? "sidebar.left" : "dock.rectangle") {
+            SettingsNavigator.openRoot("tab-order", router: router)
+        }
+        .accessibilityIdentifier("settings.tab-order")
+    }
+
+    /// [app-icons] Only an iPhone or iPad that can't change its icon goes without the row.
+    @ViewBuilder private var appIconRow: some View {
+        if AppIcons.canChange {
+            NavRow(title: "App Icon", systemImage: "app.badge", value: model.appIconTitle) { SettingsNavigator.openRoot("app-icon", router: router) }
+                .accessibilityIdentifier("settings.app-icon")
+        }
+    }
+
+}
+
+// MARK: - Controls (they were the Theme page's)
+
+/// UI Scale's presets: the app's text size, in both looks.
+struct UIScaleRow: View {
+    var state: ThemeState
+    var symbol: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 0) {
+                AppearanceControlTitle(title: "UI Scale", symbol: symbol)
+                Spacer(minLength: 0)
+            }
+            if DeviceWord.isMac, !state.desktopLook {
+                // [Mac AAA 2026-11-16] The iOS look's segments, as Density's: the desktop's square outlined strip with a
+                // blue fill stood under a rounded segmented control in the same card.
+                HQSegmentedPicker("UI Scale", options: ThemeState.scalePresets.map { ("\($0)%", $0) },
+                                  selection: Binding(get: { state.uiScalePercent }, set: { percent in
+                                      guard percent != state.uiScalePercent else { return }
+                                      Theme.shared.setUIScale(percent)
+                                  }), ticks: false)
+                    .labelsHidden()
+                    .accessibilityIdentifier("theme.uiScale")
+            } else {
+                ScaleSegments(selected: state.uiScalePercent) { percent in
+                    Haptics.play(.selection)
+                    Theme.shared.setUIScale(percent)
+                }
+            }
+        }
+        .hqRowPadding(4)   // [mac] Stress test 2026-10-28 round 9: the list's one room on the Mac
+    }
+}
+
+/// [density] Standard or Compact (the iOS look; the Desktop Look keeps its own rows).
+struct DensityRow: View {
+    var state: ThemeState
+    var symbol: String?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AppearanceControlTitle(title: "Density", symbol: symbol)
+            Spacer(minLength: 8)
+            HQSegmentedPicker("Density", options: [("Standard", ListDensity.standard), ("Compact", ListDensity.compact)],
+                              selection: Binding(get: { state.density }, set: { next in
+                                  guard next != state.density else { return }
+                                  Haptics.play(.selection)
+                                  Theme.shared.setDensity(next)
+                                  AppLog.trace("settings", "density \(next.rawValue)")
+                              }), ticks: false)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("theme.density")
+    }
+}
+
+/// [top-edge] Soft or Hard: how rows meet the top bar where they scroll under it.
+struct TopEdgeRow: View {
+    var state: ThemeState
+    var symbol: String?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AppearanceControlTitle(title: "Top Edge", symbol: symbol)
+            Spacer(minLength: 8)
+            HQSegmentedPicker("Top Edge", options: [("Soft", TopEdge.soft), ("Hard", TopEdge.hard)],
+                              selection: Binding(get: { state.topEdge }, set: { next in
+                                  guard next != state.topEdge else { return }
+                                  Haptics.play(.selection)
+                                  Theme.shared.setTopEdge(next)
+                                  AppLog.trace("settings", "top edge \(next.rawValue)")
+                              }), ticks: false)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("theme.topEdge")
+    }
+}
+
+/// A control row's title: with the row's symbol in a card whose rows have one, else the words alone.
+private struct AppearanceControlTitle: View {
+    var title: String
+    var symbol: String?
+
+    var body: some View {
+        if let symbol {
+            SettingsRowLabel(title: title, systemImage: symbol)
+        } else {
+            Text(title).foregroundStyle(Color.hqLabel).fixedSize()
+        }
+    }
+}

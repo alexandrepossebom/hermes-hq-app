@@ -61,20 +61,17 @@ extension SessionsTests {
         }
         if !app.buttons["settings.gateway-card"].exists { row.tap() }
         XCTAssertTrue(app.buttons["settings.gateway-card"].waitForExistence(timeout: 8), "Settings opens")
-        let themeRow = app.buttons["settings.theme-row"]
-        for _ in 0..<6 where !(themeRow.exists && themeRow.isHittable) { app.swipeUp() }
-        themeRow.tap()
-        XCTAssertTrue(app.navigationBars["Theme"].waitForExistence(timeout: 8), "the Theme page opens")
-        let toggle = app.switches["theme.workingRing"]
-        for _ in 0..<10 where !(toggle.exists && toggle.isHittable) { app.swipeUp() }
-        XCTAssertTrue(toggle.isHittable, "Working Ring is on the Theme page")
+        // [appearance-groups] A row of Appearance's Bots & Sessions group (it was on the Theme page).
+        XCTAssertTrue(app.hqOpenAppearance(), "Appearance opens")
+        let toggle = app.hqAppearance(app.switches["theme.workingRing"])
+        XCTAssertTrue(toggle.isHittable, "Working Ring is on Appearance")
         if (toggle.value as? String == "1") != on {
             toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap()
         }
         XCTAssertTrue(waitUntil(5) { (toggle.value as? String == "1") == on }, "the switch is \(on ? "on" : "off")")
         if let name { shot(app, name) }
         // Back to Settings' root, so the next visit starts there.
-        app.navigationBars["Theme"].buttons.firstMatch.tap()
+        app.navigationBars["Appearance"].buttons.firstMatch.tap()
         _ = app.buttons["settings.gateway-card"].waitForExistence(timeout: 5)
         app.tabBars.buttons["Sessions"].firstMatch.tap()
         XCTAssertTrue(app.collectionViews["sessions.list"].waitForExistence(timeout: 8), "back on Sessions")

@@ -666,11 +666,11 @@ final class SettingsEndToEndTests: XCTestCase {
         for _ in 0..<3 where !app.switches["settings.completion-sound"].exists { app.swipeUp() }   // [desktoplook] below the fold
         flip(app.switches["settings.completion-sound"])        // back on
         // Dark, then a relaunch (the saved sign-in, no reset): the first frame is dark.
-        for _ in 0..<6 where !(app.buttons["settings.appearance"].exists && app.buttons["settings.appearance"].isHittable) { app.swipeDown() }
-        app.buttons["settings.appearance"].tap()
+        app.hqAppearance(app.buttons["settings.appearance"]).tap()   // [appearance-groups] Light or Dark, on Appearance
         tapMenu(app, "Dark")
         Thread.sleep(forTimeInterval: 0.6)
         shot(app, "settings-after-dark")
+        app.navigationBars.buttons.element(boundBy: 0).tap()   // Back to Settings
         closeSettings(app)          // Settings is on More: the relaunch reopens the tab last shown
         app.terminate()
         app.launchArguments = ["-HQDebugNoDrag", "YES"]
@@ -680,7 +680,7 @@ final class SettingsEndToEndTests: XCTestCase {
         XCTAssertLessThan(pageLuminance(app), 0.35, "Dark is applied after the relaunch")
         shot(app, "relaunch-dark")
         openSettings(app)
-        app.buttons["settings.appearance"].tap()
+        app.hqAppearance(app.buttons["settings.appearance"]).tap()
         tapMenu(app, "System")
         Thread.sleep(forTimeInterval: 0.6)
         XCTAssertGreaterThan(pageLuminance(app), 0.55, "System (light on this simulator) again")

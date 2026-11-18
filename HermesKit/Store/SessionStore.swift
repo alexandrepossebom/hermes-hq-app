@@ -569,6 +569,29 @@ final class SessionStore {
         rebuild()
     }
 
+    /// [read-sync] A chat started on this device (New Chat, a new tile, a memo): read on the gateway as soon as its id
+    /// is known. Owner 2026-11-18 ("the sessions aren't showing the same as they are on my iPhone"): a chat nobody has
+    /// ever marked read has no watermark (`last_read_at` NULL), so each device decides its dot from its own count, seeded
+    /// when it first lists the chat. The device that started it, seeded early, showed every later reply as unread; the
+    /// other, seeded after them, showed none; and a read on either never reached the other (no watermark to move). With
+    /// the watermark from the start the gateway's flag decides on every device, and a read anywhere clears it everywhere.
+    /// The chat isn't in the lists yet (its first page comes later), so this writes without a row. A gateway without
+    /// read state (no row says `unread`) or a read-only one gets nothing; a chat already read on the gateway neither.
+    func trackStartedChat(id: String, profile: String) {
+        guard !id.isEmpty, started, !stopped, !readOnlyGateway,
+              (recents + cron + messaging).contains(where: \.sharesReads) else { return }
+        if let row = listedRow(id: id, profile: profile), row.profile == profile, row.lastReadAt != nil { return }
+        AppLog.trace("sessions", "read sync: new chat \(AppLog.tag(id)) is read from the start")
+        let client = self.client
+        Task {
+            do {
+                try await SessionWrite.patch(client, id: id, profile: profile, ["unread": .bool(false)])
+            } catch {
+                AppLog.note("sessions", "read sync: new chat \(AppLog.tag(id)) not marked read (\(error.localizedDescription))")
+            }
+        }
+    }
+
     /// Mark as Unread, here (the marker) or on any device (the watermark at 0).
     private func markedUnread(_ row: SidebarSessionRow) -> Bool {
         row.lastReadAt == 0 || device.unread.markers[row.profile]?.contains(row.id) == true

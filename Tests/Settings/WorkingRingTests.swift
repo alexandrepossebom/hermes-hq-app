@@ -106,8 +106,8 @@ import Testing
     @Test func isFoundInSettingsSearch() {
         func find(_ words: String) -> [SettingsSearchEntry] { SettingsSearch.results(words, in: SettingsSearch.appRows) }
         for words in ["working ring", "Working Ring", "working animation", "ring"] {
-            #expect(find(words).first?.target == .root("theme"), "\(words): it opens the Theme page")
+            #expect(find(words).first?.target == .root("row:working-ring"), "\(words): it opens Appearance on its row")
         }
-        #expect(find("working ring").first?.context == "Theme", "it says which page it is on")
+        #expect(find("working ring").first?.context == "Appearance", "it says which page it is on")
     }
 }

@@ -228,12 +228,16 @@ final class SettingsRootModel {
 
     /// [macpass-settings2] The category whose section draws a root row (`row:<id>`, `SettingsRootView`'s
     /// `shows(_:)` blocks); nil for one this table doesn't know.
+    /// [appearance-groups] Whether `row` is on Appearance's own page here (one column), not on this list.
+    func opensAppearancePage(for row: String) -> Bool {
+        !twoColumn && AppearanceRows.contains(row)
+    }
+
     static func category(ofRow row: String) -> SettingsCategory? {
-        switch row {
-        case "row:appearance": .appearance
+        if AppearanceRows.contains(row) { return .appearance }
+        return switch row {
         case "row:share-menu": .general   // [macpass-settings2]
-        case "row:thinking-drive": DeviceWord.isMac ? .appearance : .sounds   // [macpass-settings2]
-        case "row:haptics", "row:completion-sound", "row:sound": .sounds
+        case "row:thinking-drive", "row:haptics", "row:completion-sound", "row:sound": .sounds
         case "row:fewer-timestamps", "row:show-file-changes", "row:attachment-limit", "row:new-chat-asks-project", "row:wait-for-models",
              "row:send-while-busy", "row:open-links-in", "row:new-chat-mode", "row:new-chat-key", "row:new-chat-project",
              "row:resume-last-chat", "row:tips", "row:intro-splash", "row:file-browser", "row:session-strip", "row:message-reactions": .chat
@@ -586,6 +590,11 @@ final class SettingsRootController: UIHostingController<HQScaledRoot<SettingsRoo
         #if targetEnvironment(macCatalyst)
         if let stack = paneStack, stack.viewControllers.count > 1 { stack.popToRootViewController(animated: false) }
         #endif
+        // [appearance-groups] A row of Appearance's own page: the page over this one, scrolled to the row.
+        if model.opensAppearancePage(for: id) {
+            router.push(AppearancePage.make(model: model, router: router, reveal: id))
+            return
+        }
         if viewIfLoaded?.window != nil { model.reveal(id) } else { pendingReveal = id }
         #if targetEnvironment(macCatalyst)
         namePane()
@@ -722,7 +731,9 @@ struct SettingsRootView: View {
     private func open(_ target: SettingsSearchEntry.Target) {
         let open = { [router, actions, model] in
             // UX study 2026-10-21 #108: a row on this list is scrolled to and marked, not left for the person to find.
-            if case .root(let id) = target, id.hasPrefix("row:") { model.reveal(id) }
+            // [appearance-groups] A row of Appearance's own page: the page opens scrolled to it, the row marked.
+            if case .root(let id) = target, model.opensAppearancePage(for: id) { router.push(AppearancePage.make(model: model, router: router, reveal: id)) }
+            else if case .root(let id) = target, id.hasPrefix("row:") { model.reveal(id) }
             // [mac] Stress test 2026-10-28 #51 (review): the search result lands on the root's field, not a page.
             else if DeviceWord.isMac, target == .root("attachment-limit") { model.reveal("row:attachment-limit") }
             // [Mac UI check 2026-11-13] Sound is a pop-up in its row on the Mac, not the iPhone's page (the switch
@@ -860,25 +871,6 @@ struct SettingsRootView: View {
         }
     }
 
-    /// [thinking-drive] Thinking Bar on the Mac, in Appearance. [macpass-settings2] It sat under Sounds, where the
-    /// iPhone has it for its feel (a haptic rev); the Mac has no haptics and the drive makes no sound, so it is a look.
-    /// [mac] Not in the Desktop Look, where the bar draws calmly whatever the drive and it changes nothing (Mac polish #37).
-    @ViewBuilder private var macThinkingBarRow: some View {
-        if DeviceWord.isMac, model.thinkingBarShown {
-            HStack(spacing: 12) {
-                SettingsRowLabel(title: "Thinking Bar", systemImage: "gauge.with.dots.needle.67percent")
-                Spacer(minLength: 16)
-                MacPopUp(label: "Thinking Bar", selection: Binding(get: { model.thinkingDrive }, set: { (value: ThinkingDrive) in
-                    model.thinkingDrive = value
-                    ThinkingDrive.chosen = value
-                }), options: ThinkingDrive.allCases) { $0.title }
-                    .accessibilityIdentifier("settings.thinking-drive")
-                    .hqMacSettingsControl()
-            }
-            .revealRow("row:thinking-drive", model.revealed)
-        }
-    }
-
     @ViewBuilder
     private var mainSections: some View {
         if !model.moreBeside, !model.twoColumn {   // in two columns the gateway heads the category column
@@ -892,106 +884,22 @@ struct SettingsRootView: View {
 
         if model.shows(.general) { addOnReminder; pluginReminder }
 
-        if model.shows(.appearance) {
-        Section {
-            let _ = Theme.touch()
-            if let forced = AppearanceSetting.forcedBySkin {
-                // [desktoplook2] A skin with one look: the row says so instead of offering a choice that does nothing.
-                LabeledContent {
-                    Text(forced.title).foregroundStyle(Color.hqLabel2)
-                } label: {
-                    SettingsRowLabel(title: "Light or Dark", systemImage: "circle.lefthalf.filled")
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("settings.appearance")
-                .revealRow("row:appearance", model.revealed)
-            } else {
-            // UX study 2026-10-21 #60: a menu Picker drops its Label's icon, so the title (in the icon column, like
-            // Theme's below) is the row's label and the picker only its value. Drawn as the Kanban Tab row is (#107),
-            // with the Menu over it: a menu Picker as LabeledContent's value brings its own padding and makes the row
-            // taller than the rows beside it.
-            // [desktoplook] the skin's text colour, as the rows beside it. UX study #63: not "Appearance" again under
-            // the section's own "Appearance" header.
-            if DeviceWord.isMac {
-                // [mac] Stress test 2026-10-28 round 6: the form's bordered pop-up (`MacPopUp`), as on every Settings
-                // page, not a borderless value with chevrons at the row's end.
-                HStack(spacing: 12) {
-                    SettingsRowLabel(title: "Light or Dark", macSymbol: "circle.lefthalf.filled")
-                    Spacer(minLength: 16)
-                    MacPopUp(label: "Light or Dark", selection: $model.appearance, options: AppearanceSetting.allCases) { $0.title }
-                        .accessibilityIdentifier("settings.appearance")
-                        .hqMacSettingsControl()   // [mac] Stress test 2026-10-28 round 10: the row is 59 pt, as Theme's
-                }
-                .onChange(of: model.appearance) { _, value in
-                    AppearanceSetting.current = value
-                }
-                .revealRow("row:appearance", model.revealed)
-            } else {
-            SettingsMenuRowFace(label: SettingsRowLabel(title: "Light or Dark", systemImage: "circle.lefthalf.filled"), value: model.appearance.title)
-            .overlay {
-                Menu {
-                    Picker("Light or Dark", selection: $model.appearance) {
-                        ForEach(AppearanceSetting.allCases) { Text($0.title).tag($0) }
-                    }
-                } label: {
-                    Color.clear.contentShape(Rectangle())
-                }
-                .accessibilityLabel("Light or Dark")
-                .accessibilityValue(model.appearance.title)
-                .accessibilityIdentifier("settings.appearance")
-            }
-            .onChange(of: model.appearance) { _, value in
-                Haptics.play(.selection)
-                AppearanceSetting.current = value
-            }
-            .revealRow("row:appearance", model.revealed)
-            }
-            }
-            // [desktoplook] Settings › Appearance › Theme: skins, Desktop Look and its options, the desktop themes.
-            // UX study #66: every row that pushes a page has a symbol; switches and pickers have none (their titles
-            // keep the symbol column empty, #60, so a card's titles start together).
-            NavRow(title: "Theme", systemImage: "paintpalette", value: Theme.shared.state.skin.label) {
-                router.push(ThemeSettingsController(services: model.services))
-            }
-            .accessibilityIdentifier("settings.theme-row")
-            // [theme-pages] Owner 2026-11-03: rows of their own beside Theme, not tabs on its page. The iOS look's
-            // options: the Desktop Look keeps its own square boxes and plain pages, so it has neither row.
-            if !Theme.shared.state.desktopLook {
-                NavRow(title: "Chat Bubbles", systemImage: "bubble.left.and.bubble.right", value: BubbleStyles.shown(Theme.shared.state.bubbleStyle).title) {
-                    SettingsNavigator.openRoot("chat-bubbles", router: router)
-                }
-                .accessibilityIdentifier("settings.chat-bubbles-row")
-                NavRow(title: "Backgrounds", systemImage: "photo.on.rectangle") { SettingsNavigator.openRoot("backgrounds", router: router) }
-                    .accessibilityIdentifier("settings.backgrounds-row")
-            }
-            // [chats-under] The line beside each bot's chats on the Bots page, in both looks (owner 2026-11-08).
-            BotChatsStyleRow { router.push(BotChatsStyleSettings.make()) }
-            macThinkingBarRow
-            // [taborder] A tester (2026-10-29): Sessions first for someone who lives in Sessions. [mac] Mac polish #131:
-            // "Sidebar" on the Mac, which has no tab bar (the sidebar's own menu says Sidebar Settings…), with a sidebar's
-            // glyph there, not the tab bar's.
-            NavRow(title: SettingsWords.tabsPageTitle(), systemImage: DeviceWord.isMac ? "sidebar.left" : "dock.rectangle") {
-                SettingsNavigator.openRoot("tab-order", router: router)
-            }
-                .accessibilityIdentifier("settings.tab-order")
-            // [app-icons] The icon on the Home Screen (the Dock's on the Mac, `MacDockIcon`): the feather or one of the
-            // app's own faces. Only an iPhone or iPad that can't change its icon goes without the row.
-            if AppIcons.canChange {
-                NavRow(title: "App Icon", systemImage: "app.badge", value: model.appIconTitle) { SettingsNavigator.openRoot("app-icon", router: router) }
-                    .accessibilityIdentifier("settings.app-icon")
-            }
-        } header: { categoryHeader("Appearance") } footer: {
-            if AppearanceSetting.forcedBySkin != nil || (DeviceWord.isMac && model.thinkingBarShown) { HQSectionFooter {
-                Text([AppearanceSetting.forcedBySkin.map { "\(Theme.shared.state.skin.label) has only a \($0 == .dark ? "dark" : "light") look." },
-                      // [macpass-settings r2] Mac words: the bar is moved with the pointer or the arrow keys, not dragged up.
-                      DeviceWord.isMac && model.thinkingBarShown ? "Thinking Bar is how the model panel’s thinking bar looks as you raise the thinking level." : nil]
-                    .compactMap { $0 }.joined(separator: " "))
-            } }
-        }
+        // [appearance-groups] Owner 2026-11-18: Appearance's rows in groups by what they change (`AppearanceSections`).
+        // The Mac's category pane draws the groups; on the iPhone and iPad they are a page of their own behind the
+        // Appearance row below.
+        if model.shows(.appearance), model.twoColumn {
+            AppearanceSections(model: model, router: router, revealed: model.revealed)
         }
 
         if model.shows(.general) {
         Section {
+            if !model.twoColumn {
+                let _ = Theme.touch()
+                NavRow(title: AppearancePage.title, systemImage: "paintbrush", value: Theme.shared.state.skin.label) {
+                    router.push(AppearancePage.make(model: model, router: router))
+                }
+                .accessibilityIdentifier("settings.appearance-row")
+            }
             // UX study 2026-10-21 #119: its state, as the rows beside it show theirs.
             NavRow(title: "Notifications", systemImage: "bell.badge", value: model.notificationsSummary) {
                 router.push(NotificationsSettingsController(app: model.services as? AppModel))

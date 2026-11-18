@@ -17,9 +17,8 @@ extension SettingsEndToEndTests {
 
     @MainActor func openTabOrder(_ app: XCUIApplication) {
         openSettings(app)
-        let row = app.buttons["settings.tab-order"]
-        m9ScrollTo(row, in: app)
-        XCTAssertTrue(row.waitForExistence(timeout: 5), "Settings lists Tab Order")
+        let row = app.hqAppearance(app.buttons["settings.tab-order"])   // [appearance-groups]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Appearance lists Tabs")
         row.tap()
         XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 5), "the Tabs page opens")
     }
@@ -269,7 +268,9 @@ extension SettingsEndToEndTests {
         XCTAssertTrue(waitUntil(timeout: 3) { footer.label.contains("Automatic") }, footer.label)
 
         // Search: "artifacts tab" finds Kanban Tab on Tabs and opens Tabs at it.
-        app.navigationBars.buttons.element(boundBy: 0).tap()   // Back to Settings
+        app.navigationBars.buttons.element(boundBy: 0).tap()   // Back to Appearance
+        XCTAssertTrue(app.buttons["settings.tab-order"].waitForExistence(timeout: 5), "back on Appearance")
+        app.navigationBars.buttons.element(boundBy: 0).tap()   // [appearance-groups] Back to Settings
         let magnifier = app.navigationBars.buttons["settings.search"]
         XCTAssertTrue(magnifier.waitForExistence(timeout: 5), "back on Settings")
         for words in ["artifacts tab", "kanban"] {

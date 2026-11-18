@@ -411,7 +411,7 @@ final class A11yEndToEndTests: XCTestCase {
         a11yShot(app, "tour-settings-\(tag)")
         assertClean(app, "Settings \(tag)", sizes: checksSizes)
 
-        for (identifier, name) in [("settings.appearance", "Appearance"), ("settings.notifications", "Notifications"), ("settings.about", "About")] {
+        for (identifier, name) in [("settings.appearance-row", "Appearance"), ("settings.notifications", "Notifications"), ("settings.about", "About")] {
             let row = app.descendants(matching: .any)[identifier].firstMatch
             var found = row.waitForExistence(timeout: 3) && row.isHittable
             for _ in 0..<12 where !found { app.swipeUp(); found = row.exists && row.isHittable }

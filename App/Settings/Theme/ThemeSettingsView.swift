@@ -11,6 +11,10 @@
 // [theme-pages] Owner 2026-11-03: the tabs were "a duct tape type solution". No tabs: Chat Bubbles and Backgrounds are
 // rows of their own under Settings › Appearance, beside Theme, each opening its own page (`ChatBubblesSettings`,
 // `BackgroundsSettings`). The Theme page is the look, the themes and the desktop app's themes.
+// [appearance-groups] Owner 2026-11-18 ("we just kept cramming in new features"): the Theme page is the themes only:
+// the grid, High Contrast (the Desktop Look's) and the desktop app's themes. Desktop Look, UI Scale, Density, Top Edge
+// and Working Ring are rows of Settings › Appearance's groups (`AppearanceSections`); the Desktop Look's Corners and
+// Text Box are on Chat Bubbles.
 
 import SwiftUI
 import UIKit
@@ -44,15 +48,7 @@ struct ThemeSettingsView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var systemContrast
-    /// The look was just flipped by its own switch: the other look's page opens on that switch, not at the top, as
-    /// the grid above it is about a screen tall (UX study #110: no long scroll back to the switch just used).
-    @State private var flippedHere = false
-    /// [working-ring] Theme › Working Ring (owner 2026-11-15: on the Theme page, not Appearance's root).
-    @AppStorage(WorkingRing.key) private var workingRing = true
     private var theme: Theme { Theme.shared }
-    private static let lookRow = "theme.lookRow"
-    private static let chatsRow = "theme.desktopChats"
-    private static let densityRow = "theme.densityRow"
 
     static var lookNote: String { "Draws Hermes HQ like the Hermes desktop app: your theme’s own colors on every screen, square corners and solid bars instead of glass. \(DeviceWord.onlyHere)" }
     static let contrastNote = "Sets your messages, boxes, lines and secondary text further apart from the page, in your theme’s own colors. For themes that look flat."
@@ -75,31 +71,12 @@ struct ThemeSettingsView: View {
     static let gridNote = "Themes include the Hermes desktop app's themes and app-only options. Light or Dark (set in Appearance) applies on top."
 
     var body: some View {
-        let state = theme.state
-        ScrollViewReader { proxy in
-            page(state)
-                .onChange(of: state.desktopLook) {
-                    guard flippedHere else { return }
-                    flippedHere = false
-                    // The other look's page is a new scroll view: it lays out first, then moves to the switch.
-                    Task { @MainActor in proxy.scrollTo(Self.lookRow, anchor: .center) }
-                }
-                #if DEBUG
-                .task {
-                    // [desktop-corners] -HQDebugThemeChats YES: the Desktop Look's Corners and Text Box in view (screenshots).
-                    // [density] -HQDebugThemeDensity YES: the iOS look's Density and UI Scale in view.
-                    let row = UserDefaults.standard.bool(forKey: "HQDebugThemeChats") ? Self.chatsRow
-                        : UserDefaults.standard.bool(forKey: "HQDebugThemeDensity") ? Self.densityRow : nil
-                    guard let row else { return }
-                    try? await Task.sleep(for: .seconds(1))
-                    proxy.scrollTo(row, anchor: .center)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .init("HQDebugFlipLook"))) { _ in
-                    flippedHere = true
-                    theme.setDesktopLook(!theme.state.desktopLook)
-                }
-                #endif
-        }
+        page(theme.state)
+            #if DEBUG
+            .onReceive(NotificationCenter.default.publisher(for: .init("HQDebugFlipLook"))) { _ in
+                theme.setDesktopLook(!theme.state.desktopLook)
+            }
+            #endif
     }
 
     private func page(_ state: ThemeState) -> some View {
@@ -108,23 +85,13 @@ struct ThemeSettingsView: View {
                 // The Desktop Look's page: plain rows on the page colour, each group in a 4 pt outlined box
                 // (phone-ui-desktop.css:139-148). Not a List: iOS's grouped cards keep their own round corners.
                 ScrollView {
-                    // UX #118: no "Theme" label over the grid, under a bar already titled Theme. A flip opens this page
-                    // on its switch (`flippedHere`).
+                    // UX #118: no "Theme" label over the grid, under a bar already titled Theme.
                     VStack(alignment: .leading, spacing: 22) {
-                        DesktopGroup(footer: Self.lookNote) { lookSwitch(state) }
                         VStack(alignment: .leading, spacing: 8) {
                             grid(state)
                             gridFooter(state).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
                         }
                         DesktopGroup(footer: contrastFooter(state)) { contrastSwitch(state) }
-                        // [desktop-corners] [desktop-composer] Owner 2026-11-08: the look's own Corners for messages
-                        // and the text box, and which text box it draws.
-                        DesktopGroup(footer: Self.desktopChatsNote) { desktopChats(state) }
-                            .id(Self.chatsRow)
-                        // [chat-soft-edge] No Top Edge here: this look's tabs have their own backing and chats are
-                        // always soft, so the choice changed nothing.
-                        DesktopGroup(footer: Self.scaleNote) { scalePicker(state) }
-                        DesktopGroup(footer: SettingsSearch.workingRingNote) { workingRingSwitch }   // [working-ring]
                         DesktopGroup(footer: nil) { DesktopThemeRows(model: installer) }
                     }
                     // [mac] Stress test 2026-10-28 round 6: the Mac form's readable width and inset (`hqMacForm`), as on
@@ -139,14 +106,6 @@ struct ThemeSettingsView: View {
                 // UX study #60: the page's main job, the grid, comes first; the desktop app's themes go last, under
                 // their own header. UX #118: the grid has no header; the bar's title already says Theme.
                 List { Group {
-                    // [look-in-themes] The Desktop Look switch heads the page: the look first, then its colours.
-                    if ThemeFeature.desktopLook {
-                        Section {
-                            lookSwitch(state)
-                        } footer: { HQSectionFooter {
-                            Text(Self.lookNote)
-                        } }
-                    }
                     Section {
                         grid(state)
                             .padding(.bottom, 4)
@@ -154,27 +113,6 @@ struct ThemeSettingsView: View {
                             .listRowBackground(Color.clear)
                     } footer: { HQSectionFooter {
                         gridFooter(state)
-                    } }
-                    if TopEdgeStyle.offered {
-                        Section {
-                            topEdgePicker(state)
-                        } footer: { HQSectionFooter {
-                            Text(Self.topEdgeNote(state))
-                        } }
-                    }
-                    // [density] How much fits: Density, then UI Scale (the Mac's text size; on the iPhone and iPad on top of
-                    // iOS's), in this look too.
-                    Section {
-                        densityPicker(state)
-                        scalePicker(state)
-                    } footer: { HQSectionFooter {
-                        Text(Self.densityNote)
-                    } }
-                    // [working-ring] Beside Density: both are how the Bots and Sessions rows look.
-                    Section {
-                        workingRingSwitch
-                    } footer: { HQSectionFooter {
-                        Text(SettingsSearch.workingRingNote)
                     } }
                     Section {
                         DesktopThemeRows(model: installer)
@@ -199,61 +137,6 @@ struct ThemeSettingsView: View {
             : "How round your messages and the text box are. 4 pt is the desktop app’s. Liquid Glass is the \(DeviceWord.name)’s own text box, rounded to match; Desktop is the desktop app’s flat box."
     }
 
-    /// [desktop-corners] [desktop-composer] Corners (with a preview of a reply, your message and the text box) and
-    /// Text Box.
-    private func desktopChats(_ state: ThemeState) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            BubbleCornersRow(stored: state.desktopCorners, style: .solid, composer: state.boxComposer ? .box : .glass) { points in
-                theme.setBubbleCorners(points)
-            }
-            // [mac] The Mac keeps its own message box: no Text Box choice there.
-            if !ThemeState.textBoxIsFixed { textBoxPicker(state) }
-        }
-    }
-
-    @ViewBuilder private func textBoxPicker(_ state: ThemeState) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HQHairline(color: .hqStroke).padding(.horizontal, DeviceWord.isMac ? -MacInset.side : -14)
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Text Box").foregroundStyle(Color.hqLabel).fixedSize()   // [ui-sizing] whole beside its segments
-                HQSegmentedPicker("Text Box", options: [("Liquid Glass", DesktopComposer.glass), ("Desktop", DesktopComposer.box)],
-                                  selection: Binding(get: { state.desktopComposer }, set: { next in
-                                      guard next != state.desktopComposer else { return }
-                                      Haptics.play(.selection)
-                                      theme.setDesktopComposer(next)
-                                      AppLog.trace("settings", "desktop text box \(next.rawValue)")
-                                  }), ticks: false)
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("theme.desktopComposer")
-        }
-    }
-
-    private func lookSwitch(_ state: ThemeState) -> some View {
-        Toggle(isOn: Binding(get: { state.desktopLook }, set: { on in
-            Haptics.play(.selection)
-            flippedHere = true
-            theme.setDesktopLook(on)
-        })) {
-            Text("Desktop Look").foregroundStyle(Color.hqLabel)
-        }
-        .tint(state.desktopLook ? Color.hqTintText : nil)
-        .accessibilityIdentifier("theme.desktopLook")
-        .id(Self.lookRow)
-    }
-
-    /// [working-ring] The ring that travels round a working bot or chat. The switch itself ticks (a system control).
-    private var workingRingSwitch: some View {
-        Toggle(isOn: Binding(get: { workingRing }, set: { on in
-            WorkingRing.isOn = on
-            AppLog.trace("settings", "working ring \(on ? "on" : "off")")
-        })) {
-            Text(SettingsSearch.workingRingLabel).foregroundStyle(Color.hqLabel)
-        }
-        .tint(Theme.shared.state.desktopLook ? Color.hqTintText : nil)
-        .accessibilityIdentifier("theme.workingRing")
-    }
-
     /// [a11y] iOS Increase Contrast (the debug override too) turns High Contrast on: the switch shows it, and is held.
     private var increaseContrast: Bool { systemContrast == .increased || HQAccessibility.overrides.contrast }
 
@@ -271,68 +154,6 @@ struct ThemeSettingsView: View {
 
     private func contrastFooter(_ state: ThemeState) -> String {
         [Self.contrastNote, ThemeContrast.switchNote(state, increaseContrast: increaseContrast)].compactMap { $0 }.joined(separator: " ")
-    }
-
-    private func scalePicker(_ state: ThemeState) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("UI Scale").foregroundStyle(Color.hqLabel)
-            if DeviceWord.isMac, !state.desktopLook {
-                // [Mac AAA 2026-11-16] The iOS look's segments, as Density's right above it: the desktop's square
-                // outlined strip with a blue fill stood under a rounded segmented control in the same card.
-                HQSegmentedPicker("UI Scale", options: ThemeState.scalePresets.map { ("\($0)%", $0) },
-                                  selection: Binding(get: { state.uiScalePercent }, set: { percent in
-                                      guard percent != state.uiScalePercent else { return }
-                                      theme.setUIScale(percent)
-                                  }), ticks: false)
-                    .labelsHidden()
-                    .accessibilityIdentifier("theme.uiScale")
-            } else {
-            ScaleSegments(selected: state.uiScalePercent) { percent in
-                Haptics.play(.selection)
-                theme.setUIScale(percent)
-            }
-            }
-        }
-        .hqRowPadding(4)   // [mac] Stress test 2026-10-28 round 9: the list's one room on the Mac
-    }
-
-    /// [density] Standard or Compact (the iOS look; the Desktop Look keeps its own rows).
-    private func densityPicker(_ state: ThemeState) -> some View {
-        HStack(spacing: 12) {
-            Text("Density").foregroundStyle(Color.hqLabel).fixedSize()   // [ui-sizing] whole beside its segments
-            Spacer(minLength: 8)
-            HQSegmentedPicker("Density", options: [("Standard", ListDensity.standard), ("Compact", ListDensity.compact)],
-                              selection: Binding(get: { state.density }, set: { next in
-                                  guard next != state.density else { return }
-                                  Haptics.play(.selection)
-                                  theme.setDensity(next)
-                                  AppLog.trace("settings", "density \(next.rawValue)")
-                              }), ticks: false)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("theme.density")
-        .id(Self.densityRow)
-    }
-
-    /// [top-edge] Soft or Hard: how rows meet the top bar where they scroll under it.
-    private func topEdgePicker(_ state: ThemeState) -> some View {
-        HStack(spacing: 12) {
-            Text("Top Edge").foregroundStyle(Color.hqLabel).fixedSize()   // [ui-sizing] whole beside its segments
-            Spacer(minLength: 8)
-            HQSegmentedPicker("Top Edge", options: [("Soft", TopEdge.soft), ("Hard", TopEdge.hard)],
-                              selection: Binding(get: { state.topEdge }, set: { next in
-                                  guard next != state.topEdge else { return }
-                                  Haptics.play(.selection)
-                                  theme.setTopEdge(next)
-                                  AppLog.trace("settings", "top edge \(next.rawValue)")
-                              }), ticks: false)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("theme.topEdge")
     }
 
     static func topEdgeNote(_ state: ThemeState) -> String {
@@ -376,8 +197,8 @@ struct ChatBubblesSettingsView: View {
 
     static var note: String {
         GlassBubbles.offered
-            ? "How round the corners of messages in chats are, and how they’re filled: Solid, Liquid Glass in your theme’s colors, or Tinted with the colors of your Chat Background. 12 pt is the standard. With Reduce Transparency on, messages stay solid. The Desktop Look has its own Corners, in Theme. \(DeviceWord.onlyHere)"
-            : "How round the corners of messages in chats are, and whether they’re Tinted with the colors of your Chat Background. 12 pt is the standard. With Reduce Transparency on, messages stay solid. The Desktop Look has its own Corners, in Theme. \(DeviceWord.onlyHere)"
+            ? "How round the corners of messages in chats are, and how they’re filled: Solid, Liquid Glass in your theme’s colors, or Tinted with the colors of your Chat Background. 12 pt is the standard. With Reduce Transparency on, messages stay solid. The Desktop Look has its own Corners, here once it is on. \(DeviceWord.onlyHere)"
+            : "How round the corners of messages in chats are, and whether they’re Tinted with the colors of your Chat Background. 12 pt is the standard. With Reduce Transparency on, messages stay solid. The Desktop Look has its own Corners, here once it is on. \(DeviceWord.onlyHere)"
     }
     /// [bubbles-note] Owner 2026-11-10 (design pick 23): where the three styles are offered, the note follows the
     /// choice: one line about the style picked, then the rest in three short sentences (it explained all three at
@@ -391,7 +212,7 @@ struct ChatBubblesSettingsView: View {
         }
     }
     static var shortNote: String {
-        "12 pt corners are the standard. With Reduce Transparency on, messages stay solid. The Desktop Look has its own Corners, in Theme. \(DeviceWord.onlyHere)"
+        "12 pt corners are the standard. With Reduce Transparency on, messages stay solid. The Desktop Look has its own Corners, here once it is on. \(DeviceWord.onlyHere)"
     }
 
     /// [message-colour] What Colour changes, and what Theme means in its row.
@@ -410,6 +231,44 @@ struct ChatBubblesSettingsView: View {
         let state = theme.state
         // UX #118: no "Chat Bubbles" header, under a bar already titled Chat Bubbles.
         List { Group {
+            if state.desktopLook { desktopSection(state) } else { bubbleSections(state) }
+        }.hqMacSettingsRowInsets() }
+        .hqMacForm(settings: true)
+        .hqGroupedPage()
+        .listStyle(.insetGrouped)
+    }
+
+    /// [desktop-corners] [desktop-composer] Owner 2026-11-08: the Desktop Look's own Corners for messages and the text
+    /// box (with a preview of a reply, your message and the text box), and which text box it draws.
+    /// [appearance-groups] Here, on the page for how chats look in either look (they were on the Theme page).
+    @ViewBuilder private func desktopSection(_ state: ThemeState) -> some View {
+        Section {
+            BubbleCornersRow(stored: state.desktopCorners, style: .solid, composer: state.boxComposer ? .box : .glass) { points in
+                theme.setBubbleCorners(points)
+            }
+            .hqRowPadding(4)
+            // [mac] The Mac keeps its own message box: no Text Box choice there.
+            if !ThemeState.textBoxIsFixed {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Text Box").foregroundStyle(Color.hqLabel).fixedSize()   // [ui-sizing] whole beside its segments
+                    HQSegmentedPicker("Text Box", options: [("Liquid Glass", DesktopComposer.glass), ("Desktop", DesktopComposer.box)],
+                                      selection: Binding(get: { state.desktopComposer }, set: { next in
+                                          guard next != state.desktopComposer else { return }
+                                          Haptics.play(.selection)
+                                          theme.setDesktopComposer(next)
+                                          AppLog.trace("settings", "desktop text box \(next.rawValue)")
+                                      }), ticks: false)
+                }
+                .hqRowPadding(4)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("theme.desktopComposer")
+            }
+        } footer: { HQSectionFooter {
+            Text(ThemeSettingsView.desktopChatsNote + " The iOS look has its own Corners, Style and Color, here once the Desktop Look is off.")
+        } }
+    }
+
+    @ViewBuilder private func bubbleSections(_ state: ThemeState) -> some View {
             // [plain-replies] Owner 2026-11-15: replies full width and plain, as in Claude's app, as a switch.
             Section {
                 Toggle("Reply Bubbles", isOn: Binding(get: { !state.plainReplies }, set: { setPlainReplies(!$0) }))
@@ -448,10 +307,6 @@ struct ChatBubblesSettingsView: View {
                     }
                 }
             } }
-        }.hqMacSettingsRowInsets() }
-        .hqMacForm(settings: true)
-        .hqGroupedPage()
-        .listStyle(.insetGrouped)
     }
 
     /// [plain-replies] What Reply Bubbles changes.
@@ -851,7 +706,7 @@ private struct DesktopGroup<Content: View>: View {
 
 /// UI Scale's five presets as the desktop's outlined segments: one bordered box, the chosen one filled with the
 /// accent (phone-ui-desktop.css segmented control). One element per preset, the chosen one marked selected.
-private struct ScaleSegments: View {
+struct ScaleSegments: View {
     var selected: Int
     var pick: (Int) -> Void
 

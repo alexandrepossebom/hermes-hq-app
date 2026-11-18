@@ -880,7 +880,9 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect((look != nil) == ThemeFeature.desktopLook)
         let theme = SettingsSearch.appRows.first { $0.id == "app:theme" }
         #expect(theme?.keywords == SettingsSearch.themeKeywords)
-        for word in ["desktop look", "high contrast", "ui scale", "chat bubbles", "bubble corners", "chat background", "wallpaper"] {
+        // [appearance-groups] High Contrast stays on Theme; Desktop Look and UI Scale are rows of Appearance.
+        #expect(theme?.keywords.contains("high contrast") == true)
+        for word in ["desktop look", "ui scale", "chat bubbles", "bubble corners", "chat background", "wallpaper"] {
             #expect(theme?.keywords.contains(word) == false, "\(word)")
         }
         #expect(SettingsSearch.themeKeywords.contains("skin") && SettingsSearch.themeKeywords.contains("desktop themes"))
@@ -899,7 +901,7 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(find("backgrounds").map(\.target).contains(.root("backgrounds")), "the page with both rows")
         #expect(find("chat bubbles").first?.target == .root("chat-bubbles"))
         #expect(find("glass bubbles").first?.target == .root("chat-bubbles"))
-        if ThemeFeature.desktopLook { #expect(find("desktop look").first?.target == .root("theme")) }
+        if ThemeFeature.desktopLook { #expect(find("desktop look").first?.target == .root("row:desktop-look")) }   // [appearance-groups]
         #expect(find("chat background").count == 1, "Chat Background alone, not the Theme row too")
         #expect(find("skin").first?.target == .root("theme"), "the themes themselves")
         #expect(find("chat bubbles").first?.context == "Appearance" && find("app background").first?.context == "Backgrounds")
@@ -1935,13 +1937,13 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
 
     @Test func searchFindsDensity() {
         let row = SettingsSearch.appRows.first { $0.id == "app:density" }
-        #expect(row?.label == "Density" && row?.target == .root("theme"))
+        #expect(row?.label == "Density" && row?.target == .root("row:density"))   // [appearance-groups]
         #expect(row?.keywords.contains("compact") == true)
     }
 
-    /// [macpass-settings] UI Scale is found by its own name and opens Theme, where the control is.
+    /// [macpass-settings] UI Scale is found by its own name. [appearance-groups] It opens Appearance on its row.
     @Test func searchFindsUIScale() {
         let row = SettingsSearch.appRows.first { $0.id == "app:ui-scale" }
-        #expect(row?.label == "UI Scale" && row?.target == .root("theme"))
+        #expect(row?.label == "UI Scale" && row?.target == .root("row:ui-scale"))
     }
 }

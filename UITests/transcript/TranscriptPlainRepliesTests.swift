@@ -19,7 +19,8 @@ extension TranscriptEndToEndTests {
         settings.launchArguments = ["-HQDebugDesktopLook", "NO", "-HQDebugOpenSettings", "YES", "-dispatch.notifications.asked", "YES"]
         settings.launch()
         let bubblesRow = settings.buttons["settings.chat-bubbles-row"]
-        XCTAssertTrue(settings.buttons["settings.theme-row"].waitForExistence(timeout: 20), "Settings opens")
+        XCTAssertTrue(settings.hqOpenAppearance(), "Settings › Appearance opens")   // [appearance-groups]
+        XCTAssertTrue(settings.buttons["settings.theme-row"].waitForExistence(timeout: 20), "Appearance lists Theme")
         for _ in 0..<6 where !(bubblesRow.exists && bubblesRow.isHittable) { settings.swipeUp() }
         bubblesRow.tap()
         XCTAssertTrue(settings.navigationBars["Chat Bubbles"].waitForExistence(timeout: 5), "the row opens its page")

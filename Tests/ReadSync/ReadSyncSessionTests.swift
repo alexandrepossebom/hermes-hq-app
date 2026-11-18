@@ -60,6 +60,58 @@ import Testing
         mac.stop(); phone.stop()
     }
 
+    /// Owner 2026-11-18 ("the sessions aren't showing the same as they are on my iPhone"): a chat started on the Mac
+    /// had no watermark, so the Mac (which listed it from its first row) showed the later replies as unread while the
+    /// phone (which first listed it after them) showed nothing, and reading it on the phone never cleared the Mac.
+    @Test func aChatStartedOnOneDeviceShowsTheSameOnBoth() async throws {
+        let hermes = gateway("older", readAt: Self.t0 + 1)
+        let (mac, _) = store(hermes), (phone, _) = store(hermes)
+        #expect(await BotsTest.waitUntil { mac.loadState == .ready && phone.loadState == .ready })
+
+        // New Chat on the Mac: the gateway makes the chat (never read: NULL), the Mac's id resolves, its page lists it.
+        hermes.add(.init(id: "fresh", profile: "ivy", lastActive: Self.t0 - 10, count: 1, readAt: nil))
+        mac.trackStartedChat(id: "fresh", profile: "ivy")
+        #expect(await BotsTest.waitUntil { hermes.patches("fresh") == 1 })
+        #expect(hermes.patches.last?.unread == false)
+        await mac.refresh()
+        #expect(!row(mac, "fresh").unread)
+
+        // The person moves on; the bot works and replies while nobody looks. The phone lists the chat only now.
+        hermes.activity("fresh", rows: 6)
+        await mac.refresh(); await phone.refresh()
+        #expect(row(mac, "fresh").unread, "the reply nobody saw is unread on the Mac")
+        #expect(row(phone, "fresh").unread, "and on the phone, which never saw the chat before")
+
+        // Read on the phone: the Mac's dot goes too.
+        phone.markOpened(row(phone, "fresh"))
+        #expect(await BotsTest.waitUntil { hermes.patches("fresh") == 2 })
+        await mac.refresh()
+        #expect(!row(mac, "fresh").unread && !row(phone, "fresh").unread)
+        #expect(mac.unreadCount == 0 && phone.unreadCount == 0)
+        mac.stop(); phone.stop()
+    }
+
+    /// Only a chat with no watermark is written, and only to a gateway that keeps read state.
+    @Test func aStartedChatIsMarkedReadOnlyWhenItNeedsIt() async throws {
+        let hermes = gateway("older", readAt: Self.t0 + 1)
+        let (mac, _) = store(hermes)
+        #expect(await BotsTest.waitUntil { mac.loadState == .ready })
+        mac.trackStartedChat(id: "older", profile: "ivy")
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(hermes.patches("older") == 0, "already read on the gateway: nothing to write")
+        mac.stop()
+
+        let legacy = gateway("older")
+        legacy.tracksReads = false
+        let (old, _) = store(legacy)
+        #expect(await BotsTest.waitUntil { old.loadState == .ready })
+        legacy.add(.init(id: "fresh", profile: "ivy", lastActive: Self.t0 - 10, count: 1, readAt: nil))
+        old.trackStartedChat(id: "fresh", profile: "ivy")
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(legacy.patches.isEmpty, "a Hermes without read state is never written")
+        old.stop()
+    }
+
     @Test func markAsUnreadShowsOnTheOtherDeviceAndAReadThereClearsBoth() async throws {
         let hermes = gateway("plan")
         let (mac, _) = store(hermes), (phone, _) = store(hermes)

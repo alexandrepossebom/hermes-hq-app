@@ -12,12 +12,12 @@ extension DesktopLookEndToEndTests {
         for option in ["charcoal", "deep", "night", "black"] {
             let app = launchSignedIn(["-HQDebugPaperDark", option])
             openSettings(app)
-            let row = app.buttons["settings.theme-row"]
-            for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
-            row.tap()
+            showTheme(app)   // [appearance-groups] Settings › Appearance › Theme
             XCTAssertTrue(themeOpens(app), "the Theme page opens")
             card(app, "paper").tap()
             XCTAssertTrue(waitUntil(timeout: 5) { self.card(app, "paper").isSelected }, "Paper is selected")
+            app.navigationBars.buttons.firstMatch.tap()      // Back to Appearance
+            XCTAssertTrue(app.buttons["settings.theme-row"].waitForExistence(timeout: 5))
             app.navigationBars.buttons.firstMatch.tap()      // Back to Settings
             Thread.sleep(forTimeInterval: 0.8)
             shot(app, "paperdark-\(option)-settings")
@@ -39,9 +39,7 @@ extension DesktopLookEndToEndTests {
         for (round, skin) in ["nous", "paper", "nous"].enumerated() {
             let tag = round == 2 ? "\(skin)-again" : skin
             openSettings(app)
-            let row = app.buttons["settings.theme-row"]
-            for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
-            row.tap()
+            showTheme(app)   // [appearance-groups] Settings › Appearance › Theme
             XCTAssertTrue(themeOpens(app), "the Theme page opens")
             let picked = card(app, skin)
             XCTAssertTrue(picked.exists, "\(skin) is in the grid")
@@ -49,6 +47,8 @@ extension DesktopLookEndToEndTests {
             XCTAssertTrue(waitUntil(timeout: 5) { self.card(app, skin).isSelected }, "\(skin) is selected")
             app.swipeDown(); app.swipeDown()
             shot(app, "paper-\(tag)-theme")
+            app.navigationBars.buttons.firstMatch.tap()      // Back to Appearance
+            XCTAssertTrue(app.buttons["settings.theme-row"].waitForExistence(timeout: 5))
             app.navigationBars.buttons.firstMatch.tap()      // Back to Settings
             Thread.sleep(forTimeInterval: 0.8)
             shot(app, "paper-\(tag)-settings")

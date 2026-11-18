@@ -69,6 +69,7 @@ final class SoftCardStyleTests: XCTestCase {
             if settingsRow.waitForExistence(timeout: 2), settingsRow.isHittable { break }
         }
         settingsRow.tap()
+        app.hqOpenAppearance()   // [appearance-groups]
         let backgroundsRow = app.buttons["settings.backgrounds-row"]
         scrollTo(backgroundsRow)
         XCTAssertTrue(backgroundsRow.waitForExistence(timeout: 10), "Backgrounds in Settings")

@@ -163,9 +163,8 @@ final class ChatsUnderBotsTests: XCTestCase {
         first.terminate()
         let again = launch(["-HQDebugOpenSettings", "YES"])
         again.buttons["tab-more"].tap()
-        let row = again.buttons["settings.chats-under-row"]
+        let row = again.hqAppearance(again.buttons["settings.chats-under-row"])   // [appearance-groups]
         _ = row.waitForExistence(timeout: 8)
-        for _ in 0..<8 where !(row.exists && row.isHittable) { again.swipeUp() }
         XCTAssertTrue(row.exists, "Appearance has Chats Under Bots")
         row.tap()
         let app = again

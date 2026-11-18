@@ -138,8 +138,8 @@ extension PagesTests {
                 app.terminate()
             }
         }
-        // The switch itself, on Theme › Themes, flipped while the page is open.
-        app = launchSignedIn(["-HQDebugDesktopLook", "NO", "-HQDebugAppearance", "dark", "-HQDebugOpenTheme", "YES"])
+        // The switch itself, on Appearance ([appearance-groups] it was on Theme), flipped while the page is open.
+        app = launchSignedIn(["-HQDebugDesktopLook", "NO", "-HQDebugAppearance", "dark", "-HQDebugOpenTheme", "YES", "-HQDebugOpenAppearance", "YES"])
         let row = app.descendants(matching: .any)["theme.topEdge"]
         for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
         Thread.sleep(forTimeInterval: 1)

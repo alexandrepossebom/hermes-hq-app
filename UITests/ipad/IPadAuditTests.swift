@@ -70,7 +70,7 @@ final class IPadAuditTests: IPadTestCase {
         IPad.command(short, ",")
         // [ipad-polish] Appearance's row: Notifications is now far enough down the short window that its row is not
         // made until the list scrolls.
-        let row = short.descendants(matching: .any)["settings.appearance"].firstMatch
+        let row = short.descendants(matching: .any)["settings.appearance-row"].firstMatch
         if !row.waitForExistence(timeout: 8) {
             IPad.shot(short, "pointer-settings-not-open", in: self)
             print("IPAD-NOTE Command-comma did not open the app's Settings on the first press (app state \(short.state.rawValue))")

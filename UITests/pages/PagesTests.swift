@@ -1924,8 +1924,7 @@ final class PagesTests: XCTestCase {
         XCTAssertTrue(settingsRow.waitForExistence(timeout: 5))
         settingsRow.tap()
         XCTAssertTrue(app.buttons["settings.gateway-card"].waitForExistence(timeout: 5))
-        let tabs = app.buttons["settings.tab-order"]
-        for _ in 0..<6 where !(tabs.exists && tabs.isHittable) { app.collectionViews.firstMatch.swipeUp() }
+        let tabs = app.hqAppearance(app.buttons["settings.tab-order"])   // [appearance-groups]
         tabs.tap()
         XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 5), "Settings › Appearance › Tabs")
         let row = app.buttons["settings.kanban"]

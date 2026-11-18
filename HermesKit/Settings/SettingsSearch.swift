@@ -54,7 +54,7 @@ nonisolated enum SettingsSearch {
     /// backgrounds' words are their own rows', which open their own pages: a search never leads to a page without what
     /// was typed. The Desktop Look's row is only there where its controls are shown.
     /// [macpass-settings2] And each skin's own name ("rose pine", "midnight" found nothing).
-    static let themeKeywords = ["theme", "skin", "colours", "colors", "desktop themes", "accent", "accent color", "rose pine"]
+    static let themeKeywords = ["theme", "skin", "colours", "colors", "desktop themes", "accent", "accent color", "rose pine", "high contrast"]
         + SkinCatalog.all.map { $0.label.lowercased() }
 
     /// Row names the pages and this index share (UX study #68, #69, #71: they say what the row does, and the old names
@@ -90,8 +90,8 @@ nonisolated enum SettingsSearch {
 
     /// Rows the app adds (they aren't in the gateway's catalog).
     static let appRows: [SettingsSearchEntry] = appRowsAlways + (ThemeFeature.desktopLook ? [
-        // [look-in-themes] On Theme, at the top.
-        .init(id: "app:desktop-look", label: "Desktop Look", context: "Theme", keywords: ["high contrast", "ui scale", "square corners"], target: .root("theme")),
+        // [appearance-groups] A row of Appearance's Look group (it headed Theme).
+        .init(id: "app:desktop-look", label: "Desktop Look", context: "Appearance", keywords: ["square corners", "desktop app", "flat"], target: .root("row:desktop-look")),
     ] : [])
 
     private static let appRowsAlways: [SettingsSearchEntry] = [
@@ -105,10 +105,10 @@ nonisolated enum SettingsSearch {
         .init(id: "app:theme", label: "Theme", context: "Appearance", keywords: themeKeywords, target: .root("theme")),
         // [density] On Theme, with UI Scale (both looks).
         // [working-ring] On Theme, beside Density (both looks).
-        .init(id: "app:working-ring", label: workingRingLabel, context: "Theme", keywords: ["working animation", "ring", "arc", "outline", "glow", "spinner", "busy", "running", "motion"], target: .root("theme")),
-        .init(id: "app:density", label: "Density", context: "Theme", keywords: ["compact", "dense", "smaller rows", "fit more", "ui scale", "zoom", "smaller text"], target: .root("theme")),
+        .init(id: "app:working-ring", label: workingRingLabel, context: "Appearance", keywords: ["working animation", "ring", "arc", "outline", "glow", "spinner", "busy", "running", "motion"], target: .root("row:working-ring")),
+        .init(id: "app:density", label: "Density", context: "Appearance", keywords: ["compact", "dense", "smaller rows", "fit more", "ui scale", "zoom", "smaller text"], target: .root("row:density")),
         // [macpass-settings] The control's own name: "scale" found only Density and Desktop Look.
-        .init(id: "app:ui-scale", label: "UI Scale", context: "Theme", keywords: ["text size", "bigger text", "smaller text", "larger", "zoom", "make text bigger", "font", "font size", "type size"], target: .root("theme")),
+        .init(id: "app:ui-scale", label: "UI Scale", context: "Theme", keywords: ["text size", "bigger text", "smaller text", "larger", "zoom", "make text bigger", "font", "font size", "type size"], target: .root("row:ui-scale")),
         // [theme-pages] Rows of their own beside Theme (they were its tabs); a background opens its own page.
         .init(id: "app:chat-bubbles", label: "Chat Bubbles", context: "Appearance", keywords: ["bubble corners", "rounded corners", "message corners", "glass bubbles", "tinted bubbles"], target: .root("chat-bubbles")),
         // [message-colour] On Chat Bubbles; "color" as most people type it.

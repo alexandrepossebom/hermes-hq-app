@@ -6,7 +6,7 @@
 // - `-HQDebugHighContrast YES|NO`   High Contrast
 // - `-HQDebugUIScale <percent>`     UI Scale
 // - `-HQDebugDensity standard|compact`   [density] Density (the iOS look)
-// - `-HQDebugThemeDensity YES`      [density] with -HQDebugOpenTheme, scrolled to Density and UI Scale (screenshots)
+// - `-HQDebugAppearanceReveal row:<id>`   [appearance-groups] Appearance scrolled to that row (row:density, row:ui-scale…)
 // - `-HQDebugBubbleCorners <pt>`    Bubble Corners (the iOS look's chat bubbles)
 // - `-HQDebugDesktopCorners <pt>`   [desktop-corners] the Desktop Look's own Corners
 // - `-HQDebugDesktopComposer glass|box`   [desktop-composer] the Desktop Look's Text Box
@@ -29,7 +29,6 @@
 // - `-HQDebugNoThemeFile YES`       the installer behaves as if the bundled theme file were missing (stress item 11)
 // - `-HQDebugOpenTheme YES`         open Settings › Theme once the app is up (screenshots)
 // - `-HQDebugThemeBubbles YES`      with it, Chat Bubbles opens instead ([theme-pages] its own page)
-// - `-HQDebugThemeChats YES`        with it in the Desktop Look, Theme scrolled to Corners and Text Box
 // - `-HQDebugThemeTab chats|backgrounds`   with it, Chat Bubbles or Backgrounds opens instead (they were Theme's tabs)
 // - `-HQDebugOpenBackground app|chats`   with Backgrounds open, that background's page pushed over it
 // - `-HQDebugThemeShot <path>`     [mac] with -HQDebugOwnerPath: the window as a PNG once Theme is up, POSTed to <url>
@@ -39,6 +38,8 @@
 // - `-HQDebugOpenMore YES`         show the More tab once the app is up (screenshots: its cards on a skin)
 // - `-HQDebugOpenTab <key>`         show that tab (bots, sessions, jobs, workspace, more)
 // - `-HQDebugOpenSettings YES`      More › Settings pushed once the app is up
+// - `-HQDebugOpenAppearance YES`    [appearance-groups] Appearance's page: over Settings with -HQDemoLists and
+//                                   -HQDebugOpenSettings; with -HQDebugOpenTheme, alone in the sheet (no Theme over it)
 // - `-HQDebugOpenDeviceAccess health[.<group>]`   [health-all-types] with -HQDemoLists and -HQDebugOpenSettings:
 //                                   Device Access › Health (and that group's page) pushed over Settings (screenshots);
 //                                   `-HQDebugHealthOn <group or type key>,…` switches those on first, without asking iOS
@@ -152,9 +153,21 @@ enum ThemeDebugHooks {
             let page: UIViewController = notifications ? NotificationsSettingsController(app: root.services as? AppModel)
                 : themePage(services: root.services)
             let navigation = UINavigationController(rootViewController: page)
-            page.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak navigation] _ in
+            let done = { UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak navigation] _ in
                 navigation?.dismiss(animated: true)
-            })
+            }) }
+            page.navigationItem.rightBarButtonItem = done()
+            // [appearance-groups] Theme opens over Appearance, as in Settings: Back reaches the Desktop Look switch, UI
+            // Scale and the other rows that were on the Theme page. `-HQDebugOpenAppearance YES`: Appearance alone.
+            if page is ThemeSettingsController {
+                let settings = SettingsRootController(services: root.services)
+                settings.router.navigation = navigation
+                let appearance = AppearancePage.make(model: settings.model, router: settings.router,
+                                                     reveal: UserDefaults.standard.string(forKey: "HQDebugAppearanceReveal"))
+                appearance.navigationItem.rightBarButtonItem = done()
+                page.navigationItem.largeTitleDisplayMode = .never
+                navigation.setViewControllers(UserDefaults.standard.bool(forKey: "HQDebugOpenAppearance") ? [appearance] : [appearance, page], animated: false)
+            }
             root.present(navigation, animated: false)
             if UserDefaults.standard.bool(forKey: "HQDebugCycleSkins") { cycleSkins(from: 0) }
         }
@@ -190,8 +203,16 @@ enum ThemeDebugHooks {
                     return controller.children.lazy.compactMap(tabs(in:)).first
                 }
                 guard let tabs = tabs(in: root) else { return }
-                tabs.botsViewController.navigationController?.pushViewController(SettingsRootController(services: tabs.services), animated: false)
+                let settings = SettingsRootController(services: tabs.services)
+                tabs.botsViewController.navigationController?.pushViewController(settings, animated: false)
                 openDeviceAccess(on: tabs.botsViewController.navigationController)
+                // [appearance-groups] `-HQDebugOpenAppearance YES`: Appearance's page over Settings (pictures), scrolled
+                // to `-HQDebugAppearanceReveal row:<id>` when given.
+                if UserDefaults.standard.bool(forKey: "HQDebugOpenAppearance"), let stack = tabs.botsViewController.navigationController {
+                    settings.router.navigation = stack
+                    stack.pushViewController(AppearancePage.make(model: settings.model, router: settings.router,
+                                                                 reveal: UserDefaults.standard.string(forKey: "HQDebugAppearanceReveal")), animated: false)
+                }
             }
         }
         guard let root, UserDefaults.standard.bool(forKey: "HQDebugOpenTheme") else { return }
