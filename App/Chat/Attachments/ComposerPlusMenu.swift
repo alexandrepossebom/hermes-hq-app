@@ -98,7 +98,9 @@ import UniformTypeIdentifiers
         if let sheet = sheetPresentationController {
             sheet.detents = [.large()]
             sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = 36
+            // No corner radius of its own (owner 2026-11-18: "the bottom isn't curved properly to work with the edges of
+            // the iPhone"): a fixed 36 pt went on all four corners, tighter than the screen's, so the floating sheet's
+            // bottom corners cut across the phone's. The system's own shape follows the screen's corners.
         }
     }
 

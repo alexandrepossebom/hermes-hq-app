@@ -174,7 +174,7 @@ final class NewTodoHost: UIHostingController<HQScaledRoot<NewTodoView>>, Editing
         rootView = HQScaledRoot(NewTodoView(model: model, onHeight: { [weak self] in self?.fit($0) }))
         modalPresentationStyle = DeviceWord.isMac ? .formSheet : .pageSheet
         preferredContentSize = CGSize(width: 520, height: fitted)
-        view.backgroundColor = HQPalette.groupedCard
+        view.backgroundColor = HQPalette.groupedCard   // solid-ok: a quick-add bar a few rows tall riding the keyboard; its fields sit on one opaque card
         view.accessibilityIdentifier = "tasks.new.sheet"
         if let sheet = sheetPresentationController {
             sheet.detents = [.custom(identifier: .init("tasks.new")) { [weak self] _ in self?.fitted ?? 150 }]

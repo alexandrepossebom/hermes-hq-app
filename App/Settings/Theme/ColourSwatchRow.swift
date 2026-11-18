@@ -115,7 +115,7 @@ struct ColourSwatchRow: View {
                 .overlay { if swatch.colour == nil { Circle().strokeBorder(Color.hqLabel3, lineWidth: 1) } }
                 .overlay {
                     Image(systemName: on ? "checkmark" : swatch.symbol ?? "checkmark")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))   // a11y-font-ok: a mark inside the fixed-size swatch circle
                         .foregroundStyle(look.ink)
                         .opacity(on || swatch.symbol != nil ? 1 : 0)
                 }

@@ -4,8 +4,11 @@ import Foundation
 import Testing
 @testable import HermesHQNative
 
-/// The Robot, Dots, Orb, Pixel and Emoji heads: ThemeHeadSVG must write exactly the web's markup (ref240 `headSvg`,
-/// ids normalised), SVGMini must draw it, and Describe it must read words as `describe.ts` does.
+/// The Robot, Dots, Orb, Pixel and Emoji heads: ThemeHeadSVG must write exactly the recorded markup (ids normalised),
+/// SVGMini must draw it, and Describe it must read words as `describe.ts` does. The record began as the web's
+/// (ref240 `headSvg`); since the owner's 2026-11-16/17 face changes (faces rest looking right, the face colours
+/// retuned) the app's faces are its own, and the record is the app's markup. After a deliberate face change, run this
+/// test once with `TEST_RUNNER_HQ_THEME_HEADS_REWRITE=1` to record the new markup, and review the faces themselves.
 struct ThemeHeadTests {
     private struct Sample: Decodable {
         let head: JSONValue
@@ -27,11 +30,27 @@ struct ThemeHeadTests {
         let samples = try Self.samples()
         #expect(samples.count > 300)
         var mismatches: [String] = []
+        var renewed: [String: String] = [:], clash = false
         for (index, sample) in samples.enumerated() {
             guard let record = HeadRecord.parse(sample.head) else { mismatches.append("#\(index) unparsed"); continue }
             let svg = ThemeHeadSVG.svg(record, state: sample.state.flatMap(HeadState.init(rawValue:)), compact: sample.compact)
             let sha = SHA256.hash(data: Data(Self.normalised(svg).utf8)).map { String(format: "%02x", $0) }.joined()
-            if sha != sample.sha { mismatches.append("#\(index) \(record.pictureKey)") }
+            if sha != sample.sha {
+                mismatches.append("#\(index) \(record.pictureKey)")
+                if let other = renewed[sample.sha], other != sha { clash = true }
+                renewed[sample.sha] = sha
+            }
+        }
+        if ProcessInfo.processInfo.environment["HQ_THEME_HEADS_REWRITE"] != nil, !mismatches.isEmpty {
+            // Records the app's markup as it is now (see the note above). Two samples that shared a hash and no longer
+            // do cannot be rewritten by hash: that needs the file rebuilt by hand.
+            try #require(!clash, "samples that shared a hash now differ")
+            let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/theme-heads-web.json")
+            var text = try String(contentsOf: url, encoding: .utf8)
+            for (old, new) in renewed { text = text.replacingOccurrences(of: "\"\(old)\"", with: "\"\(new)\"") }
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            print("[theme-heads] recorded \(renewed.count) changed hashes for \(mismatches.count) samples")
+            return
         }
         #expect(mismatches.isEmpty, "\(mismatches.prefix(10))")
     }

@@ -28,7 +28,7 @@ enum FaceRestSheet {
             HeadRenderer.picture(head, side: side, scale: 2, dark: dark).map { UIImage(cgImage: $0, scale: 2, orientation: .up) }
         }
         func text(_ string: String, _ at: CGPoint, _ size: CGFloat, _ weight: UIFont.Weight, _ color: UIColor) {
-            NSAttributedString(string: string, attributes: [.font: UIFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color]).draw(at: at)
+            NSAttributedString(string: string, attributes: [.font: HQFont.system(ofSize: size, weight: weight), .foregroundColor: color]).draw(at: at)
         }
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
             page.setFill()
