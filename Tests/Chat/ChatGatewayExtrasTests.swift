@@ -230,7 +230,7 @@ struct ChatGatewayExtrasTests {
         m.reactionRow = 12
         let plain = ChatMessage(id: "stored-row-13-assistant", role: .assistant, parts: [.text("yo")], timestamp: nil, rowId: 13)
         let data = TranscriptEntry(messages: [m, plain], meta: [:], savedAt: Date(timeIntervalSince1970: 9)).encoded()
-        #expect(Array(data.prefix(4)) == Array("HQT5".utf8))
+        #expect(Array(data.prefix(4)) == Array("HQT6".utf8))
         let back = try TranscriptEntry.decode(data)
         #expect(back.messages[0].reactions == m.reactions && back.messages[0].reactionRow == 12)
         #expect(back.messages[1].reactions.isEmpty && back.messages[1].reactionRow == nil)

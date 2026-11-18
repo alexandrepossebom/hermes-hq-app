@@ -57,7 +57,7 @@ struct OneLineRowsTests {
         #expect(!rows.contains { if case .thought = $0.kind { return true } else { return false } })
     }
 
-    /// [updates] Subagents are said on the line ("2 helpers working", then "· 2 helpers"), not drawn as a card each.
+    /// Helper work has one request disclosure; the unrelated terminal step keeps the selected work-line style.
     @Test func helpersFoldIntoTheLine() {
         func delegate(_ state: ToolCall.State, _ results: [DelegateResult]?) -> ChatPart {
             var c = call("d1", "delegate_task", #"{"tasks":[{"goal":"A"},{"goal":"B"}]}"#, state: state, seconds: 30)
@@ -68,15 +68,21 @@ struct OneLineRowsTests {
         let done: [ChatPart] = [.tool(call("t1", "terminal", seconds: 10)), delegate(.done, [DelegateResult(status: "completed"), DelegateResult(status: "completed")]),
                                 .text("Both done.")]
         let rows = ChatRowBuilder.build(input(reply(done)) { $0.style = .line })
-        #expect(line(rows)?.1.title == "Worked for 40s · 2 helpers")
-        #expect(line(rows)?.0.tools.map(\.id) == ["t1", "d1"])
+        #expect(line(rows)?.1.title == "Worked for 10s")
+        #expect(line(rows)?.0.tools.map(\.id) == ["t1"])
+        func helpers(_ rows: [ChatRow]) -> [BackgroundResultRow] {
+            rows.compactMap { if case .backgroundResult(let b) = $0.kind, b.helperRequestID != nil { return b } else { return nil } }
+        }
+        #expect(helpers(rows).map(\.title) == ["2 helpers done"])
         #expect(!rows.contains { if case .activity(.delegate) = $0.kind { return true } else { return false } })
         let live = ChatRowBuilder.build(input(reply([delegate(.running, nil)], streaming: true), running: true) { $0.style = .line })
-        #expect(line(live)?.1.title == "2 helpers working")
-        #expect(line(live)?.1.glyph == .subagent)
-        #expect(line(live)?.0.live == true)
-        // Header style keeps its cards.
-        #expect(ChatRowBuilder.build(input(reply(done)) { $0.style = .header }).contains { if case .activity(.delegate) = $0.kind { return true } else { return false } })
+        #expect(line(live) == nil)
+        #expect(helpers(live).map(\.title) == ["2 helpers working"])
+        #expect(helpers(live).first?.helpersWorking == true)
+        // Every style uses the same request-scoped helper disclosure.
+        let header = ChatRowBuilder.build(input(reply(done)) { $0.style = .header })
+        #expect(helpers(header).map(\.title) == ["2 helpers done"])
+        #expect(!header.contains { if case .activity(.delegate) = $0.kind { return true } else { return false } })
     }
 
     @Test func untimedStepsSayWhatTheReplyDid() {

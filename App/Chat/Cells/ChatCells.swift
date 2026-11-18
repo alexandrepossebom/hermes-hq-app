@@ -1736,7 +1736,7 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
             // Centred on the words' capitals: the label centres its line box in the row.
             let capMid = (h - font.lineHeight) / 2 + font.ascender - font.capHeight / 2
             let path = UIBezierPath()
-            if group.count > 1 {
+            if group.count > 1 || group.helperDetails {
                 // A group opens its sheet: the caret turned to point right, as a step that opens its sheet has (the
                 // same slot, size and stroke). Down would say it unfolds here, as a line of one does.
                 caret.frame = CGRect(x: pad + lead + textW + caretGap + ((caretW - caretH) / 2).rounded(), y: (capMid - caretW / 2).rounded(),
@@ -1760,9 +1760,9 @@ final class ChatToolCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         rowButton.accessibilityTraits = group.opens ? .button : .staticText
         // "4 updates: From Hermes, Delegated 1 task, To Hermes, To Hermes", or a single line's own words.
         rowButton.accessibilityLabel = group.count > 1 ? "\(group.count) updates: " + group.titles.joined(separator: ", ") : (t.spokenTitle ?? t.title)
-        rowButton.accessibilityValue = group.opens && !t.single && group.count == 1 ? (t.groupOpen ? "Expanded" : "Collapsed") : nil
+        rowButton.accessibilityValue = group.opens && !t.single && group.count == 1 && !group.helperDetails ? (t.groupOpen ? "Expanded" : "Collapsed") : nil
         rowButton.accessibilityHint = !group.opens ? nil : t.single ? "Shows the step’s details"
-            : group.count > 1 ? "Shows them" : "Shows the message"
+            : group.helperDetails ? "Shows all helpers, reports and controls" : group.count > 1 ? "Shows them" : "Shows the message"
     }
 
     private func link(at gr: UIGestureRecognizer) -> URL? {

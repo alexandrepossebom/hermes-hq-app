@@ -7,6 +7,8 @@ import Foundation
 
 nonisolated enum SubagentStatus: String, Hashable, Sendable {
     case completed, failed, interrupted, queued, running
+    /// Transcript-only: dispatched in the background, with no observed outcome yet.
+    case dispatched
 
     var isTerminal: Bool { self == .completed || self == .failed || self == .interrupted }
     var isLive: Bool { self == .running || self == .queued }

@@ -1,5 +1,97 @@
 import UIKit
 
+/// A request's helpers, including earlier batches. Reports and delegate calls stay one tap away in the same sheet.
+final class HelperStatusSheetViewController: UIViewController {
+    let body = SubagentsBody(panel: true)
+    var onVisibilityChange: (() -> Void)?
+    var onLayout: (() -> Void)?
+    private(set) var isVisible = false
+    private let scroll = UIScrollView()
+    private let reportsButton = UIButton(type: .system)
+    private let reports: UpdatesSheetViewController
+    private var timer: Timer?
+    private var lastWidth: CGFloat = 0
+
+    init(reports: UpdatesSheetViewController) {
+        self.reports = reports
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = HQPalette.sheetPage
+        scroll.alwaysBounceVertical = true
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        body.translatesAutoresizingMaskIntoConstraints = false
+        body.accessibilityIdentifier = "chat.helpers.details"
+        reportsButton.setTitle("Reports & Steps", for: .normal)
+        reportsButton.titleLabel?.font = HQFont.preferred(.body)
+        reportsButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        reportsButton.contentHorizontalAlignment = .leading
+        reportsButton.accessibilityIdentifier = "chat.helpers.reports"
+        reportsButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.reports.title = "Reports & Steps"
+            self.navigationController?.pushViewController(self.reports, animated: true)
+        }, for: .touchUpInside)
+        reportsButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scroll)
+        scroll.addSubview(reportsButton)
+        scroll.addSubview(body)
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: view.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            reportsButton.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 8),
+            reportsButton.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 16),
+            reportsButton.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -16),
+            reportsButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            body.topAnchor.constraint(equalTo: reportsButton.bottomAnchor, constant: 8),
+            body.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 16),
+            body.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -16),
+            body.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12),
+        ])
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if abs(lastWidth - body.bounds.width) > 0.5 {
+            lastWidth = body.bounds.width
+            onLayout?()
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isVisible = true
+        onVisibilityChange?()
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.body.tick(now: Date().timeIntervalSince1970) }
+        }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        isVisible = false
+        timer?.invalidate()
+        timer = nil
+        onVisibilityChange?()
+    }
+
+    func update(title: String, reports opened: UpdatesOpened) {
+        navigationItem.subtitle = title
+        reports.update(opened)
+        reportsButton.isHidden = opened.members.isEmpty
+    }
+
+    #if DEBUG
+    var debugReports: UpdatesSheetViewController { reports }
+    #endif
+}
+
 // [updates] The sheet a group's line opens (UpdateGroups.swift): the run in the order it happened, each member on a
 // card of its own beside a rail, as the Steps sheet draws a reply's steps. A message shows its whole words in the
 // reply's type (a long one shows its first lines and "Show More"); a work line lists its steps, each opening its

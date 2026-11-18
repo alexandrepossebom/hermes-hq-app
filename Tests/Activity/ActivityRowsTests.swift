@@ -62,11 +62,17 @@ struct ActivityRowsTests {
         #expect(t.earlier == 3 && t.lines.count == 7)
     }
 
-    @Test func inHeaderDrawsNoStepsButKeepsCards() {
+    @Test func inHeaderDrawsNoStepsButKeepsHelperDisclosure() {
         var parts = turn[1].parts
         parts.insert(.tool(call("d1", "delegate_task", #"{"goal":"A"}"#, card: .delegate(goals: ["A"], results: [DelegateResult(status: "completed")], dispatchedGoals: nil))), at: 2)
         let messages = [turn[0], ChatMessage(id: "a", role: .assistant, parts: parts, timestamp: Date(), rowId: 2)]
-        #expect(kinds(ChatRowBuilder.build(input(messages) { $0.style = .header })) == ["bubble", "delegate", "bubble"])
+        let rows = ChatRowBuilder.build(input(messages) { $0.style = .header })
+        #expect(kinds(rows) == ["bubble", "other", "bubble"])
+        let helpers = rows.compactMap { row -> BackgroundResultRow? in
+            if case .backgroundResult(let b) = row.kind, b.helperRequestID != nil { return b } else { return nil }
+        }
+        #expect(helpers.map(\.helperRequestID) == ["u"])
+        #expect(helpers.map(\.title) == ["1 helper done"])
     }
 
     @Test func hideFoldsADoneReplyButKeepsAFailedOne() {

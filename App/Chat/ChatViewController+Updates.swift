@@ -4,6 +4,11 @@ import UIKit
 // (UpdatesSheet.swift). The chat behind it stays exactly as it is.
 
 extension ChatViewController {
+    /// The helper disclosure uses the same report cards and step pages as ordinary updates.
+    func helperReportsPage(_ opened: UpdatesOpened) -> UpdatesSheetViewController {
+        UpdatesSheetViewController(opened: opened, focus: nil, hooks: updatesHooks())
+    }
+
     /// The line was tapped.
     func presentUpdates(line row: ChatRow) {
         Haptics.play(.selection)

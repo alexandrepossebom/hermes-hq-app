@@ -4227,6 +4227,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     func chatCellToggle(rowId: String) {
         guard let row = rows.first(where: { $0.id == rowId }) else { return }
+        if case .backgroundResult(let line) = row.kind, let requestID = line.helperRequestID {
+            activity.presentHelpers(requestID: requestID)
+            return
+        }
         // A run of one opens its step sheet directly (spec 03 §8.4).
         if case .toolRun(let run) = row.kind, run.tools.count == 1, run.line?.thought == nil {
             chatCellOpenStep(rowId: rowId, index: 0)

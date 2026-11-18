@@ -40,6 +40,12 @@ import UIKit
     private var readHelperFailures: Set<String> = []
     /// The last displayed unread snapshot; the ActivityStore owns its lifetime across turns and screens.
     private var unreadHelperFailures: [String: SubagentProgress] = [:]
+    /// Terminal snapshots survive the roster's next message.start, so earlier batches keep their details.
+    private var retainedHelpers: [String: SubagentProgress] = [:]
+    private var retainedHelperTails: [String: SubagentTail] = [:]
+    private weak var helperStatusSheet: HelperStatusSheetViewController?
+    private var helperRequestID: String?
+    private var helperSheetSelected: String?
     /// A done goal or a finished Previous tasks list you hid from the shelf (memory only, while the app runs; no
     /// gateway call). Keyed by the bot, the goal's title and start, or the list's items.
     private static var hiddenPieces: Set<String> = []
@@ -212,6 +218,7 @@ import UIKit
             guard let id, self.provider?.activity.subagents.first(where: { $0.id == id })?.isLive == true else { return nil }
             return id
         }
+        if helperStatusSheet?.isVisible == true { return live(helperSheetSelected) }
         if openPieces.contains(.subagents), let sel = live(selectedSubagent) { return sel }
         // [mac-layout] Or the helper open in the inspector's Helpers tab, while it shows.
         if helpersPanel?.viewIfLoaded?.window != nil { return live(panelSelected) }
@@ -287,17 +294,16 @@ import UIKit
     func sessionChanged() {
         refreshStepsSheet()
         openStepDetail?.refresh()
+        refreshHelperStatusSheet()
     }
 
     private func activityChanged() {
+        let previous = lastCardKey
         updateShelf(animated: true)
         // The delegate cards follow their children (the ticker, statuses, timers). [perf] Only when what the cards read
         // changed: a todo tick, a goal or a tail read leaves them as they were.
         if cardsNeedRebuild(subagents: provider?.activity.subagents ?? [], turnAnchor: provider?.hiddenTurnAnchor) {
-            let messages = chat.session.messages
-            let ids = messages.suffix(16).filter { m in
-                m.parts.contains { if case .tool(let c) = $0 { return c.name == "delegate_task" } else { return false } }
-            }.map(\.id)
+            let ids = Self.helperRebuildMessageIDs(input: chat.input(), previous: previous)
             if !ids.isEmpty { chat.activityRebuild(messageIds: ids) }
         }
         // Display flags may have changed (reasoning on/off, tool progress).
@@ -314,6 +320,34 @@ import UIKit
     struct CardKey: Equatable {
         var subagents: [SubagentProgress]
         var turnAnchor: String?
+    }
+
+    /// A helper tick changes its request's one anchor. Earlier batches in that request share the same rebuild.
+    static func helperRebuildMessageIDs(input: ChatRowBuilder.Input, previous: CardKey?) -> [String] {
+        let current = Dictionary(input.activity.subagents.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let before = Dictionary((previous?.subagents ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let changed = Set(current.keys).union(before.keys).filter { current[$0] != before[$0] }
+        let plan = HelperStatusRows.Plan(input)
+        var oldInput = input
+        oldInput.activity.subagents = previous?.subagents ?? []
+        oldInput.activity.turnAnchor = previous?.turnAnchor
+        let oldPlan = HelperStatusRows.Plan(oldInput)
+        var ids: Set<String> = []
+        for group in plan.groups + oldPlan.groups where group.helpers.contains(where: { changed.contains($0.id) }) {
+            ids.insert(input.messages[group.anchor].id)
+        }
+        let anchorChanged = previous.map { $0.turnAnchor != input.activity.turnAnchor } ?? true
+        if anchorChanged, let request = input.messages.last(where: { $0.role == .user })?.id,
+           let group = plan.group(requestID: request) {
+            ids.insert(input.messages[group.anchor].id)
+        }
+        let consolidated = Set(plan.groups.flatMap { $0.members.filter { !$0.steps.isEmpty }.map(\.messageId) })
+        for message in input.messages where !consolidated.contains(message.id) {
+            guard message.parts.contains(where: { if case .tool(let call) = $0 { return call.name == "delegate_task" }; return false }),
+                  ActivityRows.inLatestTurn(message, input: input) || ActivityRows.inLatestTurn(message, input: oldInput) else { continue }
+            ids.insert(message.id)
+        }
+        return input.messages.compactMap { ids.contains($0.id) ? $0.id : nil }
     }
     /// The key the delegate cards were last rebuilt for (nil: rebuild on the next delivery).
     private var lastCardKey: CardKey?
@@ -348,7 +382,11 @@ import UIKit
         if let p = provider {
             a.showReasoning = p.displayFlags.showReasoning
             a.toolProgressOff = p.displayFlags.toolProgressOff
+            rememberHelpers(p.activity)
             a.subagents = p.activity.subagents
+            a.retainedSubagents = retainedHelpers.values.sorted {
+                $0.startedAt == $1.startedAt ? $0.id < $1.id : $0.startedAt < $1.startedAt
+            }
             a.providerWait = p.providerWait
             var seconds: [String: [Int: Double]] = [:]
             for m in chat.session.messages.suffix(40) where m.role == .assistant {
@@ -743,11 +781,13 @@ import UIKit
     func updateShelf(animated: Bool) {
         guard installed, let p = provider else { return }
         let a = p.activity
+        rememberHelpers(a)
+        let coveredHelpers = HelperStatusRows.Plan(chat.input()).coveredLiveIDs
         let now = Date().timeIntervalSince1970
         let idle = !chat.session.isRunning
         var goal = a.control.capability == .unsupported ? nil : a.goal
         if let g = goal, g.status == .done, Self.hiddenPieces.contains(hideKey(g)) { goal = nil }
-        let live = a.liveSubagents
+        let live = a.liveSubagents.filter { !coveredHelpers.contains($0.id) }
         // The card lists this turn's helpers, finished ones too (with their results), while any runs; once all are done
         // it stays while you have one open, until you fold it or the next message clears them. A finished child only
         // keeps its Steer row while words you typed to it are still in the field.
@@ -762,9 +802,9 @@ import UIKit
                 }
             }
         }
-        var turn = a.subagents.filter { $0.isLive || !$0.isDelegateStandIn || $0.status == .failed }
+        var turn = a.subagents.filter { !coveredHelpers.contains($0.id) && ($0.isLive || !$0.isDelegateStandIn || $0.status == .failed) }
         let rosterIds = Set(turn.map(\.id))
-        turn += unreadHelperFailures.values.filter { !rosterIds.contains($0.id) }.sorted { $0.id < $1.id }
+        turn += unreadHelperFailures.values.filter { !rosterIds.contains($0.id) && !coveredHelpers.contains($0.id) }.sorted { $0.id < $1.id }
         let keepOpen = openPieces.contains(.subagents) && selectedSubagent.map { id in turn.contains { $0.id == id } } == true
         let unreadFailures = turn.filter { unreadHelperFailures[$0.id] != nil }
         var shown = !live.isEmpty || keepOpen ? turn : unreadFailures
@@ -950,6 +990,7 @@ import UIKit
         }
         layoutShelf(present: present, animated: animated)
         updateHelpersPanel()
+        refreshHelperStatusSheet()
         // A child that ended takes its open detail with it: the tail read stops too (§4.4).
         reportVisibility()
     }
@@ -1166,6 +1207,83 @@ import UIKit
 
     // MARK: The inspector's Helpers tab (Mac)
 
+    private func rememberHelpers(_ activity: ChatActivity) {
+        for child in activity.subagents where child.status.isTerminal {
+            retainedHelpers[child.id] = child
+        }
+        for child in activity.unreadHelperFailures where child.status.isTerminal {
+            retainedHelpers[child.id] = child
+        }
+        retainedHelperTails.merge(activity.tails) { _, latest in latest }
+    }
+
+    /// The request's one status line opens every batch, with the same controls and drafts as the shelf/inspector.
+    func presentHelpers(requestID: String) {
+        guard let group = HelperStatusRows.Plan(chat.input()).group(requestID: requestID),
+              chat.presentedViewController == nil else { return }
+        Haptics.play(.selection)
+        chat.view.endEditing(true)
+        let page = HelperStatusSheetViewController(reports: chat.helperReportsPage(group.opened))
+        helperStatusSheet = page
+        helperRequestID = requestID
+        helperSheetSelected = nil
+        page.body.onSelect = { [weak self] id in
+            guard let self else { return }
+            if id != self.helperSheetSelected { self.acknowledgeHelperFailure(self.helperSheetSelected) }
+            self.helperSheetSelected = id
+            self.refreshHelperStatusSheet()
+            self.reportVisibility()
+        }
+        page.body.onDraftChange = { [weak self] id, text in self?.steerDrafts[id] = text }
+        page.body.onSteer = { [weak self] id, text in self?.steer(id, text) }
+        page.body.onStop = { [weak self] id in self?.stopChild(id) }
+        page.onLayout = { [weak self] in self?.refreshHelperStatusSheet() }
+        page.onVisibilityChange = { [weak self, weak page] in
+            guard let self else { return }
+            if page?.isVisible != true { self.acknowledgeHelperFailure(self.helperSheetSelected) }
+            self.reportVisibility()
+        }
+        page.loadViewIfNeeded()
+        refreshHelperStatusSheet()
+        chat.present(ChatSheet.wrap(page, title: "Helpers"), animated: true)
+    }
+
+    private func refreshHelperStatusSheet() {
+        guard let page = helperStatusSheet, let requestID = helperRequestID,
+              let group = HelperStatusRows.Plan(chat.input()).group(requestID: requestID) else { return }
+        if let selected = helperSheetSelected, !group.helpers.contains(where: { $0.id == selected }) {
+            acknowledgeHelperFailure(selected)
+            helperSheetSelected = nil
+        }
+        let selected = helperSheetSelected
+        let native = selected.flatMap { id in provider?.activity.subagents.first { $0.id == id && !$0.isDelegateStandIn } }
+        let draft = selected.flatMap { steerDrafts[$0] } ?? ""
+        let feedback = selected.flatMap { steerFeedback[$0] }
+        let busy = selected.map { steerBusy.contains($0) } ?? false
+        let tail = selected.flatMap { provider?.activity.tails[$0] ?? retainedHelperTails[$0] }
+        let width = max(240, page.view.bounds.width - 32)
+        page.update(title: group.title, reports: group.opened)
+        page.body.update(children: group.helpers, selected: selected, tail: tail, draft: draft, feedback: feedback,
+                         busy: busy, wide: false, width: width, now: Date().timeIntervalSince1970)
+        // Cached or reconstructed rows have no controllable live gateway child. Their reports remain available.
+        let canControl = native?.isLive == true && provider?.activityStore != nil
+        for case let detail as SubagentDetailView in page.body.allSubviews {
+            detail.field.isEnabled = canControl
+            detail.send.isEnabled = canControl && !busy && !(detail.field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            detail.stop.isEnabled = canControl && !busy
+        }
+    }
+
+    private func acknowledgeHelperFailure(_ id: String?) {
+        guard let id, unreadHelperFailures[id] != nil || provider?.activity.unreadHelperFailures.contains(where: { $0.id == id }) == true else { return }
+        if let p = provider, let store = p.activityStore, let rid = p.activityRuntimeId ?? p.activity.runtimeId {
+            store.acknowledgeHelperFailure(runtimeId: rid, subagentId: id)
+        } else {
+            readHelperFailures.insert(id)
+        }
+        unreadHelperFailures.removeValue(forKey: id)
+    }
+
     /// [mac-layout] Owner 2026-11-03 (the Mac layout study): the chat's helpers in the inspector, this turn's, finished
     /// ones too, as the card above the composer lists them: the list, then a helper's page (Steer, Stop, its steps).
     private weak var helpersPanel: HelpersPanelController?
@@ -1262,6 +1380,9 @@ import UIKit
         // The field clears after a queued steer (it keeps the draft otherwise).
         for case let detail as SubagentDetailView in subagentsBody.allSubviews { detail.field.text = ""; detail.refreshSend() }
         if let body = helpersPanel?.body {
+            for case let detail as SubagentDetailView in body.allSubviews { detail.field.text = ""; detail.refreshSend() }
+        }
+        if let body = helperStatusSheet?.body {
             for case let detail as SubagentDetailView in body.allSubviews { detail.field.text = ""; detail.refreshSend() }
         }
     }

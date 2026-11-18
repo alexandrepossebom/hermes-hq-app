@@ -791,6 +791,72 @@ final class ActivityEndToEndTests: XCTestCase {
 
     // MARK: (22, 24, 25) Rows + Hide: the delegation turn folds; delegate card; Show Steps; the diff
 
+    @MainActor func testHelperStatusDisclosure() throws {
+        let account = try FixtureAccount.load()
+        let holdKey = "helper-disclosure-\(UUID().uuidString)"
+        cleanUpSyntheticTurnsAfterTest(account, gateKey: holdKey)
+        try reset(account)
+        var plan = Self.delegationPlan
+        var events = try XCTUnwrap(plan["events"] as? [[String: Any]])
+        let completion = try XCTUnwrap(events.firstIndex { $0["type"] as? String == "subagent.complete" })
+        events[completion]["waitFor"] = holdKey
+        events[completion]["waitTimeout"] = 90
+        plan["events"] = events
+        try account.control("/__fixture/plan", ["plans": [plan]])
+        let app = launchAndSend(account, "Write the release notes", args: ["-hq.chat.toolCallStyle", "line"])
+        let line = app.tables["chat.table"].buttons.matching(NSPredicate(format: "label CONTAINS 'helpers working'")).firstMatch
+        XCTAssertTrue(line.waitForExistence(timeout: 20), "the consolidated helper line appears")
+        shot("helper-status-collapsed")
+        line.tap()
+        let reports = app.buttons["chat.helpers.reports"]
+        XCTAssertTrue(reports.waitForExistence(timeout: 8), "the helper details open")
+        XCTAssertTrue(labelled(app, containing: "Read the changelog").waitForExistence(timeout: 5))
+        XCTAssertTrue(labelled(app, containing: "Check open issues").exists)
+        shot("helper-status-expanded")
+        reports.tap()
+        XCTAssertTrue(app.tables["updates.list"].waitForExistence(timeout: 5), "reports and steps remain accessible")
+        shot("helper-status-reports")
+        try event(account, "fixture.release", ["key": holdKey])
+    }
+
+    @MainActor func testHelperMixedBatchesRemainOneLine() throws {
+        let account = try FixtureAccount.load()
+        let holdKey = "mixed-helpers-\(UUID().uuidString)"
+        cleanUpSyntheticTurnsAfterTest(account, gateKey: holdKey)
+        try reset(account)
+        try account.control("/__fixture/rows", ["profile": "default", "rows": [["role": "user", "display_kind": "internal_notification", "content": "[IMPORTANT: Background process proc_fixture completed.\nCommand: npm run smoke\nexit 0]"]]])
+        let goals = ["Review the release notes", "Check open issues", "Inspect the changelog", "Run smoke tests",
+                     "Check documentation", "Review migration guide", "Verify the build"]
+        var events: [[String: Any]] = []
+        for batch in 0..<2 {
+            let indices = batch == 0 ? Array(0..<3) : Array(3..<7)
+            let tasks = indices.map { ["goal": goals[$0]] }
+            events.append(["after": 0.5, "type": "tool.start", "payload": ["tool_id": "batch_\(batch)", "name": "delegate_task", "args": ["tasks": tasks]]])
+            for i in indices {
+                events.append(["type": "subagent.start", "payload": ["goal": goals[i], "task_count": indices.count, "task_index": i - indices[0], "subagent_id": "mixed_\(i)", "status": "running"]])
+                if i < 3 {
+                    events.append(["type": "subagent.complete", "payload": ["goal": goals[i], "task_count": indices.count, "task_index": i - indices[0], "subagent_id": "mixed_\(i)", "status": "completed", "summary": "Review complete"]])
+                }
+            }
+        }
+        events.append(["type": "tool.start", "payload": ["tool_id": "separate_terminal", "name": "terminal", "args": ["command": "echo background-check"]]])
+        events.append(["type": "tool.complete", "payload": ["tool_id": "separate_terminal", "name": "terminal", "args": ["command": "echo background-check"], "result": ["output": "background-check complete", "exit_code": 0]]])
+        events.append(["waitFor": holdKey, "waitTimeout": 120, "type": "message.delta", "payload": ["text": "Review complete."]])
+        try account.control("/__fixture/plan", ["plans": [["events": events]]])
+        let app = launchAndSend(account, "Prepare a release readiness review", args: ["-hq.chat.toolCallStyle", "line"])
+        let lines = app.tables["chat.table"].buttons.matching(NSPredicate(format: "label CONTAINS 'helpers working'"))
+        XCTAssertTrue(waitUntil(timeout: 30) { lines.count == 1 && lines.firstMatch.label.contains("3 done") }, "one line combines the two batches: \(lines.count), \(lines.firstMatch.label)")
+        XCTAssertTrue(lines.firstMatch.label.contains("4 helpers working"), lines.firstMatch.label)
+        XCTAssertTrue(labelled(app, containing: "npm run smoke").waitForExistence(timeout: 8), "a completed background process remains a separate transcript item")
+        shot("mixed-helper-after")
+        lines.firstMatch.tap()
+        XCTAssertTrue(app.buttons["chat.helpers.reports"].waitForExistence(timeout: 5))
+        XCTAssertTrue(labelled(app, containing: goals[0]).waitForExistence(timeout: 5))
+        XCTAssertTrue(labelled(app, containing: goals[3]).exists)
+        shot("mixed-helper-details-after")
+        try event(account, "fixture.release", ["key": holdKey])
+    }
+
     @MainActor func test22_DelegationFoldsShowStepsAndDiff() throws {
         let account = try FixtureAccount.load()
         let holdKey = "delegation-edit-\(UUID().uuidString)"
@@ -803,10 +869,11 @@ final class ActivityEndToEndTests: XCTestCase {
         events[completion]["waitTimeout"] = 45
         plan["events"] = events
         try account.control("/__fixture/plan", ["plans": [plan]])
-        let app = launchAndSend(account, "Write the release notes", args: ["-hq.chat.toolCallsAfterReply", "hide", "-HQDebugMotionProbe", "YES"])
-        let card = element(app, "chat.delegate-card")
-        XCTAssertTrue(card.waitForExistence(timeout: 6), "the delegate card shows")
-        XCTAssertTrue(app.activityCategory("subagents").waitForExistence(timeout: 4), "the subagents chip shows")
+        let app = launchAndSend(account, "Write the release notes", args: ["-hq.chat.toolCallStyle", "rows", "-hq.chat.toolCallsAfterReply", "hide", "-HQDebugMotionProbe", "YES"])
+        let card = app.tables["chat.table"].buttons.matching(NSPredicate(format: "label CONTAINS 'helper'")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 8), "the request-scoped helper line shows")
+        app.openActivityOverview()
+        XCTAssertFalse(element(app, "chat.shelf.subagents").exists, "helpers represented in the transcript are not duplicated in the shelf")
         XCTAssertTrue(app.activityCategory("tasks").waitForExistence(timeout: 5), "the tasks chip shows")
         shot("delegation-live")
         // Category inspection opened the overview. Restore the folded dock before measuring the transcript fold.
@@ -834,10 +901,12 @@ final class ActivityEndToEndTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(number(m, "watchMoves"), 3, "the reply slid over several frames: \(m)")
         }
         XCTAssertFalse(element(app, "chat.copy-reply").exists, "the owner-removed action row stays absent after the fold")
-        XCTAssertTrue(card.exists, "the card stays")
-        XCTAssertTrue(labelled(app, containing: "Read the changelog, done").exists, "the first child done")
-        XCTAssertTrue(labelled(app, containing: "Check open issues, failed").exists, "the second child failed")
+        XCTAssertTrue(card.exists, "the helper line stays")
         shot("delegation-folded")
+        card.tap()
+        XCTAssertTrue(labelled(app, containing: "Read the changelog, Done").waitForExistence(timeout: 5), "the first child done")
+        XCTAssertTrue(labelled(app, containing: "Check open issues, Failed").exists, "the second child failed")
+        app.buttons["sheet.close"].firstMatch.tap()
         // Show Steps from the reply's menu.
         labelled(app, containing: "Done: 14 changes").press(forDuration: 1.0)
         XCTAssertTrue(element(app, "message.copy").waitForExistence(timeout: 3), "Copy remains available in the reply's hold menu")

@@ -25,6 +25,10 @@ nonisolated struct ActivityRowsInput: @unchecked Sendable {
     var reasoningSeconds: [String: [Int: Double]] = [:]
     /// The chat's subagents, for the delegate card's live rows.
     var subagents: [SubagentProgress] = []
+    /// Observed completed helpers from earlier batches. Only request-scoped helper grouping reads this cache.
+    var retainedSubagents: [SubagentProgress] = []
+    /// Delegate calls represented by the request's single helper line. Original calls stay available in its details.
+    var consolidatedHelperCalls: Set<String> = []
     /// The explained provider wait for the waiting capsule.
     var providerWait: String?
     /// The chat's profile and stored session (the generated image's download).

@@ -149,6 +149,7 @@ nonisolated enum TimelineNotes {
                     out![index].role = .system
                     out![index].parts = [.text(helperTitle(t))]
                     out![index].report = Hydration.asyncResultBody(t)
+                    out![index].helperReport = HelperReport.parse(t)
                 }
             case .assistant:
                 guard m.sender == nil, !m.isStreaming, m.error == nil else { continue }

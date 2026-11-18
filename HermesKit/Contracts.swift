@@ -323,6 +323,8 @@ nonisolated struct ChatMessage: Identifiable, Hashable, Sendable {
     var silentNote: Bool = false
     /// A background process's note: what it printed (command, output), opened from its one-line title. Display-time only.
     var report: String? = nil
+    /// Structured async report identity, retained before its envelope is removed for display.
+    var helperReport: HelperReport? = nil
     /// Tapback reactions on the message (yours and the bot's), from its stored rows or `message.react`'s answer.
     var reactions: [MessageReaction] = []
     /// The stored row a reaction is written to when that differs from `rowId` (a reply folded from several rows reacts on

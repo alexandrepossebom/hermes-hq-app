@@ -77,6 +77,16 @@ struct ChatRowModel {
         // Never past the end: when the messages shrank without a reset, `builtFrom` (counted in the old array) can lie
         // beyond it (the screen resets the model then; this keeps a late caller from trapping on the range).
         var lo = min(messages.count, max(builtFrom, min(lo, messages.count)))
+        if lo < messages.count {
+            let helperStart = HelperStatusRows.Plan(input).widen(lo...lo).lowerBound
+            if helperStart < builtFrom {
+                // A new batch can extend an older request into the built tail. Its single line belongs to the
+                // first batch, which must be built before suppressing the new batch and its shelf entry.
+                builtFrom = helperStart
+                lo = helperStart
+                generation += 1
+            }
+        }
         // [updates] From the start of an update group the region reaches into: its line counts what follows.
         if lo < messages.count { lo = max(builtFrom, UpdateGroups.widen(lo...lo, input: input).lowerBound) }
         // [page-fold] Back to the first card of any page these messages hand over: it folds ("Updated below") once a
@@ -159,11 +169,28 @@ struct ChatRowModel {
         let messages = input.messages
         guard count > 0, !messages.isEmpty else { return }
         generation += 1
+        let helpers = HelperStatusRows.Plan(input)
         if builtFrom > 0 {
             builtFrom += count
+            // An older page can reveal the user request owning helper batches already drawn at the tail. Rebuild
+            // from that request's helper anchor now, before background chunks introduce a second representation.
+            let affected = helpers.groups.filter { $0.anchor < builtFrom && $0.span.upperBound >= builtFrom }
+            if let anchor = affected.map(\.anchor).min() {
+                let shown = shownCount
+                builtFrom = anchor
+                allRows = ChatRowBuilder.build(input, range: anchor..<messages.count).reversed()
+                hiddenOlder = max(0, allRows.count - shown)
+                measuredHidden = 0
+            } else if helpers.groups.contains(where: { $0.anchor >= builtFrom }) {
+                // The owner itself was paged in, while its first batch is already in the built suffix.
+                rebuildNewest(input, fromMessage: builtFrom)
+            }
             return
         }
-        let boundary = min(count, messages.count - 1)
+        let oldBoundary = min(count, messages.count - 1)
+        // A newly loaded request can own helpers on both sides of the old boundary. Build its anchor before
+        // suppressing the already visible batch rows; the rest of the older page still fills in chunks.
+        let boundary = helpers.widen(oldBoundary...oldBoundary).lowerBound
         builtFrom = boundary
         // [updates] With every message of an update group it is in: an opened card's rows carry their own messages' ids
         // but are drawn by the line's message, so rebuilt alone the later ones' rows would show twice.
@@ -174,7 +201,11 @@ struct ChatRowModel {
         while first < messages.count - 1, first - boundary < UpdateGroups.reach, rows.at(first).isEmpty { first += 1 }
         let hi = min(messages.count - 1, max(first, UpdateGroups.widen(first...first, input: input, pagedIn: true).upperBound))
         let fresh = ChatRowBuilder.build(input, range: boundary..<(hi + 1))
-        let ids = Set(messages[boundary...hi].map(\.id))
+        var ids = Set(messages[boundary...hi].map(\.id))
+        if hi == messages.count - 1 {
+            ids.insert("waiting")
+            ids.insert(PromptRows.tailMessageId)
+        }
         var suffix = 0
         while suffix < allRows.count && ids.contains(allRows[allRows.count - 1 - suffix].messageId) { suffix += 1 }
         let boundaryWasShown = suffix > hiddenOlder

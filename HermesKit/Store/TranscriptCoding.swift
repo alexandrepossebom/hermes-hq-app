@@ -124,8 +124,9 @@ nonisolated struct TranscriptEntry: Sendable, Equatable {
     /// HQT3 file never sets the bit and still reads; a build that knows only HQT3 reads an HQT4 file as a miss.
     /// "HQT5" (log study 2026-10-28): a message's meta ends with the highest row it covers. An HQT3/HQT4 file still
     /// reads (no last row); a build that knows only HQT4 reads an HQT5 file as a miss.
-    static let magic: [UInt8] = Array("HQT5".utf8)
-    static let readableMagics: [[UInt8]] = [Array("HQT3".utf8), Array("HQT4".utf8), Array("HQT5".utf8)]
+    /// HQT6 retains structured helper report ownership (message flag bit 4). Older entries still read safely.
+    static let magic: [UInt8] = Array("HQT6".utf8)
+    static let readableMagics: [[UInt8]] = [Array("HQT3".utf8), Array("HQT4".utf8), Array("HQT5".utf8), Array("HQT6".utf8)]
 
     func encoded() -> Data {
         var w = BinaryWriter(capacity: 8192)
@@ -150,7 +151,7 @@ nonisolated struct TranscriptEntry: Sendable, Equatable {
         messages.reserveCapacity(count)
         var meta: [String: MessageMeta] = [:]
         for _ in 0..<count {
-            let (m, mm) = try read(&r, hasLastRow: head == magic)
+            let (m, mm) = try read(&r, hasLastRow: head == Array("HQT5".utf8) || head == magic)
             messages.append(m)
             if let mm { meta[m.id] = mm }
         }
@@ -173,8 +174,9 @@ nonisolated struct TranscriptEntry: Sendable, Equatable {
         w.optionalDouble(m.timestamp?.timeIntervalSince1970)
         w.optionalInt(m.rowId)
         let reacted = !m.reactions.isEmpty || m.reactionRow != nil
-        w.byte((m.interrupted ? 1 : 0) | (reacted ? 2 : 0))
+        w.byte((m.interrupted ? 1 : 0) | (reacted ? 2 : 0) | (m.helperReport != nil ? 4 : 0))
         w.optionalString(m.error)
+        if let report = m.helperReport { w.json(report.json) }
         if reacted {
             w.varint(UInt64(m.reactions.count))
             for r in m.reactions { w.string(r.emoji); w.string(r.author); w.optionalDouble(r.at) }
@@ -236,6 +238,7 @@ nonisolated struct TranscriptEntry: Sendable, Equatable {
         let rowId = try r.optionalInt()
         let flags = try r.byte()
         let error = try r.optionalString()
+        let helperReport = flags & 4 != 0 ? HelperReport(json: try r.json()) : nil
         var reactions: [MessageReaction] = []
         var reactionRow: Int?
         if flags & 2 != 0 {
@@ -268,6 +271,7 @@ nonisolated struct TranscriptEntry: Sendable, Equatable {
         var message = ChatMessage(id: id, role: role, parts: parts, timestamp: ts.map { Date(timeIntervalSince1970: $0) }, rowId: rowId)
         message.interrupted = flags & 1 != 0
         message.error = error
+        message.helperReport = helperReport
         message.reactions = reactions
         message.reactionRow = reactionRow
         guard try r.bool() else { return (message, nil) }

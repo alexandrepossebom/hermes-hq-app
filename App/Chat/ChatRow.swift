@@ -185,6 +185,9 @@ nonisolated struct BackgroundResultRow {
     var voice = false
     /// [updates] The centred line that stands for a run of these (UpdateGroups.swift); nil for a row of its own.
     var group: UpdatesGroup? = nil
+    /// A request-scoped helper disclosure, kept out of adjacent update groups.
+    var helperRequestID: String? = nil
+    var helpersWorking = false
 }
 
 nonisolated struct ErrorRow {
@@ -763,7 +766,8 @@ nonisolated enum ChatRowBuilder {
             switch part {
             case .text(let t): return !ReasoningTags.isBlank(t)
             case .reasoning(let t): return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            case .tool(let call): return !(ChatRunSummary.isSilent(call.name) && call.state != .failed)
+            case .tool(let call): return !input.activity.consolidatedHelperCalls.contains(call.id)
+                && !(ChatRunSummary.isSilent(call.name) && call.state != .failed)
             }
         }) ?? -1
 
@@ -903,6 +907,10 @@ nonisolated enum ChatRowBuilder {
                 if ShoppingCards.tools.contains(call.name), let card = PromptRows.shoppingRow(call, message: m, input: input) {
                     flushRun(endingAt: i - 1)
                     rows.append(card)
+                    continue
+                }
+                if input.activity.consolidatedHelperCalls.contains(call.id) {
+                    workedSinceWords = true
                     continue
                 }
                 if ChatRunSummary.isSilent(call.name) && call.state != .failed { continue }

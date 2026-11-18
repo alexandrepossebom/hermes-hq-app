@@ -233,7 +233,7 @@ struct ActivityReviewTests {
         let m = ChatMessage(id: "a", role: .assistant, parts: [.tool(delegate), .tool(image), .text("ok")], timestamp: Date(timeIntervalSince1970: 100), rowId: 2)
         let entry = TranscriptEntry(messages: [m], meta: [:], savedAt: Date(timeIntervalSince1970: 200))
         let data = entry.encoded()
-        #expect(Array(data.prefix(4)) == Array("HQT5".utf8))
+        #expect(Array(data.prefix(4)) == Array("HQT6".utf8))
         let back = try TranscriptEntry.decode(data)
         #expect(toolCalls(back.messages.first).map(\.card) == [delegate.card, image.card])
         // A file an earlier build wrote (integration: HQT3 merges the attachments and activity formats; older files
@@ -270,7 +270,7 @@ struct ActivityReviewTests {
         #expect(hasWaiting(ChatRowBuilder.build(rowsInput([user, reply], running: true))), "Rows keeps the thinking row")
     }
 
-    @Test func anEarlierTurnsCardKeepsItsOwnResult() {
+    @Test func anEarlierTurnsCardKeepsItsOwnResult() throws {
         func delegate(_ id: String, running: Bool) -> ToolCall {
             var c = ToolCall(id: id, name: "delegate_task", title: "d", argsText: #"{"goal":"Index"}"#, summary: nil,
                              state: running ? .running : .done, durationSeconds: nil)
@@ -283,15 +283,21 @@ struct ActivityReviewTests {
                         ChatMessage(id: "a2", role: .assistant, parts: [.tool(delegate("d2", running: true))], timestamp: Date(), rowId: nil, isStreaming: true)]
         let child = SubagentProgress(id: "sa_9", goal: "Survey", status: .running, taskCount: 1, taskIndex: 0, startedAt: 1, updatedAt: 1,
                                      stream: [SubagentStreamEntry(at: 1, isError: false, kind: .tool, text: "Read File(\"x\")")])
-        let rows = ChatRowBuilder.build(rowsInput(messages, running: true) { $0.subagents = [child] })
-        func card(_ id: String) -> [ToolCards.DelegateRow] {
-            for row in rows { if case .activity(.delegate(let d)) = row.kind, d.toolId == id { return d.rows } }
-            return []
+        let input = rowsInput(messages, running: true) { $0.subagents = [child] }
+        let plan = HelperStatusRows.Plan(input)
+        let earlier = try #require(plan.group(requestID: "u1"))
+        let current = try #require(plan.group(requestID: "u2"))
+        #expect(earlier.helpers.first?.status == .completed, "the old request keeps its result")
+        #expect(earlier.helpers.first?.summary == "Indexed")
+        #expect(earlier.members.flatMap(\.steps).map(\.id) == ["d1"])
+        #expect(current.helpers.first?.status == .running)
+        #expect(current.helpers.first?.id == "delegate-tool:d2:0")
+        #expect(current.helpers.first?.stream.isEmpty == true)
+        #expect(!plan.coveredLiveIDs.contains(child.id), "matching task counts alone cannot assign the unrelated Survey helper")
+        let lines = ChatRowBuilder.build(input).compactMap { row -> BackgroundResultRow? in
+            if case .backgroundResult(let b) = row.kind, b.helperRequestID != nil { return b } else { return nil }
         }
-        #expect(card("d1").first?.status == .completed, "the old card keeps its result")
-        #expect(card("d1").first?.activity == ["Indexed"])
-        #expect(card("d2").first?.status == .running)
-        #expect(card("d2").first?.activity.last == "Read File(\"x\")", "the live card takes the child")
+        #expect(lines.map(\.helperRequestID) == ["u1", "u2"])
     }
 
     @Test func aFallbackNoticeSitsUnderTheReply() {

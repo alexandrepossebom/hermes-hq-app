@@ -66,6 +66,8 @@ nonisolated struct UpdatesGroup: Hashable {
     var opens: Bool
     /// The members' words before their colons, oldest first (VoiceOver: "4 updates: From Hermes, To Hermes, …").
     var titles: [String] = []
+    /// Opens the request's helper details, including when there is only one helper.
+    var helperDetails = false
 }
 
 /// [updates] One member of a group, as its sheet shows it (UpdatesSheet.swift): a card on the sheet's rail.
@@ -137,11 +139,11 @@ nonisolated enum UpdateGroups {
     final class Rows {
         let input: ChatRowBuilder.Input
         private var made: [Int: [ChatRow]] = [:]
-        init(_ input: ChatRowBuilder.Input) { self.input = input }
+        let helpers: HelperStatusRows.Plan
+        init(_ input: ChatRowBuilder.Input) { self.input = input; helpers = HelperStatusRows.Plan(input) }
         func at(_ i: Int) -> [ChatRow] {
             if let known = made[i] { return known }
-            var rows: [ChatRow] = []
-            ChatRowBuilder.appendRows(for: input.messages[i], at: i, input: input, into: &rows)
+            let rows = helpers.rows(at: i, input: input)
             made[i] = rows
             return rows
         }
@@ -278,7 +280,8 @@ nonisolated enum UpdateGroups {
     /// working…", "Working") stays a row of its own until it settles.
     static func isSmall(_ row: ChatRow) -> Bool {
         switch row.kind {
-        case .backgroundResult, .notice: return true
+        case .backgroundResult(let b): return b.helperRequestID == nil
+        case .notice: return true
         case .toolRun(let t): return t.line != nil && !t.live
         default: return false
         }
@@ -439,6 +442,7 @@ nonisolated enum UpdateGroups {
     /// `pagedIn`: older messages were just added before the range (see `[exchange]` below).
     static func widen(_ range: ClosedRange<Int>, input: ChatRowBuilder.Input, pagedIn: Bool = false) -> ClosedRange<Int> {
         let rows = Rows(input)
+        let range = rows.helpers.widen(range)
         let count = input.messages.count
         var a = range.lowerBound, b = range.upperBound, answers = range.upperBound
         if a > 0 { a -= 1 }
@@ -497,7 +501,7 @@ nonisolated enum UpdateGroups {
             lo = min(lo, g.span.lowerBound)
             hi = max(hi, g.span.upperBound)
         }
-        return lo...hi
+        return rows.helpers.widen(lo...hi)
     }
 
     // MARK: The line

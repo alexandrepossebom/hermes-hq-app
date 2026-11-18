@@ -238,6 +238,7 @@ enum SubagentLook {
         switch s {
         case .running: return "Running"
         case .queued: return "Queued"
+        case .dispatched: return "Dispatched · status unavailable"
         case .completed: return "Done"
         case .failed: return "Failed"
         case .interrupted: return "Stopped"
@@ -248,6 +249,7 @@ enum SubagentLook {
         switch s {
         case .running: return GlyphFrames.purple
         case .queued: return ChatPalette.label2
+        case .dispatched: return ChatPalette.label2
         case .completed: return ChatPalette.green
         case .failed: return ChatPalette.red
         case .interrupted: return ChatPalette.orange
@@ -259,6 +261,7 @@ enum SubagentLook {
         switch s {
         case .running: return nil
         case .queued: return "clock"
+        case .dispatched: return "questionmark.circle"
         case .completed: return "checkmark.circle.fill"
         case .failed: return "xmark.circle.fill"
         case .interrupted: return "stop.circle.fill"

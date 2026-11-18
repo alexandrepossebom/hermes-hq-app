@@ -568,6 +568,7 @@ nonisolated private struct HMessage {
     var durableComplete: Bool?
     var systemNotice = false
     var asyncResult: String?
+    var helperReport: HelperReport?
     var attachmentRefs: [String] = []
     var firstRowId: Int?
     var attachments: [MessageAttachment] = []   // [attachments]
@@ -916,6 +917,7 @@ nonisolated private struct Folder {
             if kind == "async_delegation_complete" || kind == "process_complete" {
                 let body = Hydration.displayContent(role: role, content: row["content"].flatMap { $0.isTruthy ? $0 : nil } ?? content)
                 message.asyncResult = Hydration.asyncResultBody(body)
+                message.helperReport = HelperReport.parse(body)
             }
             if row["_synthetic"] == .bool(true) { message.serverRowSpan = 0 }
             result.append(message)
@@ -973,6 +975,7 @@ nonisolated private struct Folder {
             var message = ChatMessage(id: h.id, role: h.role, parts: chatParts,
                                       timestamp: h.timestamp.map { Date(timeIntervalSince1970: $0) }, rowId: h.rowId)
             message.reactions = h.reactions
+            message.helperReport = h.helperReport
             if let row = h.mineReactionRow ?? h.reactionRow, row != h.rowId { message.reactionRow = row }
             messages.append(message)
             if !meta.isDefault { metas[h.id] = meta }

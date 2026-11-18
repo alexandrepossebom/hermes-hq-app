@@ -206,6 +206,7 @@ nonisolated enum ToolCards {
             case .completed: self = .completed
             case .failed: self = .failed
             case .interrupted: self = .interrupted
+            case .dispatched: self = .dispatched
             }
         }
     }

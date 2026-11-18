@@ -171,7 +171,7 @@ struct AttachmentHydrationTests {
         #expect(Hydration.userDisplayKey("plain words") == "plain words")
     }
 
-    @Test func hqt2RoundTripsAndHQT1IsAMiss() throws {
+    @Test func currentFormatRoundTripsAndUnsupportedFormatsAreMisses() throws {
         let page = fold()
         var meta = page.meta
         // A local send's attachments: the uploaded one is kept as its gateway path, the unfinished one dropped.
@@ -185,7 +185,7 @@ struct AttachmentHydrationTests {
         meta[localMessage.id] = local
         let entry = TranscriptEntry(messages: page.messages + [localMessage], meta: meta, savedAt: Date())
         let data = entry.encoded()
-        #expect(Array(data.prefix(4)) == Array("HQT5".utf8))
+        #expect(Array(data.prefix(4)) == Array("HQT6".utf8))
         #expect(!String(decoding: data, as: UTF8.self).contains("data:image"))
         let back = try TranscriptEntry.decode(data)
         #expect(back.meta["stored-row-105-user"]?.attachments == page.meta["stored-row-105-user"]?.attachments)

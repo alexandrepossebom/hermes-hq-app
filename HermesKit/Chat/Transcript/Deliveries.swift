@@ -178,6 +178,7 @@ nonisolated enum CronDeliveries {
             if message.role == .assistant, message.parts.count > 1 { continue }
             if out == nil { out = messages }
             if parsed.body == "[SILENT]" {
+                out![index].job = parsed.job
                 out![index].role = .system
                 out![index].parts = [.text("\(parsed.job): \(Hydration.silentRunText)")]
                 continue

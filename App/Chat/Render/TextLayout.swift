@@ -746,7 +746,7 @@ nonisolated enum TextLayout {
             let asked = b.aside ? BackgroundResults.split(b.title).rest : ""
             let opened = asked.isEmpty ? BackgroundResults.opened(title: b.title, result: b.result) : b.result
             var layout = toolRow(title: BackgroundResults.split(b.title).head, glyph: b.glyph,
-                                 meta: nil, metaIsError: false, live: false,
+                                 meta: nil, metaIsError: false, live: b.helpersWorking,
                                  expanded: opensHere, single: false, steps: [],
                                  thought: opensHere ? SpacedText.repair(opened) : nil, gap: gap,
                                  width: width, style: style, thoughtLinks: b.process ? .addresses : .formatted,
