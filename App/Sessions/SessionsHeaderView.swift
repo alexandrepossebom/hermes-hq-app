@@ -212,7 +212,7 @@ struct SessionsHeaderView: View {
     /// [projects-switch] The switch at the rail's start: the two views side by side in one capsule (owner 2026-11-15
     /// on 1039's single round button: "needs to be more clear that it's a toggle between two views"). The robot is
     /// the tab bar's Bots glyph and the folder the project pills' own (owner: "They need to match what we use in the
-    /// menu"). The side of the view drawn is the tint while nothing is picked, dark while a pill is.
+    /// menu"). The side of the view drawn is the tint while nothing is picked, a soft grey while a pill is.
     /// [switch-toggles] Owner 2026-11-17: "Why can't the toggle toggle when you click it anywhere?" A tap anywhere on it
     /// flips the view. The side drawn had also been All (a tap on it cleared a picked pill and otherwise did nothing,
     /// so the switch seemed to ignore the tap); the lit pill clears itself with a tap, as it always has.
@@ -696,7 +696,7 @@ struct ChipPaging: ScrollTargetBehavior {
 /// [projects-switch] The Bots | Projects switch: the pill rail's first item (iPhone, iPad and, since 2026-11-17, the Mac).
 struct SessionsPillsSwitch: View {
     var model: SessionsHeaderModel
-    /// The side drawn is the tint while nothing is picked, dark while a pill is.
+    /// The side drawn is the tint while nothing is picked, a soft grey while a pill is.
     private var allPicked: Bool {
         model.pills == .projects ? model.pickedProjects.isEmpty && model.status == nil && !model.botPicked
             : model.picked == nil && model.status == nil
@@ -716,8 +716,10 @@ struct SessionsPillsSwitch: View {
                 ForEach(views, id: \.self) { view in
                     let here = model.pills == view
                     switchSide(view, here: here, half: half, side: side)
-                        .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqPage)
-                        .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel) } }
+                        // [switch-neutral] Owner 2026-11-18: "idk why the background to Projects is black?" With a
+                        // pill lit, the view's side is a soft grey thumb (a segmented control's), not solid black.
+                        .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqLabel)
+                        .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel.opacity(0.12)) } }
                 }
             }
             .padding(2)
