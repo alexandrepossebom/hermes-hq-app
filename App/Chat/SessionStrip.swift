@@ -188,7 +188,7 @@ final class SessionStripController: UIViewController {
         scroller.translatesAutoresizingMaskIntoConstraints = false
         scroller.panGestureRecognizer.addTarget(self, action: #selector(scrolledByPerson))
         view.addSubview(scroller)
-        var newConfig = UIButton.Configuration.glass()
+        var newConfig = UIButton.Configuration.hqGlass()
         newConfig.cornerStyle = .capsule
         newConfig.image = UIImage(systemName: "plus")
         newConfig.baseForegroundColor = ChatPalette.label
