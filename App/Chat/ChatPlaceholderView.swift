@@ -282,28 +282,50 @@ final class ChatPlaceholderView: UIView {
         CATransaction.commit()
         // Short of room (the keys up on a new chat, the Talk tip over the composer), the intro leaves out the face, then
         // the words about the bot, then its role, so its buttons stay above what's docked under it and take taps.
-        unsqueeze()
-        let fitting = { self.stack.systemLayoutSizeFitting(CGSize(width: column, height: UIView.layoutFittingCompressedSize.height),
-                                                           withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel) }
-        // Reserve the card's padding before fitting, not after placing the stack. Otherwise the keyboard can
-        // push the face to y = 0 and placeCard's bounds intersection clips away its entire top inset.
+        // [motion] This pass runs inside the keyboard's animation. Measure without animating, then change only the rows
+        // whose state really changes: a row leaving fades as the stack folds it away (and one coming back fades in as it
+        // opens), in the same curve as the card. Hiding the face with no fade left it drawn whole above the shrinking card
+        // until the keys settled, then it vanished.
         let verticalInset: CGFloat = Backdrop.chats.shows ? 20 : 0
         let availableHeight = max(0, bounds.height - 2 * verticalInset)
-        var fit = fitting()
-        if case .empty = mode {
-            for view in [head, bodyLabel, roleLabel] as [UIView] where fit.height > availableHeight && !view.isHidden {
-                view.isHidden = true
-                squeezed.append(view)
-                fit = fitting()
+        var fit: CGSize = .zero
+        var drop: [UIView] = []
+        let was = squeezed
+        UIView.performWithoutAnimation {
+            let fitting = { self.stack.systemLayoutSizeFitting(CGSize(width: column, height: UIView.layoutFittingCompressedSize.height),
+                                                               withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel) }
+            was.forEach { $0.isHidden = false }
+            fit = fitting()
+            if case .empty = mode {
+                for view in [head, bodyLabel, roleLabel] as [UIView] where fit.height > availableHeight && !view.isHidden {
+                    view.isHidden = true
+                    drop.append(view)
+                    fit = fitting()
+                }
             }
+            // Back to what's on screen, so the changes below are the only ones the keyboard's curve sees.
+            drop.forEach { $0.isHidden = false }
+            was.forEach { $0.isHidden = true }
         }
+        // The fade runs on its own short clock: out before the card's edge reaches the folding row, back in once the
+        // row has mostly opened, so nothing is drawn past the card mid-motion. The fold itself rides the keyboard.
+        let fade: UIView.AnimationOptions = [.overrideInheritedDuration, .overrideInheritedCurve, .beginFromCurrentState, .allowUserInteraction]
+        for view in was where !drop.contains(view) {
+            view.isHidden = false
+            UIView.animate(withDuration: 0.18, delay: 0.12, options: fade.union(.curveEaseIn)) { view.alpha = 1 }   // motion-ok: opacity only
+        }
+        for view in drop where !was.contains(view) {
+            UIView.animate(withDuration: 0.1, delay: 0, options: fade.union(.curveEaseOut)) { view.alpha = 0 }   // motion-ok: opacity only
+            view.isHidden = true
+        }
+        squeezed = drop
         stack.frame = CGRect(x: side, y: max(verticalInset, ((bounds.height - fit.height) / 2 - 20).rounded()), width: column, height: fit.height.rounded(.up))
         placeCard()
         if mode == .loading, window != nil { startShimmer() }
     }
 
     private func unsqueeze() {
-        squeezed.forEach { $0.isHidden = false }
+        squeezed.forEach { $0.isHidden = false; $0.alpha = 1 }
         squeezed = []
     }
 
