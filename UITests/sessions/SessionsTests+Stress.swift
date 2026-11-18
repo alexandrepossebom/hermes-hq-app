@@ -303,10 +303,11 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         Thread.sleep(forTimeInterval: 2.0)
         let deepBefore = sidebarReads().deep
-        let chips: [String?] = ["research", "deploys", "default", nil]
-        let points = chips.map { chip(app, $0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)) }
-        for index in 0..<40 { points[index % 4].tap() }
-        points[0].tap()                                                    // Research last
+        // [switch-toggles] No All pill since 2026-11-17: the bot pills alone, each tap on another pill (a tap on the lit
+        // one would clear it). A pill can start off the screen's edge, so each is brought on before its tap.
+        let chips = ["research", "deploys", "default"]
+        for index in 0..<12 { tapChip(app, chips[index % 3]) }
+        tapChip(app, "research")                                           // Research last
         XCTAssertTrue(waitUntil(8) { self.order(app) == ["s-trip", "s-recipes"] }, "the list matches the last tap (\(order(app)))")
         XCTAssertTrue(chip(app, "research").isSelected)
         Thread.sleep(forTimeInterval: 2.0)

@@ -33,12 +33,13 @@ extension SessionsTests {
         XCTAssertLessThan(apps.frame.minY, row(app, "s-garden").frame.minY)
         shot(app, "other-apps-row")
 
-        // Group By Project keeps it, under Pinned.
+        // [three-piles] Group By Project keeps it, after the projects (Home is their last).
         openFilter(app)
         tapFilter(app, "group", "group.project")
         closeFilter(app)
         XCTAssertTrue(apps.waitForExistence(timeout: 6), "the row under Group By Project")
-        XCTAssertGreaterThan(apps.frame.minY, row(app, "s-release").frame.minY)
+        XCTAssertTrue(header(app, "Home").waitForExistence(timeout: 6), "\(headers(app))")
+        XCTAssertGreaterThan(apps.frame.minY, header(app, "Home").frame.minY, "after the projects")
         shot(app, "other-apps-row-by-project")
 
         // The page: a section per platform, Back naming the list, the list's row actions.
