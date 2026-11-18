@@ -56,6 +56,10 @@ nonisolated struct BotStoreTiming: Sendable {
     var readLearnGap: Duration = .seconds(10)
     /// [read-sync] The least time between two reads of every bot's watermark.
     var readSweepGap: Duration = .seconds(120)
+    /// [read-sync] Each round of reads that brought nothing new doubles the two gaps above, up to these (a round that
+    /// brings a change, or the link coming back, puts them back).
+    var readLearnGapMax: Duration = .seconds(120)
+    var readSweepGapMax: Duration = .seconds(600)
     /// [read-sync] How long a learnt watermark is trusted when the person opens a chat or picks Mark as Read.
     var readFreshFor: Duration = .seconds(120)
     static let standard = BotStoreTiming()
@@ -233,6 +237,12 @@ final class BotStore {
     @ObservationIgnored var readSweptAt: ContinuousClock.Instant?
     /// When the gateway last said its chats changed (or the link came back).
     @ObservationIgnored var readChangedAt: ContinuousClock.Instant?
+    /// Rounds of watermark reads in a row that brought nothing new, and whether the round now out has brought any.
+    @ObservationIgnored var readQuietRounds = 0
+    /// The bots that showed a dot (or waited for one) when watermarks were last asked for.
+    @ObservationIgnored var readDottedAtLearn: Set<String> = []
+    @ObservationIgnored var readRoundOpen = false
+    @ObservationIgnored var readRoundMoved = false
     @ObservationIgnored var readLearnTask: Task<Void, Never>?
     @ObservationIgnored var readSweepTask: Task<Void, Never>?
     /// Bots whose chat this device had never seen before the last roster (no baseline): they take the gateway's word.
@@ -328,6 +338,7 @@ final class BotStore {
         for task in [eventsTask, statesTask, loadTask, slimTask, fullTask, pollTask, readLearnTask, readSweepTask] { task?.cancel() }
         eventsTask = nil; statesTask = nil; loadTask = nil; slimTask = nil; fullTask = nil; pollTask = nil
         readLearnTask = nil; readSweepTask = nil; readLearnQueue = []       // [read-sync]
+        readRoundOpen = false; readQuietRounds = 0
         for task in mintTasks.values { task.cancel() }
         mintTasks = [:]
         for task in wakingTasks.values { task.cancel() }   // [botslist]
@@ -1064,7 +1075,17 @@ final class BotStore {
         // say when its chats change, or the first time).
         retryOwedReads()
         let silent = client.latestReady?["change_events"]?.bool != true
-        learnReads(sweeps: readSweptAt == nil || silent, gap: silent ? timing.readSweepGap * 5 : nil)
+        if readSweptAt == nil || silent || !readFirstSight.isEmpty {
+            learnReads(sweeps: readSweptAt == nil || silent, gap: silent ? timing.readSweepGap * 5 : nil)
+        } else if !readDottedNow().isSubset(of: readDottedAtLearn) {
+            // A dot that wasn't there at the last read: its watermark is read at once (another device may have read
+            // the chat already, and the dot should not stand for long).
+            learnReads(sweeps: false)
+        } else {
+            // [log review 2026-11-18] A roster that follows a change is one more sign that chats changed, not a reason
+            // to read the dotted bots' rows at once: it waits out the same gap (and its back-off) as the signal does.
+            readsMayHaveChanged()
+        }
     }
 
     // MARK: - Cadence

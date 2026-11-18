@@ -39,6 +39,13 @@ nonisolated enum ShortTitle {
 
     private static let attachmentLinePrefixes = ["[The user attached", "[Image attached", "[Examine it with", "@image:", "@file:", "@folder:"]
 
+    /// A name that is a file's line and no words at all: a voice memo's `MEDIA:"/Users/…` path, or the gateway's
+    /// wrapper around a picture or file. Never shown or stored as a chat's name.
+    static func isFileLine(_ title: String) -> Bool {
+        let cleaned = cleanName(title)
+        return cleaned.hasPrefix("MEDIA:") || attachmentLinePrefixes.contains(where: { cleaned.hasPrefix($0) })
+    }
+
     /// Empty/generic names and visibly cut or overlong opening excerpts are provisional. A fitting, unmarked
     /// phrase can be a real name even when it shares the message's opening words; do not replace it on that guess.
     static func isPlaceholder(_ title: String, firstMessage: String) -> Bool {

@@ -92,7 +92,7 @@ import UIKit
 
     func rosterChanged() {
         store?.rosterChanged()
-        hosted?.refresh()   // [hosted] at most once per 20 s
+        hosted?.refresh()   // [hosted] at most once per `listEvery`
         // Deliveries in ordinary chats name their sender from the same roster (§7.12).
         DeliveryRoster.set((model?.bots ?? []).map { DeliveryMessages.Seat(profile: $0.id, name: $0.name, head: $0.head) })
     }

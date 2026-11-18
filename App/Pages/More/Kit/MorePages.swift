@@ -226,7 +226,7 @@ enum MorePages {
 
     static func gatewayReady() {
         probe(onlyHidden: true)
-        PluginPagesMore.refresh()   // [plugin-pages-more]
+        PluginPagesMore.refresh(reconnect: true)   // [plugin-pages-more]
     }
 
     private static func probe(onlyHidden: Bool) {

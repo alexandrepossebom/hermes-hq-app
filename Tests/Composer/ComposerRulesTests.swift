@@ -126,6 +126,10 @@ struct ModelLoadTests {
         #expect(ModelLoad.secondTryHelps(RPCError.timedOut("model.options", after: .seconds(30))))
         #expect(ModelLoad.secondTryHelps(RPCError.connectionLost("model.options")))
         #expect(!ModelLoad.secondTryHelps(RPCError(code: 4000, message: "invalid params for model.options", data: nil)))
+        // Hermes updated on disk, still running the old code: a restart helps, a second try doesn't, and the words say so.
+        let stale = RPCError(code: 5098, message: "Error: This gateway is running code from abc123 but the checkout on disk is now def456.", data: nil)
+        #expect(!ModelLoad.secondTryHelps(stale))
+        #expect(ModelLoad.words(for: stale, offline: false) == ModelLoad.restartWords)
         #expect(!ModelLoad.secondTryHelps(RPCError(code: -32601, message: "method not found", data: nil)))
         #expect(!ModelLoad.secondTryHelps(CancellationError()))
         #expect(!ModelLoad.secondTryHelps(MenusError.offline))

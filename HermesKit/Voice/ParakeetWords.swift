@@ -6,6 +6,12 @@
 // not yet settled (14 s at most) goes through the model, and what it says replaces the pending words. Past 14 s the
 // oldest part is cut at its quietest moment and its words settle. Ending the take hears the last part once more.
 //
+// The model is costly to hold (the owner's logs, 2026-11-18: loading it took some 800 MB at its peak on every launch,
+// and on some runs the app then sat at 2 GB and more until it was next started), and it used to load whenever a chat
+// opened. Now it is fetched and loaded for people who talk: at the first memo, Dictate or Talk take, and from then on
+// a few seconds after a chat opens while the mic was used within the last `usedWindow`. It is let go when iOS says
+// memory is short, and in the background when the app is holding too much; the next take brings it back.
+//
 // Anything that keeps this from working (the switch off, a language other than English, the model not downloaded yet,
 // an error) leaves Apple's engine, and past that the gateway (`LiveWords`). Never logs the words.
 
@@ -43,6 +49,54 @@ nonisolated protocol ParakeetHearing: Sendable {
     private(set) static var readiness: Readiness = .unknown
     private static var hearing: (any ParakeetHearing)?
 
+    /// Why the model is asked for: a chat opened (only people who talk get it then), or the mic or its settings are
+    /// in use.
+    nonisolated enum Ask: Sendable { case chatOpened, use }
+
+    /// When a take last asked for words on this device.
+    static let usedKey = "hq.voice.betterWordsUsedAt"
+    /// How long after the last take a chat opening still loads the model ahead of the next one.
+    nonisolated static let usedWindow: TimeInterval = 7 * 86_400
+    /// A chat opening waits this long before the load, so the chat's own opening isn't slowed by it.
+    static var openDelay: Duration = .seconds(4)
+    /// After iOS said memory was short, a chat opening doesn't load the model again for this long (a take still does).
+    nonisolated static let pressureRest: TimeInterval = 600
+    /// In the background the model is let go when the app holds more than this.
+    nonisolated static let backgroundCeilingMB = 1_000
+    private static var letGoAt: Date?
+    /// Counts loads asked for, so one that was let go or switched off while it ran isn't kept.
+    private static var loadGeneration = 0
+
+    /// Whether a chat opening should load the model: the mic was used lately, and memory wasn't just short.
+    nonisolated static func loadsOnOpen(lastUsed: Date?, letGo: Date?, now: Date = Date()) -> Bool {
+        guard let lastUsed, now.timeIntervalSince(lastUsed) < usedWindow else { return false }
+        if let letGo, now.timeIntervalSince(letGo) < pressureRest { return false }
+        return true
+    }
+
+    /// A take asked for words: remembered (at most once an hour), so chats load the model ahead from now on.
+    private static func noteUse(now: Date = Date()) {
+        let defaults = UserDefaults.standard
+        if let last = defaults.object(forKey: usedKey) as? Date, now.timeIntervalSince(last) < 3_600 { return }
+        defaults.set(now, forKey: usedKey)
+    }
+
+    /// Memory is short (`pressure`), or the app went to the background holding `footprintMB`: the model is let go
+    /// unless it is loading. A take that is listening keeps its own hold until it ends. True when it was let go.
+    @discardableResult
+    static func letGo(pressure: Bool, footprintMB: Int? = nil, now: Date = Date()) -> Bool {
+        guard hearing != nil, readiness == .ready else { return false }
+        if !pressure {
+            guard let footprintMB, footprintMB > backgroundCeilingMB else { return false }
+        }
+        hearing = nil
+        loadGeneration += 1
+        if pressure { letGoAt = now }
+        AppLog.note("voice", "more accurate words let go (\(pressure ? "memory short" : "background"), app at \(footprintMB.map(String.init) ?? "?") MB)")
+        set(.unknown)
+        return true
+    }
+
     /// The model is English only: the language chosen for this device's words decides, else the person's first.
     static var speaksEnglish: Bool {
         let first = (LiveWords.language ?? Locale.preferredLanguages.first).map(Locale.init(identifier:)) ?? Locale.current
@@ -53,18 +107,28 @@ nonisolated protocol ParakeetHearing: Sendable {
     /// or the right one). Its download stays.
     static func languageChanged() {
         hearing = nil
+        loadGeneration += 1
         set(.unknown)
     }
 
-    /// Loads the model, downloading it first when it isn't here (on Wi-Fi only). Cheap once checked.
-    static func prepare() {
+    /// Loads the model, downloading it first when it isn't here (on Wi-Fi only). Cheap once checked. A chat opening
+    /// (`.chatOpened`) does it only for someone who used the mic lately, and after a short wait.
+    static func prepare(_ ask: Ask = .use) {
         guard isOn, readiness == .unknown || readiness == .waitingForWiFi else { return }
+        let opened = ask == .chatOpened
+        if opened {
+            guard loadsOnOpen(lastUsed: UserDefaults.standard.object(forKey: usedKey) as? Date, letGo: letGoAt) else { return }
+        }
         #if targetEnvironment(simulator)
         set(.unavailable("not in the simulator"))
         #else
         guard speaksEnglish else { return set(.unavailable("English only")) }
         set(.checking)
+        loadGeneration += 1
+        let generation = loadGeneration
         Task {
+            if opened { try? await Task.sleep(for: openDelay) }
+            let started = Date(), before = MemoryFootprint.sample()?.mb
             let here = AsrModels.modelsExist(at: AsrModels.defaultCacheDirectory(for: .v2), version: .v2)
             if !here, await onMeteredNetwork() { return set(.waitingForWiFi) }
             set(here ? .loading : .downloading(0))
@@ -79,8 +143,11 @@ nonisolated protocol ParakeetHearing: Sendable {
                 // The first pass after a load is slow (Core ML warms up): spent here, not on the first words.
                 _ = await engine.words([Float](repeating: 0, count: ParakeetCut.rate))
                 keepOutOfBackups()
-                guard isOn else { return }   // switched off while it loaded
+                guard isOn, generation == loadGeneration else { return }   // switched off while it loaded
                 hearing = engine
+                // [diagnostics] What the load cost: the logs showed 800 MB to over 2 GB with nothing to say why.
+                let after = MemoryFootprint.sample()
+                AppLog.note("voice", "more accurate words loaded in \(Int(Date().timeIntervalSince(started))) s (\(opened ? "chat opened" : "in use")\(here ? "" : ", downloaded")): app \(before.map(String.init) ?? "?") → \(after.map { String($0.mb) } ?? "?") MB")
                 set(.ready)
             } catch {
                 set(.unavailable("model didn’t load (\((error as NSError).domain) \((error as NSError).code))"))
@@ -91,7 +158,12 @@ nonisolated protocol ParakeetHearing: Sendable {
 
     /// A new listening, or nil when the model isn't ready (Apple's engine listens then).
     static func listen(onText: @escaping @MainActor (LiveWordsText) -> Void) -> (any LiveWordsListening)? {
-        guard isOn, readiness == .ready, let hearing else { return nil }
+        guard isOn else { return nil }
+        noteUse()
+        guard readiness == .ready, let hearing else {
+            prepare(.use)   // not here yet (never asked for, or let go): this take gets Apple's engine, the next the model
+            return nil
+        }
         return ParakeetLiveWords(hearing: hearing, onText: onText)
     }
 
@@ -103,6 +175,7 @@ nonisolated protocol ParakeetHearing: Sendable {
             prepare()
         } else {
             hearing = nil
+            loadGeneration += 1
             let folder = AsrModels.defaultCacheDirectory(for: .v2)
             Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: folder) }
             set(.unknown)
@@ -173,6 +246,7 @@ nonisolated protocol ParakeetHearing: Sendable {
     static func resetForTests(_ stand: (any ParakeetHearing)? = nil) {
         hearing = stand
         readiness = stand == nil ? .unknown : .ready
+        letGoAt = nil
     }
     #endif
 }

@@ -89,12 +89,25 @@ enum PluginPagesMore {
 
     // MARK: Reading
 
-    /// Reads every bot's pages (attach, `gateway.ready`).
-    static func refresh() {
+    /// A reconnect reads the pages again only when the last read is older than this (pages change when a plugin is
+    /// installed or switched, and Capabilities tells More at once: `note`). The owner's logs, 2026-11-18: one read per
+    /// bot on every reconnect, about 1,800 calls a day.
+    nonisolated static let reconnectGap: TimeInterval = 600
+    private static var lastRead: [String: Date] = [:]
+
+    /// Whether a reconnect should read the pages again.
+    nonisolated static func isDue(lastRead: Date?, now: Date = Date()) -> Bool {
+        lastRead.map { now.timeIntervalSince($0) >= reconnectGap } ?? true
+    }
+
+    /// Reads every bot's pages (attach; `gateway.ready` with `reconnect`, at most every `reconnectGap`).
+    static func refresh(reconnect: Bool = false) {
         guard let context = MorePages.context else { return }
         let client = context.client, account = context.account.id
         let profiles = context.botChoices.filter { !$0.hidden }.map(\.id)
         guard !profiles.isEmpty else { return }
+        if reconnect, !isDue(lastRead: lastRead[account]) { return }
+        lastRead[account] = Date()
         task?.cancel()
         let started = ContinuousClock.now
         task = Task {

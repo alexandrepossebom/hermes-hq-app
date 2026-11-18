@@ -447,13 +447,13 @@ class BackdropCardView: UICollectionReusableView {
             list.observe(\.contentSize, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.schedule() } },
             // Never measured in the middle of the list's own work (a table asked for its rows while its page was still
             // loading dequeued cells it had not registered yet): each change is drawn on the next turn of the run loop.
-            list.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.restEdge(); self?.coverBar(); self?.schedule() } },
+            list.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.scrolled(); self?.restEdge(); self?.coverBar(); self?.schedule() } },
             list.observe(\.bounds, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.schedule() } },
         ]
         // SwiftUI shows a list's edge again on each of its updates: an edge held for rest stays held.
         watches.append(list.topEdgeEffect.observe(\.isHidden, options: [.new]) { [weak self] _, change in
             guard change.newValue == false else { return }
-            MainActor.assumeIsolated { self?.restEdge() }
+            MainActor.assumeIsolated { self?.edgeShownAgain() }
         })
         // (`pictureReady`: [backdrop-ink] the picture's tones are known once it is made.)
         switchWatches = [Backdrop.didChange, Backdrop.pictureReady].map { name in
@@ -675,6 +675,43 @@ class BackdropCardView: UICollectionReusableView {
     /// Look turned on over a picture with Soft Cards froze the app on Settings › Theme. Inside the one layout the switch
     /// forces, SwiftUI showed the list's edge on each of its updates, this hid it again for a rest the look no longer
     /// has, and that layout never ended (the main thread spun until iOS killed the app).
+    /// SwiftUI showed the held edge again: it is hidden again, at once. The freeze above was the two answering each
+    /// other inside one layout pass; whatever else may set that off, after `EdgeHold.limit` times within a second the
+    /// edge is left shown until the person next scrolls the list, so the pass always ends.
+    private func edgeShownAgain() {
+        guard !edgeHold.gaveUp else { return }
+        guard edgeHold.allows(at: CACurrentMediaTime()) else {
+            AppLog.note("backdrop", "top edge: shown again \(EdgeHold.limit)× in a second, left shown until the next scroll")
+            return
+        }
+        restEdge()
+    }
+
+    /// The person moved the list: an edge given up on is held again.
+    private func scrolled() {
+        guard edgeHold.gaveUp, let list, list.isTracking || list.isDecelerating else { return }
+        edgeHold = EdgeHold()
+    }
+
+    private var edgeHold = EdgeHold()
+
+    /// How often the held edge may be hidden again before the list is left alone.
+    struct EdgeHold {
+        /// SwiftUI's own updates show the edge a few times a second at most; a fight runs as fast as the layout does.
+        static let limit = 40
+        private(set) var gaveUp = false
+        private var since: CFTimeInterval = 0
+        private var count = 0
+
+        /// Counts one more hide at `now`; false (and given up) past the limit within one second.
+        mutating func allows(at now: CFTimeInterval) -> Bool {
+            if now - since > 1 { since = now; count = 0 }
+            count += 1
+            if count > Self.limit { gaveUp = true }
+            return !gaveUp
+        }
+    }
+
     private func restEdge() {
         guard let list else { return }
         let drawn = shows() && Backdrop.app.cards && !Theme.isDesktop

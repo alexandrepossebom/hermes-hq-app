@@ -107,7 +107,7 @@ nonisolated enum GatewayFailure: Error, Sendable, Hashable, CustomStringConverti
         case .hostRejected: "Your gateway doesn’t accept connections at this address yet. On \(HostWord.phrase), set HERMES_DASHBOARD_PUBLIC_URL in ~/.hermes/.env to this exact address, restart the Hermes dashboard, then try again."
         case .gatewayOutdated: "\(HostWord.sentence) has a version of Hermes that’s too old for Hermes HQ. Update Hermes there, then try again."
         case .unreachable: "Can’t reach \(HostWord.phrase). Check that it’s on, and that Tailscale is on here too if you use it."
-        case .timeout: "Hermes didn’t answer in time. Check that the computer running it is on and awake."
+        case .timeout: "Hermes didn’t answer in time. The computer running it may be busy, asleep or off."
         case .tls: "This \(DeviceWord.name) doesn’t trust your gateway’s HTTPS certificate. Use a certificate from a public authority, such as Tailscale HTTPS."
         case .tailscaleOff: "Turn on Tailscale to reach \(HostWord.phrase), then try again."   // UX study #24
         case .offline: "You’re offline. Hermes HQ reconnects when the network is back."

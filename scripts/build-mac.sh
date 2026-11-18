@@ -30,7 +30,10 @@ for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
 print(pathlib.Path(values["ASC_KEY_PATH"]).expanduser()); print(values["ASC_KEY_ID"]); print(values["ASC_ISSUER_ID"])' $ENVFILE)}")
   AUTH=(-authenticationKeyPath $KEYS[1] -authenticationKeyID $KEYS[2] -authenticationKeyIssuerID $KEYS[3])
 fi
-xcodebuild -project HermesHQNative.xcodeproj -scheme HermesHQNative -configuration $CONFIG \
+# Builds and test runs step behind everything else on this Mac (it also runs Hermes: on 2026-11-18 a test run here
+# stalled the gateway for 25 minutes and both apps said they couldn't reach it). HQ_NICE=0 runs at full priority.
+NICE=(nice -n ${HQ_NICE:-10}); [[ ${HQ_NICE:-10} == 0 ]] && NICE=()
+$NICE xcodebuild -project HermesHQNative.xcodeproj -scheme HermesHQNative -configuration $CONFIG \
   -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath $DD -allowProvisioningUpdates $AUTH \
   build -quiet > build/last-mac-build.log 2>&1 && STATUS=0 || STATUS=$?
 grep -v -E '^(note:|\s*$)|appintentsmetadataprocessor' build/last-mac-build.log | tail -80

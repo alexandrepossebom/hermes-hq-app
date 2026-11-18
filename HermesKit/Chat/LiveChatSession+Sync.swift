@@ -605,7 +605,12 @@ extension LiveChatSession {
         if let seeded { read = seeded } else {
             read = try? await HistoryAPI.fetchAndFold(client: client, request: small, features: features, cut: false)
         }
-        guard var (page, folded, _) = read else { AppLog.note("history", "tail read \(lids): 24-row read failed, \(AppLog.ms(since: tailStart)) ms; nothing changed"); return }
+        guard var (page, folded, _) = read else {
+            tailReadFailures += 1
+            AppLog.note("history", "tail read \(lids): 24-row read failed, \(AppLog.ms(since: tailStart)) ms; nothing changed")
+            return
+        }
+        tailReadFailures = 0
         var readFailed = false
         if page.possiblyTruncated && !reach(page.rows) {
             // The 24 rows don't reach the newest turn: read 120. If that read fails, the 24 rows are still the newest truth.
@@ -763,7 +768,9 @@ extension LiveChatSession {
         if reconnectOwnsTail { return }      // [offline] §6.5: the reconnect's own read is the one for this tick
         let gap = changedPassGap
         let now = Date()
-        let gapSeconds = Double(gap.components.seconds) + Double(gap.components.attoseconds) / 1e18
+        // [log review 2026-11-18] A new chat's reads answered "Session not found" every ten seconds until its first
+        // turn was saved: reads that keep failing wait longer each time.
+        let gapSeconds = (Double(gap.components.seconds) + Double(gap.components.attoseconds) / 1e18) * Double(1 << min(tailReadFailures, 3))
         let wait = lastChangedPassAt.map { max(0, gapSeconds - now.timeIntervalSince($0)) } ?? 0
         changedPassTask = Task { [weak self] in
             if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }

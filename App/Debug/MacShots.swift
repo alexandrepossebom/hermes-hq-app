@@ -2025,23 +2025,6 @@ enum MacShots {
         await step("1-open")
         bar.toggleCollapsed()
         await step("2-folded")
-        // [rail-peek] The pointer on a head, then the next one down: the card beside each with its last message.
-        for (label, index) in [("2a-peek", 1), ("2b-peek-next", 2), ("2c-peek-first", 0)] {
-            bar.debugPeek(index)
-            log += "  at once " + MacRailPeek.shared.debugState + "\n"
-            await step(label)
-            log += "  " + MacRailPeek.shared.debugState + "\n"
-        }
-        // The same card in light, the window's look turned for the picture and back.
-        let look = window.overrideUserInterfaceStyle
-        window.overrideUserInterfaceStyle = .light
-        bar.debugPeek(nil)
-        try? await Task.sleep(for: .seconds(0.4))
-        bar.debugPeek(2)
-        await step("2d-peek-light")
-        log += "  " + MacRailPeek.shared.debugState + "\n"
-        window.overrideUserInterfaceStyle = look
-        bar.debugPeek(nil)
         bar.debugClickHead(2)
         await step("3-head")
         if let sessions = tabs.controller(for: .sessions) { tabs.pick(sessions); split.followSelectedTab() }
