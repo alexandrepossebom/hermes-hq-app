@@ -60,18 +60,4 @@ import Testing
         #expect(ShortTitle.isPlaceholder("MEDIA:\"/Users/studi…", firstMessage: "Plan the Lisbon trip"))
         #expect(ShortTitle.isPlaceholder("MEDIA:\"/Users/me/.hermes/profiles/…", firstMessage: ""))
     }
-
-    /// The gateway sliced its model-only image wrapper into the instant name (hermes-hq 20261118_085950,
-    /// "[The user attached…" for "Fix this top bar…"); that name is provisional, so the app's own replaces it.
-    @Test func anAttachmentWrapperNameIsAPlaceholder() {
-        let first = "Fix this top bar. It shouldn’t take on ALL of the color like that."
-        #expect(ShortTitle.isPlaceholder("[The user attached…", firstMessage: first))
-        #expect(ShortTitle.isPlaceholder("[The user attached an image: clipboard.jpg]", firstMessage: first))
-        #expect(ShortTitle.isPlaceholder("[Image attached at: /tmp/a.png]", firstMessage: first))
-        #expect(ShortTitle.isPlaceholder("@image:/Users/me/a.jpg", firstMessage: ""))
-        #expect(!ShortTitle.isPlaceholder("Top bar color fix", firstMessage: first))
-        // The stored row: words, then the picture's ref line; only the words name the chat.
-        let stored = first + "\n@image:/Users/me/.dispatch-attachments/63982030/clipboard.jpg"
-        #expect(ChatText.trimmed(ShortTitle.namingText(stored)) == first)
-    }
 }

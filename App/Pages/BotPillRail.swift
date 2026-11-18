@@ -70,9 +70,7 @@ struct BotPillRail<Extra: View>: View {
                 .hqPickGlassRow()
             }
             .modifier(PillRailScrolls(scroll: scroll))
-            // [rail-scroller] Owner 2026-11-18 (Mac screenshot): `.hidden` still shows the scroller with a mouse
-            // attached, a grey bar over the pills. `.never` hides it there too; a trackpad swipe still scrolls.
-            .scrollIndicators(.never)
+            .scrollIndicators(.hidden)
             .hqScrollEdgeFade(width: 20)
             .onAppear { show(leading == nil ? picked : nil, proxy) }   // [project-page-return] Sessions: from the switch
             .onChange(of: picked) { _, picked in

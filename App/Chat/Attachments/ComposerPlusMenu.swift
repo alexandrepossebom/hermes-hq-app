@@ -29,14 +29,14 @@ import UniformTypeIdentifiers
         return UIMenu(children: children)
     }
 
-    /// [context-sheet] The sheet's two parts (owner 2026-11-18, the "quick tiles" design): the things reached for most
-    /// as a row of tiles (the pickers, Voice Memo, Talk), and the rest as one card of rows (Paste Image, Link…, and
-    /// whatever later fills folder, snippets and more). Nothing the bar or the ☰ already offers is repeated here.
-    func makeSheetParts() -> (tiles: [UIMenuElement], rows: [UIMenuElement]) {
-        func elements(_ slots: [Slot]) -> [UIMenuElement] {
-            slots.flatMap { slot in (providers[slot] ?? []).flatMap { $0() } }
+    /// [context-sheet] The sheet's cards: add things (pickers, paste), speak (memo, talk), point at things (link, folder,
+    /// snippets), then the rest. A card with nothing in it is left out.
+    func makeSections() -> [UIMenu] {
+        let cards: [[Slot]] = [[.pickers, .paste], [.memo, .talk], [.link, .folder, .snippets], [.more]]
+        return cards.compactMap { slots in
+            let children = slots.flatMap { slot in (providers[slot] ?? []).flatMap { $0() } }
+            return children.isEmpty ? nil : UIMenu(options: .displayInline, children: children)
         }
-        return (elements([.pickers, .memo, .talk]), elements([.paste, .link, .folder, .snippets, .more]))
     }
 
     /// The inline row of three pickers (spec §4.1): Camera "Unavailable" without a camera; all "Up to 16 per message" at 16.
@@ -84,21 +84,20 @@ import UniformTypeIdentifiers
     }
 }
 
-/// [context-sheet] The phone's + opens a sheet (owner 2026-11-18, after Claude's "Add context"; the "quick tiles"
-/// design): a close disc, the title, Photos (the whole library) on the right; recent photos in one tall row; a row of
-/// tiles for Camera, Files, Voice Memo and Talk; then one card of rows for the rest. It is built from the same
-/// elements the old popup showed, so providers keep their order, disabled states and submenus (a submenu opens as a
-/// page inside the sheet). The Mac keeps the system menu.
+/// [context-sheet] The phone's + opens a sheet (owner 2026-11-18, after Claude's "Add context"): a close disc, the
+/// title, Photos (the whole library) on the right; recent photos in one row; then the menu's slots as grouped cards of
+/// large rows. It renders the same element tree the old popup did, so providers keep their order, subtitles, disabled
+/// states and submenus (a submenu opens as a page inside the sheet). The Mac keeps the system menu.
 @MainActor final class ComposerContextSheet: UIHostingController<ComposerContextSheet.Content> {
-    init(tiles: [UIMenuElement], rows: [UIMenuElement], canAttach: Bool, onPhoto: @escaping (NSItemProvider) -> Void) {
+    init(sections: [UIMenu], canAttach: Bool, onPhoto: @escaping (NSItemProvider) -> Void) {
         let bridge = Bridge()
-        super.init(rootView: Content(tiles: tiles, rows: rows, canAttach: canAttach, bridge: bridge, onPhoto: onPhoto))
+        super.init(rootView: Content(sections: sections, canAttach: canAttach, bridge: bridge, onPhoto: onPhoto))
         bridge.controller = self
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
             sheet.detents = [.large()]
             sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = 36
+            sheet.preferredCornerRadius = 32
         }
     }
 
@@ -130,8 +129,7 @@ import UniformTypeIdentifiers
     }
 
     struct Content: View {
-        let tiles: [UIMenuElement]
-        let rows: [UIMenuElement]
+        let sections: [UIMenu]
         let canAttach: Bool
         let bridge: Bridge
         let onPhoto: (NSItemProvider) -> Void
@@ -147,84 +145,38 @@ import UniformTypeIdentifiers
                 }
                 return nil
             }
-            return find(tiles)
+            return find(sections)
         }
 
         var body: some View {
-            VStack(spacing: 14) {
-                header.padding(.bottom, 2)
+            VStack(spacing: 18) {
+                header
                 if let submenu {
-                    card(visible(submenu.children))
+                    card(submenu.children)
                 } else {
                     if let photos {
                         if canAttach {
                             ComposerRecentPhotosView { provider in bridge.select(provider, callback: onPhoto) }
-                                .frame(height: 148)
-                                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                                .frame(height: 116)
+                                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                                 .accessibilityIdentifier("composer.plus.recentPhotos")
                         } else if let note = photos.subtitle {
                             Text(note).font(Font(HQFont.style(.footnote))).foregroundStyle(Color.hqMuted)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
                         }
                     }
-                    let quick = visible(tiles)
-                    if !quick.isEmpty {
-                        HStack(spacing: 10) {
-                            ForEach(Array(quick.enumerated()), id: \.offset) { _, element in tile(element) }
-                        }
+                    ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                        let items = visible(section.children)
+                        if !items.isEmpty { card(items) }
                     }
-                    let rest = visible(rows)
-                    if !rest.isEmpty { card(rest) }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
             .padding(.top, 16)
-            .padding(.bottom, 20)
+            .padding(.bottom, 24)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bridge.fit($0) }
             .frame(maxHeight: .infinity, alignment: .top)
             .hqGlassSheetPage()   // [glass-audit] the fitted (half-height) sheet sits on the app's glass
-        }
-
-        /// A tile's one word and its colour: the full title ("Talk with Hermes") is still what VoiceOver reads.
-        private static func tileLook(_ id: String?, title: String) -> (word: String, ink: Color) {
-            switch id {
-            case "composer.plus.camera": return ("Camera", .hqTint)
-            case "composer.plus.files": return ("Files", .hqGreen)
-            case "composer.plus.memo": return ("Memo", .hqOrange)
-            case "composer.plus.talk": return ("Talk", .purple)
-            default: return (title, .hqLabel)
-            }
-        }
-
-        @ViewBuilder private func tile(_ element: UIMenuElement) -> some View {
-            let look = Self.tileLook((element as? UIAction)?.accessibilityIdentifier, title: element.title)
-            let face = VStack(spacing: 7) {
-                if let image = element.image {
-                    Image(uiImage: image.withRenderingMode(.alwaysTemplate))
-                        .font(Font(HQFont.scaled(24, like: .body, cap: 30)))
-                        .foregroundStyle(look.ink)
-                        .frame(height: 30)
-                }
-                Text(look.word)
-                    .font(Font(HQFont.style(.footnote, weight: .medium, cap: 17)))
-                    .foregroundStyle(Color.hqLabel)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(maxWidth: .infinity, minHeight: 86)
-            .contentShape(Rectangle())
-            if let action = element as? UIAction {
-                Button { bridge.perform(action) } label: { face }
-                    .buttonStyle(TileStyle())
-                    .disabled(action.attributes.contains(.disabled))
-                    .accessibilityLabel(action.title)
-                    .accessibilityHint(action.subtitle ?? "")
-                    .accessibilityIdentifier(action.accessibilityIdentifier ?? "")
-            } else if let group = element as? UIMenu {
-                Button { withAnimation(HQMotion.reduced ? nil : .snappy) { submenu = group } } label: { face }
-                    .buttonStyle(TileStyle())
-                    .accessibilityLabel(group.title)
-            }
         }
 
         private var header: some View {
@@ -266,15 +218,16 @@ import UniformTypeIdentifiers
             }
         }
 
-        private func card(_ items: [UIMenuElement]) -> some View {
-            VStack(spacing: 0) {
+        private func card(_ elements: [UIMenuElement]) -> some View {
+            let items = submenu == nil ? elements : visible(elements)
+            return VStack(spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, element in
-                    if index > 0 { Divider().padding(.leading, 62).padding(.trailing, 18) }
+                    if index > 0 { Divider().padding(.leading, 62) }
                     rowButton(element)
                 }
             }
-            .background(Color.hqGroupedCard, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .background(Color.hqGroupedCard,
+                        in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
 
         @ViewBuilder private func rowButton(_ element: UIMenuElement) -> some View {
@@ -317,16 +270,6 @@ import UniformTypeIdentifiers
             .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
             .padding(.horizontal, 16)
             .contentShape(Rectangle())
-        }
-
-        private struct TileStyle: ButtonStyle {
-            @Environment(\.isEnabled) private var enabled
-            func makeBody(configuration: Configuration) -> some View {
-                configuration.label
-                    .opacity(enabled ? 1 : 0.4)
-                    .background(configuration.isPressed ? Color.hqFill3 : Color.hqGroupedCard,
-                                in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            }
         }
 
         private struct RowStyle: ButtonStyle {

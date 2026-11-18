@@ -166,9 +166,7 @@ struct DashboardPagesBand: View {
                     .padding(.bottom, Theme.isDesktop ? 2 : 4)
                     .hqPickGlassRow()
             }
-            // [rail-scroller] Owner 2026-11-18 (Mac screenshot): `.hidden` still shows the scroller with a mouse
-            // attached, a grey bar over the pills. `.never` hides it there too; a trackpad swipe still scrolls.
-            .scrollIndicators(.never)
+            .scrollIndicators(.hidden)
             .hqScrollEdgeFade(width: 20)
             // Only as far as it takes to show the picked name whole (no anchor), as Tasks' rail.
             .onAppear { proxy.scrollTo(model.current) }

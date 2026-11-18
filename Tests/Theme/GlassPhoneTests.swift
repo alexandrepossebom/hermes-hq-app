@@ -43,6 +43,25 @@ private let prompt = ClarifyPrompt(id: "p", questions: [
         }
     }
 
+    /// [qcard-frost] Owner 2026-11-18, pick C: the text card is frosted so the chat's picture shows through it.
+    @Test func theDocksTextCardIsFrostedOnGlass() {
+        ThemeTable.$testSet.withValue(set(look: false)) {
+            let dock = QuestionDockView(prompt: prompt, draft: ClarifyDraft())
+            let window = host(dock)
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                window.overrideUserInterfaceStyle = style
+                bump(window)
+                #expect(abs(dock.textCardAlpha - DockFill.frost) < 0.001, "frosted, not a solid slab (\(style.rawValue))")
+            }
+            #expect(DockFill.frost < 1 && DockFill.frost >= 0.6, "frosted, never thinner than the measured pick")
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                var alpha: CGFloat = 0
+                DockFill.textCard(UITraitCollection(userInterfaceStyle: style), solid: true).getRed(nil, green: nil, blue: nil, alpha: &alpha)
+                #expect(alpha == 1, "Reduce Transparency keeps it solid")
+            }
+        }
+    }
+
     @Test func theDockKeepsItsSolidPanelInTheLookAndSwitchesLive() {
         ThemeTable.$testSet.withValue(set(look: true)) {
             let dock = QuestionDockView(prompt: prompt, draft: ClarifyDraft())

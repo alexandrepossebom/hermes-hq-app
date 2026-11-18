@@ -68,8 +68,7 @@ private extension AttachmentPrepareError {
 
     private func presentContextSheet() {
         guard let screen, screen.presentedViewController == nil else { return }
-        let parts = plusMenu.makeSheetParts()
-        let sheet = ComposerContextSheet(tiles: parts.tiles, rows: parts.rows, canAttach: canAttach) { [weak self] provider in
+        let sheet = ComposerContextSheet(sections: plusMenu.makeSections(), canAttach: canAttach) { [weak self] provider in
             guard let self, self.canAttach else { return }
             let movie = provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier)
             self.importSources([.library(provider, movie: movie)])

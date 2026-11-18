@@ -1498,15 +1498,14 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         var listed = Set<String>()
         // [sessions-fresh] Recent keeps its chats' own ids: a project's card draws its copies, so opening one leaves
         // Recent's rows as they are.
-        let recentKeys = fresh ? Set(groups.filter { SessionListPipeline.isRecent($0.id) }.flatMap { $0.sessions.map(Self.key) }) : []
+        let recentKeys = fresh ? Set(groups.first { $0.id == SessionListPipeline.recentId }?.sessions.map(Self.key) ?? []) : []
         // The title is part of the section's identity: at midnight "Today" becomes "Yesterday" for the same day.
         for group in groups {
             let section = group.id + "|" + group.title
             snapshot.appendSections([section])
             // [project-cards] A project draws its chats in New for You as well: that second row has an id of its own.
-            // [sessions-shape] A closed project's live chats are plain one-line rows under its row, not a card's.
-            let card = !searching && SessionListPipeline.isProject(group.id) && !group.collapsed
-            let recent = SessionListPipeline.isRecent(group.id)
+            let card = !searching && SessionListPipeline.isProject(group.id)
+            let recent = group.id == SessionListPipeline.recentId
             let items = group.sessions.map { session -> String in
                 let key = Self.key(session)
                 guard recent || !recentKeys.contains(key), listed.insert(key).inserted else {

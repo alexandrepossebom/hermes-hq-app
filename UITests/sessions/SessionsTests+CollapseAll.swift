@@ -1,5 +1,5 @@
 // [sessions-collapse] Every section on the Sessions page folds, in every view (owner 2026-11-11: "I want to be able to
-// collapse all of the categories on the sessions page for every view"). Group By Recent: Pinned and Recent's days; the Projects
+// collapse all of the categories on the sessions page for every view"). Group By Recent: Pinned and Recent; the Projects
 // side: "Projects" (every project at once, to one closed "Projects" header); kept across launches.
 
 import XCTest
@@ -24,31 +24,26 @@ extension SessionsTests {
         XCTAssertTrue((header(app, "Pinned").value as? String)?.hasPrefix("Collapsed") == true, "\(header(app, "Pinned").value ?? "")")
         XCTAssertFalse(app.buttons["sessions.seeAll.pinned"].exists, "no See All on a closed Pinned")
 
-        // [sessions-shape] Recent's days close too, each on its own.
-        let days = ["Today", "Yesterday", "This Week", "Older"]
-        func open(_ app: XCUIApplication) -> [String] {
-            days.filter { self.header(app, $0).exists && (self.header(app, $0).value as? String)?.hasPrefix("Expanded") == true }
-        }
-        XCTAssertTrue(waitUntil(5) { !open(app).isEmpty }, "Recent's days (\(headers(app)))")
-        for day in open(app) {
-            header(app, day).tap()
-            XCTAssertTrue(waitUntil(5) { !open(app).contains(day) }, "\(day) closed")
-        }
+        // Recent closes too.
+        let recent = header(app, "Recent")
+        XCTAssertTrue(recent.waitForExistence(timeout: 5))
+        recent.tap()
+        XCTAssertTrue(waitUntil(5) { (self.header(app, "Recent").value as? String)?.hasPrefix("Collapsed") == true }, "Recent closed")
         XCTAssertTrue(waitUntil(5) { self.order(app).isEmpty }, "no rows left (\(order(app)))")
         shot(app, "collapse-all-2-closed")
 
         // Kept across launches.
         app.terminate()
         let again = launch(keepView: true)
-        XCTAssertTrue(header(again, "Today").waitForExistence(timeout: 15))
+        XCTAssertTrue(header(again, "Recent").waitForExistence(timeout: 15))
         XCTAssertTrue((header(again, "Pinned").value as? String)?.hasPrefix("Collapsed") == true)
-        XCTAssertTrue(open(again).isEmpty, "every day still closed (\(headers(again)))")
+        XCTAssertTrue((header(again, "Recent").value as? String)?.hasPrefix("Collapsed") == true)
 
         // Each opens again.
         header(again, "Pinned").tap()
         XCTAssertTrue(row(again, "s-release").waitForExistence(timeout: 5), "Pinned open again")
-        header(again, "Today").tap()
-        XCTAssertTrue(waitUntil(5) { open(again) == ["Today"] }, "Today open again")
+        header(again, "Recent").tap()
+        XCTAssertTrue(waitUntil(5) { (self.header(again, "Recent").value as? String)?.hasPrefix("Expanded") == true }, "Recent open again")
 
         // [three-piles] The projects are the switch's other side: there "Projects" closes every project to one header.
         again.buttons["sessions.pills.projects"].tap()

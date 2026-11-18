@@ -7,7 +7,9 @@ import UIKit
 // (`UIGlassEffect(.regular)`, the composer's family): the owner reversed Q12's "not glass" on 2026-10-30 ("more Liquid
 // Glass"). The glass brings its own edge and shadow; what people read and pick keeps a solid fill. Measured over a busy
 // transcript the question on bare glass fell to 2.7–3.3:1 (dark, a photo behind), so the text section (step, Skip All,
-// the question, the choices) sits on a solid inner card 8 pt inside the glass, and Back is a solid capsule like Next.
+// the question, the choices) sits on an inner card 8 pt inside the glass, and Back is a solid capsule like Next.
+// [qcard-frost] The inner card is frosted (`DockFill.frost`), not solid: solid it read as a white slab over a chat's
+// picture (owner 2026-11-18).
 // The Desktop Look has no glass: there the card stays today's solid elevated panel with its
 // hairline and an upward-only shadow (the dock draws that itself, so ThemeChrome leaves it alone). The card's bottom
 // sits 8 pt from the screen edge with corners that follow the screen while the keyboard is down, 4 pt above the keys
@@ -280,7 +282,11 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (dock: QuestionDockView, _) in
             dock.applyLook()
         }
+        // [qcard-frost] Reduce Transparency / Increase Contrast turned on while the card shows make it solid at once.
+        NotificationCenter.default.addObserver(self, selector: #selector(accessibilityChanged), name: HQAccessibility.didChange, object: nil)
     }
+
+    @objc private func accessibilityChanged() { applyLook() }
 
     /// Glass, or (Desktop Look) the solid elevated panel with its hairline and upward shadow. Runs again on every theme
     /// change, so turning the look on or off live switches the card.
@@ -298,6 +304,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         layer.shadowOpacity = desktop ? 0.16 : 0
         hairline.isHidden = !desktop
         textCard.isHidden = desktop
+        textCard.backgroundColor = DockFill.textCard(traitCollection, solid: Self.wantsSolidTextCard)
         configureBack(desktop: desktop)
         updateChrome()
         updateHairline()
@@ -327,8 +334,14 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         backButton.configuration = back
     }
 
-    /// Whether the text section sits on its solid card now (tests).
+    /// Whether the text section sits on its card now (tests).
     var hasTextCard: Bool { !textCard.isHidden }
+
+    /// The text card's opacity now (tests): `DockFill.frost`, or 1 with Reduce Transparency or more contrast.
+    var textCardAlpha: CGFloat { textCard.backgroundColor?.cgColor.alpha ?? 0 }
+
+    /// [qcard-frost] Reduce Transparency and Increase Contrast keep the card fully solid.
+    static var wantsSolidTextCard: Bool { HQAccessibility.reduceTransparency || HQAccessibility.increaseContrast }
 
     /// Whether the card is glass now (tests).
     var isGlass: Bool { card.effect is UIGlassEffect }
@@ -1239,6 +1252,17 @@ nonisolated enum DockFill {
     /// colour inside a glass effect's content view drew see-through (verified on the iOS 27 simulator).
     static let panel = UIColor { traits in
         over(base.resolvedColor(with: traits), .clear)
+    }
+
+    /// [qcard-frost] Owner 2026-11-18 (pick C, "the question card is too solid white"): the text card lets 40 % of
+    /// the glass through, so the card takes the chat's picture instead of a flat white (Light) or black (Dark) slab.
+    /// Measured on the iOS 27 simulator over a photo and a gradient in six skins, both appearances: the question stays
+    /// at 9.4:1 or more (the solid card measured 10.8–13.3:1; bare glass 2.7–3.3:1).
+    static let frost: CGFloat = 0.6
+
+    /// The text card's fill, resolved now: the opaque panel at `frost`, or fully opaque when `solid`.
+    static func textCard(_ traits: UITraitCollection, solid: Bool) -> UIColor {
+        panel.resolvedColor(with: traits).withAlphaComponent(solid ? 1 : frost)
     }
 
     static func over(_ bottom: UIColor, _ top: UIColor) -> UIColor {

@@ -72,7 +72,7 @@ import Testing
         let rows = [Self.chat("new", ago: 60), Self.chat("mid", ago: 600), Self.chat("old", ago: 6_000),
                     Self.chat("lastMonth", ago: 86_400 * 40)]
         let order = [Self.key("old"), Self.key("new"), Self.key("lastMonth"), Self.key("mid")]
-        let updated = Self.run(rows) { $0.chatOrder = order; $0.openGroups = [SessionListPipeline.recentOlderId] }
+        let updated = Self.run(rows) { $0.chatOrder = order }
         #expect(updated.flatMap(\.sessions).map(\.id) == ["new", "mid", "old", "lastMonth"])        // Updated ignores it
         let manual = Self.run(rows) { $0.prefs.sortBy = .manual; $0.chatOrder = order }
         // [sessions-fresh] One Recent run (no date headers now), in the dragged order.

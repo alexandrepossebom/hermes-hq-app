@@ -51,11 +51,10 @@ import Testing
         #expect(project.children.last?.children.map(\.title) == ["New Project…"])
         #expect(project.children.map(\.id).prefix(2) == ["sessions.filter.project.0", "sessions.filter.project.1"])
         let show = try #require(node("sessions.filter.show", in: nodes))
-        // [sessions-fresh] Bot Faces and Project Chats in Recent first, on by default, under Group By Recent alone.
-        #expect(show.children.map(\.title) == ["Bot Faces", "Project Chats in Recent", "Outside Chats", "Background Runs", "Archived"])
-        #expect(show.children.map(\.id) == ["sessions.filter.faces", "sessions.filter.projectchats", "sessions.filter.outside",
-                                            "sessions.filter.runs", "sessions.filter.archived"])
-        #expect(show.children.prefix(2).allSatisfy { $0.checked && $0.keepsOpen })
+        // [sessions-fresh] Bot Faces first, on by default. [three-piles] No Project Chats in Recent: Recent is every chat.
+        #expect(show.children.map(\.title) == ["Bot Faces", "Outside Chats", "Background Runs", "Archived"])
+        #expect(show.children.map(\.id) == ["sessions.filter.faces", "sessions.filter.outside", "sessions.filter.runs", "sessions.filter.archived"])
+        #expect(show.children.prefix(1).allSatisfy { $0.checked && $0.keepsOpen })
         let byProject = SessionFilterMenuModel.nodes(state { $0.prefs.groupBy = .project })
         // [projects-switch] Owner 2026-11-15 ("an option to hide bot faces"): Bot Faces under Group By Project too.
         #expect(node("sessions.filter.faces", in: byProject) != nil)
@@ -309,7 +308,7 @@ import Testing
             node("sessions.filter.show", in: SessionFilterMenuModel.nodes(state { $0.prefs.groupBy = group }))?.children.map(\.title) ?? []
         }
         #expect(show(.project).first == "Bot Faces" && !show(.project).contains("Project Chats in Recent"))
-        #expect(show(.date).prefix(2) == ["Bot Faces", "Project Chats in Recent"] && !show(.status).contains("Bot Faces"))
+        #expect(show(.date).first == "Bot Faces" && !show(.date).contains("Project Chats in Recent") && !show(.status).contains("Bot Faces"))
         #expect(ProjectPageHeader.meta(folder: "/Users/me/code/site", branch: "main", bots: ["Otto", "Ivy"]) == "~/code/site · main · Otto, Ivy")
         #expect(ProjectPageHeader.meta(folder: "id:x/p", branch: nil, bots: ["Otto", "Ivy", "Wren", "Juno"]) == "Otto, Ivy and 2 more")
         var prefs = SessionsViewPrefs(); prefs.pills = .projects

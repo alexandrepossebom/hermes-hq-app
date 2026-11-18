@@ -256,41 +256,9 @@ extension SessionsTests {
         toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(6) { toProjects.exists && !toBots.exists }, "and its lit (Projects) side flips it back")
         XCTAssertTrue(nothingPicked(app), "the bot picked before went with the view")
-        // [sessions-shape] The Bots side keeps a shortcut to the projects (the starred ones, or the newest two).
-        // [project-opens-page] On the Bots side a project's row opens its page too, on the Projects side; the switch's
-        // other side goes back to the Bots side.
-        let bySide = ["Website", "Reading", "App"].map { header(app, $0) }
-        XCTAssertTrue(waitUntil(8) { bySide.contains(where: \.exists) }, "a project's row on the Bots side")
-        let projectRow = bySide.first(where: \.exists)!
-        let projectName = String(projectRow.label.prefix { $0 != "," })
-        XCTAssertFalse(((projectRow.value as? String) ?? "").contains("Collapsed"), "it opens, it doesn't unfold (\(projectRow.value ?? ""))")
-        reveal(app, projectRow)
-        projectRow.tap()
-        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "the row opens \(projectName)'s page")
-        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "on the Projects side")
-        XCTAssertTrue(app.staticTexts[projectName].exists, "the page is \(projectName)'s")
-        shot(app, "P0c-bots-side-row-opens-page")
-        toBots.tap()
-        XCTAssertTrue(waitUntil(6) { toProjects.exists && !app.cells["sessions.projectPage"].exists }, "the switch goes back to the Bots side")
-        XCTAssertTrue(waitUntil(6) { !self.chip(app, "research").exists || self.chip(app, "default").exists }, "the bot pills again")
-        // [project-page-return] With a bot picked: its project's page shows the whole project, the switch is in view
-        // (the rail scrolled only as far as the project's pill needed), and the way back brings the bot back.
-        tapChip(app, "research")
-        XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
-        let reading = header(app, "Reading")
-        XCTAssertTrue(reading.waitForExistence(timeout: 6), "Research's project, Reading")
-        reveal(app, reading)
-        reading.tap()
-        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "Reading's page")
-        XCTAssertTrue(waitUntil(6) { toBots.exists && toBots.isHittable }, "the switch is in view, no swipe needed")
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND selected == true")).firstMatch.label.hasPrefix("Reading"),
-                      "Reading's pill lit")
-        shot(app, "P0d-page-from-a-bot")
-        toBots.tap()
-        XCTAssertTrue(waitUntil(6) { toProjects.exists && self.chip(app, "research").isSelected }, "back: Research picked again")
-        XCTAssertTrue(waitUntil(6) { self.order(app).allSatisfy { ["s-trip", "s-recipes"].contains($0) } }, "Research's chats (\(order(app)))")
-        tapChip(app, "research")
-        XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) })
+        // [three-piles] The Bots side is the chats alone: no project's row there (the switch goes to the projects).
+        XCTAssertFalse(["Website", "Reading", "App"].contains { header(app, $0).exists }, "no project on the Bots side (\(headers(app)))")
+        XCTAssertTrue(headers(app).contains("Recent"), "\(headers(app))")
         toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now the projects")
         openFilter(app)
@@ -443,18 +411,9 @@ extension SessionsTests {
             let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
             from.press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
         }
-        // From the Bots side, a bot picked: back is that bot's list again.
+        // The list itself has no page to go back to: the swipe leaves it as it is.
         tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
-        let reading = header(app, "Reading")
-        XCTAssertTrue(reading.waitForExistence(timeout: 6))
-        reveal(app, reading)
-        reading.tap()
-        XCTAssertTrue(page.waitForExistence(timeout: 6), "Reading's page")
-        edgeSwipe()
-        XCTAssertTrue(waitUntil(6) { !page.exists && toProjects.exists && self.chip(app, "research").isSelected },
-                      "the swipe goes back: the Bots side, Research picked again")
-        // The list itself has no page to go back to: the swipe leaves it as it is.
         edgeSwipe()
         XCTAssertTrue(waitUntil(2) { toProjects.exists && self.chip(app, "research").isSelected }, "nothing to go back to")
         tapChip(app, "research")
@@ -469,40 +428,6 @@ extension SessionsTests {
         edgeSwipe()
         XCTAssertTrue(waitUntil(6) { !page.exists && toBots.exists && self.nothingPicked(app) && self.headers(app).contains("Website") },
                       "the swipe goes back to every project (\(headers(app)))")
-    }
-
-    /// [sessions-shape] Owner 2026-11-18 ("It doesn't feel like it has enough organization"; "an additional click to end
-    /// up to your final destination"): the Bots side is Pinned, the projects' shortcut, and the chats by the day; on
-    /// the Projects side a project's live chats (a reply not read, at work) sit under its row, one tap from the chat.
-    @MainActor func test40f_DaysAndLiveChatsUnderProjects() throws {
-        fixture("/__fixture/mode", ["working": ["s-trip"]])          // a turn at work in Reading
-        defer { fixture("/__fixture/mode", ["working": [String]()]) }
-        let app = launch(projectPages: true)
-        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
-        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
-        // The Bots side: no one long Recent; the chats under the day they were last at work.
-        XCTAssertTrue(waitUntil(8) { self.headers(app).contains("Today") && !self.headers(app).contains("Recent") }, "\(headers(app))")
-        XCTAssertTrue(headers(app).contains { $0.hasPrefix("Yesterday") || $0.hasPrefix("This Week") }, "an earlier day too (\(headers(app)))")
-        shot(app, "D1-bots-days")
-        // The Projects side: Website's unread chat and Reading's working one under their projects; App, quiet, is one row.
-        toProjects.tap()
-        XCTAssertTrue(toBots.waitForExistence(timeout: 8))
-        XCTAssertTrue(waitUntil(8) { self.order(app) == ["s-budget", "s-trip"] }, "the live chats alone (\(order(app)))")
-        XCTAssertEqual(rows(under: "Website", app), ["s-budget"])
-        XCTAssertEqual(rows(under: "Reading", app), ["s-trip"])
-        XCTAssertTrue(rows(under: "App", app).isEmpty, "a quiet project is its row alone")
-        shot(app, "D2-projects-live")
-        // The project's name still opens its page.
-        reveal(app, header(app, "Reading"))
-        header(app, "Reading").tap()
-        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "Reading's page")
-        let pill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND selected == true")).firstMatch
-        onScreen(app, pill).tap()
-        XCTAssertTrue(waitUntil(6) { !app.cells["sessions.projectPage"].exists && self.order(app) == ["s-budget", "s-trip"] }, "\(order(app))")
-        // One tap on a live chat opens it.
-        row(app, "s-trip").tap()
-        XCTAssertTrue(waitUntil(8) { !app.collectionViews["sessions.list"].isHittable || app.navigationBars.buttons.firstMatch.exists }, "the chat opens")
     }
 
     /// [three-piles] Owner 2026-11-17 (picked from pictures, "I like option 1"): a project's page is three piles.

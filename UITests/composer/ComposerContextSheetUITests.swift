@@ -8,11 +8,7 @@ extension ComposerUITests {
         app.buttons["composer.plus"].tap()
         XCTAssertTrue(app.staticTexts["Add context"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["composer.plus.photos"].exists)
-        // The quick tiles sit in one row under the photos; Link is a row below them.
-        let camera = app.buttons["composer.plus.camera"], files = app.buttons["composer.plus.files"]
-        XCTAssertTrue(camera.exists && files.exists)
-        XCTAssertEqual(camera.frame.midY, files.frame.midY, accuracy: 1, "Camera and Files are tiles in one row")
-        XCTAssertGreaterThan(app.buttons["composer.plus.link"].frame.minY, files.frame.maxY, "Link is a row under the tiles")
+        XCTAssertTrue(app.buttons["composer.plus.files"].exists)
         XCTAssertTrue(app.buttons["composer.plus.link"].isHittable, "the sheet fits its rows: Link is not under the edge")
         XCTAssertTrue(app.buttons["Close"].exists)
         // The out-of-process Photos picker loads asynchronously on a freshly booted simulator.
