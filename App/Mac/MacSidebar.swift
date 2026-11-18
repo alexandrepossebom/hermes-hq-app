@@ -368,7 +368,7 @@ final class MacSidebar: UIView {
         scroll.addSubview(stack)
         scroll.contentInset.bottom = 6
         scrollWatch = [scroll, footScroll].flatMap { list in [
-            list.observe(\.contentOffset, options: []) { [weak self] _, _ in MainActor.assumeIsolated { self?.placeFade() } },
+            list.observe(\.contentOffset, options: []) { [weak self] _, _ in MainActor.assumeIsolated { self?.placeFade(); MacRailPeek.shared.follow() } },
             list.observe(\.contentSize, options: []) { [weak self] _, _ in MainActor.assumeIsolated { self?.placeFade() } },
         ] }
         botsStack.axis = .vertical
@@ -1384,6 +1384,14 @@ final class MacSidebar: UIView {
             if let head = view as? MacRailHead { return head.isMarked ? "[\(head.item.key)]" : head.item.key }
             return view is MacRailLine ? "|" : view is MacRailAdd ? "+" : ""
         }.joined(separator: " ")
+    }
+    /// [rail-peek] The rail tour: head `index` as under the pointer, its peek card up (nil: the pointer gone).
+    func debugPeek(_ index: Int?) {
+        let shown = shownHeads
+        shown.forEach { $0.debugHover(false) }
+        guard let index, shown.indices.contains(index) else { MacRailPeek.shared.hide(); return }
+        shown[index].debugHover()   // its tile, as under the pointer
+        MacRailPeek.shared.show(for: shown[index])
     }
     func debugClickHead(_ index: Int) {
         let shown = shownHeads
