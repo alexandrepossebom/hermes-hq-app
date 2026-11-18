@@ -66,6 +66,16 @@ private extension AttachmentPrepareError {
 
     var canAttach: Bool { count < AttachmentStaging.maxPerMessage }
 
+    private func presentContextSheet() {
+        guard let screen, screen.presentedViewController == nil else { return }
+        let sheet = ComposerContextSheet(sections: plusMenu.makeSections(), canAttach: canAttach) { [weak self] provider in
+            guard let self, self.canAttach else { return }
+            let movie = provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier)
+            self.importSources([.library(provider, movie: movie)])
+        }
+        screen.present(sheet, animated: true)
+    }
+
     private func install() {
         guard let composer else { return }
         pickers.presenter = screen
@@ -88,7 +98,11 @@ private extension AttachmentPrepareError {
             item.accessibilityIdentifier = "composer.plus.link"
             return [item]
         }
-        plusButton.menuProvider = { [weak self] in self?.plusMenu.makeMenu() ?? UIMenu(children: []) }
+        if DeviceWord.isMac {
+            plusButton.menuProvider = { [weak self] in self?.plusMenu.makeMenu() ?? UIMenu(children: []) }
+        } else {
+            plusButton.onTap = { [weak self] in self?.presentContextSheet() }
+        }
         composer.leadingAccessories = [plusButton]
         tray.delegate = self
         // [glass-phone] The glass card's padding makes the tray taller off the Desktop Look: a live switch resizes it.
