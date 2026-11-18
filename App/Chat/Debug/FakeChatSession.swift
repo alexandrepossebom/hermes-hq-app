@@ -1064,6 +1064,36 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         ]
     }
 
+    /// [narration] One long turn that narrates its work: a progress note before each batch of steps, then its answer.
+    static func narrationThread(now: Date = Date()) -> [ChatMessage] {
+        var n = 0
+        func run(_ command: String) -> ChatPart {
+            n += 1
+            return .tool(ToolCall(id: "nr-t\(n)", name: "terminal", title: "terminal", argsText: #"{"command":"\#(command)"}"#,
+                                  summary: "ok", state: .done, durationSeconds: 2.2))
+        }
+        let notes = [
+            "Two other sessions are mid-ship (1104 and 1105 archiving), so mine takes 1106. Checking their trees.",
+            "1105 is already on Apple; 1104 is archiving from main's tip. Merging main into my fix and claiming 1106.",
+            "Gating the merged tree (UI tests, full unit suite, Mac build) in the background:",
+            "Gates are running; 1104 is still archiving. Waiting on both.",
+            "UI gate passed on the merged tree. Unit suite still running.",
+            "Unit suite still going; 1104 still in its archive/upload. Checking back shortly.",
+            "Unit suite passed. Archiving 1106 now.",
+        ]
+        var parts: [ChatPart] = []
+        for (i, note) in notes.enumerated() {
+            parts.append(.text(note))
+            parts.append(run("step \(i + 1)"))
+            parts.append(run("check \(i + 1)"))
+        }
+        parts.append(.text("Build 1106 is uploaded and in the internal group; Apple shows it processed, so it's ready to install from TestFlight."))
+        return [
+            ChatMessage(id: "nr-u1", role: .user, parts: [.text("Ship")], timestamp: now.addingTimeInterval(-40 * 60), rowId: nil),
+            ChatMessage(id: "nr-a1", role: .assistant, parts: parts, timestamp: now.addingTimeInterval(-39 * 60), rowId: nil),
+        ]
+    }
+
     static func generate(count: Int, long: Bool = false) -> [ChatMessage] {
         guard count > 0 else { return [] }
         if ChatDemo.flag("-HQDemoMath") { return mathThread() }
@@ -1077,6 +1107,7 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         if ChatDemo.flag("-HQDemoBotExchange") { return botExchangeThread(now: Date().addingTimeInterval(-35 * 60)) + botExchangeFollowUp() }
         if ChatDemo.flag("-HQDemoRestated") { return restatedThread() }
         if ChatDemo.flag("-HQDemoBackgroundChatter") { return backgroundChatterThread() }
+        if ChatDemo.flag("-HQDemoNarration") { return narrationThread() }
         if let page = ChatDemo.argument("-HQDemoPage") { return pageThread(page) }
         if ChatDemo.flag("-HQDemoVoiceRecord") { return voiceRecordThread() }
         if ChatDemo.argument("-HQDemoPhotos") != nil { return photosThread() }

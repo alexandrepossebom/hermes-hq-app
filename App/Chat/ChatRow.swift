@@ -780,6 +780,9 @@ nonisolated enum ChatRowBuilder {
         var helpers: [ToolCards.DelegateRow] = []
         var thoughts: [String] = []
         var firstThought: Int?
+        // [narration] Once the reply has settled, its progress notes join its line.
+        // After Reply › Hide draws no line to fold them into: they stay where they were written.
+        let notes = oneLine && !stepsHidden ? ProgressNotes.folded(m, at: index, input: input) : []
 
         // [transcript] Under a landed edit's own row (Rows, Bubbles only — One Line/At the Bottom have no such row:
         // §12 DECISION): its first changed lines, straight after the row they belong to.
@@ -818,6 +821,13 @@ nonisolated enum ChatRowBuilder {
                 let text = ChatMediaRows.droppingEchoes(raw, generated: input.media.generated[m.id])
                 // Silent: runs chain over it. Words that are only hidden thinking (`<think>…</think>`) draw nothing either.
                 if ReasoningTags.isBlank(text) { continue }
+                if notes.contains(i) {
+                    // [narration] A note it wrote before going back to work: said on the reply's line, with its steps.
+                    thoughts.append(ChatText.trimmed(text))
+                    if firstThought == nil { firstThought = i }
+                    workedSinceWords = false
+                    continue
+                }
                 flushRun(endingAt: i - 1)
                 // Words with only silent things between them (a to-do update, hidden thinking) are one bubble: the reply
                 // reads as one message, not a stack of fragments. Words the bot wrote before going back to work (a

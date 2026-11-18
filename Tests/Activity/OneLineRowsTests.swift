@@ -46,13 +46,15 @@ struct OneLineRowsTests {
         guard let (run, l) = line(rows) else { Issue.record("no line"); return }
         #expect(l.title == "Worked for 42s · 2 steps")
         #expect(l.glyph == .worked)
-        #expect(l.thought == "plan")
+        // [narration] Once the reply has settled, the note it wrote before its steps is said on the line with them;
+        // only the answer after them stays a bubble (owner, 2026-11-18; while it works the note is its own bubble,
+        // `progressNotesBetweenStepsAreTheirOwnBubbles`).
+        #expect(l.thought == "plan\n\nChecking.")
         #expect(run.tools.map(\.id) == ["t1", "t2"])
         #expect(!run.live)
-        // The note before the steps and the answer after them are two messages (kwojt 2026-11-14).
-        #expect(bubbles(rows) == ["Checking.", "All good."])
+        #expect(bubbles(rows) == ["All good."])
         // The line sits above the reply's words.
-        let lineAt = rows.firstIndex { $0.id == "a|line" }, bubbleAt = rows.firstIndex { $0.id == "a|b1" }
+        let lineAt = rows.firstIndex { $0.id == "a|line" }, bubbleAt = rows.firstIndex { $0.id == "a|b4" }
         #expect(lineAt != nil && bubbleAt != nil && lineAt! < bubbleAt!)
         #expect(!rows.contains { if case .thought = $0.kind { return true } else { return false } })
     }
@@ -150,11 +152,21 @@ struct OneLineRowsTests {
         ]
         let notes = ["First the key.", "The secrets check says the key is there.",
                      "An important finding.\n\nThe first batch is 220 requests."]
-        for style in [ToolCallStyle.line, .bottom, .header, .rows, .bubbles] {
+        // Styles that draw each step where it ran, and After Reply › Hide, keep every note in place.
+        for style in [ToolCallStyle.header, .rows, .bubbles] {
             #expect(bubbles(ChatRowBuilder.build(input(reply(parts)) { $0.style = style })) == notes, "\(style)")
         }
         #expect(bubbles(ChatRowBuilder.build(input(reply(parts)) { $0.style = .line; $0.hideSteps = true })) == notes)
-        let rows = ChatRowBuilder.build(input(reply(parts), fewerTimes: true) { $0.style = .line })
+        // [narration] One Line and At the Bottom: once the reply has settled, the notes are said on its line and only
+        // its last words stay (owner, 2026-11-18: "Live while working, then fold into the Worked line when done").
+        for style in [ToolCallStyle.line, .bottom] {
+            let settled = ChatRowBuilder.build(input(reply(parts)) { $0.style = style })
+            #expect(bubbles(settled) == [notes[2]], "\(style)")
+            #expect(line(settled)?.1.thought == "First the key.\n\nThe secrets check says the key is there.", "\(style)")
+        }
+        // While it is still writing, each note is its own message, stacked tight under the line (kwojt 2026-11-14).
+        #expect(bubbles(ChatRowBuilder.build(input(reply(parts, streaming: true), running: true) { $0.style = .line })) == notes)
+        let rows = ChatRowBuilder.build(input(reply(parts, streaming: true), running: true, fewerTimes: true) { $0.style = .line })
         let drawn = rows.compactMap { row -> (ChatRow, BubbleRow)? in
             if case .bubble(let b) = row.kind, !b.mine { return (row, b) } else { return nil }
         }
