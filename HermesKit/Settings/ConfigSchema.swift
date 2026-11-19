@@ -201,10 +201,10 @@ nonisolated enum ConfigCatalog {
             ConfigPage(section: "model", id: "moa", title: "Mixture of Agents", symbol: "rectangle.3.group", prefixes: ["moa."]),
         ]),
         ConfigSection(id: "chat", title: "Chat Behavior", symbol: "bubble.left.and.text.bubble.right", keys: [
-            "display.personality", "timezone", "display.show_reasoning", "agent.image_input_mode",
+            "display.personality", "timezone", "display.show_reasoning", "agent.clarify_timeout", "agent.image_input_mode",
         ], pages: [
             ConfigPage(section: "chat", id: "behavior", title: "Behavior", symbol: "bubble.left",
-                       fields: ["display.personality", "timezone", "display.show_reasoning"]),
+                       fields: ["display.personality", "timezone", "display.show_reasoning", "agent.clarify_timeout"]),
             ConfigPage(section: "chat", id: "attachments", title: "Attachments", symbol: "photo", fields: ["agent.image_input_mode"]),
         ]),
         ConfigSection(id: "workspace", title: "Workspace", symbol: "folder", keys: [

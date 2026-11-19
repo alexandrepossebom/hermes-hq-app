@@ -45,6 +45,7 @@ nonisolated enum ConfigCopy {
         "code_execution.mode": "Code Execution Mode",
         "approvals.mode": "Approval Mode",
         "approvals.timeout": "Approval Timeout",
+        "agent.clarify_timeout": "Question Timeout",   // a tester lost an interview's answers to the 90 s default
         "approvals.mcp_reload_confirm": "Ask Before Reloading Connectors",   // Stress test 2026-10-28 #100, round 2 (both)
         "command_allowlist": "Command Allowlist",
         "security.redact_secrets": "Redact Secrets",
@@ -112,6 +113,7 @@ nonisolated enum ConfigCopy {
         "file_read_max_chars": "The most characters Hermes reads from a file in one request.",
         "approvals.mode": "How Hermes handles commands that need your approval.",
         "approvals.timeout": "How long approval prompts wait before timing out.",
+        "agent.clarify_timeout": "How long the bot waits for your answers to its questions before it moves on. 0 waits until you answer.",
         "security.redact_secrets": "Hide detected secrets from what the model sees, when possible.",
         "checkpoints.enabled": "Create rollback snapshots before file edits.",
         "memory.memory_enabled": "Save lasting memories that can help future chats.",

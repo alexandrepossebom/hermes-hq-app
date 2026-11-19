@@ -16,9 +16,20 @@ nonisolated enum ComposerKeyboard {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// On the Mac the field follows System Settings › Keyboard › Text Input (Correct spelling automatically, and the
+    /// field's own Edit › Spelling and Grammar): a tester 2026-11-17 had correction off there and the field still
+    /// changed commands and names, because it asked for correction outright. The iPhone and iPad ask for it as Messages.
+    static let followsSystem: Bool = {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }()
+
     @MainActor static func apply(to textView: UITextView) {
-        textView.autocorrectionType = .yes
-        textView.spellCheckingType = .yes
+        textView.autocorrectionType = followsSystem ? .default : .yes
+        textView.spellCheckingType = followsSystem ? .default : .yes
         textView.autocapitalizationType = .sentences
         textView.smartQuotesType = .default
         textView.smartDashesType = .default

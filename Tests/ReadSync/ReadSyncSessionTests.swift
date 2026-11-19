@@ -223,6 +223,39 @@ import Testing
         mac.stop(); phone.stop()
     }
 
+    /// A tester 2026-11-19: "I open the chat and then leave it. The unread indicator remains." Only a tap on the chat's
+    /// Sessions row told the gateway; a chat opened from an alert, a bot's own list or search kept its flag.
+    @Test func aChatOpenedAnyWayIsReadOnTheGateway() async throws {
+        let hermes = gateway("plan", "kept", readAt: Self.t0 + 1)
+        let (mac, _) = store(hermes), (phone, _) = store(hermes)
+        #expect(await BotsTest.waitUntil { mac.loadState == .ready && phone.loadState == .ready })
+        hermes.activity("plan")
+        await mac.refresh(); await phone.refresh()
+        #expect(row(mac, "plan").unread && row(phone, "plan").unread)
+        // Opened on the phone without its row being tapped: the chat settles with fresh history on screen.
+        phone.readOpened(id: "plan", profile: "ivy")
+        #expect(!row(phone, "plan").unread)
+        #expect(await BotsTest.waitUntil { hermes.patches("plan") == 1 })
+        await phone.refresh(); await mac.refresh()
+        #expect(!row(phone, "plan").unread, "leaving it does not bring the dot back")
+        #expect(!row(mac, "plan").unread)
+        // Nothing new: another open writes nothing.
+        phone.readOpened(id: "plan", profile: "ivy")
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(hermes.patches("plan") == 1)
+
+        // Marked unread on the Mac, opened on the phone the same way: read on both.
+        mac.setUnread(row(mac, "kept"), true)
+        #expect(await BotsTest.waitUntil { hermes.patches.last?.unread == true })
+        await phone.refresh()
+        #expect(row(phone, "kept").unread)
+        phone.readOpened(id: "kept", profile: "ivy")
+        #expect(await BotsTest.waitUntil { hermes.patches.last?.unread == false })
+        await mac.refresh(); await phone.refresh()
+        #expect(!row(mac, "kept").unread && !row(phone, "kept").unread)
+        mac.stop(); phone.stop()
+    }
+
     @Test func aReadMadeOfflineIsOwedAndSentWhenTheLinkIsBack() async throws {
         let hermes = gateway("plan", "moved", readAt: Self.t0 + 1)
         let (mac, macClient) = store(hermes), (phone, _) = store(hermes)

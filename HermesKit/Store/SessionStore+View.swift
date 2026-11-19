@@ -96,6 +96,17 @@ extension SessionStore {
         if wantsDeepRead, !wasDeep, lastFullLimit < Self.deepRecentsLimit { readInFull() }
     }
 
+    /// [mac-scope-menu] Each bot's New and Working counts (every project's), for the Mac's bot menu.
+    var botChipCounts: [String: [SessionStatusChip: Int]] {
+        var out: [String: [SessionStatusChip: Int]] = [:]
+        for session in sessions {
+            for chip in SessionStatusChip.allCases where SessionListPipeline.matches(chip, session) {
+                out[session.profile, default: [:]][chip, default: 0] += 1
+            }
+        }
+        return out
+    }
+
     /// [sessions-fresh] The chips' counts under the bot chip.
     var chipCounts: [SessionStatusChip: Int] {
         SessionListPipeline.chipCounts(SessionListInput(live: sessions, prefs: view, botFilter: botFilter,
@@ -129,6 +140,18 @@ extension SessionStore {
 
     /// [project-default-bot] What was chosen for a project's New Chat: a bot's profile, `ProjectDefaultBot.ask`, or nil.
     func projectBotChoice(_ key: String) -> String? { device.projectBots[key] }
+
+    func isCodingProject(_ key: String) -> Bool { device.codingProjects[key] ?? false }
+
+    func setCodingProject(_ key: String, _ enabled: Bool) {
+        guard device.codingProjects[key] != enabled else { return }
+        if !enabled, projectPRFilter?.key == key { projectPRFilter = nil }
+        device.codingProjects[key] = enabled
+        persistState()
+        codingProjectsChanged()
+        if enabled { linkOwnFolderIfUnlinked(key) }   // [pr-manage]
+        onChange?()
+    }
 
     /// [project-default-bot] Default Bot: `choice` is a bot's profile or `ProjectDefaultBot.ask`. Kept with the other
     /// hand-picked parts (synced).
@@ -181,6 +204,7 @@ extension SessionStore {
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
                                                     archivedProjects: archivedProjects,
                                                     botNames: botNames, statusChip: statusChip,
+                                                    projectPRState: projectPRFilter.flatMap { view.projectFilter == [$0.key] && isCodingProject($0.key) ? $0.state : nil },
                                                     liveUnderProjects: projectRowsOpenPages, now: now, calendar: calendar))
     }
 
@@ -446,6 +470,7 @@ extension SessionStore {
         guard device.projects != projectsByProfile else { return }
         device.projects = projectsByProfile
         persistState()
+        codingProjectsChanged()
         onChange?()
     }
 

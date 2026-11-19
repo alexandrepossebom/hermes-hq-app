@@ -10,6 +10,7 @@ Plugin routes (cookie session, as the app's other REST calls):
   DELETE /api/plugins/hermes-hq-push/devices/<id>
   POST   /api/plugins/hermes-hq-push/approvals/<id>    {session_key, choice: once|deny, token} -> {ok, resolved}
   POST   /api/plugins/hermes-hq-push/logs              accepted and dropped
+  PUT / DELETE /api/plugins/hermes-hq-push/viewing/<id>  the chat in front of the person {session, profile, ttl}, kept in order
   /api/plugins/dispatch-push/...                       the old name: answers only while plugin == "outdated"
 Fixture control:
   POST /__fixture/push  {plugin?, manager?, version?}   manager (plugins.manage): "" answers nothing (as before), "none" is an
@@ -219,6 +220,13 @@ def handler(gateway):
                     removed = STATE['devices'].pop(device.group(1), None) is not None
                     STATE['removed'].append(device.group(1))
                 self.reply(200, {'ok': True, 'removed': removed}); return True
+            # [viewing] hermes-hq-push 0.9.66: the chat a device has in front of its person (kept as `viewing` in the ledger).
+            viewing = re.fullmatch(r'/viewing/([A-Za-z0-9-]{8,64})', route)
+            if viewing and method in ('PUT', 'DELETE'):
+                with LOCK:
+                    STATE.setdefault('viewing', []).append(
+                        {'method': method, 'session': body.get('session'), 'profile': body.get('profile'), 'ttl': body.get('ttl')})
+                self.reply(200, {'ok': True}); return True
             if self.device_access(method, route, body):
                 return True
             approval = re.fullmatch(r'/approvals/([A-Za-z0-9_-]{1,128})', route)
@@ -286,7 +294,7 @@ def handler(gateway):
                     return self.reply(200, {k: STATE[k] for k in ('shares', 'forgotten', 'requests')})
             if urlparse(self.path).path == '/__fixture/push':
                 with LOCK:
-                    return self.reply(200, {k: STATE[k] for k in ('plugin', 'manager', 'devices', 'removed', 'approvals', 'calls', 'manage')})
+                    return self.reply(200, {k: STATE[k] for k in ('plugin', 'manager', 'devices', 'removed', 'approvals', 'calls', 'manage', 'viewing') if k in STATE})
             return super().do_GET()
 
         def do_PUT(self):

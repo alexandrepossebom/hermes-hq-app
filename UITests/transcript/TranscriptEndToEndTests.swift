@@ -503,6 +503,40 @@ final class TranscriptEndToEndTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["chat.earlier.text"].exists, "nothing more to show at the very start")
     }
 
+    // MARK: T15b A tap on the status bar goes to the top of the chat, the oldest message loaded (owner 2026-11-19)
+
+    @MainActor func testT15b_StatusBarTapGoesToTheTop() throws {
+        let account = try FixtureAccount.load()
+        try preset(account, "long")
+        let app = launch(account)
+        let newest = labelled(app, containing: "Line 200 of a long chat.")
+        XCTAssertTrue(newest.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil(timeout: 5) { newest.isHittable }, "the chat opens at the newest message")
+        shot("statusbar-top-before")
+        // The first page is lines 101–200: the tap goes to its top, and the next page comes in above it.
+        tapStatusBar(app)
+        XCTAssertTrue(waitUntil(timeout: 6) { !newest.exists || !newest.isHittable }, "the tap leaves the newest end")
+        XCTAssertTrue(waitUntil(timeout: 6) { self.labelled(app, containing: "Line 103 of a long chat.").exists },
+                      "it reaches the top of what was loaded")
+        shot("statusbar-top-first")
+        // The earlier page (lines 1–100) comes in above meanwhile: one more tap goes all the way to the first message.
+        Thread.sleep(forTimeInterval: 2)
+        let first = labelled(app, containing: "Line 1 of a long chat.")
+        tapStatusBar(app)
+        _ = waitUntil(timeout: 6) { first.exists && first.isHittable }
+        Thread.sleep(forTimeInterval: 1)
+        shot("statusbar-top-start")
+        XCTAssertTrue(first.exists && first.isHittable, "a second tap reaches the start of the chat")
+        // And the jump button still brings the newest message back.
+        app.buttons["chat.jump"].tap()
+        XCTAssertTrue(waitUntil(timeout: 6) { newest.exists && newest.isHittable }, "back at the newest message")
+    }
+
+    /// The status bar by the clock: its middle is the Dynamic Island's, which takes no scroll-to-top tap.
+    @MainActor func tapStatusBar(_ app: XCUIApplication) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0)).withOffset(CGVector(dx: 0, dy: 22)).tap()
+    }
+
     // MARK: T16 A usage limit: the card's button is "Choose a Model" (L352, §6.1)
 
     @MainActor func testT16_UsageLimitCard() throws {

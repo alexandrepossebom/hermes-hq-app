@@ -182,7 +182,12 @@ struct ActivityPillLayoutTests {
         shelf.expanded = true
         layout(shelf, width: 386)
         #expect(header.label.text == "Activity", "the expanded header is neither the pill again nor the transcript's step")
-        #expect(abs(header.chevron.transform.a + 1) < 0.001, "⌃ while expanded")
+        // [collapse-all] The ⌃ left the words for the trailing edge, where it folds the whole shelf.
+        #expect(header.chevronStyle == .hidden)
+        #expect(header.chevron.isHidden, "no arrow beside \"Activity\"")
+        #expect(!shelf.collapseAll.isHidden)
+        #expect(abs(shelf.collapseAll.frame.maxX - (header.frame.maxX - 10)) < 1, "⌃ at the trailing edge, in line with the rows' ›")
+        #expect(header.label.frame.maxX <= shelf.collapseAll.frame.minX - header.frame.minX)
         let tasks = try #require(shelf.pieces[.tasks])
         tasks.layoutIfNeeded()
         tasks.header.layoutIfNeeded()
@@ -200,7 +205,14 @@ struct ActivityPillLayoutTests {
         #expect(header.chevronStyle == .back)
         #expect(header.label.text == "Activity")
         #expect(header.chevron.frame.maxX <= header.label.frame.minX, "‹ before the words")
+        #expect(!header.chevron.isHidden)
+        #expect(!shelf.collapseAll.isHidden, "a detail keeps the trailing collapse-all")
         #expect(header.accessibilityLabel == "All activity")
+
+        shelf.expanded = false
+        layout(shelf, width: 386)
+        #expect(shelf.collapseAll.isHidden, "the folded pill has no collapse-all")
+        #expect(header.chevronStyle == .expand && !header.chevron.isHidden)
     }
 
     @Test func aNarrowPillDropsOnlyWhatDoesNotFit() {

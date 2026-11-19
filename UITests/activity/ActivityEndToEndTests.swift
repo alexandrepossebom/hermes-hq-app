@@ -613,6 +613,48 @@ final class ActivityEndToEndTests: XCTestCase {
         shot("subagents-many-finished")
     }
 
+    // MARK: (collapse-all) The expanded header's trailing ⌃
+
+    /// Owner 2026-11-19: one icon at the expanded header's trailing edge folds the whole shelf back to the pill from any
+    /// depth (here a helper's page under the Helpers detail); reopening starts at the overview, not the page.
+    @MainActor func test11d_CollapseAllFromAHelpersPage() throws {
+        let account = try FixtureAccount.load()
+        try reset(account)
+        let app = launch(account, args: [])
+        openChat(app)
+        let goals = ["Read the changelog since 2.3", "Run the test suite and report failures"]
+        for (i, g) in goals.enumerated() {
+            try event(account, "subagent.start", ["goal": g, "task_count": 2, "task_index": i, "subagent_id": "sa_c\(i)", "status": "running", "model": "fixture-model"])
+        }
+        let summary = app.buttons["chat.shelf.summary"]
+        let collapse = app.buttons["chat.shelf.collapse"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 15))
+        XCTAssertFalse(collapse.exists, "the folded pill has no collapse-all")
+        let chip = app.activityCategory("subagents")
+        XCTAssertTrue(collapse.waitForExistence(timeout: 3), "the overview shows the trailing collapse-all")
+        shot("collapse-all-overview")
+        XCTAssertTrue(waitUntil(timeout: 5) { chip.isHittable })
+        chip.tap()
+        let row = labelled(app, containing: goals[0])
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.tap()
+        XCTAssertTrue(element(app, "chat.subagent.back").waitForExistence(timeout: 5), "two levels down: a helper's page")
+        XCTAssertEqual(summary.value as? String, "detail")
+        XCTAssertTrue(collapse.isHittable, "the collapse-all stays over a detail")
+        shot("collapse-all-page")
+        collapse.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) { summary.value as? String == "collapsed" }, "one tap folds every level")
+        XCTAssertFalse(collapse.exists)
+        shot("collapse-all-folded")
+        // Reopening starts at the overview, and the Helpers detail at its list.
+        summary.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) { summary.value as? String == "expanded" }, "back to the overview, not the detail")
+        let again = app.activityCategory("subagents")
+        again.tap()
+        XCTAssertTrue(labelled(app, containing: goals[1]).waitForExistence(timeout: 3), "the list, not the page")
+        XCTAssertFalse(element(app, "chat.subagent.back").exists, "the helper's page did not come back")
+    }
+
     // MARK: (4.1) The opened card with the keyboard up
 
     /// The card's cap follows the keyboard: with a child's detail open and the Steer field focused, the card stays under

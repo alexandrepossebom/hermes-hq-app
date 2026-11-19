@@ -423,7 +423,9 @@ import UIKit
         // [mac] Stress test 2026-10-28 #31: a Mac app runs while another app is in front, where the window (and a peek in
         // it) goes unseen: only the frontmost app counts as looking, so a covered one gets the system's banner. iOS asks
         // here only while the app is on screen.
-        let looking = !DeviceWord.isMac || UIApplication.shared.applicationState == .active
+        // [viewing] 2026-11-19: UIKit's state stays "active" on the Mac with another app in front (measured), so the
+        // Mac's own frontmost state is asked; a covered window showed nothing for its chat's replies.
+        let looking = !DeviceWord.isMac || ViewingBeat.inFront
         guard NotificationRules.shouldPost(session: session, active: looking, viewing: viewing ?? viewingStored, viewingStored: viewingStored)
         else {
             AppLog.trace("notify", "incoming \(kind) \(AppLog.tag(session)) presented as nothing: chat on screen")

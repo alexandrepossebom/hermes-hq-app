@@ -93,6 +93,8 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     /// [project-default-bot] The bot each project's New Chat starts with (project key → profile, or
     /// `ProjectDefaultBot.ask`); a project not named has nothing chosen.
     var projectBots: [String: String] = [:]
+    /// Explicit project designation; false is retained so sync can propagate turning it off.
+    var codingProjects: [String: Bool] = [:]
 
     init() {}
 
@@ -100,7 +102,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
         case chatOrder, projectOrder, projectPillOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
-        case projectBots
+        case projectBots, codingProjects
     }
 
     init(from decoder: Decoder) throws {
@@ -123,6 +125,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         archivedProjects = (try? c.decodeIfPresent([String].self, forKey: .archivedProjects)) ?? []
         botFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botFolders)) ?? [:]
         projectBots = (try? c.decodeIfPresent([String: String].self, forKey: .projectBots)) ?? [:]
+        codingProjects = (try? c.decodeIfPresent([String: Bool].self, forKey: .codingProjects)) ?? [:]
     }
 }
 
@@ -254,6 +257,8 @@ final class SessionStore {
     var botFilter: String?
     /// [sessions-fresh] The New or Working chip. In memory only, as the bot chip.
     var statusChip: SessionStatusChip?
+    /// Ephemeral, scoped to the project whose header selected it.
+    var projectPRFilter: (key: String, state: SessionPRStatus.State)?
     /// [sessions-ux] Where the pills are the projects (iPhone, iPad), a project's row opens its page as its pill does,
     /// so under Group By Project no project is drawn open in the list. The Mac, which has no pills, leaves this off:
     /// its rows open and close in place.
@@ -296,6 +301,25 @@ final class SessionStore {
     @ObservationIgnored var profileDisplayNames: [String: String] = [:]
 
     @ObservationIgnored let client: any GatewayClient
+    // Per-store (and therefore per gateway) cache; a profile and stored id form the identity.
+    private var pullRequests: [String: SessionPRStatus] = [:]
+    @ObservationIgnored private var prInFlight: Set<String> = []
+    @ObservationIgnored private var prCheckedAt: [String: ContinuousClock.Instant] = [:]
+    @ObservationIgnored private var prGeneration = 0
+    /// The gateway answered 404 for PR status (an add-on without the route). Not forever: the add-on can be
+    /// updated while the app runs, so the route is tried again after `prRouteRetry`.
+    @ObservationIgnored private var prRouteMissingSince: ContinuousClock.Instant?
+    /// [pr-manage] The repositories chats' branches are looked for in; nil until a gateway that takes links said
+    /// (SessionStore+PRManage.swift).
+    @ObservationIgnored var prRepos: [SessionPRRepo]?
+    @ObservationIgnored var prRouteRetry: Duration = .seconds(600)
+    private var prRouteMissing: Bool {
+        guard let since = prRouteMissingSince else { return false }
+        if ContinuousClock.now - since >= prRouteRetry { prRouteMissingSince = nil; return false }
+        return true
+    }
+    @ObservationIgnored private var prPollTask: Task<Void, Never>?
+    @ObservationIgnored private var prFocusedRow: SessionSummary?
     @ObservationIgnored let timing: SessionStoreTiming
     @ObservationIgnored private let routingProfile: String
     @ObservationIgnored private let cacheURL: URL
@@ -316,6 +340,8 @@ final class SessionStore {
     /// Archived rows as read (the Archived view), and rows whose Archive or Delete is in the air (left out of the
     /// list until the gateway answers; a failure brings them back).
     @ObservationIgnored var archivedRows: [SidebarSessionRow] = []
+    /// [read-sync] The archived read a list page asked for (`refreshArchivedIfMoved`), one at a time.
+    @ObservationIgnored private var archivedRefresh: Task<Void, Never>?
     @ObservationIgnored var leaving: Set<String> = []
     /// Projects opened with Show More, by the chip's bot ("*" for All); not kept across launches.
     @ObservationIgnored var expandedGroups: [String: Set<String>] = [:]
@@ -439,6 +465,7 @@ final class SessionStore {
         guard !started else { return }
         started = true
         stopped = false
+        schedulePRPoll()
         AppLog.trace("sessions", "store start: \(recents.count) recents, \(cron.count) cron, \(messaging.count) messaging from cache")
         let client = self.client
         eventsTask = Task { [weak self] in
@@ -453,10 +480,14 @@ final class SessionStore {
     func stop() {
         AppLog.trace("sessions", "store stop")
         stopped = true
+        prPollTask?.cancel(); prPollTask = nil
+        prGeneration &+= 1
+        prInFlight.removeAll()
+        prFocusedRow = nil
         started = false
         throttle?.cancel()
-        for task in [eventsTask, readInFlight, pollTask] { task?.cancel() }
-        eventsTask = nil; readInFlight = nil; pollTask = nil
+        for task in [eventsTask, readInFlight, pollTask, archivedRefresh] { task?.cancel() }
+        eventsTask = nil; readInFlight = nil; pollTask = nil; archivedRefresh = nil
         readInFlightProbes = false
         readToken &+= 1
         isRefreshing = false
@@ -473,6 +504,7 @@ final class SessionStore {
 
     func appDidBecomeActive() {
         appActive = true
+        schedulePRPoll()
         if onScreenSessionId != nil { shareOnScreenRead(); rebuild() }       // [read-sync] the chat in front is seen again
         // [reliability] Any read still out began before this return (maybe frozen mid-flight in the grace).
         // [phone-logs] Only a return from the background counts: on a cold launch the first active comes after the
@@ -486,6 +518,7 @@ final class SessionStore {
 
     func appDidEnterBackground() {
         appActive = false
+        schedulePRPoll()
         if onScreenSessionId != nil { rebuild() }       // [read-sync] nobody is looking: the gateway's flag counts again
         wentToBackground = true
         backgroundEpoch &+= 1
@@ -497,6 +530,7 @@ final class SessionStore {
     func setListVisible(_ visible: Bool) {
         if listVisible != visible { AppLog.trace("sessions", "list \(visible ? "visible" : "hidden")") }
         listVisible = visible
+        schedulePRPoll()
         throttle?.pump()
         schedulePoll()
         readOwedFullList()                              // [perf-returns]
@@ -507,6 +541,7 @@ final class SessionStore {
     func setChatFocused(_ focused: Bool) {
         guard chatFocused != focused else { return }
         chatFocused = focused
+        schedulePRPoll()
         throttle?.pump()
     }
 
@@ -518,8 +553,10 @@ final class SessionStore {
     /// every refresh and it shows no local dot.
     func setFocusedSession(_ id: String?) {
         guard let id else { return }
+        if prFocusedRow?.id != id { prFocusedRow = nil }
         if id != selectedSessionId { selectedLineage = nil }
         selectedSessionId = id
+        schedulePRDiscovery()
         absorbSelected()
         persistState()
         rebuild()
@@ -539,6 +576,8 @@ final class SessionStore {
     func setSessionOnScreen(_ id: String?) {
         guard id != onScreenSessionId else { return }
         onScreenSessionId = id
+        if let id, prFocusedRow?.id != id { prFocusedRow = nil }
+        schedulePRDiscovery()
         shareOnScreenRead()
         rebuild()
     }
@@ -702,6 +741,21 @@ final class SessionStore {
         device.unread.opened(row, clearServerLocally: serverUnread && readOnlyGateway)
         persistState()
         if sharesRead(row) { writeUnread(false, row: row) }
+        rebuild()
+    }
+
+    /// [read-sync] The chat came on screen with fresh history, by whatever way in: a tapped alert, a bot's list of its
+    /// chats, search, the Mac's sidebar. Only a tap on its Sessions row marked it read (`markOpened`), so a chat opened
+    /// any other way kept the gateway's unread flag, or a Mark as Unread from another device, and showed its dot again
+    /// as soon as it was left. Nothing is written while the gateway already has the read, or a write is in the air.
+    func readOpened(id: String, profile: String) {
+        guard !stopped, let row = listedRow(id: id, profile: profile), row.profile == profile else { return }
+        device.unread.opened(row, clearServerLocally: row.unread == true && readOnlyGateway)
+        persistState()
+        let key = Self.writeKey(id: row.id, profile: row.profile)
+        let inAir = unreadWrites[key].map { $0.ackAt == nil } ?? false
+        let refused = readRefused[key].map { $0 >= row.recency } ?? false
+        if !inAir, !refused, sharesRead(row) { writeUnread(false, row: row) }
         rebuild()
     }
 
@@ -1189,6 +1243,7 @@ final class SessionStore {
         if let rows = placed(payload.recents.rows, into: recents, limit: topLimits?.0) { recents = rows }
         if let rows = placed(payload.cron.rows, into: cron, limit: topLimits?.1) { cron = rows }
         if let rows = placed(payload.messaging.rows, into: messaging, limit: topLimits?.2) { messaging = rows }
+        refreshArchivedIfMoved(from: prior.recents)
         // [sessions-m9] The page's fingerprint is kept even while our own read marks are in the air (§11.2).
         // [perf-returns] A top page's fingerprint compares with a probe's as a full read's does: the same newest rows,
         // every pinned row and the usage totals.
@@ -1236,10 +1291,31 @@ final class SessionStore {
         let forced = forceNextNotify
         forceNextNotify = false
         rebuild(force: rowsMoved || loadState != prior.loadState || forced)
+        schedulePRDiscovery()
         refreshLatest()
         // [sessions-m9] Group By Project or a project filter kept from the last launch needs the projects without the
         // Filter menu ever being opened (§3.4); asked at most once a minute per bot.
         if view.groupBy == .project || !view.projectFilter.isEmpty { loadProjects() }
+    }
+
+    /// [read-sync] The archived chats were read once (Show › Archived, or a project's Done pile) and nothing reads them
+    /// again but a pull. A chat another device archived left the list with this page (it did not age off the bottom),
+    /// or one it unarchived is back on it: the archived chats are read again, so Done gains or loses the chat now.
+    /// This device's own Archive and Delete move their rows themselves and never pass here.
+    private func refreshArchivedIfMoved(from before: [SidebarSessionRow]) {
+        guard archivedLoadState == .ready, archivedRefresh == nil, !before.isEmpty else { return }
+        let now = Set(recents.map { Self.writeKey(id: $0.id, profile: $0.profile) })
+        // The page's oldest row that is there by age (a pin comes with every page, however old).
+        let floor = recents.filter { $0.pinned != true }.map(\.recency).min() ?? 0
+        let left = before.contains { !now.contains(Self.writeKey(id: $0.id, profile: $0.profile)) && $0.recency >= floor }
+        // (Only a row that says archived: the archived read also answers with the pinned chats that are not.)
+        let back = !left && archivedRows.contains { $0.archived == true && now.contains(Self.writeKey(id: $0.id, profile: $0.profile)) }
+        guard left || back else { return }
+        AppLog.trace("sessions", "archived list: read again, a chat \(left ? "left" : "came back to") the list")
+        archivedRefresh = Task { [weak self] in
+            await self?.loadArchived()
+            self?.archivedRefresh = nil
+        }
     }
 
     /// The selected chat is on screen or was just read: what it holds is seen.
@@ -1285,6 +1361,160 @@ final class SessionStore {
 
     // MARK: - Building rows
 
+    /// Live lookup also works for a chat which is not currently in the sidebar.
+    func pullRequest(profile: String, id: String) -> SessionPRStatus? {
+        pullRequests[Self.writeKey(id: id, profile: profile)]
+    }
+
+    /// Resolve against the owning profile's real project tree, including worktree paths.
+    func isCodingSession(profile: String, cwd: String?) -> Bool {
+        let key = SessionProjects.key(cwd: cwd, profile: profile, projectsByProfile: projectsByProfile)
+        return key != SessionProjects.homeKey && isCodingProject(key)
+    }
+
+    func isCodingSession(profile: String, id: String, fallbackCwd: String? = nil) -> Bool {
+        let row = (sessions + cronSessions + messagingSessions + archivedSessions)
+            .first { $0.profile == profile && $0.id == id }
+        return isCodingSession(profile: profile, cwd: row?.cwd ?? fallbackCwd)
+    }
+
+    /// UI discovery is opt-in; the unscoped refresh remains available to explicit callers and tests.
+    func refreshCodingPullRequest(for row: SessionSummary) async {
+        guard isCodingSession(profile: row.profile, cwd: row.cwd) else { return }
+        await refreshPullRequests(for: [row])
+    }
+
+    /// Invalidate responses already in flight as well as cached values when project eligibility changes.
+    func codingProjectsChanged() {
+        prGeneration &+= 1
+        prInFlight.removeAll()
+        prCheckedAt.removeAll()
+        pullRequests.removeAll()
+        prFocusedRow = nil
+        rebuild()
+        schedulePRPoll()
+    }
+
+    /// Explicit chat requests can include an unlisted row; automatic discovery is visibility-gated.
+    func refreshPullRequests(for rows: [SessionSummary], force: Bool = false) async {
+        guard !stopped, !prRouteMissing else { return }
+        if chatFocused, let focused = onScreenSessionId ?? selectedSessionId,
+           let row = rows.first(where: { $0.id == focused }) { prFocusedRow = row }
+        let now = ContinuousClock.now
+        var seen = Set<String>()
+        let unique = rows.filter { row in
+            let key = Self.writeKey(id: row.id, profile: row.profile)
+            return seen.insert(key).inserted && !prInFlight.contains(key)
+                && (force || prCheckedAt[key].map { now - $0 >= .seconds(60) } ?? true)
+        }
+        let reserved = Set(unique.map { Self.writeKey(id: $0.id, profile: $0.profile) })
+        guard !reserved.isEmpty else { return }
+        prInFlight.formUnion(reserved)
+        let generation = prGeneration
+        defer { if generation == prGeneration { prInFlight.subtract(reserved) } }
+        var changed = false
+        for start in stride(from: 0, to: unique.count, by: 32) {
+            guard !Task.isCancelled, !stopped, generation == prGeneration, !prRouteMissing else { break }
+            let chunk = Array(unique[start..<min(start + 32, unique.count)])
+            let keys = Set(chunk.map { Self.writeKey(id: $0.id, profile: $0.profile) })
+            let body: JSONValue = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
+            var answers: [String: SessionPRStatus] = [:]
+            var succeeded = false
+            do {
+                let data = try await client.rest("POST", "/api/plugins/hermes-hq-push/sessions/pr-status", query: [], body: body.encoded())
+                let payload = try JSONValue.parse(data)
+                guard let results = payload["sessions"]?.array else { throw PRPayloadError.invalid }
+                for item in results {
+                    guard let profile = item["profile"]?.string, let id = item["id"]?.string else { continue }
+                    let key = Self.writeKey(id: id, profile: profile)
+                    guard keys.contains(key) else { continue }
+                    let state = item["state"]?.string.flatMap(SessionPRStatus.State.init(rawValue:)) ?? .unknown
+                    answers[key] = SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
+                                                   number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
+                                                   manual: item["manual"]?.bool ?? false)
+                }
+                succeeded = true
+            } catch {
+                if let http = error as? HTTPError, http.status == 404 { prRouteMissingSince = .now }
+            }
+            guard !Task.isCancelled, !stopped, generation == prGeneration else { break }
+            for key in keys {
+                let previous = pullRequests[key]
+                let next: SessionPRStatus?
+                if succeeded {
+                    // Omission cannot establish absence of a PR. The client may know
+                    // a row belongs to a coding project even when the gateway doesn't.
+                    next = answers[key] ?? SessionPRStatus(state: .unknown)
+                } else {
+                    // A failed or unsupported endpoint is not evidence of absence. Do not
+                    // keep a stale URL or number as if it were verified now.
+                    next = SessionPRStatus(state: .unknown)
+                }
+                if next != previous {
+                    pullRequests[key] = next
+                    changed = true
+                }
+                prCheckedAt[key] = .now
+            }
+        }
+        // Bound both positive and negative entries, including unlisted chats.
+        if prCheckedAt.count > 512 {
+            for (key, _) in prCheckedAt.sorted(by: { $0.value < $1.value }).prefix(prCheckedAt.count - 512) {
+                prCheckedAt[key] = nil
+                if pullRequests[key] != nil { pullRequests[key] = nil; changed = true }
+            }
+        }
+        if changed { rebuild() }
+    }
+
+    private enum PRPayloadError: Error { case invalid }
+
+    private static func validPRURL(_ text: String) -> URL? {
+        guard let parts = URLComponents(string: text), parts.scheme?.lowercased() == "https",
+              parts.host?.lowercased() == "github.com", parts.user == nil, parts.password == nil,
+              parts.port == nil, parts.query == nil, parts.fragment == nil else { return nil }
+        let path = parts.percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
+        guard path.count == 5, path[0].isEmpty, !path[1].isEmpty, !path[2].isEmpty, path[3] == "pull",
+              !path[4].isEmpty, path[4].allSatisfy({ $0 >= "0" && $0 <= "9" }),
+              path[4].contains(where: { $0 != "0" }),
+              path[1].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }),
+              path[2].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }),
+              path[2] != ".", path[2] != ".." else { return nil }
+        return parts.url
+    }
+
+    private func schedulePRDiscovery() {
+        guard started, !stopped, appActive, (listVisible || chatFocused), !prRouteMissing,
+              device.codingProjects.values.contains(true) else { return }
+        loadProjects()
+        Task { [weak self] in
+            guard let self, self.started, !self.stopped, self.appActive,
+                  self.listVisible || self.chatFocused, self.device.codingProjects.values.contains(true) else { return }
+            let all = self.sessions + self.cronSessions + self.messagingSessions + self.archivedSessions
+                + (self.prFocusedRow.map { [$0] } ?? [])
+            let visible = self.listVisible ? all : all.filter { $0.id == (self.onScreenSessionId ?? self.selectedSessionId) }
+            let rows = visible.filter { self.isCodingSession(profile: $0.profile, cwd: $0.cwd) }
+            await self.refreshPullRequests(for: rows)
+        }
+    }
+
+    private func schedulePRPoll() {
+        prPollTask?.cancel()
+        prPollTask = nil
+        guard started, !stopped, appActive, listVisible || chatFocused, !prRouteMissing,
+              device.codingProjects.values.contains(true) else { return }
+        // [pr-manage] With a coding project on screen: whether this gateway takes links and marks (until it says so).
+        if prRepos == nil { Task { [weak self] in await self?.loadPRRepos() } }
+        schedulePRDiscovery()
+        prPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard let self, self.appActive, !self.stopped, self.listVisible || self.chatFocused else { return }
+                self.schedulePRDiscovery()
+            }
+        }
+    }
+
     private func summary(_ row: SidebarSessionRow, messaging: Bool, words: inout [String: RowWords]) -> SessionSummary {
         var summary = baseSummary(row, messaging: messaging, words: &words)
         summary.pinned = row.pinned == true
@@ -1329,6 +1559,8 @@ final class SessionStore {
         summary.cost = row.costUsd
         summary.cwd = row.cwd
         summary.owner = row.userId
+        summary.pullRequest = isCodingSession(profile: row.profile, cwd: row.cwd)
+            ? (pullRequests[key] ?? SessionPRStatus(state: .unknown)) : nil
         summary.branch = row.gitBranch.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         summary.metadata = SessionRowWords.metadata(branch: row.gitBranch, model: row.model, messages: row.messageCount,
                                                     toolCalls: row.toolCallCount)

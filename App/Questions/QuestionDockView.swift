@@ -348,6 +348,15 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
 
     // MARK: Paging
 
+    /// A field of the shown page is being typed in.
+    var isEditingText: Bool { pages.indices.contains(draft.page) && pages[draft.page].isEditing }
+
+    /// The shown page's field takes the keyboard (a dock that replaced one being typed in keeps it up).
+    func focusShownField() {
+        guard pages.indices.contains(draft.page) else { return }
+        pages[draft.page].focusField()
+    }
+
     private func showPage(_ index: Int, focus: Bool) {
         let index = min(max(0, index), max(0, pages.count - 1))
         let typing = pages.contains { $0.isEditing }

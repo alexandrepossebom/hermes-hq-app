@@ -94,8 +94,12 @@ nonisolated enum GrokServerEvent: Sendable, Equatable {
             guard let id = json["call_id"]?.string, !id.isEmpty else { return .other(type: type) }
             return .functionCall(callId: id, name: json["name"]?.string ?? "", arguments: json["arguments"]?.string ?? "")
         case "error":
-            return .error(message: json["error"]?["message"]?.string ?? json["message"]?.string ?? "Grok Live error",
-                          code: json["error"]?["code"]?.string ?? json["error"]?["type"]?.string)
+            let message = json["error"]?["message"]?.string ?? json["message"]?.string ?? "Grok Live error"
+            let code = json["error"]?["code"]?.string ?? json["error"]?["type"]?.string
+            // A barge-in's `response.cancel` that lands after the response ended is expected noise (as GPT-Live's
+            // `context_injection_incomplete`): owner, 2026-11-18, "Cancellation failed: no active response" in the dock.
+            if GrokLiveWire.isBenignError(message: message, code: code) { return .other(type: type) }
+            return .error(message: message, code: code)
         case "ping": return .ping
         default: return .other(type: type)
         }
@@ -122,15 +126,25 @@ nonisolated enum GrokLiveWire {
 
     // MARK: Sent
 
-    /// `LiveVoiceWire.chatNote` in Grok's words (it has `ask_agent`, not a delegation), added to the add-on's
-    /// instructions when the session is seeded.
-    static let chatNote = "You are joining a chat that is already under way. The messages you were given are only its "
-        + "latest part, shortened. Your agent has the whole chat and everything it remembers about the person. When the "
-        + "person refers to anything from before that you cannot see, do not ask them to explain it and do not guess: "
-        + "call ask_agent with their request as they said it."
+    /// Added to the add-on's instructions in every session. Owner, 2026-11-18: Grok called the bot "your agent", said
+    /// "Sending that to your agent" and "Still waiting on the answer", and recapped old chat turns instead of the
+    /// answer. The voice and its tool are one assistant; `LiveVoiceWire.quietWhileWorking` is GPT-Live's version.
+    /// The tool is named in no instruction ("your tool"): its name would be read as someone else.
+    static let oneVoiceNote = "You are one assistant: speak in the first person. Your tool is how you do the work: "
+        + "you look things up, act on the person's files and accounts, and remember. Never speak of anyone else doing "
+        + "it, never name a bot or a helper, and never say you are passing a request on or holding for an answer. "
+        + "No backchannels while the person speaks. While your tool works, say at most one short line such as "
+        + "\"Let me look.\", then stay silent; if the person speaks meanwhile, answer them directly. When your tool "
+        + "returns, say that result briefly in your own words and nothing else."
+
+    /// `LiveVoiceWire.chatNote` in Grok's words (it has a tool, not a delegation), added when the session is seeded.
+    static let chatNote = "You are joining a chat that is already under way. The messages you were given are background "
+        + "only, its latest part, shortened: never recap, summarize or list them. Your tool has the whole chat and "
+        + "everything remembered about the person. When the person refers to anything from before that you cannot see, "
+        + "do not ask them to explain it and do not guess: use your tool with their request as they said it."
 
     static func sessionUpdate(voice: String?, instructions: String?, seeded: Bool = false) -> String {
-        let instructions = seeded ? [instructions ?? "", chatNote].filter { !$0.isEmpty }.joined(separator: "\n\n") : instructions
+        let instructions = [instructions ?? "", oneVoiceNote, seeded ? chatNote : ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
         var session: [String: JSONValue] = [
             "turn_detection": ["type": "server_vad"],
             "audio": [
@@ -140,7 +154,7 @@ nonisolated enum GrokLiveWire {
             "tools": [[
                 "type": "function",
                 "name": .string(toolName),
-                "description": "Send the person's request to their agent, which does the real work (tools, files, accounts, memory). Returns the agent's answer.",
+                "description": .string(toolDescription),
                 "parameters": [
                     "type": "object",
                     "properties": ["request": ["type": "string", "description": "The full request in the person's words"]],
@@ -149,9 +163,12 @@ nonisolated enum GrokLiveWire {
             ]],
         ]
         if let voice, !voice.isEmpty { session["voice"] = .string(voice) }
-        if let instructions, !instructions.isEmpty { session["instructions"] = .string(instructions) }
+        session["instructions"] = .string(instructions)
         return event(["type": "session.update", "session": .object(session)])
     }
+
+    static let toolDescription = "How you do the real work: look things up, act on the person's files and accounts, and "
+        + "remember. Pass the person's request in their own words. Returns the result for you to say."
 
     /// The chat's seed (`LiveVoiceWire.history`'s message items), one `conversation.item.create` each.
     static func historyItems(_ history: JSONValue) -> [String] {
@@ -162,22 +179,24 @@ nonisolated enum GrokLiveWire {
         event(["type": "input_audio_buffer.append", "audio": .string(pcm.base64EncodedString())])
     }
 
-    /// The agent's answer to an `ask_agent` call (`output` is a JSON string, as function outputs are).
+    /// The answer to an `ask_agent` call (`output` is a JSON string, as function outputs are). An answer carries
+    /// `sayResultNote` unless another note is given.
     static func functionOutput(callId: String, answer: String, note: String? = nil) -> String {
-        var fields: [String: JSONValue] = ["answer": .string(String(answer.prefix(answerLimit)))]
-        if let note { fields["note"] = .string(note) }
+        let answer = String(answer.prefix(answerLimit))
+        var fields: [String: JSONValue] = ["answer": .string(answer)]
+        if let note = note ?? (answer.isEmpty ? nil : sayResultNote) { fields["note"] = .string(note) }
         let output = String(decoding: (try? JSONValue.object(fields).encoded()) ?? Data(), as: UTF8.self)
         return event(["type": "conversation.item.create",
                       "item": ["type": "function_call_output", "call_id": .string(callId), "output": .string(output)]])
     }
 
-    /// Something the agent said that the person did not ask for this moment (a bot's message, a finished job).
+    /// News the person did not ask for this moment (a bot's message, a finished job), told as the voice's own.
     static func agentSays(_ text: String) -> String {
         let words = String(LiveVoiceWire.collapse(text).prefix(answerLimit))
         return event(["type": "conversation.item.create",
                       "item": ["type": "message", "role": "user",
                                "content": [["type": "input_text",
-                                            "text": .string("(Not from the person — your agent says:) \(words). Tell the person this briefly.")]]]])
+                                            "text": .string("(Not from the person — news from your own work:) \(words). Tell the person this briefly, as your own news.")]]]])
     }
 
     /// A response that may not call `ask_agent` (the answer to a call nobody asked for).
@@ -192,8 +211,15 @@ nonisolated enum GrokLiveWire {
 
     static let responseCancel = #"{"type":"response.cancel"}"#
 
+    /// A cancel with nothing to cancel: the voice had already stopped.
+    static func isBenignError(message: String, code: String?) -> Bool {
+        code == "response_cancel_not_active" || message.localizedCaseInsensitiveContains("no active response")
+    }
+
     // Notes inside a function output (never naming a bot).
-    static let noWordsNote = "The agent finished without a reply."
+    /// With every answer: Grok recapped the seeded chat instead of the 363-character answer (owner, 2026-11-18).
+    static let sayResultNote = "Say this result only, briefly, in your own words. Do not recap or list earlier messages."
+    static let noWordsNote = "That finished without a reply."
     static let notSentNote = "The request didn't go through. Tell the person to try again."
     static let replacedNote = "Replaced by the person's newer request."
 
@@ -311,8 +337,9 @@ nonisolated struct GrokLiveCalls: Sendable, Equatable {
         return [.send(GrokLiveWire.functionOutput(callId: id, answer: "", note: GrokLiveWire.noWordsNote)), .send(GrokLiveWire.responseCreate())]
     }
 
-    /// The loop's `.instruct`: Send Now asks for a response, Interrupt cancels one; the GPT-Live persona note is not sent
-    /// (the add-on's instructions carry it), nor the chat note (`sessionUpdate` adds Grok's own).
+    /// The loop's `.instruct`: Send Now asks for a response, Interrupt cancels one; GPT-Live's working and chat notes
+    /// are not sent mid-session (a `response.create` would make Grok speak): `sessionUpdate` carries Grok's own
+    /// (`oneVoiceNote`, `chatNote`).
     mutating func instruct(_ text: String) -> [GrokAction] {
         switch text {
         case LiveVoiceWire.quietWhileWorking, LiveVoiceWire.chatNote:

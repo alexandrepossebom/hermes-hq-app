@@ -1,5 +1,5 @@
 // The image viewer (docs/spec/1x-pages.md §5.6): full screen on black, paging across the current filter's images,
-// pinch and double-tap zoom, swipe down to close; toolbar Share, Show in Chat, Info (name, chat, time, path, Copy Path).
+// pinch and double-tap zoom, fling up or down to close (`PhotoFling`); toolbar Share, Show in Chat, Info (name, chat, time, path, Copy Path).
 
 import UIKit
 
@@ -11,7 +11,7 @@ final class ArtifactImageViewer: UIViewController, UIPageViewControllerDataSourc
     private let share: (ArtifactRecord, UIBarButtonItem) -> Void
     private let pages = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal,
                                              options: [.interPageSpacing: 16])
-    private var dismissPan: UIPanGestureRecognizer!
+    private var fling: PhotoFling?
     /// [mac] Previous / next at the sides (round 2 #38); ← and → page everywhere.
     private var arrows: PhotoPagerArrows?
 
@@ -69,9 +69,9 @@ final class ArtifactImageViewer: UIViewController, UIPageViewControllerDataSourc
         let info = UIBarButtonItem(image: UIImage(systemName: "info.circle"), primaryAction: UIAction { [weak self] _ in self?.showInfo() })
         info.accessibilityLabel = "Info"
         toolbarItems = [share, .flexibleSpace(), chat, .flexibleSpace(), info]
-        dismissPan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
-        dismissPan.delegate = self
-        view.addGestureRecognizer(dismissPan)
+        // Fling up or down to close (owner 2026-11-19): the image follows the finger and flies off the way it's thrown.
+        fling = PhotoFling(host: self, directions: [.up, .down], flyOff: true, content: { [weak self] in self?.pages.view },
+                           canBegin: { [weak self] in (self?.pages.viewControllers?.first as? ZoomImagePage)?.isAtMinimumZoom ?? true })
         if records.count > 1 {
             arrows = PhotoPagerArrows(in: view, identifier: "artifact.image") { [weak self] in self?.step(forward: $0) }
         }
@@ -146,37 +146,6 @@ final class ArtifactImageViewer: UIViewController, UIPageViewControllerDataSourc
         sheet.addAction(UIAlertAction(title: "Done", style: .cancel))
         sheet.popoverPresentationController?.sourceItem = toolbarItems?.last
         present(sheet, animated: true)
-    }
-
-    // MARK: Swipe down to close
-
-    @objc private func panned(_ pan: UIPanGestureRecognizer) {
-        let dy = pan.translation(in: view).y
-        switch pan.state {
-        case .changed:
-            let progress = max(0, dy)
-            pages.view.transform = CGAffineTransform(translationX: 0, y: progress)
-            view.backgroundColor = UIColor.black.withAlphaComponent(max(0.2, 1 - progress / 400))
-        case .ended, .cancelled:
-            if dy > 120 || pan.velocity(in: view).y > 900 {
-                dismiss(animated: true)
-            } else {
-                HQMotion.animate(HQMotion.pane) {
-                    self.pages.view.transform = .identity
-                    self.view.backgroundColor = .black
-                }
-            }
-        default: break
-        }
-    }
-}
-
-extension ArtifactImageViewer: UIGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === dismissPan, let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
-        let v = pan.velocity(in: view)
-        guard v.y > abs(v.x) else { return false }
-        return (pages.viewControllers?.first as? ZoomImagePage)?.isAtMinimumZoom ?? true
     }
 }
 

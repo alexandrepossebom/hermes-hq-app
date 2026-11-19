@@ -264,6 +264,10 @@ import Testing
         #expect(read.sortBy == .updated && read.groupBy == .date && read.rowDetail == [.time] && read.statusFilter.isEmpty)
         #expect(read.projectFilter == ["/r"] && !read.showArchived)
         #expect(try JSONDecoder().decode(SessionsViewPrefs.self, from: Data("[]".utf8)) == SessionsViewPrefs())
+        // Retired global PR-filter preferences must not narrow lists or survive the next save.
+        let legacy = try JSONDecoder().decode(SessionsViewPrefs.self, from: Data(#"{"needsPullRequest":true,"showArchived":true}"#.utf8))
+        #expect(legacy.showArchived && legacy.statusFilter.isEmpty && legacy.projectFilter.isEmpty)
+        #expect(!String(decoding: try JSONEncoder().encode(legacy), as: UTF8.self).contains("needsPullRequest"))
         // An older device-state file (no `view`, no `projects`) keeps what it has.
         let old = try JSONDecoder().decode(SessionsDeviceState.self, from: Data(#"{"showBackgroundRuns":true,"colors":{"x":2}}"#.utf8))
         #expect(old.showBackgroundRuns && old.colors == ["x": 2] && old.view == SessionsViewPrefs() && old.projects.isEmpty)

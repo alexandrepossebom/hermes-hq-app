@@ -337,6 +337,7 @@ private final class ChatInfoList: UITableViewController {
     /// words on a blank pale sheet. In a sheet the table keeps the sheet's page.
     var inSheet = false
     private var rows: [SessionInfoRow]
+    private var pullRequest: SessionPRStatus?
     private var ticker: Timer?
     /// The chat's running background commands (`process.list`), asked every 3 s while the sheet shows; the section is
     /// left out while there are none.
@@ -352,6 +353,7 @@ private final class ChatInfoList: UITableViewController {
         self.source = source
         self.panel = panel
         self.rows = source.rows()
+        self.pullRequest = source.pullRequest
         super.init(style: panel ? .plain : .insetGrouped)
     }
 
@@ -362,6 +364,7 @@ private final class ChatInfoList: UITableViewController {
         tableView.backgroundColor = HQPalette.sheetPage
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "row")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "copy-all")
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "pull-request")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "command")
         tableView.register(ChatInfoNoteCell.self, forCellReuseIdentifier: ChatInfoNoteCell.reuse)
         tableView.register(ChatInfoFormCell.self, forCellReuseIdentifier: ChatInfoFormCell.reuse)
@@ -537,8 +540,10 @@ private final class ChatInfoList: UITableViewController {
         // [mac] #72: nor while part of a value is selected (a reload would drop the selection before ⌘C).
         if isViewLoaded, tableView.visibleCells.contains(where: { ($0 as? ChatInfoFormCell)?.selecting == true }) { return }
         let next = source.rows()
-        guard next != rows else { return }
+        let pr = source.pullRequest
+        guard next != rows || pr != pullRequest else { return }
         rows = next
+        pullRequest = pr
         tableView.reloadData()
     }
 
@@ -588,7 +593,7 @@ private final class ChatInfoList: UITableViewController {
     override func numberOfSections(in tableView: UITableView) -> Int { (commands.isEmpty ? 2 : 3) - (DeviceWord.isMac ? 1 : 0) }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if section == 0 { return rows.count }
+        if section == 0 { return rows.count + (pullRequest == nil ? 0 : 1) }
         return section == commandSection ? commands.count : 1
     }
 
@@ -661,6 +666,21 @@ private final class ChatInfoList: UITableViewController {
             cell.accessibilityIdentifier = "info.copy-all"
             return cell
         }
+        if indexPath.row == rows.count, let pr = pullRequest {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "pull-request", for: indexPath)
+            var content = UIListContentConfiguration.valueCell().hqScaled()
+            content.text = "Pull Request"
+            content.secondaryText = pr.label
+            content.image = SessionPRGlyph.image(pr.state)
+            content.imageProperties.tintColor = SessionPRGlyph.color(pr.state)
+            cell.contentConfiguration = content
+            cell.accessoryType = .disclosureIndicator
+            cell.selectionStyle = .default
+            cell.accessibilityIdentifier = "info.pull-request"
+            cell.accessibilityLabel = "Pull request, " + pr.label
+            cell.accessibilityHint = "Shows pull request details"
+            return cell
+        }
         let row = rows[indexPath.row]
         if DeviceWord.isMac, let cell = tableView.dequeueReusableCell(withIdentifier: ChatInfoFormCell.reuse, for: indexPath) as? ChatInfoFormCell {
             cell.configure(row, labels: rows.map(\.label), panel: panel)
@@ -715,6 +735,10 @@ private final class ChatInfoList: UITableViewController {
         tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.section == commandSection { return }
         guard indexPath.section == 0 else { copyAll(); return }
+        if indexPath.row == rows.count, let pr = pullRequest {
+            showPullRequest(pr)
+            return
+        }
         let row = rows[indexPath.row]
         guard row.copiesValue else { return }
         UIPasteboard.general.string = row.value
@@ -722,6 +746,23 @@ private final class ChatInfoList: UITableViewController {
         DebugHooks.recordText(row.value, as: "info-copy.txt")
 #endif
         Haptics.play(.success)
+    }
+
+    private func showPullRequest(_ pr: SessionPRStatus) {
+        let explanation: String?
+        switch pr.state {
+        case .closed: explanation = "Closed without merging."
+        case .unknown: explanation = "HQ couldn’t verify the pull request for this session."
+        case .none: explanation = "No pull request was found for this branch."
+        default: explanation = nil
+        }
+        let lines = [explanation, pr.repo.map { "Repository: " + $0 }, pr.branch.map { "Branch: " + $0 }].compactMap { $0 }
+        let alert = UIAlertController(title: pr.label, message: lines.isEmpty ? nil : lines.joined(separator: "\n"), preferredStyle: .alert)
+        if let url = pr.url, ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
+            alert.addAction(UIAlertAction(title: "Open Pull Request", style: .default) { _ in UIApplication.shared.open(url) })
+        }
+        alert.addAction(UIAlertAction(title: "Done", style: .cancel))
+        present(alert, animated: true)
     }
 
     /// Copy Chat Info: every row as `Label: value (note)`, with the raw ids.
@@ -753,7 +794,7 @@ private final class ChatInfoList: UITableViewController {
                 return UIMenu(children: [copy, stop])
             }
         }
-        guard indexPath.section == 0 else { return nil }
+        guard indexPath.section == 0, indexPath.row < rows.count else { return nil }
         // Copy: the row as Copy Session Info writes it (raw ids), else `Label: value (note)`.
         let text = rows[indexPath.row].copyText
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in

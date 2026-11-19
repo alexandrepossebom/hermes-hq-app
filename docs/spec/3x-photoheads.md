@@ -270,7 +270,9 @@ For each roster row, on every roster apply (`BotStore` calls `photos.rowsArrived
 | Row state | Action |
 | --- | --- |
 | `has_avatar` key absent from every row | gateway has no asset store: do nothing, ever (§5.6) |
-| `has_avatar == false` | verdict `none` at once; delete the cached file; no call |
+| `has_avatar` key absent from this row only | says nothing about this bot's picture: skip the row |
+| `has_avatar == false`, no kept photo | verdict `none` at once; no call |
+| `has_avatar == false`, a photo is kept | [keep-photo] the first such answer changes nothing; the next one that agrees gives verdict `none` and deletes the file (Hermes says false whenever its look at the bot's folder fails). The same two-answer rule holds for a bot missing from an answer, and a fetch that finds nothing (`found: false`, empty, unreadable) against a kept photo is asked once more before it is applied |
 | `has_avatar == true`, no verdict yet | fetch |
 | `has_avatar == true`, and `ui_meta_revisions["hermes-bots"]` or `["dispatch-head"]` differs from the pair recorded with the verdict | fetch, 2 s after the row arrived (the other device's upload is not awaited there, so give it time); if that answer has the same fingerprint as before, fetch once more 10 s later, then record the pair |
 | otherwise | nothing |

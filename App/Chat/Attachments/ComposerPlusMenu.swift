@@ -97,7 +97,7 @@ import UniformTypeIdentifiers
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
             sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = true
+            sheet.prefersGrabberVisible = false   // [popup-consistency] none, as Commands and every ChatSheet
             // No corner radius of its own (owner 2026-11-18: "the bottom isn't curved properly to work with the edges of
             // the iPhone"): a fixed 36 pt went on all four corners, tighter than the screen's, so the floating sheet's
             // bottom corners cut across the phone's. The system's own shape follows the screen's corners.
@@ -106,12 +106,21 @@ import UniformTypeIdentifiers
 
     @objc required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// [sheet-over-picture] On the app's glass, tinted with the page colour in Dark (the sheet's own traits are known
-    /// by now; a Light/Dark switch with it open applies it again).
+    /// [popup-consistency] Owner 2026-11-19: "The + has a solid background and the others are transparent." A hosting
+    /// controller's view is the system background (white, or black in Dark) unless told otherwise, so this sheet stood
+    /// opaque over its own glass. The sheets' page colour (`sheetPage`, as Commands, Models and New Job have): clear on
+    /// the glass, the look's grouped page where there is none (the Desktop Look). Then, of + / the model sheet / Commands
+    /// in Dark: every pop-up is "lighter grey glass, like Commands", so there is no page-colour wash in Dark either.
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = HQPalette.sheetPage
+    }
+
+    /// On the app's plain glass, as Commands (the sheet's own traits are known by now; a Light/Dark switch with it open
+    /// applies it again).
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         guard let sheet = sheetPresentationController else { return }
-        sheet.hqGlassOverChat()
         sheet.hqGlassPage()
         if !watchesStyle {
             watchesStyle = true
@@ -154,12 +163,11 @@ import UniformTypeIdentifiers
         let bridge: Bridge
         let onPhoto: (NSItemProvider) -> Void
         @State private var submenu: UIMenu?
-        @Environment(\.colorScheme) private var scheme
 
-        /// The tiles' and the card's fill. In Dark the sheet's glass is tinted with the page colour
-        /// ([sheet-over-picture]), about the grouped card's own, so a card of that colour had no shape: there they are
-        /// a lift of white over the glass instead.
-        private var cardFill: Color { scheme == .dark ? Color.white.opacity(0.09) : Color.hqGroupedCard }
+        /// The tiles' and the card's fill and thin edge: the sheets' frosted card (`HQPalette.sheetCard`, `glassEdge`), as
+        /// Commands' rows ([popup-consistency] owner 2026-11-19: every pop-up the lighter grey glass of Commands).
+        private var cardFill: Color { Color(uiColor: HQPalette.sheetCard) }
+        static let cardEdge = Color(uiColor: HQPalette.glassEdge)
 
         static let photosID = "composer.plus.photos"
 
@@ -201,8 +209,8 @@ import UniformTypeIdentifiers
                     if !rest.isEmpty { card(rest) }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
+            .padding(.horizontal, SheetCloseDisc.inset)
+            .padding(.top, SheetCloseDisc.inset)
             .padding(.bottom, 20)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bridge.fit($0) }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -251,22 +259,19 @@ import UniformTypeIdentifiers
             }
         }
 
+        /// [popup-consistency] The sheets' one ✕ (`SheetCloseDisc`, the bar's glyph, 44 pt, 16 pt in from the top and
+        /// leading edges; ‹ Back inside a submenu) and the bar's title: the glass button style drew a 56 pt disc with a
+        /// smaller glyph, 6 pt lower and further in than every other sheet's, and an outlined box in the Desktop Look.
         private var header: some View {
             ZStack {
                 Text(submenu.map { $0.title.isEmpty ? "Add context" : $0.title } ?? "Add context")
-                    .font(Font(HQFont.style(.headline)))
+                    .font(Font(SheetCloseDisc.titleFont))
+                    .accessibilityAddTraits(.isHeader)
                 HStack {
-                    Button {
+                    SheetCloseDiscView(glyph: submenu == nil ? .close : .back) {
                         if submenu != nil { withAnimation(HQMotion.reduced ? nil : .snappy) { submenu = nil } } else { bridge.close() }
-                    } label: {
-                        Image(systemName: submenu == nil ? "xmark" : "chevron.left")
-                            .font(Font(HQFont.scaled(17, weight: .semibold, like: .body, cap: 24)))
-                            .frame(width: 44, height: 44)
                     }
-                    .hqGlassButtonStyle()
-                    .buttonBorderShape(.circle)
-                    .tint(Color.hqLabel)
-                    .accessibilityLabel(submenu == nil ? "Close" : "Back")
+                    .frame(width: SheetCloseDisc.side, height: SheetCloseDisc.side)
                     Spacer()
                     if submenu == nil, let photos {
                         Button("Photos") { bridge.perform(photos) }
@@ -299,6 +304,8 @@ import UniformTypeIdentifiers
             }
             .background(cardFill, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Self.cardEdge, lineWidth: HQShape.hairline))
         }
 
         @ViewBuilder private func rowButton(_ element: UIMenuElement) -> some View {
@@ -351,6 +358,8 @@ import UniformTypeIdentifiers
                     .opacity(enabled ? 1 : 0.4)
                     .background(configuration.isPressed ? Color.hqFill3 : fill,
                                 in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Content.cardEdge, lineWidth: HQShape.hairline))
             }
         }
 

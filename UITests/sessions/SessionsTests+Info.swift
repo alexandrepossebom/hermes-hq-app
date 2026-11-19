@@ -4,6 +4,178 @@
 import XCTest
 
 extension SessionsTests {
+    @MainActor private func toggleProjectCoding(_ app: XCUIApplication, captureMenu: Bool = false) {
+        app.buttons["sessions.projectPage.more"].tap()
+        let item = app.buttons["Coding Project"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        if captureMenu { shot(app, "project-card-coding-menu") }
+        item.tap()
+    }
+    /// Project summary filters intersect the page's piles, and the coding switch clears the selection.
+    @MainActor func testProjectPRCountFilter() throws {
+        fixture("/__fixture/mode", ["prStatus": [
+            "default/s-garden": ["state": "none", "repo": "example/app", "branch": "garden"],
+            "deploys/s-release": ["state": "merged", "repo": "example/app", "branch": "release", "number": 42],
+            "deploys/s-old": ["state": "merged", "repo": "example/app", "branch": "old", "number": 41]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.switches["sessions.projectPage.coding"].exists)
+        if app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        shot(app, "project-card-coding-off")
+        let info = app.buttons["sessions.projectPage.info"]
+        let note = app.staticTexts["Counts include only available PR statuses."]
+        // Owner 2026-11-19: the ⓘ is the card's last control, the ⋯ to its left; both whole on the card.
+        let more = app.buttons["sessions.projectPage.more"]
+        XCTAssertGreaterThan(info.frame.midX, more.frame.midX, "the ⓘ is right of the ⋯")
+        XCTAssertLessThanOrEqual(info.frame.midX + 12, app.cells["sessions.projectPage"].frame.maxX, "the ⓘ's glyph is inside the card")
+        info.tap()
+        XCTAssertTrue(app.navigationBars["Project Icons"].waitForExistence(timeout: 5))
+        XCTAssertFalse(note.exists)
+        app.buttons["sheet.close"].firstMatch.tap()
+        toggleProjectCoding(app, captureMenu: true)
+        let merged = app.buttons["sessions.projectPage.pr.merged"]
+        XCTAssertTrue(merged.waitForExistence(timeout: 10))
+        shot(app, "project-card-coding-on")
+        XCTAssertTrue(waitUntil(20) { merged.label.contains("2 loaded") }, merged.label)
+        shot(app, "project-card-coding-on-loaded")
+        XCTAssertFalse(note.exists)
+        info.tap()
+        XCTAssertTrue(app.navigationBars["Project Icons"].waitForExistence(timeout: 5))
+        for state in ["none", "draft", "open", "merged", "closed", "unknown"] {
+            XCTAssertTrue(app.descendants(matching: .any)["project.legend.\(state)"].firstMatch.exists, state)
+        }
+        XCTAssertTrue(note.exists)
+        shot(app, "project-icon-guide")
+        app.buttons["sheet.close"].firstMatch.tap()
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { merged.isSelected && self.row(app, "s-release").exists && self.row(app, "s-old").exists && !self.row(app, "s-garden").exists })
+        shot(app, "project-pr-summary-selected")
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { !merged.isSelected && self.row(app, "s-garden").exists })
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { merged.isSelected })
+        toggleProjectCoding(app)
+        XCTAssertTrue(waitUntil(10) { !merged.exists && self.row(app, "s-garden").exists })
+        toggleProjectCoding(app)
+        XCTAssertTrue(merged.waitForExistence(timeout: 10))
+        XCTAssertFalse(merged.isSelected)
+    }
+    /// [pr-manage] A coding project's chat is marked closed and reopened from its row menu, and the project is linked
+    /// to a repository from its ⋯ (a folder that isn't one says so).
+    @MainActor func testProjectPRMarksAndRepository() throws {
+        fixture("/__fixture/mode", ["prManage": true, "prStatus": [
+            "default/s-garden": ["state": "draft", "repo": "example/app", "branch": "garden"],
+            "deploys/s-release": ["state": "merged", "repo": "example/app", "branch": "release", "number": 42]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-garden")).contains("Draft") }, labelOf(row(app, "s-garden")))
+
+        // Mark as Closed, then Reopen. A merged chat offers neither.
+        openMenu(app, row(app, "s-garden"), until: "Mark as Closed")
+        shot(app, "project-row-menu-close")
+        app.buttons["Mark as Closed"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(15) { self.labelOf(self.row(app, "s-garden")).contains("Closed") }, labelOf(row(app, "s-garden")))
+        shot(app, "project-row-closed")
+        openMenu(app, row(app, "s-garden"), until: "Reopen")
+        XCTAssertFalse(app.buttons["Mark as Closed"].exists)
+        app.buttons["Reopen"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(15) { self.labelOf(self.row(app, "s-garden")).contains("Draft") }, labelOf(row(app, "s-garden")))
+        openMenu(app, row(app, "s-release"), until: "Rename…")
+        XCTAssertFalse(app.buttons["Mark as Closed"].exists || app.buttons["Reopen"].exists, "a merged chat takes no mark")
+        for _ in 0..<3 where app.buttons["Rename…"].firstMatch.exists {     // tap beside the menu to close it
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)).tap()
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        XCTAssertTrue(waitUntil(4) { !app.buttons["Rename…"].firstMatch.exists }, "the row menu closes")
+
+        // ⋯ › Repository…
+        let repository = app.buttons["Repository…"].firstMatch
+        for _ in 0..<3 where !repository.exists {
+            app.buttons["sessions.projectPage.more"].tap()
+            _ = repository.waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(repository.exists, "the ⋯ offers Repository…")
+        shot(app, "project-menu-repository")
+        repository.tap()
+        XCTAssertTrue(app.navigationBars["Repository"].waitForExistence(timeout: 5))
+        let folder = app.textFields["project.repository.folder"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 5))
+        shot(app, "project-repository-empty")
+        XCTAssertFalse(app.buttons["project.repository.unlink"].exists)
+        folder.tap()
+        folder.typeText("/nope")
+        app.buttons["project.repository.link"].tap()
+        let problem = app.staticTexts["project.repository.error"]
+        XCTAssertTrue(problem.waitForExistence(timeout: 8))
+        XCTAssertTrue(problem.label.contains("isn’t a git repository"), problem.label)
+        shot(app, "project-repository-error")
+        folder.tap()
+        folder.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
+        app.buttons["project.repository.link"].tap()
+        XCTAssertTrue(app.buttons["project.repository.unlink"].waitForExistence(timeout: 8))
+        XCTAssertFalse(problem.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["project.repository.main"].firstMatch.exists)
+        shot(app, "project-repository-linked")
+        app.buttons["project.repository.unlink"].tap()
+        XCTAssertTrue(waitUntil(8) { !app.buttons["project.repository.unlink"].exists })
+        app.buttons["sheet.close"].firstMatch.tap()
+    }
+    /// The general list keeps its timestamps; PR details appear only after opting a project in.
+    @MainActor func testPRTrackingEndToEnd() throws {
+        fixture("/__fixture/mode", ["prStatus": [
+            "default/s-garden": ["state": "none", "repo": "example/garden", "branch": "feature/garden"],
+            "research/s-trip": ["state": "unknown", "repo": "example/travel", "branch": "feature/travel"],
+            "deploys/s-release": ["state": "draft", "repo": "example/app", "branch": "feature/release", "number": 42,
+                                  "url": "https://github.com/example/app/pull/42"]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        for id in ["s-garden", "s-trip", "s-release", "s-budget"] {
+            let chat = row(app, id)
+            XCTAssertTrue(chat.waitForExistence(timeout: 10), id)
+            let label = labelOf(chat)
+            for prWords in ["Pull request", "PR status", "No PR yet", "Merged #42"] {
+                XCTAssertFalse(label.contains(prWords), label)
+            }
+            XCTAssertNotNil(label.range(of: #"\b([0-9]{1,2}:[0-9]{2} (AM|PM)|Yesterday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b"#, options: .regularExpression), "normal timestamp: \(label)")
+        }
+        shot(app, "pr-tracking-general-list")
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-release")).contains("Draft #42") }, labelOf(row(app, "s-release")))
+        XCTAssertTrue(waitUntil(10) { self.labelOf(self.row(app, "s-garden")).contains("No PR yet") }, labelOf(row(app, "s-garden")))
+        openChat(app, "s-release")
+        openSessionInfo(app)
+        let pr = app.cells["info.pull-request"]
+        for _ in 0..<5 where !pr.isHittable { app.tables["info.list"].swipeUp() }
+        XCTAssertTrue(pr.waitForExistence(timeout: 8), "Chat Info offers Pull Request")
+        XCTAssertTrue(pr.label.contains("Draft #42"), pr.label)
+        shot(app, "pr-tracking-info")
+        pr.tap()
+        let alert = app.alerts["Draft #42"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "example/app")).firstMatch.exists)
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "feature/release")).firstMatch.exists)
+        XCTAssertTrue(alert.buttons["Open Pull Request"].exists)
+        shot(app, "pr-tracking-details")
+    }
     /// The gateway as the sheet names it: host and port.
     var gatewayHost: String {
         guard let url = URL(string: account.url), let host = url.host else { return account.url }

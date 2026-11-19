@@ -12,6 +12,8 @@ final class ActivityShelfView: UIView {
     private let overview = UIScrollView()
     private(set) var pieces: [ShelfPieceKind: ShelfPieceView] = [:]
     var onToggle: (() -> Void)?
+    /// [collapse-all] The expanded header's trailing ⌃: folds the whole shelf back to the pill from any depth.
+    var onCollapseAll: (() -> Void)?
     var onMetricsChange: (() -> Void)?
     var expanded = false
     var summary = ActivityPill(entries: [])
@@ -29,6 +31,11 @@ final class ActivityShelfView: UIView {
     /// Hairlines under the expanded header and between overview rows, as in the approved mock.
     private let headerRule = ActivityShelfView.makeRule()
     private var rowRules: [UIView] = []
+    /// [collapse-all] Owner 2026-11-19: "there needs to be an icon in this circle area to completely collapse the entire
+    /// thing no matter how many sub levels you have expanded … moving the arrow by Activity to the right side and
+    /// changing its function." Shown only while expanded (the overview or a detail), at the header's trailing edge.
+    let collapseAll = UIButton(type: .system)
+    private var collapseGlyphSize: CGFloat = 0
 
     private static func makeRule() -> UIView {
         let rule = UIView()
@@ -52,6 +59,30 @@ final class ActivityShelfView: UIView {
         addSubview(glass)
         // The header is outside the glass so the invisible 5 pt margins remain tappable.
         addSubview(summaryHeader)
+        // Above the header, so its 44 pt target wins over the header's own tap.
+        collapseAll.tintColor = ChatPalette.label2
+        // Its glyph lines up with the rows' › (10 pt in from the trailing edge); the 44 pt target extends left of it.
+        collapseAll.contentHorizontalAlignment = .right
+        collapseAll.isHidden = true
+        collapseAll.accessibilityIdentifier = "chat.shelf.collapse"
+        collapseAll.accessibilityLabel = "Collapse Activity"
+        collapseAll.addTarget(self, action: #selector(collapseAllTapped), for: .touchUpInside)
+        // Owner 2026-11-19: "The little hover thing over the close arrow is messed up". The Mac's hover disc took the
+        // 44 pt tap area, whose glyph sits at its trailing edge, so it sat beside the ⌃ over the card's corner; a circle
+        // round the glyph still crowded the corner. Of three drawn options he picked A: no fill, the arrow itself
+        // brightens under the pointer, as the Mac sidebar's headings do. The iPad's pointer lifts the arrow alone.
+        #if targetEnvironment(macCatalyst)
+        MacHover.drawsOwnHover(collapseAll)
+        #endif
+        let hover = UIHoverGestureRecognizer(target: self, action: #selector(collapseHovered(_:)))
+        hover.cancelsTouchesInView = false
+        collapseAll.addGestureRecognizer(hover)
+        collapseAll.isPointerInteractionEnabled = true
+        collapseAll.pointerStyleProvider = { button, _, _ in
+            guard button.window != nil, let arrow = button.imageView else { return nil }
+            return UIPointerStyle(effect: .highlight(UITargetedPreview(view: arrow)))
+        }
+        addSubview(collapseAll)
         glass.contentView.addSubview(overview)
         glass.contentView.addSubview(headerRule)
         overview.contentInsetAdjustmentBehavior = .never
@@ -83,6 +114,19 @@ final class ActivityShelfView: UIView {
     isolated deinit { if let themeWatch { NotificationCenter.default.removeObserver(themeWatch) } }
 
     @objc private func toggled() { Haptics.play(.selection); onToggle?() }
+    @objc private func collapseAllTapped() { Haptics.play(.selection); onCollapseAll?() }
+
+    @objc private func collapseHovered(_ recognizer: UIHoverGestureRecognizer) {
+        let over = recognizer.state == .began || recognizer.state == .changed
+        UIView.animate(withDuration: HQMotion.hover, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: tint only
+            self.collapseAll.tintColor = over ? ChatPalette.label : ChatPalette.label2
+        }
+    }
+
+    #if DEBUG
+    /// Tours: the ⌃'s hover as the pointer over it draws it.
+    func debugHoverCollapse() { collapseAll.tintColor = ChatPalette.label }
+    #endif
 
     func piece(_ kind: ShelfPieceKind, make: () -> ShelfPieceView) -> ShelfPieceView {
         if let p = pieces[kind] { return p }
@@ -120,7 +164,9 @@ final class ActivityShelfView: UIView {
     /// "‹ Activity", back to the overview. Accessibility text can wrap; VoiceOver keeps every category.
     private func prepareHeader(width: CGFloat) {
         let inDetail = detail != nil
-        summaryHeader.chevronStyle = inDetail ? .back : .expand
+        // Expanded, the words' own ⌃ moves to the trailing collapse-all button; a detail keeps its ‹ back.
+        summaryHeader.chevronStyle = inDetail ? .back : expanded ? .hidden : .expand
+        summaryHeader.reservesTrailingControl = expanded
         summaryHeader.requiresFullText = expanded && summary.needsAttention
         let color: UIColor? = summary.isRunning && !inDetail ? ChatPalette.label2 : nil
         let showsSummary = !inDetail || summary.needsAttention
@@ -194,6 +240,16 @@ final class ActivityShelfView: UIView {
         let margin: CGFloat = expanded ? 0 : Self.pillMargin
         glass.frame = CGRect(x: x, y: margin, width: actualW, height: max(0, bounds.height - 2 * margin))
         summaryHeader.frame = CGRect(x: x, y: 0, width: actualW, height: headerH)
+        collapseAll.isHidden = !expanded
+        if expanded {
+            let glyph = (summaryHeader.label.font.pointSize * 0.7).rounded()
+            if glyph != collapseGlyphSize {
+                collapseGlyphSize = glyph
+                let config = UIImage.SymbolConfiguration(pointSize: glyph, weight: .semibold)
+                collapseAll.setImage(UIImage(systemName: "chevron.up", withConfiguration: config), for: .normal)
+            }
+            collapseAll.frame = CGRect(x: x + actualW - 10 - 44, y: (headerH - 44) / 2, width: 44, height: 44)
+        }
         if backing.superview != nil {
             backing.frame = glass.frame
             backing.cornerConfiguration = Theme.isDesktop ? .corners(radius: .fixed(4)) : expanded ? .corners(radius: .fixed(18)) : .capsule()
@@ -447,7 +503,8 @@ final class ShelfPieceView: UIView {
 final class ShelfHeader: UIControl {
     /// disclosure: a category row (› turning ⌄ when its detail is open). expand: the pill (⌄, ⌃ when open).
     /// back: the expanded shelf's header over one detail (‹ before the words: it returns to the overview).
-    enum ChevronStyle { case disclosure, expand, back }
+    /// hidden: the expanded overview's header (its ⌃ is the shelf's trailing collapse-all button instead).
+    enum ChevronStyle { case disclosure, expand, back, hidden }
     let label = UILabel()
     /// A category row's count or state, right-aligned beside its chevron (the approved mock's "Tasks ··· 2/5 ›").
     let valueLabel = UILabel()
@@ -457,6 +514,9 @@ final class ShelfHeader: UIControl {
     }
     /// A category row inside the expanded shelf: its chevron sits at the trailing edge, as in a list.
     var isRow = false { didSet { setNeedsLayout() } }
+    /// [collapse-all] A 44 pt control sits over the trailing end (the shelf's collapse-all); the words stop short of it.
+    var reservesTrailingControl = false { didSet { if reservesTrailingControl != oldValue { setNeedsLayout() } } }
+    private var trailingInset: CGFloat { reservesTrailingControl ? 10 + 44 : more.isHidden ? 10 : 44 }
     private(set) var spinner: GlyphSpinner?
     let leadingDot = UIView()
     /// [browser] A symbol before the words (the browser chip's globe), shown whenever it has an image.
@@ -530,8 +590,9 @@ final class ShelfHeader: UIControl {
         valueLabel.font = HQFont.face(ofSize: size)
         label.numberOfLines = wrapsNow ? maximumWrappedLines : 1
         let config = UIImage.SymbolConfiguration(pointSize: (size * 0.7).rounded(), weight: .semibold)
-        let symbol = switch chevronStyle { case .disclosure: "chevron.right"; case .expand: "chevron.down"; case .back: "chevron.left" }
+        let symbol = switch chevronStyle { case .disclosure: "chevron.right"; case .expand, .hidden: "chevron.down"; case .back: "chevron.left" }
         chevron.image = UIImage(systemName: symbol, withConfiguration: config)
+        chevron.isHidden = chevronStyle == .hidden
         // The ⋯ grows with the words too (it stayed at the system's default size while the chevron followed them).
         more.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: size, weight: .semibold), forImageIn: .normal)
         spinner?.font = HQFont.monoFace(ofSize: size, weight: .regular)
@@ -571,7 +632,7 @@ final class ShelfHeader: UIControl {
         more.isHidden = !(showsMore && open)
         leadingDot.isHidden = !(showsLeadingDot && open)
         accessibilityValue = open ? "expanded" : "collapsed"
-        let angle: CGFloat = switch chevronStyle { case .disclosure: open ? .pi / 2 : 0; case .expand: open ? .pi : 0; case .back: 0 }
+        let angle: CGFloat = switch chevronStyle { case .disclosure: open ? .pi / 2 : 0; case .expand: open ? .pi : 0; case .back, .hidden: 0 }
         let turn = { self.chevron.transform = CGAffineTransform(rotationAngle: angle) }
         if animated && !HQMotion.reduced { UIView.animate(withDuration: HQMotion.pane, animations: turn) } else { turn() }
         setNeedsLayout()
@@ -598,8 +659,8 @@ final class ShelfHeader: UIControl {
 
     /// Measurement and placement must reserve the same space for the goal's dot, actions, value and optional spinner.
     private func availableLabelWidth(in width: CGFloat) -> CGFloat {
-        let trailing: CGFloat = more.isHidden ? 10 : 44
-        let chev = chevronStyle == .back ? 0 : chevronWidth + 2
+        let trailing = trailingInset
+        let chev = chevronStyle == .back || chevronStyle == .hidden ? 0 : chevronWidth + 2
         let spinW = spinner.map { $0.intrinsicContentSize.width } ?? 0
         return max(1, width - leadingReserve - trailing - chev - (spinW > 0 ? spinW + 4 : 0) - valueWidth(in: width) - 4)
     }
@@ -608,7 +669,7 @@ final class ShelfHeader: UIControl {
     var fittingWidth: CGFloat {
         let words = ceil(label.intrinsicContentSize.width)
         let spin = spinner.map { $0.intrinsicContentSize.width + 4 } ?? 0
-        let chev: CGFloat = chevronStyle == .back ? 0 : 2 + chevronWidth
+        let chev: CGFloat = chevronStyle == .back || chevronStyle == .hidden ? 0 : 2 + chevronWidth
         let value = valueLabel.isHidden ? 0 : ceil(valueLabel.intrinsicContentSize.width) + 8
         return leadingReserve + words + 4 + spin + value + chev + 10
     }
@@ -639,12 +700,12 @@ final class ShelfHeader: UIControl {
         let wordsW = max(1, min(available, ceil(label.intrinsicContentSize.width)))
         let labelH = wrapsNow ? ceil(label.sizeThatFits(CGSize(width: wordsW, height: .greatestFiniteMagnitude)).height) : ceil(label.font.lineHeight)
         label.frame = CGRect(x: x, y: (h - labelH) / 2, width: wordsW, height: labelH)
-        guard chevronStyle != .back else { return }
+        guard chevronStyle != .back, chevronStyle != .hidden else { return }
         if valueLabel.isHidden && !isRow {
             chevron.frame = CGRect(x: label.frame.maxX + 6, y: (h - 16) / 2, width: chevW - 4, height: 16)
         } else {
             // A row: the chevron at the trailing edge, the value right-aligned before it.
-            let trailing: CGFloat = more.isHidden ? 10 : 44
+            let trailing = trailingInset
             chevron.frame = CGRect(x: bounds.width - trailing - (chevW - 4), y: (h - 16) / 2, width: chevW - 4, height: 16)
             guard !valueLabel.isHidden else { return }
             let valueRight = chevron.frame.minX - 6
