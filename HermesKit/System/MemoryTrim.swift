@@ -75,6 +75,13 @@ nonisolated enum MemoryTrim {
             case .background: transcripts.trimMemory(keeping: backgroundChats, bytes: backgroundBytes)
             }
         }
+        // [more accurate words] The larger speech model is the app's biggest single hold: let go when memory is short,
+        // and in the background when the app is holding too much. It counts as nothing dropped (the count is chats).
+        register("speech-model") { reason in
+            let footprint = MemoryFootprint.sample()?.mb
+            Task { @MainActor in ParakeetWords.letGo(pressure: reason == .pressure, footprintMB: footprint) }
+            return 0
+        }
         let center = NotificationCenter.default
         center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil) { _ in queue.async { pressureSignal() } }
         center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { _ in scheduleBackground() }

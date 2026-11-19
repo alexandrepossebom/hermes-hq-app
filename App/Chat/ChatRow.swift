@@ -353,6 +353,8 @@ nonisolated enum ChatRowBuilder {
         var drafts = DraftRowsInput()
         /// [shopping] What the chat's messages say about its product and order cards (`ShoppingCards.answers`).
         var shopping = ShoppingCards.Answers()
+        /// [asks] The chat's ask cards: which are answered, the one whose "Something else…" strip is open.
+        var asks = AskRowsInput()
         /// [questions] Skipped questions answered later in the chat, by card key (`ClarifyLate.answers`).
         var clarifyLate: [String: ClarifyLate.Found] = [:]
 
@@ -668,7 +670,9 @@ nonisolated enum ChatRowBuilder {
                 let id = "\(m.id)|b0"
                 // [drafts] Your answer to a draft card reads "Send it": the card above shows the words that went.
                 // [questions] A skipped question answered later reads as the answer: the card above shows the question.
-                let text = DraftCards.bubbleWords(text) ?? ShoppingCards.bubbleWords(text) ?? ClarifyLate.bubbleWords(text) ?? text   // [shopping]
+                // [asks] An answer to an ask card reads as the choice ("Yes") or your own words.
+                let text = DraftCards.bubbleWords(text) ?? ShoppingCards.bubbleWords(text) ?? AskCards.bubbleWords(text)   // [shopping] [asks]
+                    ?? ClarifyLate.bubbleWords(text) ?? text
                 rows.append(ChatRow(id: id, messageId: m.id, scope: input.scope, fingerprint: bubbleFingerprint(text, mine: true, speaker: "You"),
                                     kind: .bubble(BubbleRow(mine: true, text: text, markdown: true, partIndex: 0, joinsAbove: false,
                                                             joinsBelow: false, tail: false, time: nil, pending: m.isPending,
@@ -915,6 +919,12 @@ nonisolated enum ChatRowBuilder {
                 }
                 // [shopping] Product cards and an order card, the same way.
                 if ShoppingCards.tools.contains(call.name), let card = PromptRows.shoppingRow(call, message: m, input: input) {
+                    flushRun(endingAt: i - 1)
+                    rows.append(card)
+                    continue
+                }
+                // [asks] An ask card, the same way.
+                if call.name == AskCards.tool, let card = PromptRows.askRow(call, message: m, input: input) {
                     flushRun(endingAt: i - 1)
                     rows.append(card)
                     continue

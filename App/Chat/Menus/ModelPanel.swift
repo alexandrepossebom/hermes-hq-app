@@ -63,6 +63,23 @@ struct ModelPanelActions {
 }
 
 final class ModelPanelView: UIView {
+    /// [model-sheet] The card over the message box (the iPad), or the page of a bottom sheet (the iPhone, owner
+    /// 2026-11-18: "rebuilt as a pop-up from the bottom, just like when you click on the plus icon … all the same kind
+    /// of like animations and functionality and fun of it too"; he picked the "quick tiles" design). The sheet is the
+    /// Add context sheet's shape: a close disc, the model's name in the middle and the bot's face where Photos is;
+    /// Thinking on the tall card where the recent photos are; the facts as a row of tiles; Fast, Approval Mode and
+    /// YOLO as one card of rows. Same pieces, same menus, same drive; `ModelCardSheet` presents it.
+    enum Style { case card, sheet }
+    let style: Style
+    /// The sheet that shows this page (`.sheet`): closing dismisses it.
+    weak var sheetHost: UIViewController?
+    /// The page's height once laid out, and each time it changes (a longer name, the offline line): the sheet fits it.
+    var onHeight: ((CGFloat) -> Void)?
+    private var toldHeight: CGFloat = 0
+    private let closeButton = UIButton(type: .system)
+    /// Thinking's own card on the sheet, with its stars.
+    private let thinkingCard = ThinkingCard()
+
     private let actions: ModelPanelActions
     private weak var chip: ModelChip?
     private var state: ModelPanelState
@@ -124,11 +141,31 @@ final class ModelPanelView: UIView {
         return panel
     }
 
+    /// [model-sheet] Opens the panel as a bottom sheet over `screen` (the iPhone). The bubble stays marked while it is
+    /// up; nil when the chat has no model yet or something else is already up.
+    @discardableResult
+    static func presentSheet(over screen: UIViewController, from chip: ModelChip,
+                             face: (raw: JSONValue?, profile: String), actions: ModelPanelActions) -> ModelPanelView? {
+        guard screen.presentedViewController == nil, let state = actions.state() else { return nil }
+        let panel = ModelPanelView(actions: actions, chip: chip, state: state, floor: 0, face: face, style: .sheet)
+        let sheet = ModelCardSheet(panel: panel)
+        panel.sheetHost = sheet
+        chip.isSelected = true
+        if let sky = panel.sheetBackdrop, let host = screen.viewIfLoaded {
+            sky.frame = host.bounds
+            sky.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            host.addSubview(sky)
+        }
+        screen.present(sheet, animated: true)
+        return panel
+    }
+
     /// The page's back swipes, held while the panel is open (owner 2026-10-31: a drag right on the thinking ring pulled
     /// the whole page off to go back; the bar drags sideways too). Each comes back as it was (a page that holds them itself keeps them held).
     private var heldSwipes: [(recognizer: UIGestureRecognizer, wasEnabled: Bool)] = []
 
     private func holdSwipeBack(_ hold: Bool) {
+        guard style == .card else { return }
         guard hold else {
             for held in heldSwipes { held.recognizer.isEnabled = held.wasEnabled }
             heldSwipes = []
@@ -152,14 +189,37 @@ final class ModelPanelView: UIView {
         if newSuperview == nil { holdSwipeBack(false) }
     }
 
-    private init(actions: ModelPanelActions, chip: ModelChip, state: ModelPanelState, floor: CGFloat,
-                 face: (raw: JSONValue?, profile: String)) {
+    fileprivate init(actions: ModelPanelActions, chip: ModelChip, state: ModelPanelState, floor: CGFloat,
+                     face: (raw: JSONValue?, profile: String), style: Style = .card) {
+        self.style = style
         self.actions = actions
         self.chip = chip
         self.state = state
         self.floorY = floor
         self.face = PanelFace(raw: face.raw, profile: face.profile)
         super.init(frame: .zero)
+        scroll.showsVerticalScrollIndicator = false
+        scroll.alwaysBounceVertical = false
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.delaysContentTouches = false
+        fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.black.withAlphaComponent(0).cgColor]
+        scroll.delegate = self
+        if style == .sheet {
+            // [model-sheet] The sheet is the card: its glass, its dim, its swipe down. The drive's sky goes behind it,
+            // over the chat (`ModelCardSheet` puts it there).
+            accessibilityIdentifier = "model.panel"
+            if thinking.drive != .calm, !Theme.isDesktop { backdrop = ThinkingBackdrop(drive: thinking.drive) }
+            addSubview(clip)
+            clip.addSubview(scroll)
+            scroll.addSubview(content)
+            build()
+            apply(state, animated: false)
+            registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self, UITraitPreferredContentSizeCategory.self]) { (view: ModelPanelView, _) in
+                view.restyle()
+                view.setNeedsLayout()
+            }
+            return
+        }
         accessibilityViewIsModal = true
 
         // [Mac UI check 2026-11-13] L10: on the Mac the chat stays readable behind the card: a light dim and no blur
@@ -184,14 +244,8 @@ final class ModelPanelView: UIView {
         card.clipsToBounds = true
         card.accessibilityIdentifier = "model.panel"
         addSubview(card)
-        scroll.showsVerticalScrollIndicator = false
-        scroll.alwaysBounceVertical = false
-        scroll.contentInsetAdjustmentBehavior = .never
-        scroll.delaysContentTouches = false
         card.contentView.addSubview(clip)
         clip.addSubview(scroll)
-        fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.black.withAlphaComponent(0).cgColor]
-        scroll.delegate = self
         scroll.addSubview(content)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.delegate = self
@@ -254,6 +308,17 @@ final class ModelPanelView: UIView {
             opens[ModelPanelState.Fact.contextTitle] = ("Context Window", { [weak self] in self?.handOff(to: open) })
         }
         factStrip.opens = opens
+        if style == .sheet {
+            nameLabel.textAlignment = .center
+            makerLabel.textAlignment = .center
+            factStrip.tiles = true
+            settings.onSheet()
+            closeButton.accessibilityLabel = "Close"
+            closeButton.accessibilityIdentifier = "model.panel.close"
+            closeButton.addAction(UIAction { [weak self] _ in self?.close() }, for: .touchUpInside)
+            content.addSubview(closeButton)
+            content.addSubview(thinkingCard)
+        }
         for view in [nameLabel, tagPill, makerLabel, switchChevrons, switchSpinner, switchButton, offlineLabel, face, factStrip, thinking, settings] as [UIView] {
             content.addSubview(view)
         }
@@ -262,10 +327,18 @@ final class ModelPanelView: UIView {
 
     private func restyle() {
         // Words on the glass itself take the primary ink (label 2 measured 3.2:1 over the blurred chat).
-        nameLabel.font = Self.font(.title2, .hqBold)
+        nameLabel.font = Self.font(nameStyle, .hqBold)
         nameLabel.textColor = ChatPalette.label
-        makerLabel.font = Self.font(.subheadline, .medium)
-        makerLabel.textColor = ChatPalette.label
+        makerLabel.font = Self.font(style == .sheet ? .footnote : .subheadline, .medium)
+        makerLabel.textColor = style == .sheet ? ChatPalette.label2 : ChatPalette.label
+        if style == .sheet {
+            // The Add context sheet's close disc: glass, or a plain grey disc where the look has no glass.
+            var disc = Theme.isDesktop || Theme.solidChrome ? UIButton.Configuration.gray() : UIButton.Configuration.glass()   // glass-ok: a disc on the sheet's glass, as the Add context sheet's
+            disc.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(font: HQFont.scaled(15, weight: .semibold, like: .body, cap: 22)))
+            disc.cornerStyle = .capsule
+            disc.baseForegroundColor = ChatPalette.label
+            closeButton.configuration = disc
+        }
         switchChevrons.tintColor = ChatPalette.label2
         switchChevrons.preferredSymbolConfiguration = UIImage.SymbolConfiguration(font: Self.font(.subheadline, .semibold))
         switchSpinner.color = ChatPalette.label
@@ -284,10 +357,13 @@ final class ModelPanelView: UIView {
     static var accessibilityType: Bool { UITraitCollection.current.preferredContentSizeCategory.isAccessibilityCategory }
 
     /// The model's name in bold; with `tagInline`, its tag after it in lighter words (when the pill won't fit beside).
+    /// The name's size: the sheet's title is its header's, the card's a little larger.
+    private var nameStyle: UIFont.TextStyle { style == .sheet ? .headline : .title2 }
+
     private func nameText(tagInline: Bool) -> NSAttributedString {
-        let text = NSMutableAttributedString(string: state.name, attributes: [.font: Self.font(.title2, .hqBold), .foregroundColor: ChatPalette.label])
+        let text = NSMutableAttributedString(string: state.name, attributes: [.font: Self.font(nameStyle, .hqBold), .foregroundColor: ChatPalette.label])
         if tagInline, let tag = state.tag {
-            text.append(NSAttributedString(string: " " + tag, attributes: [.font: Self.font(.title2, .regular), .foregroundColor: ChatPalette.label2]))
+            text.append(NSAttributedString(string: " " + tag, attributes: [.font: Self.font(nameStyle, .regular), .foregroundColor: ChatPalette.label2]))
         }
         return text
     }
@@ -296,7 +372,7 @@ final class ModelPanelView: UIView {
         let modelChanged = next.name != state.name || next.provider != state.provider
         state = next
         let changes = { [self] in
-            nameLabel.attributedText = nameText(tagInline: false)
+            nameLabel.attributedText = nameText(tagInline: style == .sheet)
             tagPill.text = next.tag
             makerLabel.text = next.provider
             switchButton.accessibilityLabel = [next.name, next.tag, next.provider].compactMap { $0 }.joined(separator: ", ")
@@ -322,7 +398,9 @@ final class ModelPanelView: UIView {
         switchChevrons.alpha = next.offline ? 0.45 : 1
         // Usage & Limits and Model Prices read the gateway: offline their facts open nothing.
         factStrip.isEnabled = !next.offline
-        blocks = [[nameLabel, tagPill, makerLabel, switchChevrons, offlineLabel, face], [factStrip], [thinking], [settings]]
+        blocks = style == .sheet
+            ? [[closeButton, nameLabel, makerLabel, switchChevrons, offlineLabel, face], [thinkingCard, thinking], [factStrip], [settings]]
+            : [[nameLabel, tagPill, makerLabel, switchChevrons, offlineLabel, face], [factStrip], [thinking], [settings]]
         setNeedsLayout()
     }
 
@@ -484,6 +562,7 @@ final class ModelPanelView: UIView {
     /// Lays the content out for a card `width` wide; returns its height.
     @discardableResult
     private func layoutContent(width: CGFloat) -> CGFloat {
+        if style == .sheet { return layoutSheet(width: width) }
         let pad = Self.pad
         let inner = width - 2 * pad
         var y: CGFloat = pad + 2
@@ -562,8 +641,82 @@ final class ModelPanelView: UIView {
         return y
     }
 
+    /// [model-sheet] The sheet's page, top down: the close disc, the name (the Switch Model button) and the face on one
+    /// line; Thinking on its card; the facts as tiles; the rows. Returns its height, which the sheet fits.
+    private func layoutSheet(width: CGFloat) -> CGFloat {
+        let pad = Self.pad
+        let inner = width - 2 * pad
+        var y: CGFloat = 18   // under the sheet's grabber
+        let side = PanelFace.side
+        closeButton.frame = CGRect(x: pad, y: y + (side - 44) / 2, width: 44, height: 44)
+        face.frame = CGRect(x: width - pad - side, y: y, width: side, height: side)
+        // The name sits in the middle, between the disc and the face, ending in the Switch Model chevrons; its tag
+        // follows it in lighter words (no room for a pill there). Two lines before it shrinks.
+        let textX = pad + side + 10
+        let textW = max(0, width - 2 * textX)
+        let chevronW = ceil(switchChevrons.intrinsicContentSize.width) + 2
+        tagPill.isHidden = true
+        nameLabel.attributedText = nameText(tagInline: true)
+        nameLabel.maxLines = Self.accessibilityType ? 3 : 2
+        let nameRoom = max(0, textW - chevronW - 6)
+        let nameW = min(nameRoom, ceil(nameLabel.fittedWidth(width: nameRoom)))
+        let nameH = nameLabel.fittedHeight(width: nameW)
+        makerLabel.maxLines = Self.accessibilityType ? 2 : 1
+        if makerLabel.text != state.provider { makerLabel.text = state.provider }
+        if !makerLabel.fit(width: textW).comfortable { makerLabel.text = ModelNames.shortProviderName(state.provider) }
+        let makerH = makerLabel.fittedHeight(width: textW)
+        let wordsH = nameH + 2 + makerH
+        let top = y + max(0, ((side - wordsH) / 2).rounded())
+        let nameX = ((width - nameW - 6 - chevronW) / 2).rounded()
+        nameLabel.frame = CGRect(x: nameX, y: top, width: nameW, height: nameH)
+        let lineH = ceil(Self.font(nameStyle, .hqBold).lineHeight)
+        switchChevrons.frame = CGRect(x: nameX + nameW + 6, y: top, width: chevronW, height: min(nameH, lineH))
+        switchSpinner.center = CGPoint(x: switchChevrons.frame.midX, y: switchChevrons.frame.midY)
+        makerLabel.frame = CGRect(x: textX, y: top + nameH + 2, width: textW, height: makerH)
+        switchButton.frame = CGRect(x: textX - 4, y: y - 4, width: textW + 8, height: max(side, wordsH) + 8)
+        y += max(side, wordsH) + Self.blockGap
+        if !offlineLabel.isHidden {
+            offlineLabel.maxLines = 2
+            offlineLabel.textAlignment = .center
+            let h = offlineLabel.fittedHeight(width: inner)
+            offlineLabel.frame = CGRect(x: pad, y: y - 4, width: inner, height: h)
+            y += h + 8
+        }
+
+        // Thinking, on the tall card.
+        let inset = ThinkingCard.inset
+        let thinkingH = thinking.preferredHeight(width: inner - inset.left - inset.right)
+        thinkingCard.frame = CGRect(x: pad, y: y, width: inner, height: inset.top + thinkingH + inset.bottom)
+        thinking.frame = CGRect(x: pad + inset.left, y: y + inset.top, width: inner - inset.left - inset.right, height: thinkingH)
+        y += thinkingCard.frame.height + Self.blockGap
+
+        if !factStrip.isHidden {
+            let h = factStrip.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
+            factStrip.frame = CGRect(x: pad, y: y, width: inner, height: h)
+            y += h + Self.blockGap
+        }
+
+        let settingsH = settings.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
+        settings.frame = CGRect(x: pad, y: y, width: inner, height: settingsH)
+        y += settingsH + 8   // the sheet adds the home indicator's room under it
+        content.frame = CGRect(x: 0, y: 0, width: width, height: y)
+        return y
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        if style == .sheet {
+            clip.frame = bounds
+            scroll.frame = bounds
+            let height = layoutContent(width: bounds.width)
+            scroll.contentSize = content.bounds.size
+            updateFade()
+            if abs(height - toldHeight) > 0.5 {
+                toldHeight = height
+                onHeight?(height)
+            }
+            return
+        }
         dim.frame = bounds
         blur.frame = bounds
         backdrop?.frame = bounds
@@ -664,9 +817,71 @@ final class ModelPanelView: UIView {
         }
     }
 
+    // MARK: The sheet
+
+    /// The drive's sky, for the sheet to put behind itself over the chat.
+    var sheetBackdrop: UIView? { style == .sheet ? backdrop : nil }
+
+    /// The page's height at `width`, before the sheet first shows (its first detent).
+    func sheetHeight(width: CGFloat) -> CGFloat { layoutContent(width: width) }
+
+    /// [model-sheet] The sheet is on its way up: the blocks rise in one after another as the card's did, the bar fills
+    /// up to the level, and the stars come on. The frames stay where layout put them (the sheet lays out again as it
+    /// settles), so each piece rises as an animation on its layer alone.
+    func sheetAppearing() {
+        Haptics.play(.soft)
+        loadApprovalsIfUnknown()
+        guard !HQMotion.reduced else { return }
+        let now = CACurrentMediaTime()
+        for (i, block) in blocks.enumerated() {
+            for view in block {
+                let fade = CABasicAnimation(keyPath: "opacity")   // motion-ok: guarded by HQMotion.reduced above
+                fade.fromValue = 0
+                fade.duration = 0.28
+                let rise = CASpringAnimation(perceptualDuration: 0.55, bounce: 0.18)   // motion-ok: guarded above
+                rise.keyPath = "transform.translation.y"
+                rise.fromValue = 18 + CGFloat(i) * 8
+                rise.toValue = 0
+                for step in [fade, rise] as [CABasicAnimation] {
+                    step.beginTime = now + 0.10 + Double(i) * 0.05
+                    step.fillMode = .backwards
+                    view.layer.add(step, forKey: nil)
+                }
+            }
+        }
+        thinking.fillUp(after: 0.3)
+    }
+
+    func sheetAppeared() { UIAccessibility.post(notification: .screenChanged, argument: switchButton) }
+
+    /// The sheet went away by itself (a swipe down, a tap outside): the same ending as `close()`.
+    func sheetDismissed() {
+        guard !closing else { return }
+        closing = true
+        endSheet()
+        actions.closed(false)
+    }
+
+    private func endSheet() {
+        chip?.isSelected = false
+        guard let backdrop else { return }
+        HQMotion.animate(HQMotion.fade, changes: { backdrop.alpha = 0 }, completion: { _ in backdrop.removeFromSuperview() })
+    }
+
     func close(then: (() -> Void)? = nil) {
         guard !closing else { return }
         closing = true
+        if style == .sheet {
+            endSheet()
+            let handingOff = then != nil
+            let done = { [actions] in
+                actions.closed(handingOff)
+                then?()
+            }
+            guard let sheetHost, sheetHost.presentingViewController != nil else { return done() }
+            sheetHost.dismiss(animated: true, completion: done)
+            return
+        }
         chip?.isSelected = false
         holdSwipeBack(false)
         let finish = { [self] in
@@ -734,6 +949,13 @@ final class ModelPanelView: UIView {
         let switched = next.name != state.name || next.provider != state.provider
         apply(next, animated: true)
         layoutIfNeeded()
+        if style == .sheet {   // the sheet fits the new height itself (`onHeight`)
+            if switched {
+                face.cheer()
+                thinking.flash()
+            }
+            return
+        }
         HQMotion.spring(duration: 0.45, damping: 0.85, changes: { [self] in
             let rest = restingFrame()
             card.frame = rest
@@ -750,6 +972,7 @@ final class ModelPanelView: UIView {
     /// The face acts out the level under the knob as it moves.
     @objc private func levelMoved() {
         face.show(level: thinking.level ?? "none", fraction: thinking.levelFraction)
+        thinkingCard.show(level: thinking.level ?? "none", fraction: thinking.levelFraction)
     }
 
     @objc private func effortChosen() {
@@ -787,10 +1010,11 @@ final class ModelPanelView: UIView {
 
     /// [thinking-drive] The backdrop follows the bar's drive: its frames, and its beats.
     private func driveMoved(_ frame: ThinkingFrame, _ beat: ThinkingBeat?) {
-        guard let backdrop, !closing else { return }
+        guard let backdrop, !closing, backdrop.window != nil else { return }
         if let beat { return backdrop.beat(beat, frame) }
         backdrop.render(frame, knob: thinking.convert(frame.knob, to: backdrop),
-                        card: card.convert(card.bounds, to: backdrop), cardRadius: Self.radius)
+                        card: style == .sheet ? convert(bounds, to: backdrop) : card.convert(card.bounds, to: backdrop),
+                        cardRadius: style == .sheet ? ModelCardSheet.radius : Self.radius)
     }
 
     // MARK: Handing over
@@ -845,6 +1069,25 @@ extension ModelPanelView {
         for view in panel.content.subviews { view.layoutIfNeeded() }
         return (panel, panel.content)
     }
+
+    /// Tests: the sheet's page for `state` laid out `width` wide ([model-sheet]). Returns the page and its height.
+    static func debugSheet(_ state: ModelPanelState, width: CGFloat,
+                           adjust: (inout ModelPanelActions) -> Void = { _ in }) -> (panel: ModelPanelView, height: CGFloat) {
+        var actions = ModelPanelActions(state: { state }, pick: { _ in }, setEffort: { _ in }, setFast: { _ in },
+                                        setApprovalMode: { _ in }, setYolo: { _ in }, loadApprovals: {}, openAll: {},
+                                        allModels: { nil }, closed: { _ in })
+        adjust(&actions)
+        let panel = ModelPanelView(actions: actions, chip: ModelChip(), state: state, floor: 0, face: (nil, "default"), style: .sheet)
+        panel.frame = CGRect(x: 0, y: 0, width: width, height: 900)
+        let height = panel.layoutContent(width: width)
+        for view in panel.content.subviews { view.layoutIfNeeded() }
+        return (panel, height)
+    }
+    /// Tests: the sheet's own pieces (the close disc and Thinking's card), in the content's space.
+    var debugSheetPieces: (close: CGRect, thinkingCard: CGRect, thinking: CGRect, switchButton: CGRect) {
+        (closeButton.frame, thinkingCard.frame, thinking.frame, switchButton.frame)
+    }
+    func debugTapClose() { closeButton.sendActions(for: .touchUpInside) }
 
     /// Tests: the pieces stacked down the panel, in order (each a frame in the content's space).
     var debugPieces: [(name: String, view: UIView)] {
@@ -1376,6 +1619,13 @@ final class ThinkingBar: UIControl {
     /// once the finger goes more sideways than up or down (an upward drag there still scrolls the list).
     var keepsTouch: Bool { isTracking && (grip == .bar || sliding || abs(travel.width) >= abs(travel.height)) }
 
+    /// [model-sheet] On a sheet, the sheet's own swipe down would take a drag that drifts a little down the bar: while
+    /// the bar keeps its touch, no pan above it begins (as a slider's).
+    override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        if gesture is UIPanGestureRecognizer, gesture.view !== self, keepsTouch { return false }
+        return super.gestureRecognizerShouldBegin(gesture)
+    }
+
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
         guard isEnabled, stops.count > 1 else { return false }
         let p = touch.location(in: self)
@@ -1859,6 +2109,7 @@ final class FactStrip: UIView {
                 columns.forEach { $0.removeFromSuperview() }
                 columns = facts.map { _ in FactColumn() }
                 for column in columns {
+                    column.tile = tiles
                     column.addTarget(self, action: #selector(columnTapped(_:)), for: .touchUpInside)
                     addSubview(column)
                 }
@@ -1873,6 +2124,20 @@ final class FactStrip: UIView {
     var opens: [String: (name: String, open: () -> Void)] = [:] { didSet { reopen() } }
     var isEnabled = true { didSet { if isEnabled != oldValue { reopen() } } }
     private var columns: [FactColumn] = []
+    /// [model-sheet] On the sheet each fact is a tile of its own, a gap between them (the Add context sheet's tiles).
+    var tiles = false {
+        didSet {
+            guard tiles != oldValue else { return }
+            backgroundColor = tiles ? .clear : HQPalette.glassPane
+            if tiles {   // no strip, so no edge: after the edge's own repaint on a look change
+                layer.borderWidth = 0
+                registerForTraitChanges([GlassSheetTrait.self, UITraitUserInterfaceStyle.self]) { (strip: FactStrip, _) in strip.layer.borderWidth = 0 }
+            }
+            columns.forEach { $0.tile = tiles }
+            setNeedsLayout()
+        }
+    }
+    private var gap: CGFloat { tiles ? 10 : 0 }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1907,7 +2172,7 @@ final class FactStrip: UIView {
         func widths(_ across: Int) -> [[CGFloat]] {
             stride(from: 0, to: count, by: across).map { first in
                 let n = min(across, count - first)
-                return (0..<n).map { _ in width / CGFloat(n) }
+                return (0..<n).map { _ in (width - gap * CGFloat(n - 1)) / CGFloat(n) }
             }
         }
         let across = tries.first { across in
@@ -1922,10 +2187,10 @@ final class FactStrip: UIView {
             for (i, w) in line.enumerated() {
                 let left = x.rounded(), right = i == line.count - 1 ? width : (x + w).rounded()
                 frames.append(CGRect(x: left, y: y, width: right - left, height: height))
-                x += w
+                x += w + gap
             }
             index += line.count
-            y += height
+            y += height + gap
         }
         return frames
     }
@@ -1936,6 +2201,7 @@ final class FactStrip: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        if tiles { layer.borderWidth = 0 }   // the strip's own edge is the card's; tiles have none
         for (column, frame) in zip(columns, plan(width: bounds.width)) { column.frame = frame }
     }
 
@@ -1958,6 +2224,18 @@ final class FactColumn: UIControl {
     private let valueLabel = FitLabel()
     private let captionLabel = FitLabel()
     private static let inset = UIEdgeInsets(top: 10, left: 6, bottom: 11, right: 6)
+    /// [model-sheet] A tile of its own on the sheet: the sheet's card fill, rounder, a little taller, its value larger.
+    var tile = false {
+        didSet {
+            guard tile != oldValue else { return }
+            backgroundColor = tile ? ModelCardSheet.cardFill : .clear
+            layer.cornerRadius = tile ? ModelCardSheet.tileRadius : 0
+            layer.cornerCurve = .continuous
+            relabel()
+        }
+    }
+    /// "Available" on a tile leads with a green dot.
+    private let dot = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1986,8 +2264,14 @@ final class FactColumn: UIControl {
     private var opens: Bool { leadsTo != nil && isEnabled }
 
     private func relabel() {
-        valueLabel.font = ModelPanelView.font(.subheadline, .semibold)
+        valueLabel.font = ModelPanelView.font(tile ? .body : .subheadline, tile ? .hqBold : .semibold)
         valueLabel.textColor = ChatPalette.label
+        dot.isHidden = !(tile && fact?.title == "Status" && fact?.value == "Available")
+        if !dot.isHidden, dot.superview == nil {
+            dot.isUserInteractionEnabled = false
+            dot.backgroundColor = ChatPalette.green
+            addSubview(dot)
+        }
         let captionFont = ModelPanelView.font(.footnote, .regular)
         valueLabel.text = fact?.value
         let caption = NSMutableAttributedString(string: fact?.caption ?? "", attributes: [.font: captionFont, .foregroundColor: ChatPalette.label2])
@@ -2014,7 +2298,7 @@ final class FactColumn: UIControl {
     /// At least 44 pt, the column's words centred in it.
     func fittedHeight(width: CGFloat) -> CGFloat {
         let room = width - Self.inset.left - Self.inset.right
-        return max(44, Self.inset.top + valueLabel.fittedHeight(width: room) + 1 + captionLabel.fittedHeight(width: room) + Self.inset.bottom)
+        return max(tile ? 66 : 44, Self.inset.top + valueLabel.fittedHeight(width: room) + 1 + captionLabel.fittedHeight(width: room) + Self.inset.bottom)
     }
 
     override func layoutSubviews() {
@@ -2026,6 +2310,13 @@ final class FactColumn: UIControl {
         let top = ((bounds.height - valueH - 1 - captionH) / 2).rounded()
         valueLabel.frame = CGRect(x: inset.left, y: top, width: width, height: valueH)
         captionLabel.frame = CGRect(x: inset.left, y: top + valueH + 1, width: width, height: captionH)
+        guard !dot.isHidden else { return }
+        // The dot leads the word, the two centred together (the word gives up the dot's room).
+        let wordW = min(width - 14, ceil(valueLabel.fittedWidth(width: width - 14)))
+        let x = inset.left + ((width - wordW - 14) / 2).rounded()
+        dot.frame = CGRect(x: x, y: (top + valueH / 2 - 4).rounded(), width: 8, height: 8)
+        dot.layer.cornerRadius = 4
+        valueLabel.frame = CGRect(x: x + 14, y: top, width: wordW, height: valueH)
     }
 }
 
@@ -2278,6 +2569,16 @@ final class PanelGroup: UIView {
 
     private func recolor() { lines.forEach { $0.backgroundColor = ChatPalette.label.withAlphaComponent(0.12) } }
 
+    /// [model-sheet] On the sheet: the Add context sheet's card of rows (its fill, its corners, no edge).
+    func onSheet() {
+        sheet = true
+        backgroundColor = ModelCardSheet.cardFill
+        layer.cornerRadius = ModelCardSheet.cardRadius
+        layer.borderWidth = 0
+        registerForTraitChanges([GlassSheetTrait.self, UITraitUserInterfaceStyle.self]) { (group: PanelGroup, _) in group.layer.borderWidth = 0 }
+    }
+    private var sheet = false
+
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         CGSize(width: size.width, height: rows.reduce(0) { $0 + $1.sizeThatFits(size).height })
     }
@@ -2285,6 +2586,7 @@ final class PanelGroup: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         var y: CGFloat = 0
+        if sheet { layer.borderWidth = 0 }
         let hair = HQShape.pixel(traitCollection.displayScale)
         for (i, row) in rows.enumerated() {
             let h = row.sizeThatFits(bounds.size).height

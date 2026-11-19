@@ -929,8 +929,12 @@ final class SessionStore {
         }
     }
 
+    /// [log review 2026-11-18] Probe-first on screen too: the list up (always, in the Mac's sidebar) read all of it on
+    /// every pass, 260 rows and half a megabyte every ten seconds while any chat was working. Now a pass costs the
+    /// limit-1 probe, the top page when that differs, and the full list only once the last full read is older than
+    /// `probeMaxAge` (`topPageFits`). A row far down that another device deleted or renamed shows up to that late.
     private func throttledPass() async {
-        await readTask(probeFirst: !listVisible).value
+        await readTask(probeFirst: true).value
     }
 
     /// [sessions-m9] The one reconnect read (§11.2; the offline stream's "shared within 3 s" rule wraps this call): a

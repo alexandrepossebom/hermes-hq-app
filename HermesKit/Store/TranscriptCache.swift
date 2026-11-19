@@ -274,8 +274,9 @@ nonisolated final class TranscriptCache: Sendable {
             var c = m
             c.parts = m.parts.map { part in
                 // [drafts] A draft call keeps its words: its card is drawn from them (cut, it would draw as a plain step).
-                // [shopping] So do product and order cards.
-                guard case .tool(var call) = part, call.name != DraftCards.tool, !ShoppingCards.tools.contains(call.name) else { return part }
+                // [shopping] So do product and order cards. [asks] And ask cards.
+                guard case .tool(var call) = part, call.name != DraftCards.tool, !ShoppingCards.tools.contains(call.name),
+                      call.name != AskCards.tool else { return part }
                 call.argsText = call.argsText.map { ChatText.clip($0, max: 512) }
                 return .tool(call)
             }

@@ -46,12 +46,16 @@ extension LiveChatSession {
     /// A reconnect's `session.activate` can answer with a new runtime id too, and the gateway streams to it before it
     /// answers: those frames are held the same way (owner, 2026-10-15: "I was already in the same chat … its response is
     /// not showing"; the log showed 14 frames set aside on the open chat).
+    /// How many frames wait for a resume. Was 512: a slow resume beside a busy chat filled it within seconds and the
+    /// rest were dropped (the owner's logs, 2026-11-18); a frame is a few hundred bytes.
+    static let resumeHoldLimit = 2048
+
     private func holdForResume(_ event: GatewayEvent) {
-        guard resumeFlight != nil || activating, !event.sessionId.isEmpty, resumeHeld.count < 512 else {
+        guard resumeFlight != nil || activating, !event.sessionId.isEmpty, resumeHeld.count < Self.resumeHoldLimit else {
             if !event.sessionId.isEmpty {
                 LeftChatProbe.of(self).foreign += 1   // [diagnostics]
-                if resumeHeld.count >= 512 && (resumeFlight != nil || activating) && event.type != "message.delta" {
-                    AppLog.trace("turn", "resume hold full (512) on \(logIds): \(event.type) for rt \(AppLog.tag(event.sessionId)) dropped")
+                if resumeHeld.count >= Self.resumeHoldLimit && (resumeFlight != nil || activating) && event.type != "message.delta" {
+                    AppLog.trace("turn", "resume hold full (\(Self.resumeHoldLimit)) on \(logIds): \(event.type) for rt \(AppLog.tag(event.sessionId)) dropped")
                 }
                 if event.type == "message.complete" {
                     AppLog.trace("turn", "complete on foreign rt \(AppLog.tag(event.sessionId)) seen by \(logIds): tail read soon")
@@ -410,6 +414,7 @@ extension LiveChatSession {
         let rawText = args.isEmpty ? p["args_text"]?.string : nil
         let argsText = DraftCards.wholeArgsText(name: name, args: args)   // [drafts] a draft card draws its call whole
             ?? ShoppingCards.wholeArgsText(name: name, args: args)        // [shopping] so do product and order cards
+            ?? AskCards.wholeArgsText(name: name, args: args)             // [asks] and ask cards
             ?? input.map { ToolArgs.boundedText(args, input: $0) } ?? ToolArgs.boundedText(args, raw: rawText)
         turn.sawAssistantPayload = true
         turn.awaitingResponse = false
@@ -491,6 +496,7 @@ extension LiveChatSession {
         var call = ToolCall(id: toolId.isEmpty ? "live-tool-\(localCounter + 1)" : toolId, name: name, title: title,
                             argsText: DraftCards.wholeArgsText(name: name, args: args)   // [drafts]
                                 ?? ShoppingCards.wholeArgsText(name: name, args: args)   // [shopping]
+                                ?? AskCards.wholeArgsText(name: name, args: args)        // [asks]
                                 ?? input.map { ToolArgs.boundedText(args, input: $0) }
                                 ?? ToolArgs.boundedText(args, raw: argsText),          // [activity] bounded per value
                             summary: ClarifySettled.summary(name: name, result: result,   // [questions] settled Q&A (1x §4.4)

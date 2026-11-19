@@ -1006,6 +1006,7 @@ nonisolated private struct Folder {
         var toolCall = ToolCall(id: tool.id, name: tool.name, title: title.isEmpty ? tool.name : title,
                                 argsText: DraftCards.wholeArgsText(name: tool.name, args: tool.args)   // [drafts]
                                     ?? ShoppingCards.wholeArgsText(name: tool.name, args: tool.args)   // [shopping]
+                                    ?? AskCards.wholeArgsText(name: tool.name, args: tool.args)        // [asks]
                                     ?? (tool.argsText.isEmpty ? nil : ToolArgs.boundedText(tool.args, raw: tool.argsText)),   // [activity]
                                 summary: summary, state: failed ? .failed : .done, durationSeconds: nil)
         if !failed { toolCall.card = ToolCards.card(name: tool.name, args: tool.args, result: tool.result) }   // [activity] §11.1

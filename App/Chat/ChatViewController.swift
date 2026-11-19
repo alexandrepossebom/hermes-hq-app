@@ -268,6 +268,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     var draftAnswersShown: [String: DraftCards.Answer] = [:]
     /// [shopping] The shopping answers the rows were last built with (App/Shopping/ChatViewController+Shopping.swift).
     var shoppingAnswersShown = ShoppingCards.Answers()
+    /// [asks] The ask answers the rows were last built with (App/Asks/ChatViewController+Asks.swift).
+    var askAnswersShown: [String: AskCards.Answer] = [:]
     /// [questions] The later answers to skipped questions the rows were last built with (ChatViewController+Prompts).
     var clarifyLateShown: [String: ClarifyLate.Found] = [:]
     private var pendingNewest = false
@@ -543,6 +545,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         input.bots = DeliveryRoster.seats                                                      // [botdm]
         input.drafts = DraftEdits.shared.rowsInput(messages, queued: draftQueuedTexts, scope: scope)                      // [drafts]
         input.shopping = ShoppingCards.answers(messages, queued: shoppingQueuedTexts)                                    // [shopping]
+        input.asks = AskAnswering.shared.rowsInput(messages, queued: askQueuedTexts, scope: scope)                      // [asks]
         input.clarifyLate = ClarifyLate.answers(messages, queued: clarifyLateQueuedTexts)                                // [questions]
         input.fewerTimes = ToolCallSettings.fewerTimestamps
         input.externalWorking = externalWorking && !ownerWaiting                                // [external-turn]
@@ -2390,7 +2393,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [drafts] A draft answered some other way than its card's buttons: that card is drawn again.
         switch change {
         case .appended, .state, .removed: pendingTouched += draftMessagesToRebuild() + clarifyLateMessagesToRebuild() + shoppingMessagesToRebuild()   // [shopping]
+            + askMessagesToRebuild()   // [asks]
         case .reset: _ = draftMessagesToRebuild(); _ = clarifyLateMessagesToRebuild(); _ = shoppingMessagesToRebuild()   // everything is rebuilt; only the answers are noted
+            _ = askMessagesToRebuild()   // [asks]
         default: break
         }
         activity.sessionChanged()        // [activity] the live Steps sheet, an open step sheet

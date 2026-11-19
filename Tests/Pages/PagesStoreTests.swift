@@ -49,6 +49,15 @@ struct JobsStoreTests {
         var at: TimeInterval = 3, reads = 1
         while let wait = JobsStore.nextDueRead([try job("a", startsIn: -at)], now: now) { at += wait; reads += 1 }
         #expect(reads == 5 && at <= 120)
+        // [log review 2026-11-18] With no Jobs screen up it costs 3 (+3, +43, +86 s), and work that is out is read
+        // every 90 s, not every 30.
+        at = 3; reads = 1
+        while let wait = JobsStore.nextDueRead([try job("a", startsIn: -at)], now: now, onScreen: false) { at += wait; reads += 1 }
+        #expect(reads == 3 && at <= 120)
+        #expect(JobsStore.backstopGap(changeEvents: true, runOut: true, onScreen: false) == .seconds(90))
+        #expect(JobsStore.backstopGap(changeEvents: true, runOut: true, onScreen: true) == .seconds(30))
+        #expect(JobsStore.backstopGap(changeEvents: true, runOut: false, onScreen: false) == .seconds(300))
+        #expect(JobsStore.backstopGap(changeEvents: false, runOut: false, onScreen: false) == .seconds(30))
         #expect(JobsStore.nextDueRead([try job("a", startsIn: -600)], now: now) == nil, "long overdue")
         #expect(JobsStore.nextDueRead([try job("a", startsIn: 60, ["state": "paused"])], now: now) == nil)
         #expect(JobsStore.nextDueRead([try job("a", startsIn: 60, ["enabled": false])], now: now) == nil)

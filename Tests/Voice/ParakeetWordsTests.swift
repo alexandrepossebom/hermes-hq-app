@@ -138,4 +138,36 @@ nonisolated final class SecondsHearing: ParakeetHearing {
         #expect(VoiceSettingsCatalog.betterWordsNote(on: true, readiness: .waitingForWiFi)?.contains("Wi-Fi") == true)
         #expect(VoiceSettingsCatalog.betterWordsNote(on: true, readiness: .unavailable("English only"))?.contains("English only") == true)
     }
+
+    /// A chat opening loads the model only for someone who used the mic within the week, and not right after iOS said
+    /// memory was short (the owner's logs, 2026-11-18: it loaded on every launch, 800 MB and more each time).
+    @Test func aChatOpeningLoadsTheModelOnlyForSomeoneWhoTalks() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(!ParakeetWords.loadsOnOpen(lastUsed: nil, letGo: nil, now: now), "never talked: no load, no download")
+        #expect(ParakeetWords.loadsOnOpen(lastUsed: now.addingTimeInterval(-3_600), letGo: nil, now: now))
+        #expect(!ParakeetWords.loadsOnOpen(lastUsed: now.addingTimeInterval(-8 * 86_400), letGo: nil, now: now), "over a week ago")
+        #expect(!ParakeetWords.loadsOnOpen(lastUsed: now.addingTimeInterval(-60), letGo: now.addingTimeInterval(-120), now: now),
+                "memory was short two minutes ago")
+        #expect(ParakeetWords.loadsOnOpen(lastUsed: now.addingTimeInterval(-60), letGo: now.addingTimeInterval(-900), now: now))
+    }
+
+    /// Short memory lets the model go; the background does only when the app holds too much. A take then gets Apple's
+    /// engine (none here) and asks for the model again.
+    @MainActor @Test func theModelIsLetGoWhenMemoryIsShort() {
+        let was = UserDefaults.standard.object(forKey: ParakeetWords.settingKey)
+        defer {
+            UserDefaults.standard.set(was, forKey: ParakeetWords.settingKey)
+            ParakeetWords.resetForTests()
+        }
+        UserDefaults.standard.set(true, forKey: ParakeetWords.settingKey)
+        ParakeetWords.resetForTests(SecondsHearing())
+        #expect(!ParakeetWords.letGo(pressure: false, footprintMB: 300), "a light app keeps it in the background")
+        #expect(ParakeetWords.readiness == .ready)
+        #expect(ParakeetWords.letGo(pressure: false, footprintMB: 2_100), "a heavy one lets it go")
+        #expect(ParakeetWords.listen { _ in } == nil)
+        ParakeetWords.resetForTests(SecondsHearing())
+        #expect(ParakeetWords.letGo(pressure: true))
+        #expect(ParakeetWords.readiness != .ready)
+        #expect(!ParakeetWords.letGo(pressure: true), "nothing left to let go")
+    }
 }
