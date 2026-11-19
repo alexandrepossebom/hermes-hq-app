@@ -159,6 +159,17 @@ import UIKit
             }
             self.updateShelf(animated: true)
         }
+        // [collapse-all] The expanded header's trailing ⌃: straight back to the pill from any depth (a category's detail,
+        // a helper's page under it). Reopening starts at the overview; Steer drafts are kept.
+        shelf.onCollapseAll = { [weak self] in
+            guard let self else { return }
+            self.acknowledgeOpenHelperFailure()
+            self.subagentsBody.endEditing(true)
+            self.openPieces.removeAll()
+            self.selectedSubagent = nil
+            self.shelf.expanded = false
+            self.updateShelf(animated: true)
+        }
         sideInset = chat.dockSideInset
         shelfSides = [shelf.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: sideInset),
                       view.trailingAnchor.constraint(equalTo: shelf.trailingAnchor, constant: sideInset)]
