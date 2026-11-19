@@ -920,6 +920,7 @@ final class ActivityImageViewer: UIViewController, UIScrollViewDelegate {
     private var fullTask: Task<Void, Never>?
     private var shareItem: UIBarButtonItem!
     private var failedCaption: UIButton?
+    private var fling: PhotoFling?
 
     /// Presents the viewer over `presenter`, zooming from `source` (the card's picture).
     static func present(from presenter: UIViewController, source: UIView, image: UIImage, name: String, loadFull: (() async throws -> UIImage)?) {
@@ -929,7 +930,11 @@ final class ActivityImageViewer: UIViewController, UIScrollViewDelegate {
         nav.overrideUserInterfaceStyle = .dark          // bars and buttons read on the black page
         nav.setToolbarHidden(false, animated: false)
         let options = UIViewController.Transition.ZoomOptions()
-        options.interactiveDismissShouldBegin = { [weak viewer] _ in viewer?.isAtMinimumZoom ?? true }
+        options.interactiveDismissShouldBegin = { [weak viewer] context in
+            // A fling up is `PhotoFling`'s (the system's drag closes downward only).
+            if context.velocity.dy < 0, abs(context.velocity.dy) > abs(context.velocity.dx) { return false }
+            return viewer?.isAtMinimumZoom ?? true
+        }
         nav.preferredTransition = .zoom(options: options) { [weak source] _ in source }
         presenter.present(nav, animated: true)
     }
@@ -973,6 +978,8 @@ final class ActivityImageViewer: UIViewController, UIScrollViewDelegate {
         imageView.isAccessibilityElement = true
         imageView.accessibilityLabel = name
         imageView.accessibilityTraits = .image
+        fling = PhotoFling(host: self, directions: .up, flyOff: false, content: { [weak self] in self?.scroll },
+                           canBegin: { [weak self] in self?.isAtMinimumZoom ?? true })
         loadWhole()
     }
 
