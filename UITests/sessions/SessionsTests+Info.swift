@@ -53,11 +53,15 @@ extension SessionsTests {
         XCTAssertTrue(note.exists)
         shot(app, "project-icon-guide")
         app.buttons["sheet.close"].firstMatch.tap()
+        let plainWidth = merged.frame.width
         merged.tap()
         XCTAssertTrue(waitUntil(10) { merged.isSelected && self.row(app, "s-release").exists && self.row(app, "s-old").exists && !self.row(app, "s-garden").exists })
+        // Owner 2026-11-19: the picked state names itself inside its ring ("2 Merged").
+        XCTAssertTrue(waitUntil(5) { merged.frame.width > plainWidth + 30 }, "picked ring holds the word: \(plainWidth) → \(merged.frame.width)")
         shot(app, "project-pr-summary-selected")
         merged.tap()
         XCTAssertTrue(waitUntil(10) { !merged.isSelected && self.row(app, "s-garden").exists })
+        XCTAssertTrue(waitUntil(5) { abs(merged.frame.width - plainWidth) < 1 }, "unpicked drops the word")
         merged.tap()
         XCTAssertTrue(waitUntil(10) { merged.isSelected })
         toggleProjectCoding(app)

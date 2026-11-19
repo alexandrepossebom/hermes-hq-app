@@ -256,6 +256,12 @@ struct ProjectPageHeader: View {
         }
     }
 
+    static func prWord(_ state: SessionPRStatus.State) -> String {
+        ["none": "No PR", "draft": "Draft", "open": "Open", "merged": "Merged", "closed": "Closed"][state.rawValue] ?? ""
+    }
+
+    /// Owner 2026-11-19: the picked state says its name inside its ring ("58 Merged"), so the filter on screen reads
+    /// without the ⓘ guide; where the line runs out, the flow puts the last marks on a second line.
     private var pullRequestCounts: some View {
         // A narrow sidebar or larger counts can push the last mark onto a second line.
         PagesFlowLayout(spacing: 12, lineSpacing: 0) {
@@ -263,16 +269,19 @@ struct ProjectPageHeader: View {
                 let count = prCounts[state, default: 0]
                 let status = state == .none ? "No PR yet" : "\(SessionPRStatus(state: state).label) PR"
                 let label = "\(status), \(count) loaded \(count == 1 ? "chat" : "chats")"
+                let picked = selectedPR == state
                 Button { onPRPick(state) } label: {
                 HStack(spacing: 3) {
                     Image(uiImage: SessionPRGlyph.image(state))
                         .renderingMode(.template)
                         .resizable().frame(width: 14, height: 14)
                         .foregroundStyle(Color(uiColor: SessionPRGlyph.color(state)))
-                    Text("\(count)").font(Font.hq(.caption).weight(.medium)).monospacedDigit()
+                    Text(picked ? "\(count) \(Self.prWord(state))" : "\(count)")
+                        .font(Font.hq(.caption).weight(.medium)).monospacedDigit()
+                        .lineLimit(1).fixedSize()
                 }
-                .padding(.horizontal, 4).frame(minHeight: 32)
-                .overlay { if selectedPR == state { Capsule().strokeBorder(Color.hqTint, lineWidth: 1.5) } }
+                .padding(.horizontal, picked ? 8 : 4).frame(minHeight: 32)
+                .overlay { if picked { Capsule().strokeBorder(Color.hqTint, lineWidth: 1.5) } }
                 .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -285,6 +294,7 @@ struct ProjectPageHeader: View {
                 .help(label)
             }
         }
+        .animation(.snappy(duration: 0.2), value: selectedPR)
     }
 
     private func counts(words: Bool, labelActive: Bool = false) -> some View {
