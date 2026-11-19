@@ -634,10 +634,12 @@ extension AppModel: SessionsServices {}
     }
 
     /// A project header's hold › Delete Project…: asked first; the chats and the folder are kept.
-    func deleteProject(key: String, title: String) {
+    func deleteProject(key: String, title: String, showFolder: Bool = false) {
         guard let host, let store else { return }
+        let folder = showFolder && !key.hasPrefix("id:") ? "Folder: \(key)\n\n" : ""
+        let scope = showFolder ? "It is removed for every bot that has it.\n\n" : ""
         TextPrompt.confirm(title: "Delete “\(title)”?",
-                           message: "Its chats and its folder are kept. Chats still in the folder will show under the folder’s name instead.",
+                           message: folder + scope + "Its chats and its folder are kept. Chats still in the folder will show under the folder’s name instead.",
                            action: "Delete Project", from: host) { [weak self] in
             self?.run("Couldn’t Delete Project", { try await store.deleteProject(key: key) }, done: { [weak self] in
                 Haptics.play(.success)

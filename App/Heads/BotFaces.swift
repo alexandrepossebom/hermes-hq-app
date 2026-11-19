@@ -28,11 +28,11 @@ final class BotFaces {
     }
 
     @ObservationIgnored private var store: BotPhotoStore?
-    @ObservationIgnored private let cache: NSCache<NSString, Decoded> = {
-        let cache = NSCache<NSString, Decoded>()
-        cache.totalCostLimit = 24 * 1024 * 1024
-        return cache
-    }()
+    /// The decoded pictures, kept until a memory warning (`dropDecoded`). They were in an `NSCache`, which also lets go
+    /// of entries whenever it likes; each one it dropped made that bot's faces draw the generated head until the
+    /// picture was decoded again, and a list drawn afresh (the Mac's sidebar after a click) showed them all at once (a
+    /// tester 2026-11-17). A picture is a 256 px tile, about a quarter of a megabyte decoded, and there is one per bot.
+    @ObservationIgnored private var cache: [String: Decoded] = [:]
     /// Profile → the fingerprint being decoded.
     @ObservationIgnored private var decoding: [String: String] = [:]
     @ObservationIgnored private let views = NSHashTable<HeadView>.weakObjects()
@@ -60,7 +60,7 @@ final class BotFaces {
         if let store, store !== next { store.onChange = nil; store.onSupportChange = nil }
         store = next
         epoch &+= 1
-        cache.removeAllObjects()
+        cache.removeAll()
         decoding = [:]
         if let next {
             next.onChange = { [weak self, weak next] profile in
@@ -112,7 +112,7 @@ final class BotFaces {
     /// it is).
     func photo(for profile: String) -> UIImage? {
         guard let store, let fingerprint = store.fingerprint(for: profile) else { return nil }
-        let held = cache.object(forKey: profile as NSString)
+        let held = cache[profile]
         if let held, held.fingerprint == fingerprint { return held.image }
         decode(profile, fingerprint: fingerprint, from: store)
         // A photo replaced by another keeps the old picture for the moment the new one takes to decode.
@@ -134,9 +134,9 @@ final class BotFaces {
 
     private func changed(_ profile: String) {
         if store?.hasPhoto(profile) != true {
-            cache.removeObject(forKey: profile as NSString)
+            cache[profile] = nil
             decoding[profile] = nil
-        } else if let store, let fingerprint = store.fingerprint(for: profile), cache.object(forKey: profile as NSString)?.fingerprint != fingerprint {
+        } else if let store, let fingerprint = store.fingerprint(for: profile), cache[profile]?.fingerprint != fingerprint {
             // Decode first; the faces are told when the picture is ready (no head in between two photos, and nobody
             // is told about a photo that cannot be drawn yet). A file that turns out damaged comes back here through
             // `discardUnreadable` with no photo, and is told then.
@@ -189,14 +189,14 @@ final class BotFaces {
     }
 
     private func remember(_ image: UIImage, profile: String, fingerprint: String) {
-        let cost = Int(image.size.width * image.scale * image.size.height * image.scale) * 4
-        cache.setObject(Decoded(image: image, fingerprint: fingerprint), forKey: profile as NSString, cost: max(1, cost))
+        cache[profile] = Decoded(image: image, fingerprint: fingerprint)
     }
 
     /// A memory warning: the decoded pictures go. Faces on screen keep what they hold; the next ask decodes again.
+    /// A decode still running is left to finish and tell its faces: forgetting it here dropped its picture when it
+    /// came back, and the faces that had asked kept the generated head until something else drew them again.
     func dropDecoded() {
-        cache.removeAllObjects()
-        decoding = [:]
+        cache.removeAll()
     }
 
     private nonisolated static func decode(_ data: Data) -> UIImage? {
@@ -262,7 +262,7 @@ final class BotFaces {
     /// The bot's photo if it is decoded and in memory. Nothing is read or decoded.
     func cachedPhoto(_ profile: String) -> UIImage? {
         guard let fingerprint = store?.fingerprint(for: profile),
-              let held = cache.object(forKey: profile as NSString), held.fingerprint == fingerprint else { return nil }
+              let held = cache[profile], held.fingerprint == fingerprint else { return nil }
         return held.image
     }
 
@@ -270,7 +270,7 @@ final class BotFaces {
     /// peek); anything that walks the whole roster uses `cachedPhoto` and `photoCopy`.
     private func readyPhoto(_ profile: String) -> UIImage? {
         guard let store, let fingerprint = store.fingerprint(for: profile) else { return nil }
-        if let held = cache.object(forKey: profile as NSString), held.fingerprint == fingerprint { return held.image }
+        if let held = cache[profile], held.fingerprint == fingerprint { return held.image }
         guard let url = store.photoURL(for: profile), let data = try? Data(contentsOf: url), let image = Self.decode(data) else { return nil }
         remember(image, profile: profile, fingerprint: fingerprint)
         return image
@@ -282,7 +282,7 @@ final class BotFaces {
     /// changed meanwhile. `fingerprint` is the picture's, as in `faceKey`.
     func photoCopy(for profile: String) async -> (image: UIImage, fingerprint: String)? {
         guard let store, let fingerprint = store.fingerprint(for: profile) else { return nil }
-        if let held = cache.object(forKey: profile as NSString), held.fingerprint == fingerprint { return (held.image, fingerprint) }
+        if let held = cache[profile], held.fingerprint == fingerprint { return (held.image, fingerprint) }
         let epoch = self.epoch
         let data = await store.photoData(for: profile)
         let image = await Self.decodeOffMain(data)

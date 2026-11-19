@@ -159,6 +159,7 @@ extension AppModel {
         guard let client else { return }
         PushRegistrar.shared.call = Self.pushCall(client)
         PushRegistrar.shared.sync()
+        viewingBeat.poke()   // [viewing]
         refreshNotificationDirectory()
     }
 
@@ -364,6 +365,7 @@ extension AppModel {
         NotificationHub.shared.viewingStored = stored
         // UX study #257: the chat is read, so its alerts leave Notification Center, as Messages' do.
         if let stored { NotificationHub.shared.withdrawDelivered(thread: stored) }
+        viewingBeat.poke()   // [viewing] the add-on hears which chat is in front, so no other device alerts for it
     }
 
     // MARK: Permission, once, in context

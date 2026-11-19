@@ -312,6 +312,23 @@ search field always showing was turned down: "behind a click".)
   (the tour can't open a system menu), the hover buttons under a real pointer and clicks on them, the counts' clicks,
   Mac UI tests, the full suites, more bots or a longer project name than the fixture's.
 
+## Public issues pass (Nov 19, branch fix/issues-2026-11-19)
+
+- **The window comes back as it was left** (`MacWindow.restoreFrame` / `frameChanged`, key `HQMacMainWindowFrame`): the
+  system places a new window itself about 0.2 s after it shows, so for its first 1.5 s the frame asked for is asked
+  again (up to six times) and nothing is kept. Full screen is never kept as a size. A tour (`-HQDebugMacShots…`) neither
+  restores nor keeps. Checked in the running app: resize, quit, reopen. Zoom (the green button with Option, a double
+  click on the bar) and full screen worked before and after; a tester's "cannot be maximized" was not reproduced.
+- **The message box follows the system's text settings** (`ComposerKeyboard.followsSystem`): autocorrect and spell
+  check are `.default` on the Mac, so System Settings › Keyboard decides. Not checked with correction turned off.
+- **The Sessions header in a narrow pane** (`SessionsHeaderView.macRow`, `ViewThatFits`): the whole row; then New and
+  Working as numbers; then the switch as two glyphs. Checked with a real drag of the divider (AX frames) and the
+  tour's two narrow-pane pictures; at the narrowest (320 pt) everything is inside the pane.
+- **Watch Screen takes the keyboard when control is taken** (`ScreenViewerController.couldSendInput`): no keyboard button
+  to find first. Checked with real key presses against the screen fixture, also after a click on the picture.
+- **The Mac is in front only when AppKit says so** (`ViewingBeat.inFront`): UIKit's `applicationState` stays active with
+  another app in front. Used for the add-on's viewing report and for the Mac's own "chat on screen" rule.
+
 ## Polish pass (Nov 7, branch fix/mac-polish)
 
 A 145-item audit of the Mac app (report and pictures: `~/Projects/hermes-hq-share/2026-11-06-mac-polish/`), all

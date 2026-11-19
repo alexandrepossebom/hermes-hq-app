@@ -127,6 +127,12 @@ import UserNotifications
         return result
     }
 
+    /// [viewing] An add-on without the route isn't asked again before this.
+    var viewingAbsentUntil = Date.distantPast
+    func sendViewing(_ call: Call, account: String, _ method: String, _ body: [String: Any]?) async -> Int {
+        await send(call, account: account, "/viewing/" + Self.deviceID, method, body).status
+    }
+
     static var deviceID: String { UIDevice.current.identifierForVendor?.uuidString ?? "unknown-device" }
     private var environment: String {
         #if DEBUG

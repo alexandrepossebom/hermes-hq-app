@@ -179,12 +179,16 @@ struct SessionsHeaderView: View {
     /// a Mac app"; he took the drawing with the menu). The row under the bar is the Bots | Projects switch, the view's
     /// "All Bots" / "All Projects" menu, and New and Working as counts at its end: nothing scrolls sideways or is cut at
     /// the pane's edge. It reverses his 2026-11-17 pick of the iPhone's pill row for the Mac ([mac-switch]).
+    ///
+    /// [mac-pane-narrow] A tester 2026-11-19: with the pane dragged narrow the switch ran off its leading edge, the menu
+    /// read "Al…" and "1 working" was cut at the trailing one. The row now takes the widest form that fits: all of it;
+    /// then the counts as numbers beside their marks; then the switch as its two glyphs. Only after that is the menu's
+    /// name cut, and at the pane's narrowest (320 pt) that last form still fits whole.
     private var macRow: some View {
-        HStack(spacing: 10) {
-            if model.showsSwitch { SessionsPillsSwitch(model: model).fixedSize() }
-            if model.hasPills { scopeMenu }
-            Spacer(minLength: 4)
-            ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip) }
+        ViewThatFits(in: .horizontal) {
+            macRowForm(words: true, counts: true)
+            macRowForm(words: true, counts: false)
+            macRowForm(words: false, counts: false)
         }
         .padding(.leading, ProjectCard.lead - 4)
         .padding(.trailing, ProjectCard.lead)
@@ -193,19 +197,30 @@ struct SessionsHeaderView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// One form of the Mac's row. `words`: the switch names its sides; `counts`: New and Working say their word.
+    private func macRowForm(words: Bool, counts: Bool) -> some View {
+        HStack(spacing: counts ? 10 : 6) {
+            if model.showsSwitch { SessionsPillsSwitch(model: model, words: words).fixedSize() }
+            if model.hasPills { scopeMenu }
+            Spacer(minLength: 4)
+            ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip, worded: counts) }
+        }
+    }
+
     /// New's or Working's count ("5 new"): a click narrows the list to those chats, another brings every chat back.
-    private func macStatus(_ chip: SessionStatusChip) -> some View {
+    /// In a narrow pane it is the mark and the number alone; the tip and VoiceOver still say which.
+    private func macStatus(_ chip: SessionStatusChip, worded: Bool = true) -> some View {
         let count = model.statusChips[chip] ?? 0
         let word = chip == .new ? "new" : "working"
         let picked = model.status == chip
         return Button { model.onPickStatus(picked ? nil : chip) } label: {
             HStack(spacing: 5) {
                 StatusChipMark(chip: chip, picked: false)
-                Text("\(count) \(word)").lineLimit(1)
+                Text(worded ? "\(count) \(word)" : "\(count)").lineLimit(1)
             }
             .font(Font.hq(.footnote).weight(picked ? .semibold : .regular))
             .foregroundStyle(picked ? Color.hqLabel : Color.hqLabel2)
-            .padding(.horizontal, 8).padding(.vertical, 4)
+            .padding(.horizontal, worded ? 8 : 5).padding(.vertical, 4)
             .background(picked ? Color.hqFill3 : Color.clear, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
         }
@@ -783,6 +798,8 @@ struct ChipPaging: ScrollTargetBehavior {
 /// [projects-switch] The Bots | Projects switch: the pill rail's first item (iPhone, iPad and, since 2026-11-17, the Mac).
 struct SessionsPillsSwitch: View {
     var model: SessionsHeaderModel
+    /// False in the Mac's pane dragged narrow: each side is its glyph alone (the tip and VoiceOver name it).
+    var words = true
     /// The side drawn is the tint while nothing is picked, a soft grey while a pill is.
     private var allPicked: Bool {
         model.pills == .projects ? model.pickedProjects.isEmpty && model.status == nil && !model.botPicked
@@ -851,11 +868,13 @@ struct SessionsPillsSwitch: View {
             } else {
                 Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
             }
-            Text(view == .bots ? "Bots" : "Projects")
-                .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
-                .lineLimit(1)
-                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                .fixedSize()
+            if words {
+                Text(view == .bots ? "Bots" : "Projects")
+                    .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
+                    .lineLimit(1)
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    .fixedSize()
+            }
         }
         .padding(.horizontal, 11)
         .frame(minWidth: half, minHeight: side, maxHeight: side)

@@ -505,6 +505,10 @@ final class LiveChatSession: ChatSessionModel {
     var refreshAgainForce = false
     var queueDrainTask: Task<Void, Never>?
     var changedPassTask: Task<Void, Never>?
+    /// [foreign-steer] A look for messages another device sent into the running reply (LiveChatSession+ForeignSteers.swift).
+    var steerLookTask: Task<Void, Never>?
+    var lastSteerLookAt: Date?
+    var steerLookOwed = false
     var turnEndTask: Task<Void, Never>?
     var foreignPromptTask: Task<Void, Never>?
     var reconnectTask: Task<Void, Never>?

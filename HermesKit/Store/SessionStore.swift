@@ -731,6 +731,21 @@ final class SessionStore {
         rebuild()
     }
 
+    /// [read-sync] The chat came on screen with fresh history, by whatever way in: a tapped alert, a bot's list of its
+    /// chats, search, the Mac's sidebar. Only a tap on its Sessions row marked it read (`markOpened`), so a chat opened
+    /// any other way kept the gateway's unread flag, or a Mark as Unread from another device, and showed its dot again
+    /// as soon as it was left. Nothing is written while the gateway already has the read, or a write is in the air.
+    func readOpened(id: String, profile: String) {
+        guard !stopped, let row = listedRow(id: id, profile: profile), row.profile == profile else { return }
+        device.unread.opened(row, clearServerLocally: row.unread == true && readOnlyGateway)
+        persistState()
+        let key = Self.writeKey(id: row.id, profile: row.profile)
+        let inAir = unreadWrites[key].map { $0.ackAt == nil } ?? false
+        let refused = readRefused[key].map { $0 >= row.recency } ?? false
+        if !inAir, !refused, sharesRead(row) { writeUnread(false, row: row) }
+        rebuild()
+    }
+
     /// `through` ([read-sync]): the activity a read covers (server seconds), when it is newer than the row's own.
     func writeUnread(_ unread: Bool, row: SidebarSessionRow, through: Double? = nil) {
         let ticket = beginUnreadWrite(unread, row: row, through: through)

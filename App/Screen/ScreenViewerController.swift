@@ -38,6 +38,10 @@ final class ScreenViewerController: UIViewController {
     private let panel = ScreenStatePanel()
     private let pill = BrowserPill()
     private let keyField = ScreenKeyField()
+    #if targetEnvironment(macCatalyst)
+    /// [mac] Whether the last render could send input: control just taken gives the bot's screen the keyboard.
+    private var couldSendInput = false
+    #endif
     private let debug = UILabel()
     private var fallback: LatestScreenshotsView?
     private var pillTimer: Timer?
@@ -339,6 +343,15 @@ final class ScreenViewerController: UIViewController {
         stage.control = session.canSendInput
         stage.dimmed = phase == .attaching && stage.hasPicture
         stage.isHidden = !(live || phase == .attaching)
+        #if targetEnvironment(macCatalyst)
+        // [mac] A tester 2026-11-19: "I cannot type anything while controlling a bot's screen." A Mac has no keyboard
+        // to raise, so nobody looks for the bar's keyboard button: taking control is what gives the bot's screen the
+        // keys, as in any remote desktop. The button still lets go of them (then = / - / 0 zoom and Escape closes).
+        if session.canSendInput != couldSendInput {
+            couldSendInput = session.canSendInput
+            if couldSendInput { typingWanted = true }
+        }
+        #endif
         if !session.canSendInput {
             if keyField.isFirstResponder { keyField.resignFirstResponder() }
         } else if typingWanted, appActive, !sheetUp, !keyField.isFirstResponder {

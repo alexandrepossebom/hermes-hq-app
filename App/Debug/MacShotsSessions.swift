@@ -54,6 +54,22 @@ extension MacShots {
                 await wait(1.5)
             }
         }
+        // [mac-pane-narrow] The pane dragged narrow (a tester 2026-11-19: the header ran off both edges): the header's
+        // shorter forms, at a middling width and at the pane's narrowest, on both sides of the switch.
+        let keys = [RootSplitController.listWidthKey, RootSplitController.narrowListWidthKey]
+        let kept = keys.map { UserDefaults.standard.object(forKey: $0) }
+        for (label, width) in [("3a-pane-380", 380.0), ("3b-pane-narrowest", 320.0)] {
+            for key in keys { UserDefaults.standard.set(width, forKey: key) }
+            tabs.split?.view.setNeedsLayout()
+            list.pickPills(.bots)
+            await wait(1.5)
+            snap("\(label)-bots")
+            list.pickPills(.projects)
+            await wait(1.5)
+            snap("\(label)-projects")
+        }
+        for (key, value) in zip(keys, kept) { UserDefaults.standard.set(value, forKey: key) }
+        list.pickPills(.bots)
         let url = folder.appending(path: "\(name)-sessions.txt")
         try? log.write(to: url, atomically: true, encoding: .utf8)
         post(url)
