@@ -269,6 +269,9 @@ nonisolated enum TileModels {
         } else {
             lines.append("Tiles run this model unless a tile has its own (hold the tile › Updates › Model). A model set on a job by hand or by its bot is kept.")
         }
+        if fallback != nil, chosen == nil {
+            lines.append("This fallback goes only with a picked model: a tile given its own model falls back to it. Tiles on their bot’s own model use that bot’s fallbacks.")
+        }
         if fallback != nil {
             lines.append("The fallback goes with a picked model. Until your gateway’s Hermes can carry a fallback for each job, a tile on a picked model won’t fall back: if its model fails, the update fails.")
         } else if chosen != nil {
