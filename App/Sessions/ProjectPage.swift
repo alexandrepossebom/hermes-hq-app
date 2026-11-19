@@ -3,7 +3,7 @@
 // and improving visual clarity … less visually stressful"): it is three short lines, not a block: the project's
 // name; one quiet line with its folder, the newest chat's branch and the bots that work in it; and
 // the three counts as small chips, always in the same places, a zero dimmed (Needs You, New, Working; a tap
-// scrolls to that section). No faces here:
+// filters the list). No faces here:
 // the rows under it carry them (Show › Bot Faces). The chats follow in the list's own rows, by section.
 // [project-header-card] Owner 2026-11-16 (a screenshot of a project's page, the header ringed): "This section up here
 // needs to have something behind it, like not that takes up any more room, but just kind of makes it feel like that's
@@ -159,124 +159,10 @@ struct ProjectPageHeader: View {
     private var chipFill: Color { Color(uiColor: carded ? ProjectCard.box : HQPalette.fill3) }
 
     var body: some View {
-        if DeviceWord.isMac { macBody } else { phoneBody }
-    }
-
-    /// [mac-pane] Owner 2026-11-18, of this header on the Mac: "I don't think it's sized properly. I don't think it's
-    /// designed right … doesn't feel like it belongs on a Mac application, like it does on my iPhone." The Mac draws
-    /// the same parts without the phone's card and capsules: the name, then one grey line with the folder, the bots,
-    /// how many chats, and each count that isn't zero as words that narrow the page with a click (a zero is left out;
-    /// a lit one stays, as the way back).
-    private var macBody: some View {
-        let meta = Self.meta(folder: folder, branch: branch, bots: bots)
-        let line = ([meta] + [total > 0 ? "\(total) \(total == 1 ? "chat" : "chats")" : ""]).filter { !$0.isEmpty }.joined(separator: " · ")
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Text(name)
-                    .font(Font.hq(.headline))
-                    .foregroundStyle(Color.hqLabel)
-                    .lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                // [mac-coding-project] Always: Coding Project is switched here, per device, also in a one-bot project.
-                moreButton(menu)
-                infoButton
-            }
-            .frame(height: HQFont.scaled(24))
-            HStack(spacing: 0) {
-                Text(line)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityIdentifier("sessions.projectPage.place")
-                macCount(needs, "needs you", spoken: "Needs You", id: "needs", ink: .hqOrange)
-                macCount(ready, "new", spoken: "New", id: "ready", ink: .hqTintText)
-                macCount(working, "working", spoken: "Working", id: "working", ink: .hqLabel2)
-                Spacer(minLength: 0)
-            }
-            .font(Font.hq(.footnote))
-            .foregroundStyle(Color.hqLabel2)
-            if coding { macPullRequests }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, lead)
-        .padding(.trailing, lead - 4)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
-    }
-
-    /// [mac-coding-project] Owner 2026-11-19: "all of this isn't in the Mac app yet". The Mac's line of pull request
-    /// counts, in the header's own manner: each mark with its number and word, a click narrows the page to it and
-    /// another click undoes it; a zero is dimmed and takes no click.
-    private var macPullRequests: some View {
-        // The pane can be dragged narrow: the words go first, then the states with no chat (a picked one stays).
-        ViewThatFits(in: .horizontal) {
-            macPullRequestRow(words: true, zeros: true)
-            macPullRequestRow(words: false, zeros: true)
-            macPullRequestRow(words: false, zeros: false)
-        }
-        .font(Font.hq(.footnote))
-        .foregroundStyle(Color.hqLabel2)
-        .padding(.top, 2)
-    }
-
-    private func macPullRequestRow(words: Bool, zeros: Bool) -> some View {
-        HStack(spacing: words ? 12 : 8) {
-            ForEach([SessionPRStatus.State.none, .draft, .open, .merged, .closed], id: \.self) { state in
-                let count = prCounts[state, default: 0]
-                let picked = selectedPR == state
-                if zeros || count > 0 || picked {
-                    let word = ["none": "no PR", "draft": "draft", "open": "open", "merged": "merged", "closed": "closed"][state.rawValue] ?? ""
-                    let status = state == .none ? "No PR yet" : "\(SessionPRStatus(state: state).label) PR"
-                    let label = "\(status), \(count) loaded \(count == 1 ? "chat" : "chats")"
-                    Button { onPRPick(state) } label: {
-                        HStack(spacing: 3) {
-                            Image(uiImage: SessionPRGlyph.image(state))
-                                .renderingMode(.template)
-                                .resizable().frame(width: 12, height: 12)
-                                .foregroundStyle(Color(uiColor: SessionPRGlyph.color(state)))
-                            Text(words ? "\(count) \(word)" : "\(count)")
-                                .fontWeight(picked ? .semibold : .regular)
-                                .underline(picked)
-                                .lineLimit(1)
-                                .fixedSize()
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(count == 0 && !picked)
-                    .opacity(count == 0 && !picked ? 0.45 : 1)
-                    .accessibilityLabel(label)
-                    .accessibilityAddTraits(picked ? .isSelected : [])
-                    .accessibilityIdentifier("sessions.projectPage.pr.\(state.rawValue)")
-                    .help(label)
-                }
-            }
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder private func macCount(_ count: Int, _ word: String, spoken: String, id: String, ink: Color) -> some View {
-        if count > 0 || isLit(id, count) {
-            Text(" · ")
-            Button { onJump(id) } label: {
-                Text("\(count) \(word)")
-                    .fontWeight(isLit(id, count) ? .semibold : .regular)
-                    .underline(isLit(id, count))
-                    .foregroundStyle(ink)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(spoken), \(count) \(count == 1 ? "chat" : "chats")")
-            .accessibilityAddTraits(isLit(id, count) ? .isSelected : [])
-            .accessibilityIdentifier("sessions.projectPage.\(id)")
-        }
-    }
-
-    private var phoneBody: some View {
-        let meta = Self.meta(folder: folder, branch: branch, bots: bots)
+        let place = Self.meta(folder: folder, branch: branch, bots: bots)
+        // Keep the Mac’s chat total in the subtitle; activity belongs in the chips below it.
+        let chatTotal = DeviceWord.isMac && total > 0 ? "\(total) \(total == 1 ? "chat" : "chats")" : ""
+        let meta = [place, chatTotal].filter { !$0.isEmpty }.joined(separator: " · ")
         return VStack(alignment: .leading, spacing: carded ? 5 : 6) {
             // [sessions-ux] Owner 2026-11-10 ("There should be one go-to"): no New Chat here. The bar's Compose, a thumb
             // away, starts the chat in this project (and says so: "New Chat in <project>"); the capsule beside the
@@ -305,6 +191,7 @@ struct ProjectPageHeader: View {
             // keep their marks and numbers and drop their words, which VoiceOver still says.
             ViewThatFits(in: .horizontal) {
                 counts(words: true)
+                if DeviceWord.isMac { counts(words: false, labelActive: true) }
                 counts(words: false)
             }
             .padding(.top, carded ? 1 : 2)
@@ -370,7 +257,8 @@ struct ProjectPageHeader: View {
     }
 
     private var pullRequestCounts: some View {
-        HStack(spacing: 12) {
+        // A narrow sidebar or larger counts can push the last mark onto a second line.
+        PagesFlowLayout(spacing: 12, lineSpacing: 0) {
             ForEach([SessionPRStatus.State.none, .draft, .open, .merged, .closed], id: \.self) { state in
                 let count = prCounts[state, default: 0]
                 let status = state == .none ? "No PR yet" : "\(SessionPRStatus(state: state).label) PR"
@@ -399,11 +287,14 @@ struct ProjectPageHeader: View {
         }
     }
 
-    private func counts(words: Bool) -> some View {
-        HStack(spacing: 6) {
-            chip(needs, "Needs You", id: "needs", words: words) { Circle().fill(Color.hqOrange).frame(width: 7, height: 7) }
-            chip(ready, "New", id: "ready", words: words) { Circle().fill(Color.hqTint).frame(width: 7, height: 7) }
-            chip(working, "Working", id: "working", words: words) {
+    private func counts(words: Bool, labelActive: Bool = false) -> some View {
+        func showLabel(_ id: String, _ count: Int) -> Bool {
+            words || (labelActive && (count > 0 || isLit(id, count)))
+        }
+        return HStack(spacing: 6) {
+            chip(needs, "Needs You", id: "needs", words: showLabel("needs", needs)) { Circle().fill(Color.hqOrange).frame(width: 7, height: 7) }
+            chip(ready, "New", id: "ready", words: showLabel("ready", ready)) { Circle().fill(Color.hqTint).frame(width: 7, height: 7) }
+            chip(working, "Working", id: "working", words: showLabel("working", working)) {
                 ZStack {
                     Circle().stroke(Color.hqLabel.opacity(0.25), lineWidth: 2)
                     Circle().trim(from: 0, to: 0.25).stroke(Color.hqLabel, style: StrokeStyle(lineWidth: 2, lineCap: .round))
@@ -443,6 +334,7 @@ struct ProjectPageHeader: View {
         .accessibilityLabel("\(word), \(count) \(count == 1 ? "chat" : "chats")")
         .accessibilityAddTraits(isLit(id, count) ? .isSelected : [])
         .accessibilityIdentifier("sessions.projectPage.\(id)")
+        .help("\(word), \(count) \(count == 1 ? "chat" : "chats")")
     }
 }
 
