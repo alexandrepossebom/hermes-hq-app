@@ -176,7 +176,8 @@ struct ProjectPageHeader: View {
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
                 infoButton
-                if let menu { moreButton(menu) }
+                // [mac-coding-project] Always: Coding Project is switched here, per device, also in a one-bot project.
+                moreButton(menu)
             }
             .frame(height: HQFont.scaled(24))
             HStack(spacing: 0) {
@@ -191,12 +192,65 @@ struct ProjectPageHeader: View {
             }
             .font(Font.hq(.footnote))
             .foregroundStyle(Color.hqLabel2)
+            if coding { macPullRequests }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, lead)
         .padding(.trailing, lead - 4)
         .padding(.top, 6)
         .padding(.bottom, 4)
+    }
+
+    /// [mac-coding-project] Owner 2026-11-19: "all of this isn't in the Mac app yet". The Mac's line of pull request
+    /// counts, in the header's own manner: each mark with its number and word, a click narrows the page to it and
+    /// another click undoes it; a zero is dimmed and takes no click.
+    private var macPullRequests: some View {
+        // The pane can be dragged narrow: the words go first, then the states with no chat (a picked one stays).
+        ViewThatFits(in: .horizontal) {
+            macPullRequestRow(words: true, zeros: true)
+            macPullRequestRow(words: false, zeros: true)
+            macPullRequestRow(words: false, zeros: false)
+        }
+        .font(Font.hq(.footnote))
+        .foregroundStyle(Color.hqLabel2)
+        .padding(.top, 2)
+    }
+
+    private func macPullRequestRow(words: Bool, zeros: Bool) -> some View {
+        HStack(spacing: words ? 12 : 8) {
+            ForEach([SessionPRStatus.State.none, .draft, .open, .merged, .closed], id: \.self) { state in
+                let count = prCounts[state, default: 0]
+                let picked = selectedPR == state
+                if zeros || count > 0 || picked {
+                    let word = ["none": "no PR", "draft": "draft", "open": "open", "merged": "merged", "closed": "closed"][state.rawValue] ?? ""
+                    let status = state == .none ? "No PR yet" : "\(SessionPRStatus(state: state).label) PR"
+                    let label = "\(status), \(count) loaded \(count == 1 ? "chat" : "chats")"
+                    Button { onPRPick(state) } label: {
+                        HStack(spacing: 3) {
+                            Image(uiImage: SessionPRGlyph.image(state))
+                                .renderingMode(.template)
+                                .resizable().frame(width: 12, height: 12)
+                                .foregroundStyle(Color(uiColor: SessionPRGlyph.color(state)))
+                            Text(words ? "\(count) \(word)" : "\(count)")
+                                .fontWeight(picked ? .semibold : .regular)
+                                .underline(picked)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0 && !picked)
+                    .opacity(count == 0 && !picked ? 0.45 : 1)
+                    .accessibilityLabel(label)
+                    .accessibilityAddTraits(picked ? .isSelected : [])
+                    .accessibilityIdentifier("sessions.projectPage.pr.\(state.rawValue)")
+                    .help(label)
+                }
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder private func macCount(_ count: Int, _ word: String, spoken: String, id: String, ink: Color) -> some View {

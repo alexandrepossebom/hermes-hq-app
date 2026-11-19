@@ -2253,6 +2253,11 @@ extension SessionsViewController {
     }
 
     #if DEBUG
+    /// The project's pull request counts as the header has them, for a tour's log.
+    func debugProjectPRWords(_ key: String) -> String {
+        projectPRCounts(key).map { "\($0.key.rawValue)=\($0.value)" }.sorted().joined(separator: " ")
+    }
+
     /// [mac-switch] Tours: the projects the list shows, by key, in its order.
     var debugProjectKeys: [String] {
         let pills = headerModel.projects.map(\.key).filter { $0 != SessionProjects.homeKey }

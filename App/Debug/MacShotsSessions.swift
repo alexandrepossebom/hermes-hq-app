@@ -3,6 +3,7 @@
 // a project's row on the Bots side opening its page, and the same in a narrow window (the list at its narrowest).
 
 #if DEBUG && targetEnvironment(macCatalyst)
+import SwiftUI
 import UIKit
 
 extension MacShots {
@@ -44,6 +45,31 @@ extension MacShots {
                 list.pickProject(key)
                 await wait(1.5)
                 snap("\(pass)c-project-page")
+                // [mac-coding-project] The same page as a Coding Project (the ⋯'s switch, set here as the menu sets
+                // it): the header's pull request counts and each row's mark; then the ⓘ's guide. Switched back off.
+                if let store = list.store {
+                    let was = store.isCodingProject(key)
+                    store.setCodingProject(key, true)
+                    list.reload(animated: false)
+                    await wait(6)
+                    snap("\(pass)c2-project-page-coding")
+                    log += "coding \(pass): \(list.debugProjectPRWords(key))\n"
+                    if pass == 1 {
+                        let guide = ChatSheet.wrap(UIHostingController(rootView: ProjectIconGuide(coding: true)), title: "Project Icons", detents: [.large()])
+                        list.present(guide, animated: false)
+                        await wait(2)
+                        // A Mac sheet is a window of its own.
+                        if let sheet = guide.viewIfLoaded?.window {
+                            shoot(sheet, to: folder.appending(path: "\(name)-1c3-icon-guide.png"))
+                            log += "1c3-icon-guide: window \(sheet.bounds.size), own window \(sheet !== window)\n"
+                        }
+                        guide.dismiss(animated: false)
+                        await wait(1)
+                    }
+                    store.setCodingProject(key, was)
+                    list.reload(animated: false)
+                    await wait(1)
+                }
             }
             list.pickPills(.bots)
             await wait(1.5)
