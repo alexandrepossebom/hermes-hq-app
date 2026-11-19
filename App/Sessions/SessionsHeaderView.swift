@@ -1027,7 +1027,14 @@ struct SessionsPillsSwitch: View {
                         // [switch-neutral] Owner 2026-11-18: "idk why the background to Projects is black?" With a
                         // pill lit, the view's side is a soft grey thumb (a segmented control's), not solid black.
                         .foregroundStyle(!here ? Color.hqLabel2 : allPicked ? Color.hqOnTint : Color.hqLabel)
-                        .background { if here { Capsule().fill(allPicked ? Color.hqTint : Color.hqLabel.opacity(0.12)) } }
+                        // [switch-thumb] Owner 2026-11-19 (Desktop Look on the iPhone: "the pill showing which is
+                        // selected doesn't look right"): the Desktop Look's track is a 4 pt-corner box, so the side shown
+                        // is a box of its corner inset by the track's 2 pt, not a capsule rounding past the track's own corners.
+                        .background {
+                            if here {
+                                thumbShape.fill(allPicked ? Color.hqTint : Color.hqLabel.opacity(0.12))
+                            }
+                        }
                 }
             }
             .padding(2)
@@ -1061,6 +1068,12 @@ struct SessionsPillsSwitch: View {
                 .fixedSize()
             }
         }
+    }
+
+    /// [switch-thumb] The side shown: concentric with the track (the Desktop Look's box, else the glass capsule).
+    private var thumbShape: AnyShape {
+        Theme.isDesktop ? AnyShape(RoundedRectangle(cornerRadius: max(2, DesktopRows.radius - 2), style: .continuous))
+            : AnyShape(Capsule())
     }
 
     /// One side of the switch: its glyph and its name. [switch-words] Owner 2026-11-17: "I want the bots/projects

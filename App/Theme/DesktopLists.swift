@@ -82,6 +82,12 @@ import UIKit
         guard Theme.isDesktop else { detach(); return }
         // First, so a row SwiftUI drew clear is known bare before the boxes are drawn (after, its first pass boxed it).
         if foreign { clearCards(in: list) }
+        #if !targetEnvironment(macCatalyst)
+        // [press-corners] The app's own lists too (More, Tasks, Jobs…): their rows clip to the outline's corners.
+        if !foreign {
+            for cell in list.visibleCells { DesktopCardCorners.fitLater(cell, bare: (cell as? UICollectionViewListCell)?.hqBareRow ?? false) }
+        }
+        #endif
         let visible = list.bounds.insetBy(dx: 0, dy: -400)
         let path = UIBezierPath()
         let layout = list.collectionViewLayout
@@ -99,6 +105,20 @@ import UIKit
         stroke.frame = CGRect(origin: .zero, size: list.contentSize)
         stroke.path = path.cgPath
         stroke.strokeColor = ChatPalette.strokeSecondary.resolvedColor(with: list.traitCollection).cgColor
+        #if DEBUG
+        // [press-corners] UI tests (`-HQDebugDesktopPress YES`): each boxed section's first and last row drawn pressed,
+        // so a screenshot shows the press box against the outline's corners.
+        if UserDefaults.standard.bool(forKey: "HQDebugDesktopPress") {
+            for section in 0..<list.numberOfSections where boxes(section) {
+                let count = list.numberOfItems(inSection: section)
+                for item in Set([0, max(0, count - 1)]) where count > 0 {
+                    guard let cell = list.cellForItem(at: IndexPath(item: item, section: section)) as? UICollectionViewListCell,
+                          !cell.hqBareRow, !cell.isHighlighted else { continue }
+                    cell.isHighlighted = true
+                }
+            }
+        }
+        #endif
     }
 
     /// A section whose rows all draw nothing behind them (a grid, a button standing alone, a page's title over its
@@ -126,8 +146,9 @@ import UIKit
             MacSelection.fitCardCornersLater(cell, bare: cell.hqBareRow)
             #else
             // 2026-10-30 (job page): a bare row keeps the list's 26 pt card ends as a clip, which cut the first glyph of
-            // a title on the first row and the outer corners of action tiles on the last. Bare rows aren't clipped.
-            if cell.hqBareRow { Self.unclipLater(cell) }
+            // a title on the first row and the outer corners of action tiles on the last. Bare rows aren't clipped;
+            // [press-corners] the others clip to the outline's 4 pt.
+            DesktopCardCorners.fitLater(cell, bare: cell.hqBareRow)
             #endif
             var background = cell.backgroundConfiguration ?? UIBackgroundConfiguration.listCell()
             let pressed = cell.isHighlighted || cell.isSelected
@@ -150,41 +171,53 @@ import UIKit
 }
 
 #if !targetEnvironment(macCatalyst)
-extension DesktopListOutliner {
-    /// As the Mac's `MacSelection.fitCardCornersLater` (Mac download 447): written after the list's layout pass, only
-    /// when it differs, and a cell the list keeps taking back is left with the list's corners.
-    fileprivate static func unclipLater(_ cell: UICollectionViewListCell) {
-        guard !cell.hqUnclipPending else { return }
-        cell.hqUnclipPending = true
+/// [press-corners] Owner 2026-11-19 (Desktop Look on the iPhone, More › Settings pressed: "get all of this fixed"): a
+/// grouped list's rows keep iOS's ~26 pt card ends as their clip, and that clip cut the look's 4 pt press box into a
+/// lopsided blob (round on one side, nicked on the other). Every row of an outlined list gets the outline's corners
+/// instead, as the Mac's `MacSelection.fitCardCornersLater` gives them: a corner iOS rounded becomes the outline's
+/// 4 pt; a bare row (no box) is not clipped at all; a corner iOS left square stays square, so plain lists are untouched.
+/// Written after the list's layout pass, only when it differs; a cell the list keeps taking back is left with the
+/// list's corners (Mac download 447).
+@MainActor enum DesktopCardCorners {
+    static func fitLater(_ cell: UIView, bare: Bool) {
+        guard !cell.hqCornerFitPending else { return }
+        cell.hqCornerFitPending = true
         DispatchQueue.main.async { [weak cell] in
             MainActor.assumeIsolated {
                 guard let cell else { return }
-                cell.hqUnclipPending = false
-                guard Theme.isDesktop, cell.window != nil, cell.hqBareRow else { return }
-                let corners: [UIRectCorner] = [.topLeft, .topRight, .bottomLeft, .bottomRight]
-                guard corners.contains(where: { cell.effectiveRadius(corner: $0) > 0.01 }) else { return }
-                let now = CACurrentMediaTime()
-                var budget = cell.hqUnclipBudget
-                if now - budget.since > 2 { budget = (now, 0) }
-                budget.count += 1
-                cell.hqUnclipBudget = budget
-                guard budget.count <= 8 else { return }
-                cell.cornerConfiguration = .corners(radius: .fixed(0))
+                cell.hqCornerFitPending = false
+                guard Theme.isDesktop, cell.window != nil else { return }
+                fit(cell, bare: bare)
             }
         }
     }
+
+    static func fit(_ cell: UIView, bare: Bool) {
+        let corners: [UIRectCorner] = [.topLeft, .topRight, .bottomLeft, .bottomRight]
+        let now = corners.map { cell.effectiveRadius(corner: $0) }
+        let want = now.map { bare ? 0 : $0 > 0.01 ? min($0, DesktopRows.radius) : 0 }
+        guard zip(now, want).contains(where: { abs($0 - $1) > 0.01 }) else { return }
+        let time = CACurrentMediaTime()
+        var budget = cell.hqCornerFitBudget
+        if time - budget.since > 2 { budget = (time, 0) }
+        budget.count += 1
+        cell.hqCornerFitBudget = budget
+        guard budget.count <= 8 else { return }
+        cell.cornerConfiguration = .corners(topLeftRadius: .fixed(want[0]), topRightRadius: .fixed(want[1]),
+                                            bottomLeftRadius: .fixed(want[2]), bottomRightRadius: .fixed(want[3]))
+    }
 }
 
-private let unclipPendingKey = malloc(1)!
-private let unclipBudgetKey = malloc(1)!
-extension UICollectionViewListCell {
-    fileprivate var hqUnclipPending: Bool {
-        get { (objc_getAssociatedObject(self, unclipPendingKey) as? Bool) ?? false }
-        set { objc_setAssociatedObject(self, unclipPendingKey, newValue, .OBJC_ASSOCIATION_RETAIN) }
+private let cornerFitPendingKey = malloc(1)!
+private let cornerFitBudgetKey = malloc(1)!
+extension UIView {
+    fileprivate var hqCornerFitPending: Bool {
+        get { (objc_getAssociatedObject(self, cornerFitPendingKey) as? Bool) ?? false }
+        set { objc_setAssociatedObject(self, cornerFitPendingKey, newValue, .OBJC_ASSOCIATION_RETAIN) }
     }
-    fileprivate var hqUnclipBudget: (since: CFTimeInterval, count: Int) {
-        get { (objc_getAssociatedObject(self, unclipBudgetKey) as? [Double]).map { ($0[0], Int($0[1])) } ?? (0, 0) }
-        set { objc_setAssociatedObject(self, unclipBudgetKey, [newValue.since, Double(newValue.count)], .OBJC_ASSOCIATION_RETAIN) }
+    fileprivate var hqCornerFitBudget: (since: CFTimeInterval, count: Int) {
+        get { (objc_getAssociatedObject(self, cornerFitBudgetKey) as? [Double]).map { ($0[0], Int($0[1])) } ?? (0, 0) }
+        set { objc_setAssociatedObject(self, cornerFitBudgetKey, [newValue.since, Double(newValue.count)], .OBJC_ASSOCIATION_RETAIN) }
     }
 }
 #endif
@@ -372,6 +405,9 @@ struct DesktopBareRowMarker: UIViewRepresentable {
             // A bare section's row keeps the clear background its page gave it (#9).
             if desktop, let path = table.indexPath(for: cell), bareSection(path.section) { continue }
             Self.bare(cell, desktop: desktop)
+            #if !targetEnvironment(macCatalyst)
+            if desktop { DesktopCardCorners.fitLater(cell, bare: false) }   // [press-corners]
+            #endif
         }
         guard desktop else {
             stroke.removeFromSuperlayer()
