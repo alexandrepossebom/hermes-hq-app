@@ -632,6 +632,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let span = MainTrail.begin("chat.load")           // [diagnostics] build 292
         defer { MainTrail.end(span) }
         ChatPerf.mark("chat.viewDidLoad")
+        claimLandsNext()   // [notify] the chat a tapped alert named
         applyChatColour()   // [bot-colour] before the first row is drawn
         watchChatColour()
         view.backgroundColor = ChatPalette.page
@@ -1565,6 +1566,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             if topAccessory == nil, let strip = make() { setTopAccessory(strip) }
         }
         ChatPerf.mark("chat.viewWillAppear")
+        claimLandsNext()   // [notify] a kept screen, shown again for a tapped alert
         applyChatColour()   // [bot-colour] the face may have changed while this chat was covered
         if attached { activity.setAttached(true) }     // [activity] uncovered by a pop: this chat's polls run again
         if isMovingToParent { fadeBottomBarWithTabBar(appearing: true) }
@@ -1681,6 +1683,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             // several screens, and the push is the moment the chat is judged.
             startFill()
             revealIfNeeded()
+            landOnReplyIfAsked()   // [notify]
         }
         voice.screenAppeared()   // VOICE
     }
@@ -2247,6 +2250,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let offset = tableView.contentOffset.y
         topInset = top
         tableView.contentInset = UIEdgeInsets(top: bottom, left: 0, bottom: top + glideHeadroom, right: 0)
+        defer { landOnReplyIfAsked() }   // [notify] the bar changed height (a task rolled up): the reply's top again
         // [tasks] The keys came for a field in the lead (it shows), or the page holds the lead's top.
         defer { if lead != nil { if leadPinEnded { revealLeadField(animated: false) } else { layoutLead() } } }
         // The jump glide reads the live end every frame; during an interactive keyboard dismissal the finger owns
@@ -2460,6 +2464,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         guard !awaitingReply, (session as? ChatVoiceTurns)?.voiceHold == true,
               let index = messages.lastIndex(where: { ids.contains($0.id) && $0.role == .user && $0.isPending }) else { return }
         awaitingReply = true
+        endLanding()   // [notify]
         awaitFromIndex = index
         lastSendTime = CACurrentMediaTime()
         if !isAtBottom { scrollToBottom(animated: true) }
@@ -2887,6 +2892,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                 arrived = d.inserts
             }
             growth = restore(anchor, carry: glideCarry)
+            landOnReplyIfAsked()   // [notify] a reply's alert: its top, as the rows come
         }
         AppLog.trace("chatui", "apply \(logTag): \(d.inserts.count) inserted, \(d.deletes.count) removed, \(d.changed.count) updated, "
                      + (reloadReason.map { "full reload (\($0)), not animated" } ?? "batch update, not animated"))
@@ -3362,6 +3368,67 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         return nil
     }
 
+    // MARK: [notify] Landing on the reply an alert was for
+
+    /// Owner 2026-11-19, a task's reply alert: "I could not read the chat. It wasn't showing me what I was needing to
+    /// see." Every chat opened at its newest end, so a reply taller than the screen showed its last lines. A chat
+    /// opened for a reply (an alert, the peek, a task's "New reply") lands with the newest reply's top 4 pt under the
+    /// bar when the reply is taller than the room, else at the end (spec 3x-transcript §4.1, "reply read from its
+    /// top"; spec 06 §5.3's hold, on arrival). It is applied again while the open's reads change the rows or the bar
+    /// changes height (the cache, the first page, the tail read, a task rolling up to its bar), until you scroll, send
+    /// or jump, or `landingSeconds` pass.
+    private var landingUntil: CFTimeInterval = 0
+    private static let landingSeconds: CFTimeInterval = 12
+    /// A tapped alert's chat, for whichever screen opens it next (Bots, Sessions, a task's page).
+    static var landsNext: (stored: String, at: CFTimeInterval)?
+
+    /// Opens on the newest reply's top (not the task's top, nor the reply's end).
+    func opensAtReply() {
+        leadPinEnded = true
+        landingUntil = CACurrentMediaTime() + Self.landingSeconds
+    }
+
+    /// Already on show: to the newest reply's top now, and again as the rows change.
+    func landOnNewestReply() {
+        opensAtReply()
+        landOnReplyIfAsked()
+    }
+
+    private func endLanding() { landingUntil = 0 }
+
+    /// The screen for the chat a tapped alert named takes the landing (`landsNext`).
+    private func claimLandsNext() {
+        guard let next = Self.landsNext else { return }
+        guard CACurrentMediaTime() - next.at < Self.landingSeconds else { Self.landsNext = nil; return }
+        guard let live = session as? LiveChatSession, live.storedSessionId == next.stored || live.resolvedStoredId == next.stored else { return }
+        Self.landsNext = nil
+        opensAtReply()
+    }
+
+    /// The first message of the bot's newest run (everything after your last message); nil while yours is the newest.
+    private func newestReplyStart() -> String? {
+        let messages = session.messages
+        guard let last = messages.indices.last, messages[last].role != .user else { return nil }
+        var start = last
+        while start > 0, messages[start - 1].role != .user { start -= 1 }
+        // No message of yours above it (a job's chat): the newest reply alone.
+        if start == 0, messages[0].role != .user { return messages.last(where: { $0.role == .assistant })?.id ?? messages[last].id }
+        return messages[start].id
+    }
+
+    private func landOnReplyIfAsked() {
+        guard landingUntil > 0 else { return }
+        guard CACurrentMediaTime() < landingUntil else { endLanding(); return }
+        guard isViewLoaded, !rows.isEmpty, glideLink == nil, lift == nil, !tableView.isTracking, !tableView.isDecelerating,
+              let id = newestReplyStart(), rows.contains(where: { $0.messageId == id }) else { return }
+        anchorMessageId = id
+        // A reply still streaming: the hold takes it from here, as for a reply you watch arrive.
+        if streamLink != nil { if following { holdReplyTopIfNeeded() }; return }
+        following = true
+        tableView.contentOffset.y = minOffset
+        holdReplyTopIfNeeded()
+    }
+
     /// While following a new reply: once its top would pass under the bar, stop following and keep the top in
     /// place, 4 pt below the bar (spec 06 §5.3).
     private func holdReplyTopIfNeeded(glideFrom start: CGFloat? = nil) {
@@ -3638,7 +3705,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             lastWarmOffset = y
         }
         if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
-            if scrollView.isTracking { leadPinEnded = true }   // [tasks] your scroll wins
+            if scrollView.isTracking { leadPinEnded = true; endLanding() }   // [tasks] your scroll wins
             let atBottom = isAtBottom
             if atBottom != following {
                 following = atBottom
@@ -3800,6 +3867,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     func jumpToLatest() {
         AppLog.trace("scroll", "jumped to bottom \(logTag): was \(unseen) unseen")
         leadPinEnded = true   // [tasks] the newest end wins
+        endLanding()
         topClimb = nil   // [status-bar-top]
         endLift()
         anchorMessageId = nil
@@ -4011,6 +4079,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// `engage: false` ([tasks] an answer tapped on the task's view): the words go out, and the task's view stays.
     func sendFromCard(_ text: String, display: String, engage: Bool = true) {
         leadPinEnded = true   // [tasks] a send: the newest end wins over the task's details
+        endLanding()
         if engage { onEngage?(.send) }
         anchorMessageId = nil
         awaitingReply = true
@@ -4032,6 +4101,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if SlashCommand.matches(text), !sendHasAttachments(), runCommand(text) { return }
         let text = takeReplyQuote(into: text)
         leadPinEnded = true   // [tasks] a send: the newest end wins over the task's details
+        endLanding()
         onEngage?(.send)
         anchorMessageId = nil
         awaitingReply = true
@@ -4147,6 +4217,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         voice.memoSending()
         // A memo recorded under "Replying to …" goes out under the quote too (after the memo, which opens the message).
         let text = takeReplyQuote(into: text)
+        endLanding()   // [notify]
         anchorMessageId = nil
         awaitingReply = true
         awaitFromIndex = session.messages.count
@@ -4933,7 +5004,24 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// [bot-chat-sessions] The Mac inspector's Chats tab for this chat (every chat of its bot's); nil for a chat with
     /// no bot of its own (a group room).
     var makeChatsPanel: (() -> BotChatsPanel?)?
+
+    /// [bot-chat-back] Owner 2026-11-19 ("When you click a chat from inside a bot chat I need for the chat that opens
+    /// to have a back button on the left side of the top bar to go back to the bot chat"): a chat opened from a bot's
+    /// own chat (a tab, the Chats list, New Chat) takes the bot chat's place in the pane, so the bar had no Back. This
+    /// is that Back: set by `SessionStrip.carryBack`, it leads the bar, and ⌘[ and Escape's last step run it too.
+    var backToBotChat: (() -> Void)? {
+        didSet {
+            let had = navigationItem.leftBarButtonItems?.filter { $0.accessibilityIdentifier != Self.backToBotChatID } ?? []
+            guard backToBotChat != nil else { navigationItem.leftBarButtonItems = had.isEmpty ? nil : had; return }
+            let item = UIBarButtonItem(image: Self.barImage("chevron.backward"), primaryAction: UIAction { [weak self] _ in self?.backToBotChat?() })
+            item.accessibilityIdentifier = Self.backToBotChatID
+            item.accessibilityLabel = "Back to Bot Chat"
+            item.title = "Back to Bot Chat"   // the Mac shows a bar button's title as its tip
+            navigationItem.leftBarButtonItems = [item] + had
+        }
+    }
     #endif
+    static let backToBotChatID = "chat.back-to-bot"
 
     /// [tasks] The pinned panel's height (the page measures what it draws and caps it); 0 lays it away. `insets`: the
     /// transcript starts under it (a bar); false, it covers the transcript and the chat's layout stays as it is.

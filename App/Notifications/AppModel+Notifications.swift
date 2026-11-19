@@ -449,8 +449,14 @@ extension AppModel {
         for top in [root.chatOnShow, Self.sheetChat(root)].compactMap({ $0 }) {   // [m9/ipad] either layout
             guard let live = top.session as? LiveChatSession, live.storedSessionId == stored || live.resolvedStoredId == stored else { continue }
             live.probeTailSoon(after: .milliseconds(1500), force: true)
+            // [notify] Owner 2026-11-19: the alert came for a reply, so it shows: a task's page on its task's view gives
+            // the chat the screen (it stayed covered, the reply out of sight), and the chat goes to the reply's top.
+            TodoSheet.model(of: top)?.tuck(.alert)
+            top.landOnNewestReply()
             return
         }
+        // [notify] Whichever screen opens this chat next lands on the reply's top (Bots, Sessions, a task's page).
+        ChatViewController.landsNext = (stored, CACurrentMediaTime())
         // [tasks] A task's own chat opens on its task, the task above it (it is hidden, so Sessions has no row for it,
         // and a bot without its own chat yet would have taken it).
         let task = TasksHub.task(forChat: stored)
