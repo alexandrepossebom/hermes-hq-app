@@ -293,10 +293,12 @@ final class AppModel: AppServices {
         liveStatus?.setListVisible(visible)
     }
 
-    /// The Sessions rows' Working…: turns this app heard, chats holding a live child (§8.4), and what the gateway says.
+    /// The Sessions rows' Working…: turns this app heard, chats holding a live child (§8.4), and what the gateway says
+    /// (its turns, and [roster-working] chats whose background command or helper still runs after the turn ended).
     private func pushRunning() {
         sessionStore?.setRunning(runningSessions.union(activityStore?.liveWorkStoredIds ?? [])
-            .union(workingLedger?.storedIds ?? []).union(liveStatus?.working ?? []))
+            .union(workingLedger?.storedIds ?? []).union(workingLedger?.backgroundIds ?? [])   // [roster-working]
+            .union(liveStatus?.working ?? []))
     }
 
     /// [live-status] The gateway's word changed: the Sessions rows and the bots follow.
@@ -540,6 +542,7 @@ final class AppModel: AppServices {
         activityStore = activity
         let ledger = WorkingLedgerWatch(client: client)       // [working-ledger]
         ledger.onChange = { [weak self] in self?.pushRunning() }
+        ledger.profiles = { [weak self] in self?.bots.map(\.id) ?? [] }   // [roster-working]
         workingLedger = ledger
         let live = LiveStatusWatch(client: client)            // [live-status]
         live.onChange = { [weak self] in self?.liveStatusChanged() }
