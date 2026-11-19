@@ -65,6 +65,17 @@ extension MacShots {
                         }
                         guide.dismiss(animated: false)
                         await wait(1)
+                        // [pr-manage] The ⋯'s Repository… sheet (a window of its own on the Mac), as the menu opens it.
+                        let repository = ChatSheet.wrap(UIHostingController(rootView: ProjectRepositoryPage(project: key, store: store)),
+                                                        title: "Repository", detents: [.large()])
+                        list.present(repository, animated: false)
+                        await wait(2.5)
+                        if let sheet = repository.viewIfLoaded?.window {
+                            shoot(sheet, to: folder.appending(path: "\(name)-1c4-repository.png"))
+                            log += "1c4-repository: window \(sheet.bounds.size), own window \(sheet !== window), marks and links \(store.prManage)\n"
+                        }
+                        repository.dismiss(animated: false)
+                        await wait(1)
                     }
                     store.setCodingProject(key, was)
                     list.reload(animated: false)
