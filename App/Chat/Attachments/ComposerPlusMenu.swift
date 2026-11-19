@@ -97,7 +97,7 @@ import UniformTypeIdentifiers
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
             sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = true
+            sheet.prefersGrabberVisible = false   // [popup-consistency] none, as Commands and every ChatSheet
             // No corner radius of its own (owner 2026-11-18: "the bottom isn't curved properly to work with the edges of
             // the iPhone"): a fixed 36 pt went on all four corners, tighter than the screen's, so the floating sheet's
             // bottom corners cut across the phone's. The system's own shape follows the screen's corners.
@@ -109,22 +109,15 @@ import UniformTypeIdentifiers
     /// [popup-consistency] Owner 2026-11-19: "The + has a solid background and the others are transparent." A hosting
     /// controller's view is the system background (white, or black in Dark) unless told otherwise, so this sheet stood
     /// opaque over its own glass. The sheets' page colour (`sheetPage`, as Commands, Models and New Job have): clear on
-    /// the glass, the look's grouped page where there is none (the Desktop Look). In Dark on the glass, the page colour
-    /// at the bar's strength over the system's plain glass, as the model sheet has it (`ModelCardSheet.veil`): the
-    /// glass tinted with that colour (`hqGlassOverChat`) drew nothing once the opaque page was gone, and the chat's
-    /// words showed through sharp.
-    static let page = UIColor { traits in
-        guard traits[GlassSheetTrait.self], traits.userInterfaceStyle == .dark else { return HQPalette.sheetPage.resolvedColor(with: traits) }
-        return ChatPalette.page.resolvedColor(with: traits).withAlphaComponent(ChatBarGlass.alpha)
-    }
-
+    /// the glass, the look's grouped page where there is none (the Desktop Look). Then, of + / the model sheet / Commands
+    /// in Dark: every pop-up is "lighter grey glass, like Commands", so there is no page-colour wash in Dark either.
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = Self.page
+        view.backgroundColor = HQPalette.sheetPage
     }
 
-    /// [sheet-over-picture] On the app's glass (the sheet's own traits are known by now; a Light/Dark switch with it
-    /// open applies it again). Dark's page colour is the view's own (`page`), as on the model sheet.
+    /// On the app's plain glass, as Commands (the sheet's own traits are known by now; a Light/Dark switch with it open
+    /// applies it again).
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         guard let sheet = sheetPresentationController else { return }
@@ -170,12 +163,11 @@ import UniformTypeIdentifiers
         let bridge: Bridge
         let onPhoto: (NSItemProvider) -> Void
         @State private var submenu: UIMenu?
-        @Environment(\.colorScheme) private var scheme
 
-        /// The tiles' and the card's fill. In Dark the sheet's glass is tinted with the page colour
-        /// ([sheet-over-picture]), about the grouped card's own, so a card of that colour had no shape: there they are
-        /// a lift of white over the glass instead.
-        private var cardFill: Color { scheme == .dark ? Color.white.opacity(0.09) : Color.hqGroupedCard }
+        /// The tiles' and the card's fill and thin edge: the sheets' frosted card (`HQPalette.sheetCard`, `glassEdge`), as
+        /// Commands' rows ([popup-consistency] owner 2026-11-19: every pop-up the lighter grey glass of Commands).
+        private var cardFill: Color { Color(uiColor: HQPalette.sheetCard) }
+        static let cardEdge = Color(uiColor: HQPalette.glassEdge)
 
         static let photosID = "composer.plus.photos"
 
@@ -312,6 +304,8 @@ import UniformTypeIdentifiers
             }
             .background(cardFill, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Self.cardEdge, lineWidth: HQShape.hairline))
         }
 
         @ViewBuilder private func rowButton(_ element: UIMenuElement) -> some View {
@@ -364,6 +358,8 @@ import UniformTypeIdentifiers
                     .opacity(enabled ? 1 : 0.4)
                     .background(configuration.isPressed ? Color.hqFill3 : fill,
                                 in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Content.cardEdge, lineWidth: HQShape.hairline))
             }
         }
 

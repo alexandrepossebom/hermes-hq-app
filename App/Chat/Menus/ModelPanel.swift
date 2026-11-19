@@ -2243,6 +2243,7 @@ final class FactColumn: UIControl {
             backgroundColor = tile ? ModelCardSheet.cardFill : .clear
             layer.cornerRadius = tile ? ModelCardSheet.tileRadius : 0
             layer.cornerCurve = .continuous
+            if tile { hqGlassEdge() }   // [popup-consistency] the cards' thin edge, as Commands' rows
             relabel()
         }
     }
@@ -2581,15 +2582,13 @@ final class PanelGroup: UIView {
 
     private func recolor() { lines.forEach { $0.backgroundColor = ChatPalette.label.withAlphaComponent(0.12) } }
 
-    /// [model-sheet] On the sheet: the Add context sheet's card of rows (its fill, its corners, no edge).
+    /// [model-sheet] On the sheet: the sheets' card of rows (their fill, corners and, [popup-consistency], the thin edge
+    /// Commands' rows have while the sheet is on glass).
     func onSheet() {
-        sheet = true
         backgroundColor = ModelCardSheet.cardFill
         layer.cornerRadius = ModelCardSheet.cardRadius
-        layer.borderWidth = 0
-        registerForTraitChanges([GlassSheetTrait.self, UITraitUserInterfaceStyle.self]) { (group: PanelGroup, _) in group.layer.borderWidth = 0 }
+        hqGlassEdge()
     }
-    private var sheet = false
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         CGSize(width: size.width, height: rows.reduce(0) { $0 + $1.sizeThatFits(size).height })
@@ -2598,7 +2597,6 @@ final class PanelGroup: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         var y: CGFloat = 0
-        if sheet { layer.borderWidth = 0 }
         let hair = HQShape.pixel(traitCollection.displayScale)
         for (i, row) in rows.enumerated() {
             let h = row.sizeThatFits(bounds.size).height

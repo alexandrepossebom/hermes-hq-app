@@ -19,12 +19,14 @@ extension MenusTests {
         var title: CGRect?
         /// The ✕'s ink in the screenshot (its drawn glyph, whatever the control's accessibility frame says).
         var ink: CGRect
+        /// The sheet's own surface beside the ✕ (median luminance 0…1, between the ✕ and the title).
+        var surface: Double = 0
         var line: String {
             func r(_ v: CGFloat) -> String { String(format: "%.1f", v) }
             let head = title.map { "title midY \(r($0.midY)) minX \(r($0.minX))" } ?? "title -"
             return "\(name): label \"\(label)\" id \(identifier) frame x \(r(frame.minX)) y \(r(frame.minY)) w \(r(frame.width)) "
                 + "h \(r(frame.height)) sheet-top \(r(sheetTop)) ink w \(r(ink.width)) h \(r(ink.height)) "
-                + "center x \(r(ink.midX)) below-top \(r(ink.midY - sheetTop)) \(head)"
+                + "center x \(r(ink.midX)) below-top \(r(ink.midY - sheetTop)) surface \(String(format: "%.3f", surface)) \(head)"
         }
     }
 
@@ -77,6 +79,37 @@ extension MenusTests {
 
         writeMetrics(closes)
         assertAlike(closes)
+        assertSameGlass(closes)
+    }
+
+    /// Owner 2026-11-19, of + / the model sheet / Commands in Dark: "Lighter grey glass, like Commands". The + and
+    /// model sheets stand on the same surface as Commands (no page-colour wash of their own), in Light and Dark.
+    @MainActor func assertSameGlass(_ closes: [PopupClose]) {
+        guard let commands = closes.first(where: { $0.name == "commands" }) else { return XCTFail("Commands was not measured") }
+        for close in closes where ["plus", "model"].contains(close.name) {
+            XCTAssertEqual(close.surface, commands.surface, accuracy: 0.04,
+                           "\(close.name): the sheet's glass is Commands' (\(close.surface) vs \(commands.surface))")
+        }
+    }
+
+    /// The median luminance (0…1) of the sheet beside the ✕: a strip right of it, left of every title.
+    @MainActor func surface(_ app: XCUIApplication, beside frame: CGRect) -> Double {
+        let shot = app.screenshot().image
+        guard let cg = shot.cgImage else { return -1 }
+        let scale = shot.scale
+        let box = CGRect(x: (frame.maxX + 8) * scale, y: (frame.midY - 5) * scale, width: 20 * scale, height: 10 * scale).integral
+        guard let crop = cg.cropping(to: box) else { return -1 }
+        let w = crop.width, h = crop.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let context = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var all: [Double] = []
+        for i in stride(from: 0, to: w * h * 4, by: 4) {
+            all.append((0.299 * Double(bytes[i]) + 0.587 * Double(bytes[i + 1]) + 0.114 * Double(bytes[i + 2])) / 255)
+        }
+        all.sort()
+        return all[all.count / 2]
     }
 
     /// The pop-ups' ✕ are one control: a glyph named Close (not the word Cancel), drawn as Chat Info's system ✕ is (the
@@ -147,7 +180,7 @@ extension MenusTests {
         let frame = close.frame
         return PopupClose(name: name, label: close.label, identifier: close.identifier, frame: frame,
                           sheetTop: sheetTop(app, above: frame), title: title?.exists == true ? title?.frame : nil,
-                          ink: ink(app, around: frame))
+                          ink: ink(app, around: frame), surface: surface(app, beside: frame))
     }
 
     /// Where the sheet's surface starts: walking down a column right of the ✕ (left of every title) from under the
