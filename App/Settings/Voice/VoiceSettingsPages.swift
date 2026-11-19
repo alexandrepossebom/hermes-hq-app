@@ -172,11 +172,8 @@ struct VoiceConversationPage: View {
         })
     }
 
-    /// Automatic says which language it means now ("Automatic (English)"), so a wrong guess shows before it is heard.
     private func wordsLanguageName(_ tag: String) -> String {
-        guard tag.isEmpty else { return wordsLanguages.first { $0.id == tag }?.name ?? Locale.current.localizedString(forIdentifier: tag) ?? tag }
-        let now = LiveWordsEngine.automaticName(preferred: Locale.preferredLanguages, keyboards: LiveWords.keyboardLanguages, current: .current)
-        return VoiceSettingsCatalog.wordsLanguageAutomatic(now)
+        tag.isEmpty ? VoiceSettingsCatalog.wordsLanguageAutomatic : wordsLanguages.first { $0.id == tag }?.name ?? tag
     }
 
     /// Automatic, the person's languages, and a language picked earlier that is no longer among them.
@@ -259,9 +256,7 @@ struct VoiceConversationPage: View {
                     }
                 }
                 // The language and the larger model are this device's: no rows while Hermes writes the words.
-                // [language list] Always there, with every language the device's speech models offer (loaded below): a
-                // person who speaks a language their phone isn't set to had no row at all (a tester 2026-11-18).
-                if liveWords, wordsFrom == .device {
+                if liveWords, wordsFrom == .device, wordsLanguages.count > 1 || !wordsLanguage.isEmpty {
                     if DeviceWord.isMac {
                         MacFormRow(label: VoiceSettingsCatalog.wordsLanguageTitle) {
                             MacPopUp(label: VoiceSettingsCatalog.wordsLanguageTitle, selection: wordsLanguageBinding, options: wordsLanguageTags) {
@@ -301,11 +296,6 @@ struct VoiceConversationPage: View {
                     .compactMap { $0 }.joined(separator: " "))
                     .accessibilityIdentifier("voice.settings.live-words-note")
             } }
-            .task {
-                let offered = await LiveWordsEngine.offeredLocales()
-                let mine = LiveWordsEngine.choices(preferred: Locale.preferredLanguages, keyboards: LiveWords.keyboardLanguages)
-                wordsLanguages = LiveWordsEngine.allChoices(mine: mine, offered: offered)
-            }
             .onReceive(NotificationCenter.default.publisher(for: LiveWords.readinessChanged)) { _ in
                 liveWordsReadiness = LiveWords.readiness
                 betterWordsReadiness = ParakeetWords.readiness

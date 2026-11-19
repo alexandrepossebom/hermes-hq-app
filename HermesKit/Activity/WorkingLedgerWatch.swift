@@ -25,15 +25,6 @@ import Foundation
 
     /// Stored ids the gateway runs a turn in, as last read.
     private(set) var storedIds: Set<String> = []
-    /// [roster-working] The bots whose chats `subagent.roster` is asked about ("" or "default" = the default bot).
-    var profiles: () -> [String] = { [] }
-    /// [roster-working] Stored ids of chats holding a running background command or helper, by `subagent.roster`
-    /// (Hermes core, the call Hermes Desktop's sidebar reads). A turn that ended leaves its background build running:
-    /// the chat's own capsule said so, its row didn't (owner 2026-11-19, "it was working, but in my session list it
-    /// did not say that it was working"). Not cut by `turnEnded`: the turn's end doesn't end its background work.
-    private(set) var backgroundIds: Set<String> = []
-    private var backgroundBy: [String: Set<String>] = [:]
-    private var rosterMissingSince: Date?
     private var wanted = false
     private var loop: Task<Void, Never>?
     private var missingSince: [String: Date] = [:]
@@ -73,50 +64,7 @@ import Foundation
         wanted = false
         loop?.cancel()
         loop = nil
-        backgroundBy = [:]
-        if !storedIds.isEmpty || !backgroundIds.isEmpty { storedIds = []; backgroundIds = []; onChange?() }
-    }
-
-    /// [roster-working] One `subagent.roster` read per bot: the chats holding a running background command or helper.
-    /// A failed read keeps that bot's last word; a gateway without the call (-32601) is asked again after a while.
-    private func readRoster() async {
-        if let since = rosterMissingSince, now().timeIntervalSince(since) < missingRecheck { return }
-        let names = Array(Set(profiles().map { $0.isEmpty ? "default" : $0 })).sorted()
-        guard !names.isEmpty else { return }
-        var next = backgroundBy.filter { names.contains($0.key) }
-        for name in names {
-            let params: JSONValue = name == "default" ? .object([:]) : .object(["profile": .string(name)])
-            do {
-                let answer = try await client.call("subagent.roster", params, timeout: .seconds(10))
-                rosterMissingSince = nil
-                next[name] = Self.rosterIds(answer)
-            } catch let error as RPCError where error.code == -32601 {
-                AppLog.trace("sessions", "working ledger: this gateway has no subagent.roster, asked again later")
-                rosterMissingSince = now()
-                next = [:]
-                break
-            } catch {
-                continue
-            }
-            guard !Task.isCancelled else { return }
-        }
-        backgroundBy = next
-        let ids = next.values.reduce(into: Set<String>()) { $0.formUnion($1) }
-        guard ids != backgroundIds else { return }
-        AppLog.trace("sessions", "working ledger: \(ids.count) chat(s) with background work")
-        backgroundIds = ids
-        onChange?()
-    }
-
-    /// `{"sessions": [{"session_id", "subagents", "background"}]}` → the stored ids with either still running.
-    nonisolated static func rosterIds(_ json: JSONValue) -> Set<String> {
-        var out = Set<String>()
-        for row in json["sessions"]?.array ?? [] {
-            guard let id = row["session_id"]?.string, !id.isEmpty else { continue }
-            let count = { (key: String) -> Double in if case .number(let n)? = row[key] { return n } else { return 0 } }
-            if count("background") > 0 || count("subagents") > 0 { out.insert(id) }
-        }
-        return out
+        if !storedIds.isEmpty { storedIds = []; onChange?() }
     }
 
     /// One read of both routes. Nil from a route means it wasn't read (missing, or failed): what it said last stays.
@@ -124,8 +72,7 @@ import Foundation
         let started = now()
         async let ledger = read(Self.ledgerPath)
         async let serve = read(Self.servePath)
-        async let roster: Void = readRoster()
-        let (fromLedger, fromServe, _) = await (ledger, serve, roster)
+        let (fromLedger, fromServe) = await (ledger, serve)
         guard !Task.isCancelled else { return }
         if fromLedger == nil && fromServe == nil { return }
         var next = (fromLedger ?? lastBy[Self.ledgerPath] ?? []).union(fromServe ?? lastBy[Self.servePath] ?? [])

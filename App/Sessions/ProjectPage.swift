@@ -3,7 +3,7 @@
 // and improving visual clarity … less visually stressful"): it is three short lines, not a block: the project's
 // name; one quiet line with its folder, the newest chat's branch and the bots that work in it; and
 // the three counts as small chips, always in the same places, a zero dimmed (Needs You, New, Working; a tap
-// filters the list). No faces here:
+// scrolls to that section). No faces here:
 // the rows under it carry them (Show › Bot Faces). The chats follow in the list's own rows, by section.
 // [project-header-card] Owner 2026-11-16 (a screenshot of a project's page, the header ringed): "This section up here
 // needs to have something behind it, like not that takes up any more room, but just kind of makes it feel like that's
@@ -35,17 +35,8 @@ struct ProjectPageHeader: View {
     /// [project-header-card] The section stands on a soft card already (Soft Cards, the page's picture showing): no card
     /// of its own.
     var onSoftCard = false
-    /// [project-default-bot] Optional bot actions in the header's ⋯; coding settings are always available.
+    /// [project-default-bot] The header's ⋯: New Chat With… and Default Bot. Nil (one bot): no ⋯.
     var menu: BotMenu? = nil
-    var coding = false
-    var prCounts: [SessionPRStatus.State: Int] = [:]
-    var selectedPR: SessionPRStatus.State? = nil
-    var onPRPick: (SessionPRStatus.State) -> Void = { _ in }
-    var onCodingChange: (Bool) -> Void = { _ in }
-    var onInfo: () -> Void = {}
-    /// [pr-manage] The ⋯'s Repository… (the project's repository on the computer running Hermes); nil on a gateway
-    /// that takes no links, and it shows only while Coding Project is on.
-    var onRepository: (() -> Void)? = nil
 
     /// [project-default-bot] Owner 2026-11-17: "a project should be able to have a default bot". The bar's Compose
     /// starts the chat with it at once; this menu says which bot that is, changes it, and starts a chat with another.
@@ -72,20 +63,6 @@ struct ProjectPageHeader: View {
     static func meta(folder: String, branch: String?, bots: [String]) -> String {
         let who = bots.count > 3 ? bots.prefix(2).joined(separator: ", ") + " and \(bots.count - 2) more" : bots.joined(separator: ", ")
         return [shortFolder(folder), branch ?? "", who].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    /// Count verified answers once per project chat, including archived chats.
-    static func pullRequestCounts(_ rows: [SessionSummary], project: String,
-                                  projects: [String: [SessionProject]]) -> [SessionPRStatus.State: Int] {
-        var seen = Set<String>()
-        var counts: [SessionPRStatus.State: Int] = [:]
-        for row in rows {
-            guard SessionProjects.key(cwd: row.cwd, profile: row.profile, projectsByProfile: projects) == project,
-                  let state = row.pullRequest?.state, state != .unknown,
-                  seen.insert(SessionListPipeline.key(row)).inserted else { continue }
-            counts[state, default: 0] += 1
-        }
-        return counts
     }
 
     private var lead: CGFloat { Theme.isDesktop ? DesktopRows.gutter : 20 }
@@ -159,10 +136,69 @@ struct ProjectPageHeader: View {
     private var chipFill: Color { Color(uiColor: carded ? ProjectCard.box : HQPalette.fill3) }
 
     var body: some View {
-        let place = Self.meta(folder: folder, branch: branch, bots: bots)
-        // Keep the Mac’s chat total in the subtitle; activity belongs in the chips below it.
-        let chatTotal = DeviceWord.isMac && total > 0 ? "\(total) \(total == 1 ? "chat" : "chats")" : ""
-        let meta = [place, chatTotal].filter { !$0.isEmpty }.joined(separator: " · ")
+        if DeviceWord.isMac { macBody } else { phoneBody }
+    }
+
+    /// [mac-pane] Owner 2026-11-18, of this header on the Mac: "I don't think it's sized properly. I don't think it's
+    /// designed right … doesn't feel like it belongs on a Mac application, like it does on my iPhone." The Mac draws
+    /// the same parts without the phone's card and capsules: the name, then one grey line with the folder, the bots,
+    /// how many chats, and each count that isn't zero as words that narrow the page with a click (a zero is left out;
+    /// a lit one stays, as the way back).
+    private var macBody: some View {
+        let meta = Self.meta(folder: folder, branch: branch, bots: bots)
+        let line = ([meta] + [total > 0 ? "\(total) \(total == 1 ? "chat" : "chats")" : ""]).filter { !$0.isEmpty }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(name)
+                    .font(Font.hq(.headline))
+                    .foregroundStyle(Color.hqLabel)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                if let menu { moreButton(menu) }
+            }
+            .frame(height: HQFont.scaled(24))
+            HStack(spacing: 0) {
+                Text(line)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("sessions.projectPage.place")
+                macCount(needs, "needs you", spoken: "Needs You", id: "needs", ink: .hqOrange)
+                macCount(ready, "new", spoken: "New", id: "ready", ink: .hqTintText)
+                macCount(working, "working", spoken: "Working", id: "working", ink: .hqLabel2)
+                Spacer(minLength: 0)
+            }
+            .font(Font.hq(.footnote))
+            .foregroundStyle(Color.hqLabel2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, lead)
+        .padding(.trailing, lead - 4)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+    }
+
+    @ViewBuilder private func macCount(_ count: Int, _ word: String, spoken: String, id: String, ink: Color) -> some View {
+        if count > 0 || isLit(id, count) {
+            Text(" · ")
+            Button { onJump(id) } label: {
+                Text("\(count) \(word)")
+                    .fontWeight(isLit(id, count) ? .semibold : .regular)
+                    .underline(isLit(id, count))
+                    .foregroundStyle(ink)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(spoken), \(count) \(count == 1 ? "chat" : "chats")")
+            .accessibilityAddTraits(isLit(id, count) ? .isSelected : [])
+            .accessibilityIdentifier("sessions.projectPage.\(id)")
+        }
+    }
+
+    private var phoneBody: some View {
+        let meta = Self.meta(folder: folder, branch: branch, bots: bots)
         return VStack(alignment: .leading, spacing: carded ? 5 : 6) {
             // [sessions-ux] Owner 2026-11-10 ("There should be one go-to"): no New Chat here. The bar's Compose, a thumb
             // away, starts the chat in this project (and says so: "New Chat in <project>"); the capsule beside the
@@ -174,8 +210,7 @@ struct ProjectPageHeader: View {
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                moreButton(menu)
-                infoButton
+                if let menu { moreButton(menu) }
             }
             .frame(height: HQFont.scaled(carded ? 26 : 30))
             if !meta.isEmpty {
@@ -191,13 +226,9 @@ struct ProjectPageHeader: View {
             // keep their marks and numbers and drop their words, which VoiceOver still says.
             ViewThatFits(in: .horizontal) {
                 counts(words: true)
-                if DeviceWord.isMac { counts(words: false, labelActive: true) }
                 counts(words: false)
             }
             .padding(.top, carded ? 1 : 2)
-            if coding {
-                pullRequestCounts
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // [project-header-card] On the card the words keep their column and the header its height (measured: the first
@@ -212,99 +243,29 @@ struct ProjectPageHeader: View {
         .padding(.bottom, carded ? 0 : 6)
     }
 
-    /// Owner 2026-11-19: "The information icon needs to be on the right side and the three dots to the left." The ⓘ is
-    /// the header's last control: its glyph stands on the card's inner edge (as the ⋯'s did), its touch 44 pt across.
-    private var infoButton: some View {
-        Button(action: onInfo) {
-            Image(systemName: "info.circle")
-                .font(Font.hq(.body)).foregroundStyle(Color.hqLabel2)
-                .frame(width: DeviceWord.isMac ? 28 : 44, height: DeviceWord.isMac ? 24 : 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Project icon guide")
-        .accessibilityIdentifier("sessions.projectPage.info")
-        .help("Project icon guide")
-        .padding(.trailing, DeviceWord.isMac ? -6 : -12)
-    }
-
-    /// [project-default-bot] The ⋯ beside the name's end, left of the ⓘ; its touch 44 pt across.
-    private func moreButton(_ menu: BotMenu?) -> some View {
+    /// [project-default-bot] The ⋯ at the name's end: its glyph stands on the card's inner edge, its touch 44 pt across.
+    private func moreButton(_ menu: BotMenu) -> some View {
         HeaderMoreButton(label: "Actions for \(name)", identifier: "sessions.projectPage.more", glyph: Theme.isDesktop ? 14 : 17,
                          cap: 22, height: HQFont.scaled(carded ? 26 : 30), above: 8) {
-            Toggle(isOn: Binding(get: { coding }, set: onCodingChange)) {
-                Label("Coding Project", systemImage: "chevron.left.forwardslash.chevron.right")
+            Button(action: menu.onNewChatWith) { Label("New Chat With…", systemImage: "square.and.pencil") }
+            Picker(selection: Binding(get: { menu.usual ?? ProjectDefaultBot.ask }, set: { menu.onPick($0) })) {
+                ForEach(menu.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
+                Divider()
+                Text("Ask Every Time").tag(ProjectDefaultBot.ask)
+            } label: {
+                Label("Default Bot", systemImage: "person.crop.circle.badge.checkmark")
             }
-            .accessibilityHint("Shows pull request status instead of timestamps in this project")
-            .accessibilityIdentifier("sessions.projectPage.coding")
-            if coding, let onRepository {
-                Button(action: onRepository) { Label("Repository…", systemImage: "arrow.triangle.branch") }
-                    .accessibilityIdentifier("sessions.projectPage.repository")
-            }
-            if let menu {
-                Button(action: menu.onNewChatWith) { Label("New Chat With…", systemImage: "square.and.pencil") }
-                Picker(selection: Binding(get: { menu.usual ?? ProjectDefaultBot.ask }, set: { menu.onPick($0) })) {
-                    ForEach(menu.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
-                    Divider()
-                    Text("Ask Every Time").tag(ProjectDefaultBot.ask)
-                } label: {
-                    Label("Default Bot", systemImage: "person.crop.circle.badge.checkmark")
-                }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("sessions.projectPage.defaultBot")
-            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("sessions.projectPage.defaultBot")
         }
+        .padding(.trailing, -13)
     }
 
-    static func prWord(_ state: SessionPRStatus.State) -> String {
-        ["none": "No PR", "draft": "Draft", "open": "Open", "merged": "Merged", "closed": "Closed"][state.rawValue] ?? ""
-    }
-
-    /// Owner 2026-11-19: the picked state says its name inside its ring ("58 Merged"), so the filter on screen reads
-    /// without the ⓘ guide; where the line runs out, the flow puts the last marks on a second line.
-    private var pullRequestCounts: some View {
-        // A narrow sidebar or larger counts can push the last mark onto a second line.
-        PagesFlowLayout(spacing: 12, lineSpacing: 0) {
-            ForEach([SessionPRStatus.State.none, .draft, .open, .merged, .closed], id: \.self) { state in
-                let count = prCounts[state, default: 0]
-                let status = state == .none ? "No PR yet" : "\(SessionPRStatus(state: state).label) PR"
-                let label = "\(status), \(count) loaded \(count == 1 ? "chat" : "chats")"
-                let picked = selectedPR == state
-                Button { onPRPick(state) } label: {
-                HStack(spacing: 3) {
-                    Image(uiImage: SessionPRGlyph.image(state))
-                        .renderingMode(.template)
-                        .resizable().frame(width: 14, height: 14)
-                        .foregroundStyle(Color(uiColor: SessionPRGlyph.color(state)))
-                    Text(picked ? "\(count) \(Self.prWord(state))" : "\(count)")
-                        .font(Font.hq(.caption).weight(.medium)).monospacedDigit()
-                        .lineLimit(1).fixedSize()
-                }
-                .padding(.horizontal, picked ? 8 : 4).frame(minHeight: 32)
-                .overlay { if picked { Capsule().strokeBorder(Color.hqTint, lineWidth: 1.5) } }
-                .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(count == 0 && selectedPR != state)
-                .opacity(count == 0 && selectedPR != state ? 0.45 : 1)
-                .accessibilityLabel(label)
-                .accessibilityHint(selectedPR == state ? "Clear pull request filter" : "Filter chats by pull request state")
-                .accessibilityAddTraits(selectedPR == state ? .isSelected : [])
-                .accessibilityIdentifier("sessions.projectPage.pr.\(state.rawValue)")
-                .help(label)
-            }
-        }
-        .animation(.snappy(duration: 0.2), value: selectedPR)
-    }
-
-    private func counts(words: Bool, labelActive: Bool = false) -> some View {
-        func showLabel(_ id: String, _ count: Int) -> Bool {
-            words || (labelActive && (count > 0 || isLit(id, count)))
-        }
-        return HStack(spacing: 6) {
-            chip(needs, "Needs You", id: "needs", words: showLabel("needs", needs)) { Circle().fill(Color.hqOrange).frame(width: 7, height: 7) }
-            chip(ready, "New", id: "ready", words: showLabel("ready", ready)) { Circle().fill(Color.hqTint).frame(width: 7, height: 7) }
-            chip(working, "Working", id: "working", words: showLabel("working", working)) {
+    private func counts(words: Bool) -> some View {
+        HStack(spacing: 6) {
+            chip(needs, "Needs You", id: "needs", words: words) { Circle().fill(Color.hqOrange).frame(width: 7, height: 7) }
+            chip(ready, "New", id: "ready", words: words) { Circle().fill(Color.hqTint).frame(width: 7, height: 7) }
+            chip(working, "Working", id: "working", words: words) {
                 ZStack {
                     Circle().stroke(Color.hqLabel.opacity(0.25), lineWidth: 2)
                     Circle().trim(from: 0, to: 0.25).stroke(Color.hqLabel, style: StrokeStyle(lineWidth: 2, lineCap: .round))
@@ -344,20 +305,6 @@ struct ProjectPageHeader: View {
         .accessibilityLabel("\(word), \(count) \(count == 1 ? "chat" : "chats")")
         .accessibilityAddTraits(isLit(id, count) ? .isSelected : [])
         .accessibilityIdentifier("sessions.projectPage.\(id)")
-        .help("\(word), \(count) \(count == 1 ? "chat" : "chats")")
-    }
-}
-
-extension SessionsViewController {
-    /// Count the entire loaded project, not just the visible, folded, or filtered piles.
-    func projectPRCounts(_ key: String) -> [SessionPRStatus.State: Int] {
-        guard let store else { return [:] }
-        let rows = (store.sessions + store.archivedSessions).map { row in
-            var row = row
-            row.pullRequest = store.pullRequest(profile: row.profile, id: row.id) ?? row.pullRequest
-            return row
-        }
-        return ProjectPageHeader.pullRequestCounts(rows, project: key, projects: store.projectsByProfile)
     }
 }
 

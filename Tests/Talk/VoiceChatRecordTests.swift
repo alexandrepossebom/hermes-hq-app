@@ -264,35 +264,4 @@ struct VoiceChatRecordSendTests {
         #expect(h.client.calls("prompt.submit").last?.params["text"]?.string == Self.record)
         #expect(lines(s).count == 1)
     }
-
-    /// Owner, 2026-11-18: Stop parked the record as a card, it was deleted, and the bot never had the talk. Stop holds
-    /// typed messages only; the record can't be edited or deleted, and goes out once the stopped reply unwinds.
-    @Test func stopNeverHoldsAVoiceChatsWords() async throws {
-        let (h, s) = try await open()
-        s.send("first")
-        await h.emit([h.event("message.start"), h.event("message.delta", ["text": "Working on it"])])
-        s.sendVoiceRecord(Self.record)
-        let id = try #require(s.queuedMessages.first?.id)
-        #expect(!s.canEditQueued(id))
-        s.stop()
-        #expect(!s.isQueueParked)
-        #expect(s.queuedMessages.map(\.text) == [Self.record])
-        await h.emit([h.event("message.complete", ["text": "Working on it", "status": "interrupted"]),
-                      h.event("session.info", ["running": false])])
-        #expect(await waitUntil { h.client.calls("prompt.submit").count == 2 })
-        #expect(h.client.calls("prompt.submit").last?.params["text"]?.string == Self.record)
-    }
-
-    /// A typed message waiting beside it still pauses on Stop, as before.
-    @Test func stopStillHoldsTypedMessagesBesideARecord() async throws {
-        let (h, s) = try await open()
-        s.send("first")
-        await h.emit([h.event("message.start"), h.event("message.delta", ["text": "Working on it"])])
-        s.sendVoiceRecord(Self.record)
-        s.queuesNextSend = true
-        s.send("typed")
-        #expect(s.queuedMessages.map(\.text) == [Self.record, "typed"])
-        s.stop()
-        #expect(s.isQueueParked)
-    }
 }

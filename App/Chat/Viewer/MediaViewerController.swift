@@ -15,8 +15,6 @@ final class MediaViewerController: UIViewController, UIPageViewControllerDataSou
     private var restoreSave: DispatchWorkItem?
     /// [mac] Previous / next at the sides (round 2 #38); ← and → page everywhere.
     private var arrows: PhotoPagerArrows?
-    /// A fling up closes too (the system zoom transition's drag handles down).
-    private var fling: PhotoFling?
 
     /// Presents the viewer over `presenter`, zooming from `source(index)` (nil → a plain cover).
     static func present(from presenter: UIViewController, items: [MediaItem], index: Int, source: @escaping (Int) -> UIView?) {
@@ -29,10 +27,8 @@ final class MediaViewerController: UIViewController, UIPageViewControllerDataSou
         let options = UIViewController.Transition.ZoomOptions()
         // Swipe down / pinch in dismiss only at the fitted size (a zoomed photo pans instead). With several photos a
         // sideways swipe pages, even from the screen's edge: only a mostly-downward one closes.
-        // A fling up is `PhotoFling`'s (the system's drag closes downward only).
         options.interactiveDismissShouldBegin = { [weak viewer] context in
             guard let viewer else { return true }
-            if context.velocity.dy < 0, abs(context.velocity.dy) > abs(context.velocity.dx) { return false }
             if viewer.items.count > 1, abs(context.velocity.dx) > abs(context.velocity.dy) { return false }
             return viewer.currentPage?.isAtMinimumZoom ?? true
         }
@@ -81,8 +77,6 @@ final class MediaViewerController: UIViewController, UIPageViewControllerDataSou
         saveItem.accessibilityIdentifier = "viewer.save"
         toolbarItems = [shareItem, .flexibleSpace(), saveItem]
         if items.count > 1 { arrows = PhotoPagerArrows(in: view, identifier: "viewer") { [weak self] in self?.step(forward: $0) } }
-        fling = PhotoFling(host: self, directions: .up, flyOff: false, content: { [weak self] in self?.pages.view },
-                           canBegin: { [weak self] in self?.currentPage?.isAtMinimumZoom ?? true })
         updateTitle()
         view.accessibilityIdentifier = "viewer"
         AppLog.trace("chatui", "media viewer opened: \(items.count) item(s) (\(Self.kindsSummary(items))), showing \(index + 1)")

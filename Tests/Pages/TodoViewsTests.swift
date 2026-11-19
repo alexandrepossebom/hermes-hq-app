@@ -298,6 +298,10 @@ struct TodoViewsTests {
         // The name was taken by a job of the person's own: the add-on's is named after it.
         #expect(TodoRunnerJobs.isOne(try job("Task check (Hermes HQ)", "Work through Tasks prep. Call tasks_next_prep.")))
         #expect(TodoRunnerJobs.isOne(try job("Task ideas (Hermes HQ)", "Find task ideas for the user. First call tasks_ideas…")))
+        // [goals step 4] The add-on's weekly check-in for a goal's lead; a job of yours named so still shows.
+        #expect(TodoRunnerJobs.isOne(try job("Goal check-in", "Run your goals' weekly check-in. Call goals_next_review. If it…")))
+        #expect(TodoRunnerJobs.isOne(try job("Goal check-in (Hermes HQ)", "Run your goals' weekly check-in. Call goals_next_review.")))
+        #expect(!TodoRunnerJobs.isOne(try job("Goal check-in", "Ask me every Sunday how my goals went.")))
         #expect(!TodoRunnerJobs.isOne(try job("Task check (Hermes HQ)", "Check my open pull requests each morning.")))
         #expect(!TodoRunnerJobs.isOne(try job("Morning brief", "Work through Tasks prep.")))
     }

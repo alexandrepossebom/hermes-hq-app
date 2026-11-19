@@ -1840,20 +1840,6 @@ final class PagesTests: XCTestCase {
         app.swipeDown(velocity: .fast)
         XCTAssertTrue(app.collectionViews["artifacts.list"].waitForExistence(timeout: 5))
         XCTAssertTrue(waitUntil(5) { !app.otherElements["artifact.image"].exists }, "swipe down closes")
-        // Owner 2026-11-19: a fling up closes too; a short slow tug settles back.
-        tile.tap()
-        XCTAssertTrue(app.otherElements["artifact.image"].waitForExistence(timeout: 8))
-        Thread.sleep(forTimeInterval: 1)
-        let window = app.windows.firstMatch
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.46)),
-                   withVelocity: .slow, thenHoldForDuration: 0.3)
-        Thread.sleep(forTimeInterval: 1)
-        XCTAssertTrue(app.otherElements["artifact.image"].exists, "a short slow tug doesn't close")
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-            .press(forDuration: 0, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)),
-                   withVelocity: .fast, thenHoldForDuration: 0)
-        XCTAssertTrue(waitUntil(5) { !app.otherElements["artifact.image"].exists }, "a fling up closes")
     }
 
     /// Owner 2026-11-01 ("Every time I open the artifacts page, it seems like it has to like reload and repopulate

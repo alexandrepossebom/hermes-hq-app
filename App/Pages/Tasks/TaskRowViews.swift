@@ -56,6 +56,11 @@ struct TodoRowModel: Hashable {
     var listDot: TodoListColor?
     /// That list's name, for VoiceOver.
     var listName: String?
+    /// [goals] Step 2: the task's goal (active or paused): its mark stands in the list's dot's place, everywhere but
+    /// the goal's own page (`GoalViews.markGoal`).
+    var goalMark: TodoListColor?
+    /// That goal's name, for VoiceOver ("for <goal>").
+    var goalName: String?
 }
 
 extension TodoRowModel {
@@ -102,7 +107,7 @@ struct TodoRowView: View {
                 .strikethrough(row.done || row.ticking, color: Color.hqLabel3)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if let color = row.listDot { listDot(color, font: .subheadline) }
+            if let color = row.goalMark { goalMark(color, font: .subheadline) } else if let color = row.listDot { listDot(color, font: .subheadline) }
             Text(row.line.lead ?? "")
                 .font(Font.hq(.subheadline).weight(DeviceWord.isMac ? .regular : .medium)).foregroundStyle(TodoInk.color(row.line.tone))   // [type] Mac: its colour marks it, as Jobs' status
                 .lineLimit(1)
@@ -131,7 +136,7 @@ struct TodoRowView: View {
         .frame(minHeight: 42, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.title), \(row.line.text), \(row.who)\(row.listName.map { ", in \($0)" } ?? "")")
+        .accessibilityLabel("\(row.title), \(row.line.text), \(row.who)\(row.listName.map { ", in \($0)" } ?? "")\(row.goalName.map { ", for \($0)" } ?? "")")
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { open() }   // [lists] Mac pass round 6
@@ -150,8 +155,11 @@ struct TodoRowView: View {
                     titleLine
                         .lineLimit(large ? 4 : 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    // [task-lists] Its list's dot, before the date (and alone at the row's end with no date).
-                    if let color = row.listDot, !large { listDot(color, font: .footnote) }
+                    // [task-lists] Its list's dot, before the date (and alone at the row's end with no date); [goals] its
+                    // goal's mark in that place instead. Neither at the largest sizes (the spoken words stay).
+                    if !large {
+                        if let color = row.goalMark { goalMark(color, font: .footnote) } else if let color = row.listDot { listDot(color, font: .footnote) }
+                    }
                     if let when = row.words.when {
                         Text(when)
                             .font(Font.hq(.footnote)).monospacedDigit()
@@ -180,7 +188,8 @@ struct TodoRowView: View {
         .frame(minHeight: Theme.isDesktop ? 46 : 44, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(([row.title] + (row.words.spoken.isEmpty ? [] : [row.words.spoken]) + (row.listName.map { ["in \($0)"] } ?? [])).joined(separator: ", "))
+        .accessibilityLabel(([row.title] + (row.words.spoken.isEmpty ? [] : [row.words.spoken]) + (row.listName.map { ["in \($0)"] } ?? [])
+                             + (row.goalName.map { ["for \($0)"] } ?? [])).joined(separator: ", "))
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { open() }   // [lists] Mac pass round 6
@@ -217,6 +226,14 @@ struct TodoRowView: View {
     private func listDot(_ color: TodoListColor, font: UIFont.TextStyle) -> some View {
         TaskListDot(color: row.done ? .gray : color)
             .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(font).xHeight / 2 }
+    }
+
+    /// [goals] The goal's mark, centred on the words' x-height beside it, as the list's dot is.
+    private func goalMark(_ color: TodoListColor, font: UIFont.TextStyle) -> some View {
+        GoalMark(color: row.done ? .gray : color)
+            .font(Font.hq(.caption2).weight(.semibold))
+            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(font).xHeight / 2 }
+            .accessibilityIdentifier("tasks.goal-mark")
     }
 
     @ViewBuilder private var lead: some View {

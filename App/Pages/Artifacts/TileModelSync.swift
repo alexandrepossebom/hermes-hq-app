@@ -136,11 +136,7 @@ final class TileModelSync {
         let page = SettingsPageController(title: "Tile Model", chooser.environment(\.macFormLeastSide, MacForm.sheetSide))
         let sheet = UINavigationController(rootViewController: page)
         sheetRef = sheet
-        // [popup-consistency] A pick-or-close chooser, as the chat's Models sheet: the system ✕ named Close on the iPhone
-        // (`.cancel` drew the same ✕ but VoiceOver called it Cancel), the word Cancel on the Mac.
-        page.navigationItem.leftBarButtonItem = .hqClose(DeviceWord.isMac ? .cancel : .close, action: UIAction { [weak sheet] _ in
-            sheet?.dismiss(animated: true)
-        })
+        page.navigationItem.leftBarButtonItem = .hqClose(.cancel, action: UIAction { [weak sheet] _ in sheet?.dismiss(animated: true) })
         SheetStyle.apply(sheet, from: host, fixed: .greatestFiniteMagnitude)
         host.present(sheet, animated: true)
     }

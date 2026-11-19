@@ -26,6 +26,11 @@ the app draws them. **Never touch Hermes's Kanban.**
 4. The weekly check-in, a number a bot checks, where it stands, the stall question.
 5. The Goal Page and the Mac's layout.
 
+Steps 3 to 5 are hermes-hq-push 0.9.66 (the add-on's half is built; its report is the wire contract below). Everything
+of them shows only when the add-on says so: `goal_bots: true` in `GET /tasks` (`TasksStore.goalBotsSupported`) and
+`goal_pages: true` in `/status` (`TasksStore.goalPagesSupported`). With 0.9.65 (goals, no bots) the app is exactly
+steps 1 and 2; with no goals at all, exactly Tasks.
+
 ## Data (JSON, as the routes send it)
 ```
 Goal {
@@ -42,6 +47,42 @@ Goal {
 }
 Task gains:  goal: <goal id> | null,  milestone: <milestone id> | null
 ```
+**0.9.66 (steps 3 to 5) a Goal also carries** (the add-on's exact shapes):
+```
+lead: str | null                 helpers: [str] (≤5, never lead)       adds: "ask" | "auto"
+review: {day: 0-6 (0 = Monday), time: "HH:MM"} | null     # the weekly check-in; Monday 08:00 when a lead is first
+                                                          # given and none was set; null turns it off
+known_to_all: bool (default true)
+stands: {by, at, text (400), next (200)} | null           # the lead's "where it stands"
+checkin: {at: ISO, offer: <offer id> | null, state: "offered" | "accepted" | "declined" | "none"} | null
+chat: {profile, session_id} | {}  # the goal's own chat (hidden, title "Goal: <title> · <id prefix>")
+page_at: "" | ISO                 # "" until its lead writes on its Goal Page
+kept_at: ISO | null               # the stall question was answered "Keep Going"
+offer: null | {kind: "done", what: <milestone id> | "goal", by: <profile>, text: str (160), at: ISO,
+               kept?: true, kept_at?: ISO}                # the lead's "this looks done"
+measure.source: "you" | {bot: <profile>, what: str (80)}    measure.checked_at: ISO | null
+```
+- Removing the lead (`lead: null`) keeps the helpers; the check-in stops until a lead is set.
+- `checkin.state "none"`: the lead was handed the goal at its weekly look and no card is offered yet.
+- `offer` (looks done) is shown only while it is set and not `kept`; it clears by itself when that milestone is ticked
+  or removed, or the goal is no longer active.
+
+**Goal offers** ride in `GET /tasks` `offers[]` beside list offers (a list offer has no `kind`, read as "list"):
+```
+{id, kind: "goal"|"plan"|"checkin"|"tasks", bot, session_id, at, goal: <id>|null (null only for "goal"), title,
+ tasks: [{title, who: "me"|"bot", bot?, due?, notes?, milestone?}],   # 20 at most
+ state: "new"|"accepted"|"declined"|"undone", answered_at?, held?: true,
+ why, due, measure: {unit, start, target}|null, milestones: [{title, due?}]   # kind "goal"
+ milestones: [{title, due?}]                                                   # kind "plan"
+ summary                                                                       # kind "checkin" (what moved)
+ added: [task ids], made_goal?: <goal id>, made_milestones?: [ids], plan?: bool, in_goal?: bool, kept?: [ids],
+ list: <title>, section: null, new: false, move: []}   # the last four so a pre-0.9.66 app can decode it
+```
+- `tasks[].milestone` is the goal's milestone id when it matched one; on a goal or plan offer it may be one of the
+  offer's own milestone titles (accepting turns it into the new milestone's id). `tasks[].due` is already resolved.
+- Held offers (`held: true`: from a bot that is neither lead nor helper, or a run with no person in the chat) are never
+  in `offers`; they go to the lead's next check-in. The app shows every offer it is sent.
+- `kept` (after undo): what undo left in place because you had changed it since.
 - A task's `milestone` must be one of its goal's; otherwise it is cleared. Clearing `goal` clears `milestone`.
 - Deleting a goal keeps its tasks (their `goal` and `milestone` are cleared). Removing a milestone keeps its tasks in
   the goal with no milestone.
@@ -60,6 +101,32 @@ Task gains:  goal: <goal id> | null,  milestone: <milestone id> | null
 - `DELETE /goals/{id}` returns `{ok: true}`.
 - `POST /tasks`, `PATCH /tasks/{id}` take `goal` and `milestone` (ids; null clears). An unknown goal is a 400.
 - `/status` gains `task_goals: true`.
+
+**0.9.66** (steps 3 to 5):
+- `GET /tasks` gains `goal_bots: true`; goal offers ride in `offers`.
+- `PATCH /goals/{id}` also takes `lead: <profile> | null` (an invalid name is a 422; a lead set for the first time with
+  no review gets Monday 08:00; null keeps the helpers), `helpers: [str]`, `adds: "ask" | "auto"`, `review: {day, time}
+  | null` (out of range is a 422), `known_to_all: bool`, `chat: {profile, session_id}`, `keep: true` (stamps
+  `kept_at`, logs "Kept going": the stall question's Keep Going), `offer_answer: "done" | "keep"` (done ticks the
+  offered milestone or marks the goal achieved and clears `offer`; keep marks it `kept`; ignored with no unkept offer),
+  and in `measure` a `source` (`"you"` or `{bot, what}`; `measure: {source}` alone changes only the source and clears
+  `checked_at`; a bad one is a 400).
+- `POST /tasks/offers/{id}` `{action: "accept" | "decline" | "undo", list?, plan?: bool = true, in_goal?: bool = true}`:
+  - accept on `goal` makes the goal led by the offering bot (review Monday 08:00); `plan: false` ("Keep the Goal, No
+    Plan") makes it with no milestones or tasks. On `plan` it adds the milestones and tasks; `plan: false` on a plan is
+    a **decline** (the answer's `offer.state` is "declined"). On `checkin` / `tasks` it adds the tasks under the goal;
+    `in_goal: false` ("Just Tasks") adds them with no goal.
+  - decline changes nothing (a declined `goal` of that name isn't offered again; a declined `checkin` not until next
+    week's slot; a declined `plan` only when you ask). undo (accepted only) takes back the tasks, the milestones and a
+    goal it made, except what you have changed since.
+  - On a goal offer move and leave are a 400. Answer: `{rev, offer, sections, goals}` (list offers carry `goals` too);
+    404 unknown, 409 already answered.
+- `/status` gains `goal_bots: true`, `goal_pages: true`.
+- `GET /goals/{id}/page?names={"default":"Hermes",…}`: the Goal Page as HTML (`Cache-Control: no-store`), 404 `{detail:
+  "No such goal."}`. The bot writes words, never HTML; the page's words never go into logs.
+- Tasks settings gain `goals: bool` (default true). Off removes the bots' tools, notes and check-in jobs; goals stay.
+- The push for a check-in: `kind "task"`, `about "checkin"`, `request "goal:<goal id>"`, title the bot, body "Check-in
+  for <goal>" (never at night). A push whose `request` starts with `goal:` opens that goal.
 
 ## Step 1: Goals with no bots
 Boards 1 (right phone) and 2. The pictures are in the owner's share folder, not in this repo.
@@ -142,3 +209,158 @@ Built from a task's page's rows (`TaskPlainView`), top to bottom:
 The shelf on Today and the goal's mark on rows (step 2); anything with a bot (steps 3 to 5): a lead, a plan offer, a
 check-in, a number a bot reads, the stall question, the Goal Page; the Mac's own layout (the Mac shows these same
 views in the Tasks pane).
+
+## Step 2: the shelf on Today, the goal's mark, search
+Board 1, the left and middle phones. App only; the add-on is step 1's.
+
+### The shelf (`GoalShelf`)
+- **Today leads with a Goals shelf** when you have an active goal: the heading "Goals" with "All N ›" at its end
+  (opens the Goals view), then one row of small cards that scrolls sideways. Each card: the ring, the name (one
+  line), a grey line ("340 · by Jan 31", "1 of 4 · by Apr 11", "4 of 6 · Dec 27": `GoalViews.shortLine`), and under
+  them "Next: <the goal's next task>" (or "No plan yet", or "Nothing next" when every task is done). A tap opens
+  the goal. The cards are the active goals in your order; a paused, achieved or let-go goal has no card.
+- **A tap on the heading "Goals" folds the shelf** to that one line (the heading then says how many: "Goals 3").
+  Folded or not is kept on this device.
+- The shelf is only on Today (not Upcoming, Inbox or a list), stays out of a search, and follows the bots filter the
+  way Today's rows do only in that it stays when the filter is All Bots or Me; with one bot picked it is hidden.
+- With no active goal, or an add-on that keeps no goals, there is no shelf and no heading.
+- VoiceOver: a card is one element, read as the Goals view's card is; the shelf's heading is a button that says
+  "Goals, 3, shown" / "hidden".
+- At the accessibility text sizes the cards stack one under another (two at most, then "All N ›").
+- Rules: HermesKit `GoalShelf` (`shows`, `cards`, `card`, `drawn`, `headingValue`), `GoalShelfCard`, `GoalShelfNext`,
+  `GoalViews.shortLine`; drawn by `GoalShelfView` / `GoalShelfCardView` (App/Pages/Goals/GoalShelfViews.swift) in one
+  cell (`Section.shelf`) at the top of `TasksViewController`'s Today; the fold is `GoalShelfFold`. Guards:
+  `GoalShelfTests`, `PagesTests.testTasks_GoalsShelf`, `testTasks_GoalsShelfLargestText`
+  (UITests/pages/TasksGoalsMoreUITests.swift).
+
+### The goal's mark on a task's row (`GoalMark`)
+- A task in an active or paused goal carries the **goal's mark** (the small target in the goal's colour) before its
+  date, **in the place of its list's dot**, in Today, Upcoming, Inbox, a search and under Bots. Inside a list the row
+  shows the mark too (the list's own dot is not drawn there, as now). On the goal's own page there is no mark.
+- VoiceOver adds "for <goal>" to the row, as it says "in <list>".
+- A task in an achieved or let-go goal shows its list's dot again.
+- At the largest text sizes the mark is not drawn (as the list's dot isn't); the spoken words stay.
+- Rule: `GoalViews.markGoal`; drawn by `TodoRowView` (`TodoRowModel.goalMark`, `goalName`), set in
+  `TasksViewController.rowModel`. Guards: `GoalShelfTests.theMarkIsForAnActiveOrPausedGoal`,
+  `PagesTests.testTasks_GoalMarks`, `testTasks_GoalMarksNeedGoals`.
+
+### Search
+- A search in Tasks finds **goals** by name and why: a "Goals" group first (the Goals view's cards, any status),
+  then To Do and Done as now.
+- A task is found by its goal's name ("launch" finds the tasks under "Launch week"'s goal) and by its milestone's
+  name.
+- Rules: `GoalViews.found`, `GoalViews.searchWords` (read by `TodoSections.filtered(_:scope:query:goals:)`); the group
+  is `TasksViewController.appendFoundGoals` (`GoalGroupKey.found`). Guards: `GoalShelfTests`,
+  `PagesTests.testTasks_GoalsSearch`.
+
+### Loose ends from step 1, closed here
+- **Update is a small sheet** over the keyboard, as tall as its content (the quick add's shape), not a half page.
+- UI tests that drive what step 1 built and did not test: dragging a goal's card to reorder (the order survives a
+  relaunch), Delete Goal… (its tasks are still in Tasks, with no goal row), Let It Go and Make Active Again, a
+  milestone's Rename… / Set Date… / Move Up / Delete Milestone…, the number's menu (edit, remove), the empty Goals
+  view, and the Goals view and a goal's page at the largest accessibility text size (nothing cut to nothing, nothing
+  overlapping), and on an iPad.
+- `testTasks_QuickAdd` fails on main at its second `typeText` (the keyboard goes down after the first Add). Find out
+  whether that is the app (the sheet says it stays open with its line ready for the next task: docs/tasks.md step 4)
+  or the test, and fix the one that is wrong. New Goal shares that sheet.
+- Update: `GoalUpdateHost` / `GoalUpdateView` (App/Pages/Goals/GoalSheets.swift) on `QuickAddSheet`. Guards, in
+  UITests/pages/TasksGoalsMoreUITests.swift: `testTasks_GoalUpdateSheet`, `testTasks_GoalsReorder`,
+  `testTasks_GoalDelete`, `testTasks_GoalLetGoAndBack`, `testTasks_GoalMilestoneMenu`, `testTasks_GoalNumberMenu`,
+  `testTasks_GoalsEmpty`, `testTasks_GoalsLargestText`, `testTasks_GoalsOnIPad`. The quick add's line takes the
+  focus back after each Add (`NewTodoModel.addedCount`); guard: `testTasks_QuickAdd`.
+
+### Not in step 2
+Anything with a bot (steps 3 to 5).
+
+## The rules every bot on a goal works under (the add-on enforces them; the app shows them)
+1. **One lead per goal.** It plans, runs the check-in, writes where the goal stands and keeps its page.
+2. **Helpers take tasks, not the plan.** Only the lead may offer a plan or a check-in.
+3. **Every bot knows your active goals by name and why** (Tell My Other Bots, a switch per goal, on by default). Only the
+   goal's lead and helpers read its tasks, milestones, number and page.
+4. **Offers, not edits.** A bot may put its own task in a goal it leads or helps; anything for you, any milestone, any
+   date, a new goal is an offer card you tap. New Tasks › Add Without Asking (`adds: "auto"`) lets its lead and
+   helpers add a task for you without the card; nothing else loosens.
+5. **A bot never ticks your task, a milestone, or the goal.** It may say "this looks done" (an offer).
+6. **A bot never moves the number by guessing.** The number has one source, you or one bot and what it reads; the row
+   always names it.
+7. **Research and drafts only**: never send, book, buy, pay, post or delete for a goal.
+8. **Off is off.** Tasks off, or Goals off in Tasks settings, removes the tools, the notes to bots and the check-in jobs.
+   Goals themselves are kept.
+
+## Step 3: a bot on a goal (boards 3 and 5; hermes-hq-push 0.9.66)
+### Edit Goal (`GoalEditSheet`, `GoalTeamRows`)
+- **Edit Goal** gains, only with `goal_bots`: **Led By** (a bot, or No One), **Helpers** (bots, not the lead), **Check-in**
+  (Off, or a weekday and time), **New Tasks** (Ask First / Add Without Asking), **Number From** (You, or a bot and what it
+  reads; only with a number), **Tell My Other Bots**. Under Led By: "The lead plans, checks in and keeps the goal's page.
+  Helpers take tasks." Under Tell My Other Bots: "Other bots know this goal's name and why, so they can point things to
+  it." Each change saves as you make it (`lead`, `helpers`, `review`, `adds`, `measure.source`, `known_to_all`).
+- Words: `GoalBots.reviewWords` ("Mondays 8 AM", "Off"), `GoalBots.numberFromWords` ("TestFlight · Hermes", "You").
+
+### New Goal with a bot (`NewGoalSheet`, `GoalChats`)
+- **New Goal** gains a "Plan With <Bot>" button in its row: a menu of your bots and No One, off by default. With a
+  bot, Add makes the goal led by that bot, opens the goal's page with its chat, and sends the plan request as a hidden
+  first turn (the goal's details for the bot, `GoalBots.planRequest`; your bubble shows nothing you didn't type), as New
+  Task with a bot does.
+
+### A goal with a lead (`GoalPage`, `GoalChatPage`, `GoalTeamViews`)
+- **A goal with a lead is a goal's page with a teammate on it**, exactly as a task with a bot (docs/tasks.md step 2):
+  - a **who row**: "Led by Hermes" with the faces of the lead and helpers, the check-in day at its end ("Mondays 8 AM");
+  - the lead's **where it stands** card under the bar: its face and name, since when, "Page ›", its words, **Next:**;
+  - a one-line **Message <Bot>** box at the foot (`TaskMessageLine`) that gives the screen to the goal's own chat.
+- The goal's chat: hidden from Sessions, made on the first message, titled `Goal: <title> · <id prefix>`
+  (`GoalChats.sessionTitle`); the link is saved on the goal (`PATCH chat`) and on this device. The chat's page is the
+  goal's page laid over it (`ChatViewController.setTopAccessory`, as `TaskPage`); a tap on the message line, writing,
+  sending or Find gives the chat the screen under the goal's bar; the bar or the title brings the goal back.
+- A goal with no bot has none of it. A bot's own task under a milestone carries its face and dot, as on any row.
+- **Faces on the Goals view's cards and the shelf's**: the lead and helpers at the card's end (`GoalBots.team`); the
+  lead's dot is orange when an offer for that goal waits for you (`GoalBots.waitsForYou`). A face means the bot is on
+  the goal; nothing else draws one.
+
+### Offer cards (`GoalOfferCard`, `GoalOfferCell`, `GoalOffers`)
+Built from `TaskOfferCard`: one height in every state, the live state from the store (`TodoOfferStates`), a card
+answered elsewhere says so, "Answered" after a day.
+- **goal**: the name, why, date, then "5 milestones" (the first three, "2 more ›") and "This week · 4 tasks" (three, each
+  with who, "1 more ›"): **Make This Goal** / **Not Now**, and the quiet "Keep the Goal, No Plan".
+- **plan**: the same without making a goal: **Use This Plan** / **Change It** (puts the cursor in the chat's box) and
+  "Keep the Goal, No Plan" (declines the plan).
+- **tasks** (board 5): the goal's mark and name, "add 2 tasks?", the rows with who: **Add to Goal** / **Just Tasks** /
+  **No**; from a bot that is not on the goal, a quiet line under them says who leads it ("Hermes leads this goal").
+- Answered: one line with what happened and **Undo**.
+- Where they show (`ToolCard.goalOffer` from the `goals_offer` tool's answer, `GoalOffers.today`, `GoalOffers.onGoal`): in the chat they were made in, at the
+  top of Today (one at a time, the oldest first, under any list offer) and on the goal's own page.
+- The number row says its source when a bot reads it: "TestFlight · 8:02 AM" in place of Update (`GoalBots.sourceWords`);
+  a tap still lets you set it by hand, and that makes the source you, after asking.
+
+## Step 4: the check-in and the stall question (board 4)
+- **The check-in card** (kind `checkin`) leads Today on its day and sits on the goal's page and in its chat: the bot's
+  face, "<Bot> · Monday check-in" (`GoalOffers.checkinHead`), the goal's ring and name, the summary, "This week" with
+  the tasks and who, **Add These N** / **Change** (opens the goal's chat) / **Not Now**. Answered: one line with Undo.
+- **A looks-done offer** from the lead (`goal.offer`, `GoalBots.looksDone`) is the same soft card as step 1's own offers:
+  its words, then **Mark Done** / **Not Yet** (`PATCH offer_answer: "done" | "keep"`).
+- **The stall question**, bot or no bot (`GoalViews.stalled`): an active goal with at least one open task, nothing under
+  it ticked, no number change and no milestone ticked for 14 days (and created, resumed and `kept_at` all more than 14
+  days ago) asks on its page and as an orange second line on its card ("Nothing has moved in 16 days"): "The next task,
+  “…”, has been open since Nov 28. Still want this one?" **Smaller Step** (opens New Task under the goal, or with a lead
+  asks the bot for one in the goal's chat) / **Pause** / **Let It Go**, and a quiet "Keep Going" that sends `keep: true`.
+  With 0.9.65 Keep Going is kept on this device only (`GoalKeptHere`).
+- One push per check-in. The push opens the goal (`request` "goal:<id>", `TasksHub.openGoal`).
+- The Goal check-in job is the add-on's; the app's Jobs list hides it by name, as Task prep (`TodoRunnerJobs`).
+
+## Step 5: the Goal Page and the Mac
+- "Page ›" on the stands card and ⋯ › Goal Page open the add-on's page in the page sheet (`HTMLPageSheet`), drawn again
+  when the goal changes while it is open; Share sends "<title>.html"; **Ask for an Update** asks the lead in the goal's
+  chat as a hidden turn (`GoalBots.updateRequest`). Only with `goal_pages`.
+- **The Mac's two panes**: a goal with a lead opens with the goal in the centre and its chat as the right-hand pane
+  (`MacInspector.followTask`'s pattern, ◨ and ⌘I close it, its own open state `HQMacGoalChatShown`); a goal with no bot
+  has no pane.
+
+### Guards (steps 3 to 5)
+- Unit: `GoalBotsTests` (decoding every new field and a 0.9.65 goal, every offer kind, the stall rule from each side,
+  where each offer card shows, the check-in card's words, the number's source words, faces and the waiting dot, the
+  review words, the store's offer answers: accept, decline, undo, answered on another device, a 409).
+- UI (UITests/pages/TasksGoalBotsUITests.swift, against the stand-in's `--task-goal-bots`): `testTasks_GoalEditTeam`,
+  `testTasks_GoalPlanWithBot`, `testTasks_GoalTasksOfferFromAnotherBot`, `testTasks_GoalCheckin`,
+  `testTasks_GoalLooksDone`, `testTasks_GoalStall`, `testTasks_GoalNumberFromBot`, `testTasks_GoalPage`,
+  `testTasks_GoalBotsNeedTheAddOn`.
+- The contract: `scripts/fixture-support/goals_contract_check.py` sends one sequence of requests to the stand-in and to
+  the real add-on's router and prints every difference.

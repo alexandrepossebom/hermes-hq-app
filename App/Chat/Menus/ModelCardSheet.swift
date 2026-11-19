@@ -2,8 +2,8 @@
 // when you click on the plus icon. But then I want like all the same kind of like animations and functionality and fun
 // of it too. But it needs to be designed very cleanly"; of three mockups he said "Build A", the quick tiles).
 //
-// The sheet is the system's, set up as the Add context sheet is (`ComposerContextSheet`): the app's plain glass as
-// Commands has it ([popup-consistency] owner 2026-11-19), the screen's own corners, fitted to its page so nothing sits under its bottom
+// The sheet is the system's, set up as the Add context sheet is (`ComposerContextSheet`): its grabber, the app's glass
+// tinted with the page colour in Dark, the screen's own corners, fitted to its page so nothing sits under its bottom
 // edge. The page is `ModelPanelView` in its `.sheet` style: the same name button, face, thinking bar, facts and rows
 // as the card, so the menus, the drive and its haptics are the card's own. The drive's sky sits over the chat, behind
 // the sheet.
@@ -17,10 +17,11 @@ import UIKit
     /// About the sheet's own top corners, for the sky's cut-out behind it.
     static let radius: CGFloat = 38
 
-    /// The cards' and tiles' fill: the sheets' frosted card (`HQPalette.sheetCard`), as Commands' rows have it, with
-    /// its thin edge (`hqGlassEdge`). [popup-consistency] Owner 2026-11-19, of + / the model sheet / Commands in Dark:
-    /// every pop-up is the lighter grey glass of Commands, so the page-colour wash and its white-lift cards are gone.
-    static let cardFill = HQPalette.sheetCard
+    /// The cards' and tiles' fill, as the Add context sheet's: in Dark the sheet's glass is tinted with the page
+    /// colour, about the grouped card's own, so there they are a lift of white over the glass.
+    static let cardFill = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.09) : HQPalette.groupedCard.resolvedColor(with: traits)
+    }
 
     private let panel: ModelPanelView
     private var watchesStyle = false
@@ -32,7 +33,7 @@ import UIKit
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
             sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = false   // [popup-consistency] none, as Commands and every ChatSheet
+            sheet.prefersGrabberVisible = true
             sheet.delegate = self
         }
     }
@@ -47,6 +48,8 @@ import UIKit
     override func viewDidLoad() {
         super.viewDidLoad()
         panel.onHeight = { [weak self] height in self?.fit(height) }
+        veil.isUserInteractionEnabled = false
+        view.insertSubview(veil, at: 0)
     }
 
     /// The sheet sizes to its page (up to the large detent, where the page scrolls).
@@ -65,6 +68,7 @@ import UIKit
             watchesStyle = true
             registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self, GlassSheetTrait.self]) { (page: ModelCardSheet, _) in
                 page.sheetPresentationController?.hqGlassPage()
+                page.paintVeil()
             }
             // Its height before it rises, so it comes up at its own size.
             let width = view.bounds.width > 0 ? view.bounds.width : (presentingViewController?.view.bounds.width ?? 390)
@@ -72,8 +76,11 @@ import UIKit
             placeSky()
             panel.sheetAppearing()
         }
-        // On the app's glass, plain as Commands' ([popup-consistency] owner 2026-11-19: no page-colour wash in Dark).
+        // On the app's glass. In Dark the Add context sheet tints the glass itself with the page colour
+        // (`hqGlassOverChat`); on this page that tinted glass drew nothing at all (the chat showed through sharp), so
+        // the same colour at the same strength lies over the system's plain glass instead (`veil`).
         sheet.hqGlassPage()
+        paintVeil()
     }
 
     /// The drive's sky goes in the sheet's own container: over the dimmed chat, right behind the sheet, as it sat right
@@ -89,6 +96,20 @@ import UIKit
         sky.frame = container.bounds
         sky.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.insertSubview(sky, belowSubview: top)
+    }
+
+    /// The page colour over the glass in Dark (plain glass there is a mid grey over a plain chat and a pale wash over a
+    /// bright picture, with the cards lost on it); clear in Light, and wherever the sheet is not glass.
+    private let veil = UIView()
+
+    private func paintVeil() {
+        let glass = traitCollection[GlassSheetTrait.self] && traitCollection.userInterfaceStyle == .dark
+        veil.backgroundColor = glass ? ChatPalette.page.resolvedColor(with: traitCollection).withAlphaComponent(ChatBarGlass.alpha) : .clear
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        veil.frame = view.bounds
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -134,7 +155,6 @@ final class ThinkingCard: UIView {
         backgroundColor = ModelCardSheet.cardFill
         layer.cornerRadius = ModelCardSheet.cardRadius
         layer.cornerCurve = .continuous
-        hqGlassEdge()   // [popup-consistency] the cards' thin edge, as Commands' rows
         clipsToBounds = true
         sky.alpha = 0
         addSubview(sky)

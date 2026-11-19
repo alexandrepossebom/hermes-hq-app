@@ -258,12 +258,6 @@ final class ChatTitleView: UIView {
         return view
     }()
     private let nameLabel = UILabel()
-    var pullRequest: SessionPRStatus? {
-        didSet {
-            guard pullRequest != oldValue else { return }
-            setName(); updateLabel(); invalidateIntrinsicContentSize(); setNeedsLayout(); onSizeChange?()
-        }
-    }
     /// The bot's name under a session's title (spec 06 §4.1: any session that isn't the bot's own chat), 13 pt capped
     /// at 18, label-2.
     private let subtitleLabel = UILabel()
@@ -336,13 +330,13 @@ final class ChatTitleView: UIView {
     }
 
     private func updateLabel() {
-        accessibilityLabel = [title, pullRequest.map { "Pull request: " + $0.label }, muted ? "Muted" : nil, subtitle].compactMap { $0 }.joined(separator: ", ")
+        accessibilityLabel = [title, muted ? "Muted" : nil, subtitle].compactMap { $0 }.joined(separator: ", ")
     }
 
     /// The name with the muted bell after it (Desktop Look draws its capitals in `applyLook`, on every layout).
     private func setName() {
         if Theme.isDesktop { setNeedsLayout(); return }
-        if muted || menu != nil || pullRequest != nil, let font = nameLabel.font {
+        if muted || menu != nil, let font = nameLabel.font {
             nameLabel.attributedText = nameText(title, attributes: [.font: font, .foregroundColor: ChatPalette.label])
         } else if nameLabel.attributedText?.containsAttachments(in: NSRange(location: 0, length: nameLabel.attributedText?.length ?? 0)) == true
                     || nameLabel.text != title {
@@ -353,14 +347,6 @@ final class ChatTitleView: UIView {
     private func nameText(_ text: String, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
         let name = NSMutableAttributedString(string: text, attributes: attributes)
         guard let font = attributes[.font] as? UIFont else { return name }
-        if let pr = pullRequest {
-            let image = SessionPRGlyph.image(pr.state).withTintColor(SessionPRGlyph.color(pr.state).resolvedColor(with: traitCollection), renderingMode: .alwaysOriginal)
-            let mark = NSTextAttachment(image: image)
-            let side = ceil(font.capHeight + 2)
-            mark.bounds = CGRect(x: 0, y: -1, width: side, height: side)
-            name.insert(NSAttributedString(string: " "), at: 0)
-            name.insert(NSAttributedString(attachment: mark), at: 0)
-        }
         // The muted bell, then the menu's chevron, each a hair after the name.
         for symbol in [muted ? "bell.slash" : nil, menu != nil ? "chevron.up.chevron.down" : nil].compactMap({ $0 }) {
             guard let mark = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .small)) else { continue }
@@ -438,7 +424,7 @@ final class ChatTitleView: UIView {
         }
         nameLabel.font = HQFont.face(ofSize: size, weight: .semibold)
         subtitleLabel.font = HQFont.face(ofSize: sub)
-        if muted || pullRequest != nil { setName() }
+        if muted { setName() }
         invalidateIntrinsicContentSize()
     }
 

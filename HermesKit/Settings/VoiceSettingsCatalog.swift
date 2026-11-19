@@ -292,17 +292,12 @@ nonisolated enum VoiceSettingsCatalog {
     static func wordsFromHermesNote(offered: Bool?) -> String {
         let how = offered == false
             ? "Live Transcription is off on Hermes, so this \(DeviceWord.name) writes your words. Turn it on in Speech to Text."
-            : "Hermes writes your words as you record a memo or dictate, in the language set in its Speech to Text settings. If it can’t, or in Talk, your speech is transcribed when you stop."
+            : "Hermes writes your words as you record a memo or dictate. If it can’t, or in Talk, your speech is transcribed when you stop."
         return "\(how) \(DeviceWord.onlyHere)"
     }
     /// This device's words: the language it listens for. Automatic is the person's languages, in the phone's order.
     static let wordsLanguageTitle = "Language"
     static let wordsLanguageAutomatic = "Automatic"
-    /// The Automatic choice, naming the language it listens for now.
-    static func wordsLanguageAutomatic(_ language: String?) -> String {
-        guard let language, !language.isEmpty else { return wordsLanguageAutomatic }
-        return "\(wordsLanguageAutomatic) (\(language))"
-    }
     // [more accurate words] (docs/spec/3x-live-words.md §2.2)
     static let betterWordsTitle = "More Accurate Words"
     static let betterWordsHint = "A larger speech model on this \(DeviceWord.name) gets more of your words right. English only."

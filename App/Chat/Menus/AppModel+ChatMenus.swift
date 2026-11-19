@@ -152,7 +152,6 @@ extension AppModel: ChatMenuHosting {
         let next = makeChatScreen(newChat(for: bot))
         next.hidesBottomBarWhenPushed = true
         next.navigationItem.largeTitleDisplayMode = .never
-        SessionStrip.carryBack(from: screen, to: next, app: self)   // [bot-chat-back] New Chat from a bot's own chat
         stack.remove(at: index)
         stack.append(next)
         navigation.setViewControllers(stack, animated: true)

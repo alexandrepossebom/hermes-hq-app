@@ -297,11 +297,6 @@ search field always showing was turned down: "behind a click".)
 - **The row under the bar** (`SessionsHeaderView.macRow`): the Bots | Projects switch, the view's "All Bots" / "All
   Projects" menu (`pages.scope`), and New and Working as counts at its end ("5 new"; a click narrows the list, another
   clears it). No pills that scroll sideways. This reverses the owner's 2026-11-17 pick of the iPhone's pill row.
-  [mac-top] Owner 2026-11-19 ("the top section feels so messy", then "redo what we have to be better suited"): the
-  same three in the same places as one set of Mac controls (`SessionsMacControl`: 24 pt high, 6 pt corners, footnote
-  medium), their left edge on the project header's. The switch is a segmented control with a grey segment for the view
-  shown, not the 44 pt glass capsule. A narrow pane drops the counts' words ("● 5"), then the switch's glyphs (it always
-  says Bots and Projects), before the menu's name is cut (it had run past both edges). On a project's page the counts are only the header's.
 - **Rows** (`SessionRowView.macTight`, `ProjectCard.rowPad`): in the iOS look at Standard density a one-line chat row
   and a project's row are 36 pt (about 32 on the screen; they were 44 and 39). Compact and the Desktop Look keep theirs.
 - **Captions** are a size under the rows' titles (`SessionDateHeaderView.captionStyle`, footnote) in the iOS look.
@@ -316,24 +311,6 @@ search field always showing was turned down: "behind a click".)
   and light and the Desktop Look dark; the iPhone build and `SessionListPipelineTests`. NOT checked: the menu opened
   (the tour can't open a system menu), the hover buttons under a real pointer and clicks on them, the counts' clicks,
   Mac UI tests, the full suites, more bots or a longer project name than the fixture's.
-
-## Public issues pass (Nov 19, branch fix/issues-2026-11-19)
-
-- **The window comes back as it was left** (`MacWindow.restoreFrame` / `frameChanged`, key `HQMacMainWindowFrame`): the
-  system places a new window itself about 0.2 s after it shows, so for its first 1.5 s the frame asked for is asked
-  again (up to six times) and nothing is kept. Full screen is never kept as a size. A tour (`-HQDebugMacShots…`) neither
-  restores nor keeps. Checked in the running app: resize, quit, reopen. Zoom (the green button with Option, a double
-  click on the bar) and full screen worked before and after; a tester's "cannot be maximized" was not reproduced.
-- **The message box follows the system's text settings** (`ComposerKeyboard.followsSystem`): autocorrect and spell
-  check are `.default` on the Mac, so System Settings › Keyboard decides. Not checked with correction turned off.
-- **The Sessions header in a narrow pane** (`SessionsHeaderView.macRow`, `ViewThatFits`): the whole row; then New and
-  Working as numbers; then the switch's words without their glyphs (owner 2026-11-19: it always says Bots and Projects;
-  1135 had dropped the words), then the menu's pictures. Checked with a real drag of the divider (AX frames) and the
-  tour's two narrow-pane pictures; at the narrowest (320 pt) everything is inside the pane.
-- **Watch Screen takes the keyboard when control is taken** (`ScreenViewerController.couldSendInput`): no keyboard button
-  to find first. Checked with real key presses against the screen fixture, also after a click on the picture.
-- **The Mac is in front only when AppKit says so** (`ViewingBeat.inFront`): UIKit's `applicationState` stays active with
-  another app in front. Used for the add-on's viewing report and for the Mac's own "chat on screen" rule.
 
 ## Polish pass (Nov 7, branch fix/mac-polish)
 

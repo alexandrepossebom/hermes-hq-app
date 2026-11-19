@@ -18,7 +18,6 @@ nonisolated(unsafe) private var pageBarKey: UInt8 = 0
         scene.titlebar?.titleVisibility = .hidden
         scene.titlebar?.toolbar = nil
         scene.sizeRestrictions?.minimumSize = minimumSize
-        restoreFrame(scene)
         DesktopSegments.macTitles(UISegmentedControl.appearance())   // the iOS look has no theme walk at launch
         noWindowTabs()
         MacDockMenu.install()   // quick actions and Talk's controls on the Dock icon
@@ -28,54 +27,6 @@ nonisolated(unsafe) private var pageBarKey: UInt8 = 0
         // [Mac AAA 2026-11-16] What the lines are sized against (`HQShape.pixel`), for the tours' log.
         AppLog.note("mac", "scale: screen \(HQShape.macBacking) px/pt, UIKit \(scene.traitCollection.displayScale), "
             + "pixel line \(HQShape.pixel(1)) pt")
-    }
-
-    // MARK: The main window's place and size, kept between launches
-
-    /// The main window's frame as it was left (`WindowFit.encode`, the screen's own points). A tester 2026-11-18: the
-    /// window came back at the system's first size after every quit. An iPad app's window on the Mac is not restored by
-    /// the system unless "Close windows when quitting an application" is off, which it is not by default.
-    static let frameKey = "HQMacMainWindowFrame"
-    /// The frame asked for while the window opens, and whether its frame is being kept yet.
-    private static var opening: CGRect?
-    private static var asks = 0
-    private static var keeps = false
-    /// A tour sizes the window itself, and its sizes are nobody's choice.
-    private static var touring: Bool { ProcessInfo.processInfo.arguments.contains { $0.hasPrefix("-HQDebugMacShots") } }
-
-    /// Puts the main window where it was left, inside the screen it is on now (a second screen unplugged, a Dock that
-    /// grew). For its first 1.5 s nothing is kept and the frame is held: the system places a new window itself once it
-    /// shows (measured 2026-11-19: 0.2 s after the frame asked for here, it put its own first size back).
-    static func restoreFrame(_ scene: UIWindowScene) {
-        guard !touring else { return }
-        keeps = false
-        asks = 0
-        if let kept = WindowFit.decode(UserDefaults.standard.string(forKey: frameKey), minimum: CGSize(width: 320, height: 240)) {
-            let frame = WindowFit.inside(kept, visible: MacSettingsWindow.visibleScreen(around: kept))
-            AppLog.note("mac", "main window: as left, \(Int(frame.width))×\(Int(frame.height)) at \(Int(frame.minX)),\(Int(frame.minY))")
-            opening = frame
-            scene.requestGeometryUpdate(.Mac(systemFrame: frame)) { _ in }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { opening = nil; keeps = true }
-    }
-
-    /// Every move and resize of the main window: where it is now is where it opens next time. Full screen is a state
-    /// of the window, not a size to come back at.
-    static func frameChanged(_ scene: UIWindowScene) {
-        guard !touring else { return }
-        let frame = scene.effectiveGeometry.systemFrame
-        if let asked = opening {
-            let there = abs(frame.minX - asked.minX) < 2 && abs(frame.minY - asked.minY) < 2
-                && abs(frame.width - asked.width) < 2 && abs(frame.height - asked.height) < 2
-            // The system's own placement, or a frame on the way: asked again (a few times at most), never kept.
-            if !there, !frame.isEmpty, !scene.isFullScreen, asks < 6 {
-                asks += 1
-                scene.requestGeometryUpdate(.Mac(systemFrame: asked)) { _ in }
-            }
-            return
-        }
-        guard keeps, !scene.isFullScreen, !frame.isEmpty else { return }
-        UserDefaults.standard.set(WindowFit.encode(frame), forKey: frameKey)
     }
 
     /// [macpass] 2026-11-14: the app's windows are never tabs, but AppKit's automatic tabbing put Show Tab Bar and

@@ -430,35 +430,6 @@ extension SessionsTests {
         toBots.tap()
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").exists && rail.label == "Bots" }, "the bot pills again")
     }
-    /// [switch-thumb] Owner 2026-11-19: in the Desktop Look the switch's lit side was a capsule inside the track's
-    /// 4 pt-corner box. Both views captured for the eye; the switch still flips.
-    @MainActor func test40g_SwitchThumbInDesktopLook() throws {
-        let app = launch(projectPages: true, extra: ["-HQDebugDesktopLook", "YES"])
-        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
-        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
-        shot(app, "P9-desktop-switch-bots")
-        toProjects.tap()
-        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists })
-        shot(app, "P9-desktop-switch-projects")
-        toBots.tap()
-        XCTAssertTrue(waitUntil(6) { toProjects.exists && !toBots.exists })
-    }
-    /// [press-corners] Owner 2026-11-19: in the Desktop Look on the iPhone a pressed row's box was cut by iOS's large
-    /// card ends (More › Settings). Each outlined section's first and last row drawn pressed (`-HQDebugDesktopPress`),
-    /// on More (the app's list) and Settings (SwiftUI's), for the eye.
-    @MainActor func test40h_PressedRowsInDesktopLook() throws {
-        let app = launch(extra: ["-HQDebugDesktopLook", "YES", "-HQDebugDesktopPress", "YES"])
-        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        app.tabButton(id: "tab-more", label: "More").tap()
-        let settings = app.cells["more-row-settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 10))
-        app.collectionViews["more.list"].swipeDown()      // the list's own layout pass, then the press marks
-        shot(app, "Q1-desktop-more-pressed")
-        settings.tap()
-        Thread.sleep(forTimeInterval: 1.5)
-        shot(app, "Q2-desktop-settings-pressed")
-    }
     /// [project-edge-swipe] Owner 2026-11-17: "Swiping from the left edge when in a project should go back a page when
     /// there is a page to go back to." Back the way the page was come into; on the list itself the swipe does nothing.
     @MainActor func test40e_EdgeSwipeLeavesProjectPage() throws {

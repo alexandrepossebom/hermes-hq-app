@@ -9,9 +9,6 @@ import UIKit
 final class ChatViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
     UITableViewDataSourcePrefetching, ChatCellDelegate {
 
-    var sessionPR: SessionPRStatus? {
-        didSet { if isViewLoaded, sessionPR != oldValue { updateSessionTitle() } }
-    }
     let session: any ChatSessionModel
 
     /// A view drawn left of the name in the title (the bot's head, added at integration). 34 pt.
@@ -211,13 +208,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// A still (non-scrolling) scroll view holding the inverted table. The bar's scroll edge effect needs a
     /// scroll view whose top is the screen's top; the flipped table's own top is the screen's bottom.
     private let edgeHost = UIScrollView()
-    /// [status-bar-top] Takes the status bar's tap (the flipped table can't) and goes to the oldest message loaded.
-    private let topCatcher = StatusBarTopCatcher()
-    /// [status-bar-top] A tap's climb to the top: the old end's rows come into the table only as the reader nears them,
-    /// so one stop at the top of the rows on show fell well short. It goes on until every message loaded when the bar
-    /// was tapped is on show (an older page arriving meanwhile ends it there, as in Messages). Nil: no climb. `hops`
-    /// counts its tenth-of-a-second steps.
-    private var topClimb: (messages: Int, hops: Int)?
     /// [backdrop] Theme › Chat Background: the person's own picture behind everything, bars and message bar included.
     private let backdrop = BackdropView(place: .chats)
     #if targetEnvironment(macCatalyst)
@@ -305,6 +295,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private var unseen = 0
     private var glideLink: CADisplayLink?
     private var a11yToken: NSObjectProtocol?   // [a11y]
+    /// [goals step 3] A goal's card came in (its offer read after the reply named it): the rows are built again.
+    private var goalOffersWatch: NSObjectProtocol?
+    /// [goals step 3] This chat is that goal's own chat (Change It puts the cursor here).
+    var goalChatID: String?
     private var introWatch: NSObjectProtocol?   // [settings] Intro Splash
     private var glideStart: (clock: GlideClock, offset: CGFloat) = (GlideClock(), 0)
     private var lastMomentum: CFTimeInterval = 0
@@ -413,6 +407,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if let backdropWatch { NotificationCenter.default.removeObserver(backdropWatch) }   // [backdrop]
         if let muteWatch { BotMuteCenter.shared.stopObserving(muteWatch) }   // UX study #248
         if let a11yToken { NotificationCenter.default.removeObserver(a11yToken) }   // [a11y]
+        if let goalOffersWatch { NotificationCenter.default.removeObserver(goalOffersWatch) }   // [goals step 3]
         if let introWatch { NotificationCenter.default.removeObserver(introWatch) }   // [settings]
         filesWatch.forEach { NotificationCenter.default.removeObserver($0) }   // [settings]
         if attached {
@@ -627,21 +622,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let span = MainTrail.begin("chat.load")           // [diagnostics] build 292
         defer { MainTrail.end(span) }
         ChatPerf.mark("chat.viewDidLoad")
-        claimLandsNext()   // [notify] the chat a tapped alert named
         applyChatColour()   // [bot-colour] before the first row is drawn
         watchChatColour()
         view.backgroundColor = ChatPalette.page
         backdrop.frame = view.bounds
         backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.insertSubview(backdrop, at: 0)
-        if !DeviceWord.isMac {
-            // [status-bar-top] Under everything (the backdrop covers it, so it never takes a touch), along the top.
-            topCatcher.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 1)
-            topCatcher.autoresizingMask = [.flexibleWidth, .flexibleBottomMargin]
-            topCatcher.onTap = { [weak self] in self?.statusBarTapped() }
-            topCatcher.isFrontmost = { [weak self] in self?.isFrontmostForStatusBar ?? false }
-            view.insertSubview(topCatcher, at: 0)
-        }
 
         tableView.transform = CGAffineTransform(scaleX: 1, y: -1)
         #if targetEnvironment(macCatalyst)
@@ -664,8 +650,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         tableView.automaticallyAdjustsScrollIndicatorInsets = false
         tableView.allowsSelection = false
         tableView.delaysContentTouches = false
-        // A status-bar tap would scroll the flipped table to its own top: the newest end. Off; `topCatcher` takes the
-        // tap and goes to the oldest message instead.
+        // A status-bar tap would scroll the flipped table to its own top: the newest end. Off.
         tableView.scrollsToTop = false
         tableView.dataSource = self
         tableView.delegate = self
@@ -1008,6 +993,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [settings] Intro Splash switched while this chat is open: the empty chat follows at once.
         introWatch = NotificationCenter.default.addObserver(forName: IntroSplash.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updatePlaceholder(animated: false) }
+        }
+        // [goals step 3] A goal's card is drawn from the offer the store has read; one named before then comes in now.
+        goalOffersWatch = NotificationCenter.default.addObserver(forName: TodoOfferStates.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.namesGoalOffer else { return }
+                self.activityRebuildAll()
+            }
         }
         // [a11y] Bold Text flipped while the chat is open: the drawn text is re-measured with the other weights.
         a11yToken = NotificationCenter.default.addObserver(forName: HQAccessibility.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -1554,7 +1546,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             if topAccessory == nil, let strip = make() { setTopAccessory(strip) }
         }
         ChatPerf.mark("chat.viewWillAppear")
-        claimLandsNext()   // [notify] a kept screen, shown again for a tapped alert
         applyChatColour()   // [bot-colour] the face may have changed while this chat was covered
         if attached { activity.setAttached(true) }     // [activity] uncovered by a pop: this chat's polls run again
         if isMovingToParent { fadeBottomBarWithTabBar(appearing: true) }
@@ -1671,7 +1662,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             // several screens, and the push is the moment the chat is judged.
             startFill()
             revealIfNeeded()
-            landOnReplyIfAsked()   // [notify]
         }
         voice.screenAppeared()   // VOICE
     }
@@ -2238,7 +2228,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let offset = tableView.contentOffset.y
         topInset = top
         tableView.contentInset = UIEdgeInsets(top: bottom, left: 0, bottom: top + glideHeadroom, right: 0)
-        defer { landOnReplyIfAsked() }   // [notify] the bar changed height (a task rolled up): the reply's top again
         // [tasks] The keys came for a field in the lead (it shows), or the page holds the lead's top.
         defer { if lead != nil { if leadPinEnded { revealLeadField(animated: false) } else { layoutLead() } } }
         // The jump glide reads the live end every frame; during an interactive keyboard dismissal the finger owns
@@ -2452,7 +2441,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         guard !awaitingReply, (session as? ChatVoiceTurns)?.voiceHold == true,
               let index = messages.lastIndex(where: { ids.contains($0.id) && $0.role == .user && $0.isPending }) else { return }
         awaitingReply = true
-        endLanding()   // [notify]
         awaitFromIndex = index
         lastSendTime = CACurrentMediaTime()
         if !isAtBottom { scrollToBottom(animated: true) }
@@ -2614,12 +2602,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         wasLinkReady = linkReady
         loadOlderIfNear()
         activity.stateChanged()          // [activity] In Header's tap, Previous tasks once idle
-        roomChrome?.stateChanged()
-        updateSessionTitle()
-        if wasRunning && !session.isRunning { runningEndedAt = CACurrentMediaTime() }
-    }
-
-    private func updateSessionTitle() {
         // A session that isn't the bot's own chat names its bot under the title (spec 06 §4.1).
         let owner = botName.trimmingCharacters(in: .whitespaces)
         var subtitle = owner.isEmpty || owner == shownTitle.trimmingCharacters(in: .whitespaces) ? nil : owner
@@ -2638,7 +2620,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         #endif
         if titleOverride != nil { subtitle = nil }   // [tasks-first] the page's own words stand alone (a task's list)
-        titleView.pullRequest = titleOverride == nil ? sessionPR : nil
+        roomChrome?.stateChanged()                                                     // [groups]
         if titleView.title != shownTitle || titleView.subtitle != subtitle {
             let renamed = titleView.title != shownTitle
             titleView.title = shownTitle
@@ -2646,6 +2628,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             sizeTitle()
             if renamed { updatePlaceholder(animated: false) }   // a named chat drops the intro's Name Chat
         }
+        if wasRunning && !session.isRunning { runningEndedAt = CACurrentMediaTime() }
     }
 
     /// UX study #248: a bell.slash after the name while this chat's bot is muted (a group room has its own mute).
@@ -2880,7 +2863,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                 arrived = d.inserts
             }
             growth = restore(anchor, carry: glideCarry)
-            landOnReplyIfAsked()   // [notify] a reply's alert: its top, as the rows come
         }
         AppLog.trace("chatui", "apply \(logTag): \(d.inserts.count) inserted, \(d.deletes.count) removed, \(d.changed.count) updated, "
                      + (reloadReason.map { "full reload (\($0)), not animated" } ?? "batch update, not animated"))
@@ -3356,67 +3338,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         return nil
     }
 
-    // MARK: [notify] Landing on the reply an alert was for
-
-    /// Owner 2026-11-19, a task's reply alert: "I could not read the chat. It wasn't showing me what I was needing to
-    /// see." Every chat opened at its newest end, so a reply taller than the screen showed its last lines. A chat
-    /// opened for a reply (an alert, the peek, a task's "New reply") lands with the newest reply's top 4 pt under the
-    /// bar when the reply is taller than the room, else at the end (spec 3x-transcript §4.1, "reply read from its
-    /// top"; spec 06 §5.3's hold, on arrival). It is applied again while the open's reads change the rows or the bar
-    /// changes height (the cache, the first page, the tail read, a task rolling up to its bar), until you scroll, send
-    /// or jump, or `landingSeconds` pass.
-    private var landingUntil: CFTimeInterval = 0
-    private static let landingSeconds: CFTimeInterval = 12
-    /// A tapped alert's chat, for whichever screen opens it next (Bots, Sessions, a task's page).
-    static var landsNext: (stored: String, at: CFTimeInterval)?
-
-    /// Opens on the newest reply's top (not the task's top, nor the reply's end).
-    func opensAtReply() {
-        leadPinEnded = true
-        landingUntil = CACurrentMediaTime() + Self.landingSeconds
-    }
-
-    /// Already on show: to the newest reply's top now, and again as the rows change.
-    func landOnNewestReply() {
-        opensAtReply()
-        landOnReplyIfAsked()
-    }
-
-    private func endLanding() { landingUntil = 0 }
-
-    /// The screen for the chat a tapped alert named takes the landing (`landsNext`).
-    private func claimLandsNext() {
-        guard let next = Self.landsNext else { return }
-        guard CACurrentMediaTime() - next.at < Self.landingSeconds else { Self.landsNext = nil; return }
-        guard let live = session as? LiveChatSession, live.storedSessionId == next.stored || live.resolvedStoredId == next.stored else { return }
-        Self.landsNext = nil
-        opensAtReply()
-    }
-
-    /// The first message of the bot's newest run (everything after your last message); nil while yours is the newest.
-    private func newestReplyStart() -> String? {
-        let messages = session.messages
-        guard let last = messages.indices.last, messages[last].role != .user else { return nil }
-        var start = last
-        while start > 0, messages[start - 1].role != .user { start -= 1 }
-        // No message of yours above it (a job's chat): the newest reply alone.
-        if start == 0, messages[0].role != .user { return messages.last(where: { $0.role == .assistant })?.id ?? messages[last].id }
-        return messages[start].id
-    }
-
-    private func landOnReplyIfAsked() {
-        guard landingUntil > 0 else { return }
-        guard CACurrentMediaTime() < landingUntil else { endLanding(); return }
-        guard isViewLoaded, !rows.isEmpty, glideLink == nil, lift == nil, !tableView.isTracking, !tableView.isDecelerating,
-              let id = newestReplyStart(), rows.contains(where: { $0.messageId == id }) else { return }
-        anchorMessageId = id
-        // A reply still streaming: the hold takes it from here, as for a reply you watch arrive.
-        if streamLink != nil { if following { holdReplyTopIfNeeded() }; return }
-        following = true
-        tableView.contentOffset.y = minOffset
-        holdReplyTopIfNeeded()
-    }
-
     /// While following a new reply: once its top would pass under the bar, stop following and keep the top in
     /// place, 4 pt below the bar (spec 06 §5.3).
     private func holdReplyTopIfNeeded(glideFrom start: CGFloat? = nil) {
@@ -3693,7 +3614,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             lastWarmOffset = y
         }
         if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
-            if scrollView.isTracking { leadPinEnded = true; endLanding() }   // [tasks] your scroll wins
+            if scrollView.isTracking { leadPinEnded = true }   // [tasks] your scroll wins
             let atBottom = isAtBottom
             if atBottom != following {
                 following = atBottom
@@ -3772,7 +3693,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         if scrollView === tableView, !rows.isEmpty { onEngage?(.drag) }   // [tasks] the pinned panel rolls up
-        topClimb = nil   // [status-bar-top] your scroll wins
         endLift()
         stopGlide()
         stopStreamGlide()
@@ -3855,8 +3775,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     func jumpToLatest() {
         AppLog.trace("scroll", "jumped to bottom \(logTag): was \(unseen) unseen")
         leadPinEnded = true   // [tasks] the newest end wins
-        endLanding()
-        topClimb = nil   // [status-bar-top]
         endLift()
         anchorMessageId = nil
         unseen = 0
@@ -3898,11 +3816,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     /// [mac-feel D30] Page Up and Page Down move the transcript a screen (less a line or two, so the eye keeps its
     /// place), Home goes to the oldest message loaded and End to the newest, as in Messages and every Mac window that
-    /// scrolls. The keys did nothing: a chat could only be scrolled with the pointer. [status-bar-top] A tap on the
-    /// iPhone's and iPad's status bar is Home.
-    func keyScroll(_ key: KeyScroll, from source: String = "keys") {
+    /// scrolls. The keys did nothing: a chat could only be scrolled with the pointer.
+    func keyScroll(_ key: KeyScroll) {
         guard isViewLoaded else { return }
-        if source == "keys" { topClimb = nil }
         let low = minOffset
         let high = max(low, tableView.contentSize.height + tableView.contentInset.bottom - tableView.bounds.height)
         let page = max(88, transcriptBottom - topInset - 44)
@@ -3914,7 +3830,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         case .home: high
         case .end: low
         }
-        AppLog.note(source == "keys" ? "keys" : "chat", "scroll \(key) (\(source))")
+        AppLog.note("keys", "scroll \(key)")
         if target <= low + 2 {
             if !isAtBottom || !following { jumpToLatest() }   // the newest end: the jump's own glide, following again
             return
@@ -3942,51 +3858,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         updateJumpButton()
         scheduleTrim()
-    }
-
-    // MARK: [status-bar-top] A tap on the status bar goes to the top of the chat
-
-    /// Nothing is presented over the chat (it may itself be inside a presented page).
-    private var isFrontmostForStatusBar: Bool {
-        guard let window = viewIfLoaded?.window, var top = window.rootViewController else { return false }
-        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
-        return view.isDescendant(of: top.view)
-    }
-
-    private func statusBarTapped() {
-        guard isViewLoaded, !rows.isEmpty else { return }
-        let first = topClimb == nil
-        topClimb = (session.messages.count, 0)
-        keyScroll(.home, from: "status bar")
-        if first { climbSoon(last: tableView.contentOffset.y) }
-    }
-
-    /// The climb, every tenth of a second until it ends: once the table has stopped moving (its scroll animation done,
-    /// or cut short by an update showing more rows, which ends it without a callback), on to the new top while rows are
-    /// still coming in above. Ends at the top with nothing left to show, on a new message, or after about eight seconds.
-    private func climbStep(last: CGFloat) {
-        guard var climb = topClimb, isViewLoaded, tableView.window != nil else { topClimb = nil; return }
-        climb.hops += 1
-        topClimb = climb
-        guard climb.hops < 80, session.messages.count == climb.messages else { topClimb = nil; return }
-        let now = tableView.contentOffset.y
-        if abs(now - last) > 0.5 { return climbSoon(last: now) }   // still moving
-        // Rows still to come above: hidden, unbuilt, or shown but not yet in the table (a measure in flight).
-        let more = model.hiddenOlder > 0 || model.builtFrom > 0 || rows.count < model.shownCount || layoutInFlight
-        let high = max(minOffset, tableView.contentSize.height + tableView.contentInset.bottom - tableView.bounds.height)
-        if high - now > 2 {
-            keyScroll(.home, from: "status bar")
-        } else if more {
-            revealIfNeeded()   // at the top of what's in the table: the rows above are on their way
-        } else {
-            topClimb = nil
-            return
-        }
-        climbSoon(last: now)
-    }
-
-    private func climbSoon(last: CGFloat) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.climbStep(last: last) }
     }
 
     private static let traceScroll = ProcessInfo.processInfo.arguments.contains("-HQDemoTraceScroll")
@@ -4067,7 +3938,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// `engage: false` ([tasks] an answer tapped on the task's view): the words go out, and the task's view stays.
     func sendFromCard(_ text: String, display: String, engage: Bool = true) {
         leadPinEnded = true   // [tasks] a send: the newest end wins over the task's details
-        endLanding()
         if engage { onEngage?(.send) }
         anchorMessageId = nil
         awaitingReply = true
@@ -4089,7 +3959,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if SlashCommand.matches(text), !sendHasAttachments(), runCommand(text) { return }
         let text = takeReplyQuote(into: text)
         leadPinEnded = true   // [tasks] a send: the newest end wins over the task's details
-        endLanding()
         onEngage?(.send)
         anchorMessageId = nil
         awaitingReply = true
@@ -4205,7 +4074,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         voice.memoSending()
         // A memo recorded under "Replying to …" goes out under the quote too (after the memo, which opens the message).
         let text = takeReplyQuote(into: text)
-        endLanding()   // [notify]
         anchorMessageId = nil
         awaitingReply = true
         awaitFromIndex = session.messages.count
@@ -4441,6 +4309,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let rowsInput = input()
         for run in ChatRowModel.runs(of: indices) { model.rebuildMessages(rowsInput, run) }
         requestApply(urgent: true)
+    }
+
+    /// [goals step 3] A reply here called `goals_offer` (its card waits on the store's read).
+    var namesGoalOffer: Bool {
+        session.messages.contains { m in
+            m.role == .assistant && m.parts.contains { if case .tool(let call) = $0, call.name == "goals_offer" { return true } else { return false } }
+        }
     }
 
     /// Rebuilds every row, holding the first visible row in place (a Tool Calls setting, display flags).
@@ -4985,24 +4860,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// [bot-chat-sessions] The Mac inspector's Chats tab for this chat (every chat of its bot's); nil for a chat with
     /// no bot of its own (a group room).
     var makeChatsPanel: (() -> BotChatsPanel?)?
-
-    /// [bot-chat-back] Owner 2026-11-19 ("When you click a chat from inside a bot chat I need for the chat that opens
-    /// to have a back button on the left side of the top bar to go back to the bot chat"): a chat opened from a bot's
-    /// own chat (a tab, the Chats list, New Chat) takes the bot chat's place in the pane, so the bar had no Back. This
-    /// is that Back: set by `SessionStrip.carryBack`, it leads the bar, and ⌘[ and Escape's last step run it too.
-    var backToBotChat: (() -> Void)? {
-        didSet {
-            let had = navigationItem.leftBarButtonItems?.filter { $0.accessibilityIdentifier != Self.backToBotChatID } ?? []
-            guard backToBotChat != nil else { navigationItem.leftBarButtonItems = had.isEmpty ? nil : had; return }
-            let item = UIBarButtonItem(image: Self.barImage("chevron.backward"), primaryAction: UIAction { [weak self] _ in self?.backToBotChat?() })
-            item.accessibilityIdentifier = Self.backToBotChatID
-            item.accessibilityLabel = "Back to Bot Chat"
-            item.title = "Back to Bot Chat"   // the Mac shows a bar button's title as its tip
-            navigationItem.leftBarButtonItems = [item] + had
-        }
-    }
     #endif
-    static let backToBotChatID = "chat.back-to-bot"
 
     /// [tasks] The pinned panel's height (the page measures what it draws and caps it); 0 lays it away. `insets`: the
     /// transcript starts under it (a bar); false, it covers the transcript and the chat's layout stays as it is.

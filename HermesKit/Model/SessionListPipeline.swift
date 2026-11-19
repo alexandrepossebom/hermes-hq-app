@@ -78,8 +78,6 @@ nonisolated struct SessionListInput: Sendable {
     var botNames: [String: String] = [:]
     /// [sessions-fresh] The header's New or Working chip (in memory, as the bot chip).
     var statusChip: SessionStatusChip? = nil
-    /// A project-page-only PR state; the other filters still intersect it.
-    var projectPRState: SessionPRStatus.State? = nil
     /// [sessions-shape] A project's row opens its page (the app, not the tests of a project opening in place): under
     /// Group By Project a closed project keeps its live chats under its row.
     var liveUnderProjects = false
@@ -460,7 +458,7 @@ nonisolated enum SessionListPipeline {
         // sections the piles replaced). A count's pill, like the rail's New or Working, narrows the piles to the chats
         // it counts (New: waiting on the owner or a reply not read, and one read since the page was last left); Done
         // is left out, the header and its counts stay. Tapped again, every chat is back.
-        let statusShown = input.statusChip.map { chip in
+        let shown = input.statusChip.map { chip in
             ordered.filter { session in
                 switch chip {
                 case .new: state(session) == .needsYou || state(session) == .ready || input.keepNew.contains(Self.key(session))
@@ -468,13 +466,11 @@ nonisolated enum SessionListPipeline {
                 }
             }
         } ?? ordered
-        let shown = statusShown.filter { input.projectPRState == nil || $0.pullRequest?.state == input.projectPRState }
-        let shownDone = done.filter { input.projectPRState == nil || $0.pullRequest?.state == input.projectPRState }
         let sections: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] = [
             ("pinned", "Pinned", shown.filter(\.pinned), false), ("active", "Active", shown.filter { !$0.pinned }, true),
-            ("done", "Done", input.statusChip == nil ? sort(shownDone, by: .updated) : [], true)]
+            ("done", "Done", input.statusChip == nil ? sort(done, by: .updated) : [], true)]
         // A status filter or pill shows every match (a closed section would hide what it was set to find).
-        let filtered = !input.prefs.statusFilter.isEmpty || input.statusChip != nil || input.projectPRState != nil
+        let filtered = !input.prefs.statusFilter.isEmpty || input.statusChip != nil
         for section in sections where !section.chats.isEmpty {
             var group = SessionGroup(id: statePrefix + section.id, title: section.title, sessions: section.chats)
             group.total = group.sessions.count
@@ -797,7 +793,7 @@ nonisolated enum SessionRowWords {
     /// · Color · Deleting. The figures are read out ("1.2k tokens", "$0.34").
     static func accessibilityLabel(title: String, session: SessionSummary, ownerName: String, detail: Set<SessionRowDetail>,
                                    time: String, snippet: String? = nil, colorName: String? = nil, busy: Bool = false,
-                                   muted: Bool = false, showPR: Bool = false) -> String {
+                                   muted: Bool = false) -> String {
         var parts = [title]
         let status = statusWords(session.status, step: session.step)
         if let status { parts.append(status.replacingOccurrences(of: "…", with: "")) }
@@ -810,7 +806,6 @@ nonisolated enum SessionRowWords {
         if session.unread { parts.append("Unread") }
         if session.pinned { parts.append("Pinned") }
         if session.archived { parts.append("Archived") }
-        if showPR, let pr = session.pullRequest { parts.append("Pull request: " + pr.label) }
         if muted { parts.append("Muted") }              // UX study #248: the bot is muted on this iPhone
         if let colorName, !colorName.isEmpty { parts.append("Color: \(colorName)") }
         if busy { parts.append("Deleting") }

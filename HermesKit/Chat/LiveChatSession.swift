@@ -505,10 +505,6 @@ final class LiveChatSession: ChatSessionModel {
     var refreshAgainForce = false
     var queueDrainTask: Task<Void, Never>?
     var changedPassTask: Task<Void, Never>?
-    /// [foreign-steer] A look for messages another device sent into the running reply (LiveChatSession+ForeignSteers.swift).
-    var steerLookTask: Task<Void, Never>?
-    var lastSteerLookAt: Date?
-    var steerLookOwed = false
     var turnEndTask: Task<Void, Never>?
     var foreignPromptTask: Task<Void, Never>?
     var reconnectTask: Task<Void, Never>?
@@ -1701,9 +1697,7 @@ final class LiveChatSession: ChatSessionModel {
     func unparkQueue() { isQueueParked = false }
 
     func parkQueue() {
-        // [voice record] Stop holds what was typed, never a voice chat's words alone: parked, a record waited as a
-        // card and was deleted, and the bot never had the talk (owner, 2026-11-18).
-        guard queuedMessages.contains(where: { !VoiceChatRecord.isRecord($0.text) }), !isQueueParked else { return }
+        guard !queuedMessages.isEmpty, !isQueueParked else { return }
         AppLog.trace("send", "queue parked in \(logIds): \(queuedMessages.count) held until the next send")
         isQueueParked = true
         queueDrainTask?.cancel(); queueDrainTask = nil

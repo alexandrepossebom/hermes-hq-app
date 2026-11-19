@@ -96,9 +96,6 @@ extension MacShots {
         if runs("shelf"), let summary {
             summary.sendActions(for: .touchUpInside)
             await snap("shelf-open", wait: 1.5)
-            // The collapse-all ⌃'s hover, as the pointer over it draws it (owner 2026-11-19: "messed up").
-            chat.activity.shelf.debugHoverCollapse()
-            await snap("shelf-collapse-hover", wait: 0.4)
             summary.sendActions(for: .touchUpInside)
             try? await Task.sleep(for: .seconds(1))
         }

@@ -104,60 +104,6 @@ struct WorkingLedgerWatchTests {
         #expect(watch.storedIds == ["chat"], "a read after the end is believed: a new turn")
     }
 
-    /// [roster-working] A chat whose turn ended but whose background build still runs says Working… on its row, from
-    /// `subagent.roster` asked per bot (owner 2026-11-19: "it was working, but in my session list it did not say that
-    /// it was working"). A turn's end doesn't clear it; the roster's next word does.
-    @Test func backgroundWorkFromTheRoster() async {
-        let busy = Mutex(true)
-        let fake = client(Box(Answers()))
-        fake.onCall { method, params in
-            guard method == "subagent.roster" else { return .object([:]) }
-            guard busy.withLock({ $0 }) else { return ["sessions": []] }
-            return params["profile"]?.string == "hermes-hq"
-                ? ["sessions": [["session_id": "desk", "subagents": 0, "background": 2],
-                                ["session_id": "idle", "subagents": 0, "background": 0]]]
-                : ["sessions": [["session_id": "kid", "subagents": 1, "background": 0]]]
-        }
-        let watch = WorkingLedgerWatch(client: fake)
-        watch.profiles = { ["hermes-hq", "default", ""] }
-        await watch.readOnce()
-        #expect(watch.backgroundIds == ["desk", "kid"])
-        #expect(watch.storedIds.isEmpty, "no turn runs")
-        #expect(fake.calls("subagent.roster").count == 2, "one read per bot, the default once")
-        #expect(fake.calls("subagent.roster").contains { $0.params == .object([:]) }, "the default bot asks with {}")
-        watch.turnEnded("desk")
-        #expect(watch.backgroundIds.contains("desk"), "the turn's end leaves its background work")
-        busy.withLock { $0 = false }
-        await watch.readOnce()
-        #expect(watch.backgroundIds.isEmpty)
-    }
-
-    /// [roster-working] A gateway without `subagent.roster` is left alone for a while; a failed read keeps the last word.
-    @Test func rosterMissingOrFailing() async {
-        let mode = Mutex(0)
-        let fake = client(Box(Answers()))
-        fake.onCall { method, _ in
-            guard method == "subagent.roster" else { return .object([:]) }
-            switch mode.withLock({ $0 }) {
-            case 0: return ["sessions": [["session_id": "desk", "background": 1]]]
-            case 1: throw URLError(.timedOut)
-            default: throw RPCError(code: -32601, message: "unknown method", data: nil)
-            }
-        }
-        let watch = WorkingLedgerWatch(client: fake)
-        watch.profiles = { ["default"] }
-        await watch.readOnce()
-        mode.withLock { $0 = 1 }
-        await watch.readOnce()
-        #expect(watch.backgroundIds == ["desk"], "a failed read keeps it")
-        mode.withLock { $0 = 2 }
-        await watch.readOnce()
-        #expect(watch.backgroundIds.isEmpty)
-        let asked = fake.calls("subagent.roster").count
-        await watch.readOnce()
-        #expect(fake.calls("subagent.roster").count == asked, "not asked again for a while")
-    }
-
     /// Wanted: it reads now and keeps reading; not wanted: the reads stop, and stop clears.
     @Test func readsOnlyWhileWanted() async {
         let answers = Box(Answers(ledger: ["gw"]))

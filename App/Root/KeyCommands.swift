@@ -537,7 +537,7 @@ extension MoreViewController: KeySearchable {}
         facts.presented = presented(root) != nil
         facts.searching = activeSearch(root) != nil
         facts.chatDraft = root.chatOnShow.map { EscapeRule.isDraft($0.composer.text) } ?? false
-        facts.depth = inPlaceBack(root) != nil ? 2 : max(backStack(root)?.viewControllers.count ?? 1, botChatBack(root) != nil ? 2 : 1)
+        facts.depth = inPlaceBack(root) != nil ? 2 : backStack(root)?.viewControllers.count ?? 1
         return facts
     }
 
@@ -576,17 +576,7 @@ extension MoreViewController: KeySearchable {}
 
     /// ⌘[ (View › Back) has a page to go back from, as the bar's Back button does.
     static func canGoBack(_ root: MainTabController) -> Bool {
-        inPlaceBack(root) != nil || botChatBack(root) != nil || backStack(root).map(canGoBack) ?? false
-    }
-
-    /// [bot-chat-back] The chat on show was opened from its bot's own chat: Back goes there.
-    static func botChatBack(_ root: MainTabController) -> (() -> Void)? {
-        #if targetEnvironment(macCatalyst)
-        guard let chat = root.chatOnShow, chat.navigationController?.viewControllers.count == 1 else { return nil }
-        return chat.backToBotChat
-        #else
-        return nil
-        #endif
+        inPlaceBack(root) != nil || backStack(root).map(canGoBack) ?? false
     }
 
     /// [macpass-tools] The list's page while it shows a folder it opened in place (Files' table): Back goes up one.
@@ -603,8 +593,6 @@ extension MoreViewController: KeySearchable {}
     /// Back one page on the stack Escape goes back on (`goBack`).
     static func escapeGoBack(_ root: MainTabController) {
         if let page = inPlaceBack(root) { page.goBackInPlace(); return }
-        if let stack = backStack(root), canGoBack(stack) { goBack(stack); return }
-        if let back = botChatBack(root) { back(); return }
         guard let stack = backStack(root) else { return }
         goBack(stack)
     }

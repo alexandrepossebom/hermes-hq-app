@@ -39,17 +39,13 @@ The status is prefetched when a chat opens (only on a device that chose Grok) an
 
 `url` with the subprotocol `xai-client-secret.<client_secret>`. After `session.created` the phone sends `session.update`
 (voice and instructions from the add-on, `server_vad`, PCM 24 kHz in and out, the `ask_agent` tool) and the chat's seed as
-`conversation.item.create` messages (GPT-Live's limits: 40 messages, 12,000 characters). The instructions always add
-`GrokLiveWire.oneVoiceNote` (one assistant in the first person; the tool is how it works; no hand-off or waiting talk;
-at most one short line while working; say the result and nothing else). A seeded session's instructions then end with
-the note that the earlier messages are background only, never recapped, and the tool knows the rest
-(`GrokLiveWire.chatNote`). No instruction or tool description names the tool or an agent (2026-11-18).
+`conversation.item.create` messages (GPT-Live's limits: 40 messages, 12,000 characters). A seeded session's instructions
+end with the note that the chat goes further back and `ask_agent` knows it (`GrokLiveWire.chatNote`).
 
 In: `session.updated` (listening), `conversation.item.input_audio_transcription.delta|updated|completed` (the person's
 words; a `completed` adds only what the deltas didn't), `response.output_audio_transcript.delta`, `response.output_audio.delta`
 (played), `input_audio_buffer.speech_started` (barge-in), `response.created` / `response.done`,
-`response.function_call_arguments.done` (`ask_agent`: the delegation), `error` (a cancel with "no active response" after
-a barge-in is ignored). Anything else is ignored.
+`response.function_call_arguments.done` (`ask_agent`: the delegation), `error`. Anything else is ignored.
 
 Out: `input_audio_buffer.append` (PCM16 mono 24 kHz, ~100 ms pieces; none while muted), `conversation.item.create`
 (function outputs, news), `response.create`, `response.cancel`.
@@ -57,9 +53,8 @@ Out: `input_audio_buffer.append` (PCM16 mono 24 kHz, ~100 ms pieces; none while 
 ### 3.3 The delegated turn
 
 The bubble is the tool's `request` argument (the person's words when it is empty); `surface` and `voice_context` as
-GPT-Live. When the turn ends: `function_call_output` `{"answer": reply ≤ 4,000 characters, cleaned for speech, "note":
-GrokLiveWire.sayResultNote}` (say this result only; don't recap earlier messages) + `response.create`. No words:
-`{"answer":"","note":"That finished without a reply."}`. Refused send: a note that it
+GPT-Live. When the turn ends: `function_call_output` `{"answer": reply ≤ 4,000 characters, cleaned for speech}` +
+`response.create`. No words: `{"answer":"","note":"The agent finished without a reply."}`. Refused send: a note that it
 didn't go through. A newer call closes the open one with a "replaced" note (no response).
 
 ## 4. The loop
@@ -69,11 +64,10 @@ request) and `LiveTalkState.engine` (Grok takes the reply whole once the turn is
 transport turns the loop's effects into xAI events (`GrokLiveCalls`):
 
 - `.speak` for an open call → its function output; with no call (a bot's message, a finished job, a schedule; `[SILENT]`
-  says nothing) → a user message "(Not from the person — news from your own work:) … Tell the person this briefly, as
-  your own news." + `response.create`.
+  says nothing) → a user message "(Not from the person — your agent says:) … Tell the person this briefly." + `response.create`.
 - `.think`: only "ended without words" is sent; progress notes are not (Grok does not narrate them).
-- Send Now → `response.create` with the instruction; Interrupt → local flush + `response.cancel`. GPT-Live's working
-  and chat notes are not sent mid-session (`session.update` carries Grok's own).
+- Send Now → `response.create` with the instruction; Interrupt → local flush + `response.cancel`. The GPT-Live persona
+  note is not sent (the add-on's instructions carry it).
 - Barge-in: `speech_started` flushes local playback at once (player stopped, queue dropped) and cancels a response in flight.
 - Status: Starting until `session.updated`; Speaking while voice audio is queued (+0.3 s); Thinking while a delegation
   waits; else Listening. Levels from the microphone pieces' RMS and the played pieces' RMS.

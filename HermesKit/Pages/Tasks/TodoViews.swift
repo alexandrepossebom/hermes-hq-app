@@ -475,9 +475,10 @@ nonisolated enum TodoViews {
 /// Where a job of yours already holds one of the names, the add-on (from 0.9.56) leaves it alone and names its own
 /// with `taken` after it ("Task check (Hermes HQ)"): that one is the add-on's too.
 nonisolated enum TodoRunnerJobs {
-    static let names: Set<String> = ["Task prep", "Task check", "Task ideas"]
+    /// [goals step 4] "Goal check-in" (hermes-hq-push 0.9.66): one per bot that leads a goal with a check-in.
+    static let names: Set<String> = ["Task prep", "Task check", "Task ideas", "Goal check-in"]
     static let taken = " (Hermes HQ)"
-    static let openings = ["Work through Tasks prep.", "Find task ideas for the user."]
+    static let openings = ["Work through Tasks prep.", "Find task ideas for the user.", "Run your goals' weekly check-in."]
 
     static func isOne(_ job: CronJob) -> Bool {
         guard var name = job.name?.trimmingCharacters(in: .whitespaces) else { return false }

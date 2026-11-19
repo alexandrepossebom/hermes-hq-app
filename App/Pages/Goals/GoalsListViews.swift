@@ -23,18 +23,28 @@ struct GoalCardModel: Hashable {
     /// The next task was ticked here and is on its way.
     var ticking = false
     var spoken: String
+    /// [goals step 3] The bots on the goal (lead first), the lead's orange dot, and their names and faces.
+    var team: [String] = []
+    var led = false
+    var waits = false
+    var look = GoalTeamLook()
+    /// [goals step 4] "Nothing has moved in 16 days": an orange line under the grey one.
+    var stall: String?
 
     static func == (a: GoalCardModel, b: GoalCardModel) -> Bool {
         a.id == b.id && a.title == b.title && a.color == b.color && a.fraction == b.fraction && a.line == b.line && a.pace == b.pace
             && a.next?.id == b.next?.id && a.next?.title == b.next?.title && a.quiet == b.quiet && a.greyRing == b.greyRing && a.ticking == b.ticking && a.spoken == b.spoken
+            && a.team == b.team && a.led == b.led && a.waits == b.waits && a.look == b.look && a.stall == b.stall
     }
 
     func hash(into hasher: inout Hasher) { hasher.combine(id); hasher.combine(line); hasher.combine(next?.id) }
 
-    static func make(_ goal: Goal, tasks: [TodoTask], now: Date, ticking: Set<String>) -> GoalCardModel {
+    /// `bots`: the add-on knows goals' bots (`goal_bots`). `keptHere`: Keep Going on this device (`GoalKeptHere`).
+    static func make(_ goal: Goal, tasks: [TodoTask], now: Date, ticking: Set<String>, bots: Bool = false,
+                     offers: [TodoOffer] = [], look: GoalTeamLook = GoalTeamLook(), keptHere: Date? = nil) -> GoalCardModel {
         let active = goal.state == .active
         let next = active ? GoalViews.nextTask(goal, tasks: tasks) : nil
-        return GoalCardModel(id: goal.id, title: goal.title.isEmpty ? "Untitled Goal" : goal.title, color: goal.tint,
+        var card = GoalCardModel(id: goal.id, title: goal.title.isEmpty ? "Untitled Goal" : goal.title, color: goal.tint,
                              fraction: GoalViews.fraction(goal, tasks: tasks),
                              line: active ? GoalViews.line(goal, tasks: tasks, now: now) : (GoalViews.statusLine(goal, now: now) ?? ""),
                              pace: GoalViews.pace(goal, tasks: tasks, now: now),
@@ -42,6 +52,14 @@ struct GoalCardModel: Hashable {
                              greyRing: goal.state == .paused || goal.state == .letGo,
                              ticking: next.map { ticking.contains($0.id) } ?? false,
                              spoken: GoalViews.spoken(goal, tasks: tasks, now: now))
+        if bots {
+            card.team = GoalBots.team(goal)
+            card.led = goal.lead != nil
+            card.waits = GoalBots.waitsForYou(goal, offers: offers)
+            card.look = look
+        }
+        card.stall = GoalViews.stalled(goal, tasks: tasks, now: now, keptHere: keptHere).map(GoalViews.stallLine)
+        return card
     }
 }
 
@@ -52,11 +70,16 @@ struct GoalCard: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var textRing: CGFloat = 32
     private var ringSize: CGFloat { HQFont.scaled(textRing) }
+    @ScaledMetric(relativeTo: .body) private var textFace: CGFloat = 22
+    private var faceSize: CGFloat { HQFont.scaled(textFace) }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Theme.isDesktop ? DesktopRows.radius : 14, style: .continuous)
+        // [goals step 2] At the accessibility sizes the ring stands over the words, so the name has the card's width
+        // (beside the ring it ran to a word a line).
+        let head = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
+            head {
                 GoalRing(fraction: model.fraction, color: model.color, size: ringSize, quiet: model.greyRing)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.title)
@@ -65,8 +88,20 @@ struct GoalCard: View {
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
                     line
+                    if let stall = model.stall {
+                        Text(stall)
+                            .font(Font.hq(.footnote))
+                            .foregroundStyle(Color.hqOrange)
+                            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("goal.card.stall")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // [goals step 3] The bots on the goal at the card's end.
+                if !model.team.isEmpty {
+                    GoalTeamFaces(team: model.team, look: model.look, waits: model.waits, size: faceSize)
+                }
             }
             .padding(.vertical, 12)
             if let next = model.next {
@@ -104,7 +139,8 @@ struct GoalCard: View {
         .padding(.vertical, 5)
         // One element: the ring and the line are words in its label, not stops of their own.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(model.spoken)
+        .accessibilityLabel(GoalCardWords.label(model.spoken, stall: model.stall,
+                                                  team: model.look.spoken(team: model.team, led: model.led, waits: model.waits)))
         .accessibilityValue(model.fraction.map { "\(Int(($0 * 100).rounded(.down))) percent" } ?? "No plan yet")
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the goal")

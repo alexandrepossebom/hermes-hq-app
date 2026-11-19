@@ -31,6 +31,9 @@ final class NewTodoModel {
     var failure: String?
     /// "Added “Call mom”", for a moment after a task of your own went in.
     var added: String?
+    /// [goals] Counts the tasks of your own added here: each one puts the line back in focus, so the keys stay up for
+    /// the next (docs/tasks.md step 4: "Add leaves the sheet open for the next task").
+    var addedCount = 0
     @ObservationIgnored var onCreated: ((TodoTask?) -> Void)?
     @ObservationIgnored weak var controller: UIViewController?
     @ObservationIgnored private var addedWork: DispatchWorkItem?
@@ -140,6 +143,7 @@ final class NewTodoModel {
             // Your own: the sheet stays for the next one.
             done?(made)
             startOver()
+            addedCount += 1
             let words = "Added “\(made.title)”"
             added = words
             HQAnnounce.say(words)
@@ -289,6 +293,8 @@ struct QuickAddButton: View {
     var enabled: Bool
     var saving: Bool
     var identifier: String
+    /// What VoiceOver calls it ([goals] Update's says "Update").
+    var label = "Add"
     var action: () -> Void
 
     var body: some View {
@@ -307,7 +313,7 @@ struct QuickAddButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .accessibilityLabel("Add")
+        .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
     }
 }
@@ -413,6 +419,8 @@ struct NewTodoView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight($0) }
         .frame(maxHeight: .infinity, alignment: .top)
         .onAppear { focus = .title }
+        // [goals] Add takes the focus off the line (the keys went down after the first task): it goes back to the line.
+        .onChange(of: model.addedCount) { _, _ in focus = .title }
     }
 
     // MARK: The buttons

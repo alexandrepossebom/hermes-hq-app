@@ -227,9 +227,7 @@ struct BotPhotoStoreTests {
         #expect(changed == ["ivy", "ivy"])
     }
 
-    /// [keep-photo] One "no avatar" is not believed against a kept photo (Hermes says it whenever its look at the bot's
-    /// folder fails); the next answer that agrees is.
-    @Test func anAvatarThatGoesAwayIsTheHeadOnceTheNextAnswerAgrees() async {
+    @Test func anAvatarThatGoesAwayIsTheHeadAtOnce() async {
         let gateway = PhotoGateway(avatars: ["ivy": PhotoTest.photoA])
         let store = makeStore(gateway)
         rows(PhotoGateway.profile("ivy"), to: store)
@@ -238,8 +236,6 @@ struct BotPhotoStoreTests {
         store.onChange = { changed.append($0) }
 
         gateway.set("ivy", nil)
-        rows(PhotoGateway.profile("ivy", hasAvatar: false), to: store)
-        #expect(store.hasPhoto("ivy") && changed.isEmpty, "the first answer alone changes nothing")
         rows(PhotoGateway.profile("ivy", hasAvatar: false), to: store)
         #expect(store.verdict(for: "ivy") == BotPicture.Verdict.none)
         #expect(changed == ["ivy"])
@@ -253,57 +249,7 @@ struct BotPhotoStoreTests {
             rows(PhotoGateway.profile("ivy", hasAvatar: flip % 2 == 0), to: store)
             await settle(store)
         }
-        // The first flip back fetches the new picture; after that each lone "no avatar" is doubted, not acted on.
-        #expect(gateway.fetches("ivy") == 1 + 1)
-        #expect(store.hasPhoto("ivy"))
-    }
-
-    /// [keep-photo] A tester 2026-11-17: custom pictures were replaced by the generated heads at odd moments.
-    @Test func oneOddAnswerNeverCostsAKeptPhoto() async {
-        let gateway = PhotoGateway(avatars: ["ivy": PhotoTest.photoA, "ana": PhotoTest.photoB])
-        let store = makeStore(gateway)
-        rows(PhotoGateway.profile("ivy"), PhotoGateway.profile("ana"), to: store)
-        await settle(store)
-        var changed: [String] = []
-        store.onChange = { changed.append($0) }
-        // A row that leaves the field off, as often as it likes, while another row of the same answer carries it.
-        for _ in 0..<4 { rows(PhotoGateway.profile("ivy", hasAvatar: nil), PhotoGateway.profile("ana"), to: store) }
-        // "No avatar" once, then right again; missing from one answer, then back.
-        rows(PhotoGateway.profile("ivy", hasAvatar: false), PhotoGateway.profile("ana"), to: store)
-        rows(PhotoGateway.profile("ivy"), PhotoGateway.profile("ana"), to: store)
-        rows(PhotoGateway.profile("ana"), to: store)
-        rows(PhotoGateway.profile("ivy"), PhotoGateway.profile("ana"), to: store)
-        // And again later: each lone doubt starts afresh.
-        rows(PhotoGateway.profile("ivy", hasAvatar: false), PhotoGateway.profile("ana"), to: store)
-        rows(PhotoGateway.profile("ivy"), PhotoGateway.profile("ana"), to: store)
-        await settle(store)
-        #expect(store.hasPhoto("ivy") && exists(store, "ivy"))
-        #expect(changed.isEmpty)
-        #expect(gateway.fetches("ivy") == 1, "nothing was downloaded again")
-    }
-
-    /// [keep-photo] The picture's revision moved and the gateway answers that there is none: asked once more before
-    /// the kept one goes.
-    @Test func aFetchThatFindsNoPictureIsAskedAgainBeforeTheKeptOneGoes() async {
-        let gateway = PhotoGateway(avatars: ["ivy": PhotoTest.photoA])
-        let store = makeStore(gateway)
-        rows(PhotoGateway.profile("ivy"), to: store)
-        await settle(store)
-        // A busy gateway answers empty once, then has the picture again.
-        gateway.state.mutate { $0.oddAnswers["ivy"] = ["found": false] }
-        rows(PhotoGateway.profile("ivy", bots: 2), to: store)
-        #expect(await BotsTest.waitUntil { gateway.fetches("ivy") == 2 })
-        #expect(store.hasPhoto("ivy"))
-        gateway.state.mutate { $0.oddAnswers["ivy"] = nil }
-        await settle(store)
-        #expect(gateway.fetches("ivy") == 3)
-        #expect(store.hasPhoto("ivy") && exists(store, "ivy"))
-        // Really removed: two answers that agree.
-        gateway.set("ivy", nil)
-        rows(PhotoGateway.profile("ivy", bots: 3), to: store)
-        await settle(store)
-        #expect(store.verdict(for: "ivy") == BotPicture.Verdict.none)
-        #expect(!exists(store, "ivy"))
+        #expect(gateway.fetches("ivy") == 1 + 3)
     }
 
     // MARK: the queue
@@ -760,8 +706,6 @@ struct BotPhotoStoreTests {
         let store = makeStore(gateway)
         rows(PhotoGateway.profile("ivy"), PhotoGateway.profile("ana"), to: store)
         await settle(store)
-        rows(PhotoGateway.profile("ana"), to: store)
-        #expect(store.hasPhoto("ivy"), "[keep-photo] missing from one answer: kept until the next agrees")
         rows(PhotoGateway.profile("ana"), to: store)
         BotPhotoDisk.shared.flush()
         #expect(store.entries["ivy"] == nil && !exists(store, "ivy"))

@@ -461,25 +461,13 @@ final class BotStore {
         }
         // [botsaid] The row draws the bot's own words: these are kept with the chat until its next read.
         if said, let preview, noteBotSaid(profile: name, sessionId: canonical.openId, text: preview, at: stamp) { changed = true }
-        // Only the bot's own chat on screen sees this: one of its side chats on screen doesn't.
-        let watched = focus.map { $0.profile == name && isOwnChat($0) } ?? false
-        // [botunread] A reply known only by its words may be written to another bot (a tester 2026-11-19: a bot that
-        // only answered another bot still lit up, when its turn ended while this device listened off screen). Where
-        // the chat can be read, the bot waits for that read like one a roster moved (`settleUnread`); the dot comes
-        // at once only where no read can follow, or for words known to be for you.
-        var held = false
-        if unseen, !watched, !said, !stopped, timing.readsBotSaid, !canonical.id.isEmpty, RosterRules.holdsMessages(canonical),
-           !device.unread.isMarked(profiles[i]), let before = device.unread.baselines[name] {
-            if device.unread.held(name) == nil { unreadHeldAt[name] = .now }
-            device.unread.hold(name, since: before)
-            held = true
-            persistState()
-        }
-        if !said, preview != nil || held { rereadBotSaid(profile: name) }
+        if !said, preview != nil { rereadBotSaid(profile: name) }
         if (canonical.messageCount ?? 0) == 0 { canonical.messageCount = max(1, canonical.messageCount ?? 0); changed = true }
         guard changed else { return }
         profiles[i].canonicalSession = canonical
-        if unseen, !watched, !held {
+        // Only the bot's own chat on screen sees this: one of its side chats on screen doesn't.
+        let watched = focus.map { $0.profile == name && isOwnChat($0) } ?? false
+        if unseen, !watched {
             device.unread.mark(profiles[i])
             persistState()
         }

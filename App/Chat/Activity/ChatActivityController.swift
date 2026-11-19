@@ -159,17 +159,6 @@ import UIKit
             }
             self.updateShelf(animated: true)
         }
-        // [collapse-all] The expanded header's trailing ⌃: straight back to the pill from any depth (a category's detail,
-        // a helper's page under it). Reopening starts at the overview; Steer drafts are kept.
-        shelf.onCollapseAll = { [weak self] in
-            guard let self else { return }
-            self.acknowledgeOpenHelperFailure()
-            self.subagentsBody.endEditing(true)
-            self.openPieces.removeAll()
-            self.selectedSubagent = nil
-            self.shelf.expanded = false
-            self.updateShelf(animated: true)
-        }
         sideInset = chat.dockSideInset
         shelfSides = [shelf.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: sideInset),
                       view.trailingAnchor.constraint(equalTo: shelf.trailingAnchor, constant: sideInset)]
@@ -1635,6 +1624,29 @@ extension ChatViewController: ActivityCellDelegate, ChatCellMenuExtending {
             AppLog.note("tasks", "chat offer \(action.rawValue) → \(ok ? "ok" : "failed")")
             done(ok)
         }
+    }
+
+    /// [goals step 3] A tap on a goal's card: `POST /tasks/offers/{id}` with `plan` / `in_goal`.
+    func activityCellAnswerGoalOffer(id: String, action: TodoOfferAction, plan: Bool, inGoal: Bool, done: @escaping (Bool) -> Void) {
+        let client = (session as? LiveChatSession)?.client
+        Task {
+            let ok = await TasksHub.answerOffer(id, action, list: true, plan: plan, inGoal: inGoal, client: client)
+            AppLog.note("goals", "chat goal card \(action.rawValue) → \(ok ? "ok" : "failed")")
+            done(ok)
+        }
+    }
+
+    /// [goals step 3] Change It: in the goal's own chat the cursor goes to this composer; elsewhere the goal's chat opens.
+    func activityCellChangeGoalOffer(goal: String?) {
+        guard let goal, goalChatID != goal, TasksHub.openGoal(goal, chat: true) else { focusComposer(); return }
+    }
+
+    /// [goals step 3] "2 more ›": every milestone and task on the card, in a sheet.
+    func activityCellShowGoalOffer(id: String) {
+        guard let offer = TodoOfferStates.live(id).offer else { return }
+        let bots = MorePages.context?.bots ?? []
+        let sheet = GoalOfferAllSheet.make(offer, goal: TodoOfferStates.goal(offer.goal)) { PagesNames.botName($0 ?? "default", bots: bots) }
+        present(sheet, animated: true)
     }
 }
 

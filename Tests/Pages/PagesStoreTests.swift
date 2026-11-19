@@ -63,6 +63,22 @@ struct JobsStoreTests {
         #expect(JobsStore.nextDueRead([try job("a", startsIn: 60, ["enabled": false])], now: now) == nil)
     }
 
+    /// [goals step 4] The add-on's "Goal check-in" is plumbing, as Task prep: it stays out of Jobs; yours of the same
+    /// name stays in.
+    @Test func goalCheckinJobStaysOutOfJobs() async {
+        let client = PagesFakeClient { _ in
+            .array([
+                ["id": "a", "name": "Goal check-in", "prompt": "Run your goals' weekly check-in. Call goals_next_review.",
+                 "profile": "inbox", "enabled": true, "state": "scheduled"],
+                ["id": "b", "name": "Goal check-in", "prompt": "Ask me how my goals went.", "profile": "inbox", "enabled": true,
+                 "state": "scheduled"],
+            ])
+        }
+        let store = JobsStore(client: client, account: client.account, directory: nil)
+        await store.refresh()
+        #expect(store.jobs.map(\.id) == ["b"])
+    }
+
     @Test func readOnlyRefusesEveryWriteBeforeSending() async {
         let client = PagesFakeClient { _ in Self.jobs(["a"]) }
         let store = JobsStore(client: client, account: client.account, directory: nil)

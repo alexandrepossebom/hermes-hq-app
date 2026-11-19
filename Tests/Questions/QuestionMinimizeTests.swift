@@ -125,44 +125,6 @@ extension QuestionsScreenTests {
         #expect(ui.dockView === dock)
     }
 
-    // A tester, 2026-11-19: "it asks and then after a minute or two it disappears while I was mid answering … it
-    // deleted all my answers" (the gateway's 90 s clarify timeout). Typed answers stay, as Answer Now's.
-    @Test func aQuestionTheBotStopsWaitingForKeepsWhatWasTyped() async throws {
-        deliver("srq-keep", "clarify", ServerRequestCenterTests.clarify)
-        let (chat, window, _) = try onScreen(PromptSheetStore())
-        defer { window.isHidden = true; window.rootViewController = nil }
-        #expect(await waitUntil { chat.promptsUI?.dockView != nil })
-        let ui = try #require(chat.promptsUI)
-        let live = try #require(ui.dockView)
-        let page = try #require(questionControl("question.page.0", in: live))
-        let pick: UIControl = try #require(questionControl("question.choice.1", in: page))
-        pick.sendActions(for: .touchUpInside)
-        #expect(await waitUntil { live.draft.stages["q0"]?.choices == ["staging"] })
-        center.receive(GatewayEvent(type: "request.cancel", sessionId: runtime, seq: nil,
-                                    payload: ["id": "srq-keep", "reason": "timeout"]))
-        #expect(await waitUntil { ui.dockView !== live })
-        let kept = try #require(ui.dockView, "the dock stays up with the answers")
-        #expect(kept.later)
-        #expect(kept.prompt.questions.map(\.question) == live.prompt.questions.map(\.question))
-        #expect(kept.draft.stages["q0"]?.choices == ["staging"])
-        #expect(chat.hasPromptDock)
-        #expect(client.answers.isEmpty)
-        ui.dockSkip(kept) // Cancel closes it
-        #expect(ui.dockView == nil)
-        #expect(!chat.hasPromptDock)
-    }
-
-    @Test func anUntouchedQuestionTheBotStopsWaitingForGoes() async throws {
-        deliver("srq-blank", "clarify", ServerRequestCenterTests.clarify)
-        let (chat, window, _) = try onScreen(PromptSheetStore())
-        defer { window.isHidden = true; window.rootViewController = nil }
-        #expect(await waitUntil { chat.promptsUI?.dockView != nil })
-        let ui = try #require(chat.promptsUI)
-        center.receive(GatewayEvent(type: "request.cancel", sessionId: runtime, seq: nil,
-                                    payload: ["id": "srq-blank", "reason": "timeout"]))
-        #expect(await waitUntil { ui.dockView == nil && !chat.hasPromptDock })
-    }
-
     @Test func answerNowReopensAMinimizedLateDraftInsteadOfReplacingIt() async throws {
         let (chat, window, _) = try onScreen(PromptSheetStore())
         defer { window.isHidden = true; window.rootViewController = nil }

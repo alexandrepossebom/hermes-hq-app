@@ -384,14 +384,11 @@ final class ChatQueueCard: UIView {
             edit.accessibilityIdentifier = "queue.edit"
             children.append(edit)
         }
-        // [voice record] A voice chat's words always reach the bot: no Delete (owner, 2026-11-18).
-        if !VoiceChatRecord.isRecord(item.text) {
-            children.append(UIAction(title: "Delete", image: UIImage(systemName: "trash"),
-                                     attributes: sending ? [.destructive, .disabled] : .destructive) { [weak self] _ in
-                Haptics.play(.light)
-                self?.onDelete?(item.id)
-            })
-        }
+        children.append(UIAction(title: "Delete", image: UIImage(systemName: "trash"),
+                                 attributes: sending ? [.destructive, .disabled] : .destructive) { [weak self] _ in
+            Haptics.play(.light)
+            self?.onDelete?(item.id)
+        })
         // A photo or a slash command can't join a running reply: the menu says why Send Now isn't offered.
         return UIMenu(title: running && !steers && editing == nil ? "This can’t be added to the current reply" : "", children: children)
     }

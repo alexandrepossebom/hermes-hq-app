@@ -3,7 +3,6 @@
 // socket and the add-on's answer is invented.
 
 import Foundation
-import QuartzCore
 import Testing
 @testable import HermesHQNative
 
@@ -59,7 +58,7 @@ struct GrokLiveWireTests {
         #expect(update["type"]?.string == "session.update")
         let session = try #require(update["session"])
         #expect(session["voice"]?.string == "eve")
-        #expect(session["instructions"]?.string == "Be brief.\n\n" + GrokLiveWire.oneVoiceNote)
+        #expect(session["instructions"]?.string == "Be brief.")
         #expect(session["turn_detection"]?["type"]?.string == "server_vad")
         #expect(session["audio"]?["input"]?["format"]?["type"]?.string == "audio/pcm")
         #expect(session["audio"]?["input"]?["format"]?["rate"]?.int == 24_000)
@@ -68,31 +67,10 @@ struct GrokLiveWireTests {
         #expect(tool["type"]?.string == "function" && tool["name"]?.string == "ask_agent")
         #expect(tool["parameters"]?["required"]?[0]?.string == "request")
         #expect(json(GrokLiveWire.sessionUpdate(voice: nil, instructions: nil))?["session"]?["voice"] == nil)
-        // A seeded session: the add-on's instructions, the one-voice note, then the note that the chat goes further back.
+        // A seeded session: the add-on's instructions, then the note that the chat goes further back.
         let seeded = json(GrokLiveWire.sessionUpdate(voice: nil, instructions: "Be brief.", seeded: true))?["session"]?["instructions"]?.string
-        #expect(seeded == "Be brief.\n\n" + GrokLiveWire.oneVoiceNote + "\n\n" + GrokLiveWire.chatNote)
-        #expect(json(GrokLiveWire.sessionUpdate(voice: nil, instructions: nil, seeded: true))?["session"]?["instructions"]?.string
-                == GrokLiveWire.oneVoiceNote + "\n\n" + GrokLiveWire.chatNote)
-        #expect(json(GrokLiveWire.sessionUpdate(voice: nil, instructions: nil))?["session"]?["instructions"]?.string == GrokLiveWire.oneVoiceNote)
-    }
-
-    /// Owner, 2026-11-18: Grok spoke of "your agent", said "Sending that to your agent" and "Still waiting on the
-    /// answer", and recapped old chat turns. One assistant, in the first person; earlier messages are background.
-    @Test func theVoiceIsOneAssistantThatNeverNarratesAHandOff() throws {
-        let session = try #require(json(GrokLiveWire.sessionUpdate(voice: nil, instructions: nil, seeded: true))?["session"])
-        let tool = try #require(session["tools"]?[0])
-        let said = [session["instructions"]?.string, tool["description"]?.string, tool["parameters"]?["properties"]?["request"]?["description"]?.string,
-                    GrokLiveWire.agentSays("x"), GrokLiveWire.noWordsNote, GrokLiveWire.notSentNote, GrokLiveWire.replacedNote,
-                    GrokLiveWire.nobodyAskedNote, GrokLiveWire.sayResultNote].compactMap { $0 }
-        #expect(said.count == 9)
-        for text in said {
-            for word in ["agent", "backend", "waiting on", "sending"] {
-                #expect(!text.localizedCaseInsensitiveContains(word), "\(word) in: \(text)")
-            }
-        }
-        let instructions = try #require(session["instructions"]?.string)
-        #expect(instructions.contains("first person") && instructions.contains("Let me look."))
-        #expect(instructions.contains("never recap"))
+        #expect(seeded == "Be brief.\n\n" + GrokLiveWire.chatNote)
+        #expect(json(GrokLiveWire.sessionUpdate(voice: nil, instructions: nil, seeded: true))?["session"]?["instructions"]?.string == GrokLiveWire.chatNote)
     }
 
     @Test func theSeedIsOneItemPerMessage() throws {
@@ -114,17 +92,14 @@ struct GrokLiveWireTests {
         #expect(output["item"]?["type"]?.string == "function_call_output" && output["item"]?["call_id"]?.string == "c1")
         let inner = try #require(output["item"]?["output"]?.string.flatMap(json))
         #expect(inner["answer"]?.string?.count == GrokLiveWire.answerLimit)
-        // An answer says to speak it alone, never a recap of the chat (owner, 2026-11-18).
-        #expect(inner["note"]?.string == GrokLiveWire.sayResultNote)
-        #expect(GrokLiveWire.sayResultNote == "Say this result only, briefly, in your own words. Do not recap or list earlier messages.")
+        #expect(inner["note"] == nil)
         let empty = try #require(json(GrokLiveWire.functionOutput(callId: "c1", answer: "", note: GrokLiveWire.noWordsNote))?["item"]?["output"]?.string.flatMap(json))
-        #expect(empty["answer"]?.string == "" && empty["note"]?.string == "That finished without a reply.")
+        #expect(empty["answer"]?.string == "" && empty["note"]?.string == "The agent finished without a reply.")
 
         let news = try #require(json(GrokLiveWire.agentSays("The  backup\nfinished")))
         #expect(news["item"]?["role"]?.string == "user")
         #expect(news["item"]?["content"]?[0]?["type"]?.string == "input_text")
-        #expect(news["item"]?["content"]?[0]?["text"]?.string
-                == "(Not from the person — news from your own work:) The backup finished. Tell the person this briefly, as your own news.")
+        #expect(news["item"]?["content"]?[0]?["text"]?.string == "(Not from the person — your agent says:) The backup finished. Tell the person this briefly.")
 
         #expect(json(GrokLiveWire.responseCreate())?["type"]?.string == "response.create")
         #expect(json(GrokLiveWire.responseCreate(instructions: "Answer now."))?["response"]?["instructions"]?.string == "Answer now.")
@@ -154,10 +129,6 @@ struct GrokLiveWireTests {
         #expect(GrokServerEvent.parse(#"{"type":"response.function_call_arguments.done","name":"ask_agent","call_id":"c1","arguments":"{\"request\":\"Check my mail\"}"}"#)
                 == .functionCall(callId: "c1", name: "ask_agent", arguments: #"{"request":"Check my mail"}"#))
         #expect(GrokServerEvent.parse(#"{"type":"error","error":{"message":"bad","code":"invalid_value"}}"#) == .error(message: "bad", code: "invalid_value"))
-        // A barge-in's cancel after the response ended is noise, never a vendor error (owner, 2026-11-18).
-        #expect(GrokServerEvent.parse(#"{"type":"error","error":{"message":"Cancellation failed: no active response found","type":"invalid_request_error"}}"#)
-                == .other(type: "error"))
-        #expect(GrokServerEvent.parse(#"{"type":"error","error":{"message":"x","code":"response_cancel_not_active"}}"#) == .other(type: "error"))
         #expect(GrokServerEvent.parse(#"{"type":"response.output_item.done"}"#) == .other(type: "response.output_item.done"))
         #expect(GrokServerEvent.parse("nope") == nil)
         #expect(GrokLiveWire.request(fromArguments: #"{"request":"  Book   a table "}"#) == "Book a table")
@@ -239,15 +210,6 @@ struct GrokLiveCallsTests {
         #expect(calls.receive(.speechStarted, ms: 0) == [.flushPlayback, .send(GrokLiveWire.responseCancel)])
         _ = calls.receive(.responseDone, ms: 0)
         #expect(calls.receive(.speechStarted, ms: 0) == [.flushPlayback])
-        // The cancel that found nothing to cancel is dropped: no error reaches the loop or the dock.
-        let late = GrokServerEvent.parse(#"{"type":"error","error":{"message":"Cancellation failed: no active response"}}"#)
-        #expect(late == .other(type: "error"))
-        if let late {
-            #expect(calls.receive(late, ms: 0).isEmpty)
-            var stages = GrokLiveStages()
-            _ = stages.note(late, ready: true, ms: 0)
-            #expect(stages.errors == 0)
-        }
     }
 
     /// A voice seeded with the chat took the chat's last request for a new one. Until the person has been heard, a
@@ -367,8 +329,6 @@ struct GrokLiveControllerTests {
         var transport: FixtureGrokLiveVoice?
         var sessions = 0
         var chimes = 0
-        /// Added to the controller's clock (the time between two talks).
-        var later: TimeInterval = 0
     }
 
     private func make(available: Bool = true, answer: Result<String, VoiceFailure> = .success(sessionAnswer)) -> (TalkController, Box) {
@@ -403,52 +363,7 @@ struct GrokLiveControllerTests {
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
         talk.playConnectedChime = { box.chimes += 1 }
-        talk.now = { CACurrentMediaTime() + box.later }
         return (talk, box)
-    }
-
-    /// One talk: the person asks, Grok calls the tool, and the talk ends before any answer (Stop).
-    private func askAndStop(_ talk: TalkController, _ box: Box, _ chat: FakeTalkChat, asked: String) async throws {
-        talk.start(in: chat, name: "Ivy")
-        #expect(await waitUntil { talk.view?.phase == .listening })
-        let transport = try #require(box.transport)
-        let count = chat.delegated.count
-        transport.play(#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"i1","transcript":"\#(asked)"}"#)
-        transport.play(#"{"type":"response.function_call_arguments.done","name":"ask_agent","call_id":"call_\#(count)","arguments":"{\"request\":\"\#(asked)\"}"}"#)
-        #expect(await waitUntil { chat.delegated.count == count + 1 })
-        talk.end()
-        #expect(await waitUntil { !talk.isLive })
-    }
-
-    /// Owner, 2026-11-18: stopped before the answer was spoken, the next talk started cold. Within ten minutes the
-    /// first request of the next talk carries what was asked and that its answer was never heard; once only.
-    @Test func aTalkStoppedBeforeItsAnswerIsResumedWithinTenMinutes() async throws {
-        defer { TalkController.chosenEngine = nil }
-        let (talk, box) = make()
-        let chat = FakeTalkChat()
-        talk.setFront(chat, onScreen: true)
-        try await askAndStop(talk, box, chat, asked: "Find the hotel booking")
-        #expect(chat.delegated.first?.context.contains(LiveTalkResume.stoppedLine) == false)
-        box.later = 9 * 60
-        try await askAndStop(talk, box, chat, asked: "Where were we")
-        let resumed = try #require(chat.delegated.last?.context)
-        #expect(resumed.hasPrefix("Previous voice chat, User: Find the hotel booking\n" + LiveTalkResume.stoppedLine))
-        #expect(resumed.contains("User: Where were we"))
-        await talk.resetForTests()
-    }
-
-    @Test func aTalkStoppedLongerAgoIsNotResumed() async throws {
-        defer { TalkController.chosenEngine = nil }
-        let (talk, box) = make()
-        let chat = FakeTalkChat()
-        talk.setFront(chat, onScreen: true)
-        try await askAndStop(talk, box, chat, asked: "Find the hotel booking")
-        box.later = 11 * 60
-        try await askAndStop(talk, box, chat, asked: "Where were we")
-        #expect(chat.delegated.count == 2)
-        #expect(chat.delegated.last?.context.contains(LiveTalkResume.stoppedLine) == false)
-        #expect(chat.delegated.last?.context.contains("Find the hotel booking") == false)
-        await talk.resetForTests()
     }
 
     private func sent(_ type: String) -> [JSONValue] {
@@ -515,7 +430,6 @@ struct GrokLiveControllerTests {
         let output = try #require(outputs().first)
         #expect(output["item"]?["call_id"]?.string == "call_1")
         #expect(output["item"]?["output"]?.string.flatMap(json)?["answer"]?.string == "You have two meetings. The first is at 10.")
-        #expect(output["item"]?["output"]?.string.flatMap(json)?["note"]?.string == GrokLiveWire.sayResultNote)
         #expect(FixtureGrokLiveVoice.sent.last.flatMap(json)?["type"]?.string == "response.create")
         #expect(outputs().count == 1)
 

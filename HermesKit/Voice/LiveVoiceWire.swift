@@ -196,27 +196,21 @@ nonisolated enum LiveVoiceWire {
     }
     /// Sent once the session starts (owner, build 407: "the agent does use an odd amount of filler words while it is
     /// working"): the vendor persona asks for backchannels and a word while checking, and each one was spoken.
-    /// Owner, 2026-11-18: the voice spoke of the bot as a separate party ("your agent") and narrated the wait
-    /// ("Sending that…", "Still waiting on the answer"): it is one assistant, and delegating is how it does the work.
     static let quietWhileWorking = "No backchannels: do not say mm-hmm, okay, right or similar while the user is speaking; "
-        + "stay silent until they finish. You are one assistant: speak in the first person, as the one doing the work. "
-        + "Never speak of anyone else doing it, never name a bot or a helper, and never say you are passing a request on "
-        + "or holding for an answer. While the work runs, say at most one short line such as \"Let me look.\", then stay "
-        + "silent until the result arrives; if the user speaks meanwhile, answer them directly. Do not narrate progress "
-        + "notes or tool names and do not fill silence with small talk. " + statusFromTheBackend
+        + "stay silent until they finish. While the work runs, say at most one short line, then stay silent until the "
+        + "result arrives. Do not narrate progress notes or tool names and do not fill silence with small talk. "
+        + statusFromTheBackend
     /// Owner, 2026-10-28: asked "Progress?", the voice answered from memory ("still waiting on the login check") while
     /// the bot's result had come back a minute before; asked what it had found, it said "pending" three times.
     static let statusFromTheBackend = "When the user asks how something is going, what came back, or whether work is "
-        + "happening, delegate it: only the work itself knows. Never say something is still pending or being checked "
-        + "unless the latest update says so. When a result arrives, say that result briefly in your own words and "
-        + "nothing else."
+        + "happening, delegate it: the backend knows and you do not. Never say something is still pending, being "
+        + "checked or waiting unless the latest backend update says so. When a result arrives, tell the user what it says."
     /// Sent with a seeded session. The voice sees only the chat's last few messages and answered from those alone, or
-    /// asked the person to explain what the bot already knew (owner, 2026-11-16); later it recapped them instead of
-    /// the answer (2026-11-18). Names no bot (see `toolNote`).
-    static let chatNote = "You are joining a chat that is already under way. The messages you were given are background "
-        + "only, its latest part, shortened: never recap, summarize or list them. Delegated work has the whole chat and "
-        + "everything remembered about the user. When the user refers to anything from before that you cannot see, do "
-        + "not ask them to explain it and do not guess: delegate the request as they said it."
+    /// asked the person to explain what the bot already knew (owner, 2026-11-16). Names no bot (see `toolNote`).
+    static let chatNote = "You are joining a chat that is already under way. The messages you were given are only its "
+        + "latest part, shortened. The backend has the whole chat and everything it remembers about the user. When the "
+        + "user refers to anything from before that you cannot see, do not ask them to explain it and do not guess: "
+        + "delegate the request as they said it."
     /// Rides every delegation's `voice_context` (model input only), ahead of the spoken exchange. The owner, 2026-11-16,
     /// app closed and a voice chat going: the bot asked with a question card, which only a tap answers.
     static let spokenOnlyNote = "(From the app, not said by the user: they are talking with you by voice and are not looking at "

@@ -94,25 +94,13 @@ extension LiveChatSession: ChatVoiceTurns {
         // A request made while the reply runs goes into it, as typed words do (`session.redirect`): stopping it threw
         // away the work under way (owner, 2026-10-28 20:46: "Operation interrupted" on searches the voice had asked for
         // three seconds before).
-        // [voice record] Not into the turn answering a voice chat's record: its note asks for no reply, so the request
-        // would go unanswered. That turn is stopped instead (the record is stored already).
-        if steersTyped(text, display: nil, attachments: []), !answeringVoiceRecord {
+        if steersTyped(text, display: nil, attachments: []) {
             steerDelegated(text, voiceContext: voiceContext)
             return
         }
         let stopped = interruptForVoice()
         unparkQueue()
         beginSend(text, queued: false, interrupted: stopped, voiceContext: voiceContext)
-    }
-
-    /// The running turn is the answer to a voice chat's record.
-    private var answeringVoiceRecord: Bool {
-        guard turn.busy, let id = turn.userAnchorId, let index = indexById[id], messages.indices.contains(index) else { return false }
-        let words = messages[index].parts.compactMap { part -> String? in
-            if case .text(let text) = part { return text }
-            return nil
-        }.joined(separator: "\n")
-        return VoiceChatRecord.isRecord(words)
     }
 
     /// The request's bubble shows at once under the running reply. Not taken (the reply ended first, a gateway without

@@ -36,7 +36,9 @@ extension AppModel {
             guard let host = FailureAlert.topmost(MainTabController.current) else { return }
             DraftsStore.open(id, from: host)
         }
-        hub.openTask = { id, _ in TasksHub.open(taskID: id) }   // [tasks]
+        hub.openTask = { id, _ in   // [tasks]; [goals step 4] a check-in's push opens its goal
+            if let goal = GoalBots.pushedGoal(id) { TasksHub.openGoal(goal) } else { TasksHub.open(taskID: id) }
+        }
         hub.answerLocal = { [weak self] request, approve in
             guard let center = self?.serverRequests else { return }
             Task {
@@ -159,7 +161,6 @@ extension AppModel {
         guard let client else { return }
         PushRegistrar.shared.call = Self.pushCall(client)
         PushRegistrar.shared.sync()
-        viewingBeat.poke()   // [viewing]
         refreshNotificationDirectory()
     }
 
@@ -365,7 +366,6 @@ extension AppModel {
         NotificationHub.shared.viewingStored = stored
         // UX study #257: the chat is read, so its alerts leave Notification Center, as Messages' do.
         if let stored { NotificationHub.shared.withdrawDelivered(thread: stored) }
-        viewingBeat.poke()   // [viewing] the add-on hears which chat is in front, so no other device alerts for it
     }
 
     // MARK: Permission, once, in context
@@ -447,14 +447,8 @@ extension AppModel {
         for top in [root.chatOnShow, Self.sheetChat(root)].compactMap({ $0 }) {   // [m9/ipad] either layout
             guard let live = top.session as? LiveChatSession, live.storedSessionId == stored || live.resolvedStoredId == stored else { continue }
             live.probeTailSoon(after: .milliseconds(1500), force: true)
-            // [notify] Owner 2026-11-19: the alert came for a reply, so it shows: a task's page on its task's view gives
-            // the chat the screen (it stayed covered, the reply out of sight), and the chat goes to the reply's top.
-            TodoSheet.model(of: top)?.tuck(.alert)
-            top.landOnNewestReply()
             return
         }
-        // [notify] Whichever screen opens this chat next lands on the reply's top (Bots, Sessions, a task's page).
-        ChatViewController.landsNext = (stored, CACurrentMediaTime())
         // [tasks] A task's own chat opens on its task, the task above it (it is hidden, so Sessions has no row for it,
         // and a bot without its own chat yet would have taken it).
         let task = TasksHub.task(forChat: stored)

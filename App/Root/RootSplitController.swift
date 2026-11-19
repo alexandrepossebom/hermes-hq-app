@@ -624,20 +624,11 @@ final class RootSplitController: UIViewController {
     private func syncListToggle() {
         let first = isDouble ? detail.viewControllers.first : nil
         let host = first is DetailPlaceholderViewController ? nil : first
-        if let old = toggleHost, old !== host, old.navigationItem.leftBarButtonItems?.contains(where: { $0 === listToggle }) == true {
-            let rest = old.navigationItem.leftBarButtonItems?.filter { $0 !== listToggle } ?? []
-            old.navigationItem.leftBarButtonItems = rest.isEmpty ? nil : rest
+        if let old = toggleHost, old !== host, old.navigationItem.leftBarButtonItem === listToggle {
+            old.navigationItem.leftBarButtonItem = nil
         }
         toggleHost = host
-        if let host {
-            let items = host.navigationItem.leftBarButtonItems ?? []
-            if items.isEmpty {
-                host.navigationItem.leftBarButtonItem = listToggle
-            } else if !items.contains(where: { $0 === listToggle }),
-                      items.allSatisfy({ $0.accessibilityIdentifier == ChatViewController.backToBotChatID }) {
-                host.navigationItem.leftBarButtonItems = items + [listToggle]   // [bot-chat-back] after a chat's Back to its bot's chat
-            }
-        }
+        if let host, host.navigationItem.leftBarButtonItems?.isEmpty ?? true { host.navigationItem.leftBarButtonItem = listToggle }
         listToggle.accessibilityLabel = listHidden ? "Show List" : "Hide List"
         listToggle.isSelected = false
     }

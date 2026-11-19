@@ -50,7 +50,7 @@ this spec and stopped afterwards; invented credentials, never printed).
    file links and `image_generate` results all render as images or file rows. Images load lazily over
    `GET /api/fs/download` with auth, decode off the main thread, never enter the transcript cache as bytes
    (spec 03 §6.6, refined in §7 below).
-7. **Tap a photo:** a full-screen viewer with the system zoom transition (swipe down or pinch in to dismiss; a fling up closes too, `PhotoFling`), pinch to
+7. **Tap a photo:** a full-screen viewer with the system zoom transition (swipe down or pinch in to dismiss), pinch to
    5×, double-tap 2.5×, paging across the message's photos, **Share** and **Save**. **Tap a file:** download with
    progress, then Quick Look (or the share sheet for types Quick Look can't show).
 8. **Leave the chat mid-send and it still goes to its own chat** (owner, `M:voice-memo-bugs.md`,
@@ -1310,8 +1310,7 @@ compiled out of Release). Test media live in `N:UITests/Fixtures/attachments/` (
    retry tile words; `downloadFailures: 1` → a photo shows the tile → tap → loads; reopen the chat: every image row's
    frame equals the first open's (cache dims).
 10. **Viewer:** tap row 5's second photo → viewer "2 of 2"; double-tap → zoomed; swipe down does nothing while zoomed;
-    double-tap back, swipe down → back in the chat at the cell (10b: a fling up, a quick flick down and a diagonal fling
-    each close it; a sideways swipe pages); Save → "Saved" (photos-add granted); Share → the share
+    double-tap back, swipe down → back in the chat at the cell; Save → "Saved" (photos-add granted); Share → the share
     sheet; long-press a photo → Save to Photos / Share… / Copy.
 11. **Files:** tap row 6's report.pdf → "Downloading…" → Quick Look titled `report.pdf`; tap row 16's `clip.mov` →
     share sheet; tap row 11's `bundle.zip` → share sheet; `downloads` shows no `session_id` on absolute paths.

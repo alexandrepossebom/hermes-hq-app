@@ -11,8 +11,6 @@ nonisolated enum RosterDisk {
     static let botStateKind = "botstate"
     static let sessionsKind = "sessions"
     static let sessionStateKind = "sessionstate"
-    /// [pr-instant] The last pull request status the gateway gave for each chat (SessionStore).
-    static let sessionMarksKind = "sessionmarks"
 
     /// The account key's length: 12 bytes of SHA-256 as hex.
     static let accountKeyLength = 24

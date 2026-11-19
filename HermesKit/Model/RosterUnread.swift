@@ -75,11 +75,6 @@ nonisolated struct BotUnreadState: Codable, Sendable, Hashable {
         pending?[profile.name] = nil
     }
 
-    /// [botunread] The bot waits for a read of its chat's rows past `since` (an older wait keeps its older baseline).
-    mutating func hold(_ profile: String, since: Double) {
-        pending = (pending ?? [:]).merging([profile: since]) { min($0, $1) }
-    }
-
     /// [botunread] The baseline a waiting bot's new rows are judged from; nil when it isn't waiting.
     func held(_ profile: String) -> Double? { pending?[profile] }
 

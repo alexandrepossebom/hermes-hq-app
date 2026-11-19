@@ -84,8 +84,12 @@ nonisolated struct TasksAPI: Sendable {
     /// [task-lists] `POST /tasks/offers/{id}` (hermes-hq-push 0.9.55): your tap on a bot's offer. `list` false with
     /// `accept` is "Add, No List".
     @concurrent
-    func answerOffer(_ id: String, action: TodoOfferAction, list: Bool = true) async throws -> TodoOfferAnswer {
-        let body: JSONValue = .object(["action": .string(action.rawValue), "list": .bool(list)])
+    func answerOffer(_ id: String, action: TodoOfferAction, list: Bool = true, goal: (plan: Bool, inGoal: Bool)? = nil) async throws -> TodoOfferAnswer {
+        var fields: [String: JSONValue] = ["action": .string(action.rawValue), "list": .bool(list)]
+        // [goals step 3] A goal's offer (0.9.66): "Keep the Goal, No Plan" and "Just Tasks". Sent only for one, so a
+        // list offer's answer is as it was.
+        if let goal { fields["plan"] = .bool(goal.plan); fields["in_goal"] = .bool(goal.inGoal) }
+        let body: JSONValue = .object(fields)
         let data = try await PagesREST.send(client, "POST", Self.base + "/offers/" + PagesREST.segment(id), json: body)
         return try JSONDecoder().decode(TodoOfferAnswer.self, from: data)
     }
@@ -96,6 +100,23 @@ nonisolated struct TasksAPI: Sendable {
     func reconcilePrep(_ profile: String) async {
         do { _ = try await PagesREST.send(client, "POST", Self.base + "/prep-job/" + PagesREST.segment(profile), timeout: 30) }
         catch { AppLog.note("tasks", "prep job for \(profile) not reconciled: \(PagesREST.reason(error))") }
+    }
+
+    /// [goals step 5] `/status`: whether this add-on draws Goal Pages (0.9.66's `goal_pages`); nil when it couldn't be read.
+    @concurrent
+    func addOnDrawsGoalPages() async -> Bool? {
+        guard let data = try? await PagesREST.send(client, "GET", PushPolicy.route + "/status", timeout: 15),
+              let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return (body["goal_pages"] as? Bool) == true
+    }
+
+    /// [goals step 5] `GET /goals/{id}/page`: the goal's Goal Page (hermes-hq-push 0.9.66), HTML the add-on draws.
+    @concurrent
+    func goalPage(_ id: String, names: [String: String]) async throws -> Data {
+        let object = JSONValue.object(names.mapValues { .string($0) })
+        let names = (try? object.encoded()).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return try await PagesREST.send(client, "GET", GoalsAPI.base + "/" + PagesREST.segment(id) + "/page",
+                                        query: [URLQueryItem(name: "names", value: names)], timeout: 20)
     }
 
     /// `/status`: whether this add-on serves Tasks (0.9.32's `tasks`); nil when it couldn't be read.
@@ -147,6 +168,12 @@ nonisolated struct TodoSnapshot: Codable, Sendable {
     var offers: [TodoOffer]?
     /// [goals] nil: the add-on keeps no goals.
     var goals: [Goal]?
+    /// [goals step 3] The add-on puts bots on goals (0.9.66), and draws Goal Pages.
+    var goalBots: Bool?
+    var goalPages: Bool?
+    /// [goals step 3] Goals' offers seen here (a goal's chat card is told only the offer's id; this keeps what it was
+    /// after the gateway lets it go).
+    var seenOffers: [TodoOffer]?
 }
 
 /// `POST /tasks/offers/{id}`'s answer.
@@ -154,6 +181,8 @@ nonisolated struct TodoOfferAnswer: Decodable, Sendable {
     var rev: Int
     var offer: TodoOffer
     var sections: [TodoUserSection]
+    /// [goals step 3] Every goal after the answer (0.9.66; an older add-on sends none).
+    var goals: [Goal]?
 }
 
 @MainActor @Observable
@@ -188,9 +217,18 @@ final class TasksStore {
     /// Bots' offers of a list or a batch of tasks: the ones that wait, and the last day's answered ones.
     private(set) var offers: [TodoOffer] = []
     /// [goals] Every goal, any status (optimistic edits applied); docs/goals.md.
-    private(set) var goals: [Goal] = []
+    private(set) var goals: [Goal] = [] { didSet { TodoOfferStates.noteGoals(goals) } }
     /// [goals] The add-on keeps goals (0.9.65+: `goals` in `GET /tasks`). Without it nothing of Goals shows.
     private(set) var goalsSupported = false
+    /// [goals step 3] The add-on puts bots on goals (0.9.66's `goal_bots`): a lead, helpers, offers, the check-in. With
+    /// 0.9.65 none of it shows.
+    private(set) var goalBotsSupported = false
+    /// [goals step 5] The add-on draws Goal Pages (0.9.66's `goal_pages` in `/status`).
+    private(set) var goalPagesSupported = false
+    /// [goals step 3] Goal offers seen here, by id (newest kept, 80 at most): what a goal's chat card draws once the
+    /// gateway has let the offer go ("Answered").
+    @ObservationIgnored private var seenOffers: [String: TodoOffer] = [:]
+    @ObservationIgnored private var goalPagesAsked = false
     /// [task-ideas] New ideas to decide; nil when the add-on has no Ideas (older than 0.9.39), and the page keeps its
     /// Add a task row instead of the To Do | Ideas switch.
     private(set) var ideasCount: Int?
@@ -254,6 +292,10 @@ final class TasksStore {
         offers = Self.once(cached.value.offers ?? [])
         goals = cached.value.goals ?? []
         goalsSupported = cached.value.goals != nil
+        goalBotsSupported = goalsSupported && cached.value.goalBots == true
+        goalPagesSupported = goalBotsSupported && cached.value.goalPages == true
+        for offer in cached.value.seenOffers ?? [] { seenOffers[offer.id] = offer }
+        if !seenOffers.isEmpty { _ = TodoOfferStates.note(Array(seenOffers.values), whole: false) }
         noteOffers(whole: false)
         ideasCount = cached.value.ideas
         rev = cached.value.rev
@@ -267,7 +309,9 @@ final class TasksStore {
                                     sections: sectionsSupported ? sections.filter { !TodoIDs.isLocal($0.id) } : nil,
                                     pages: pagesSupported, ideas: ideasCount, fields: fieldsSupported, files: filesSupported,
                                     lists: listsSupported, offers: offers,
-                                    goals: goalsSupported ? goals.filter { !TodoIDs.isLocal($0.id) } : nil)
+                                    goals: goalsSupported ? goals.filter { !TodoIDs.isLocal($0.id) } : nil,
+                                    goalBots: goalBotsSupported, goalPages: goalPagesSupported,
+                                    seenOffers: seenOffers.isEmpty ? nil : Array(seenOffers.values))
         PagesCache.write(PagesCached(at: Date().timeIntervalSince1970, value: snapshot), to: url)
     }
 
@@ -311,6 +355,18 @@ final class TasksStore {
             if offersWriting == 0 { offers = Self.once(answer.offers); noteOffers(whole: answer.lists) }
             ideasCount = answer.ideas
             adoptGoals(answer.goals)
+            goalBotsSupported = goalsSupported && answer.goalBots
+            if !goalBotsSupported { goalPagesSupported = false; goalPagesAsked = false }
+            else if !goalPagesAsked {
+                goalPagesAsked = true
+                let api = api
+                Task { [weak self] in
+                    let draws = await api.addOnDrawsGoalPages()
+                    guard let self, !self.closed else { return }
+                    if let draws { self.goalPagesSupported = draws && self.goalBotsSupported; self.save(); self.onChange?() }
+                    else { self.goalPagesAsked = false }
+                }
+            }
             if !sectionsWriting {
                 sections = answer.sections ?? []
                 sectionsSupported = answer.sections != nil
@@ -637,8 +693,11 @@ final class TasksStore {
         if shown.color == nil { shown.color = GoalViews.nextColor(goals).rawValue }
         goals.append(shown)
         changed()
+        // POST /goals takes no team (the add-on's GoalIn): a lead or helpers go in a PATCH right after.
+        let team = fields.filter { GoalWire.teamKeys.contains($0.key) }
         do {
-            let made = try await goalsAPI.create(fields)
+            var made = try await goalsAPI.create(fields.filter { !GoalWire.teamKeys.contains($0.key) })
+            if !team.isEmpty, let led = try? await goalsAPI.patch(made.id, rev: made.rev, fields: team) { made = led }
             goals.removeAll { $0.id == localID }
             putGoal(made)
             save()
@@ -741,6 +800,20 @@ final class TasksStore {
         }
     }
 
+    /// [goals step 4] The stall question's Keep Going (`keep: true`). False on an add-on before 0.9.66, which keeps no
+    /// `kept_at` (the page keeps it on this device instead, `GoalKeptHere`).
+    @discardableResult
+    func keepGoing(_ id: String) async -> Bool {
+        guard goalBotsSupported else { return false }
+        return await patchGoal(id, ["keep": .bool(true)])
+    }
+
+    /// [goals step 4] Mark Done / Not Yet on the lead's "this looks done".
+    @discardableResult
+    func answerLooksDone(_ id: String, done: Bool) async -> Bool {
+        await patchGoal(id, ["offer_answer": .string(done ? "done" : "keep")])
+    }
+
     /// Puts a task in a goal (nil: no goal), under one of its milestones or none.
     @discardableResult
     func setGoal(_ taskID: String, goal: String?, milestone: String? = nil) async -> Bool {
@@ -798,19 +871,28 @@ final class TasksStore {
         return offers.filter { seen.insert($0.id).inserted }
     }
 
-    /// The chats' offer cards hear what the offers are now.
+    /// The chats' offer cards hear what the offers are now. [goals step 3] Goal offers are kept here too, so a goal's
+    /// chat card (told only an id) still draws once the gateway has let one go.
     private func noteOffers(whole: Bool) {
+        for offer in offers where offer.isGoal { seenOffers[offer.id] = offer }
+        if seenOffers.count > 80 {
+            let oldest = seenOffers.values.sorted { (TodoDates.moment($0.at) ?? .distantPast) < (TodoDates.moment($1.at) ?? .distantPast) }
+            for offer in oldest.prefix(seenOffers.count - 80) { seenOffers[offer.id] = nil }
+        }
         if TodoOfferStates.note(offers, whole: whole) { NotificationCenter.default.post(name: TodoOfferStates.changed, object: nil) }
     }
 
     /// [task-lists] Your tap on a bot's offer. The card changes at once; the list is read again for the tasks and
     /// the list it made, moved or took back. False when the gateway refused it (the card shows as it was).
     @discardableResult
-    func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool = true) async -> Bool {
+    func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool = true, plan: Bool = true, inGoal: Bool = true) async -> Bool {
         guard !refuse(), let at = offers.firstIndex(where: { $0.id == id }) else { return false }
         let before = offers[at]
         var shown = before
         switch action {
+        case .accept where before.isGoal:
+            // [goals step 3] "Keep the Goal, No Plan" on a plan declines it (as the gateway does).
+            if before.kind == "plan", !plan { shown.state = "declined" } else { shown.state = "accepted"; shown.plan = plan; shown.inGoal = inGoal }
         case .accept: shown.state = "accepted"; shown.listed = list || !before.isNew
         case .decline: shown.state = "declined"
         case .move: shown.moveState = "moved"
@@ -823,16 +905,25 @@ final class TasksStore {
         offersWriting += 1
         defer { offersWriting -= 1 }
         do {
-            let answer = try await api.answerOffer(id, action: action, list: list)
+            let answer = try await api.answerOffer(id, action: action, list: list, goal: before.isGoal ? (plan, inGoal) : nil)
             if let now = offers.firstIndex(where: { $0.id == id }) { offers[now] = answer.offer }
             noteOffers(whole: false)
             if !sectionsWriting { sections = answer.sections }
+            if let goals = answer.goals { adoptGoals(goals) }
             save()
             changed()
             lastReadAt = nil
             await refresh(force: true)
             return true
         } catch {
+            // [goals step 3] Answered on another device first (a 409): the card shows what became of it.
+            if PagesREST.status(error) == 409 {
+                if let now = offers.firstIndex(where: { $0.id == id }) { offers[now] = before }
+                lastReadAt = nil
+                Task { await refresh(force: true) }   // after this write is off the books, so the read takes the offers
+                notice("That was already answered on another device.")
+                return false
+            }
             if let now = offers.firstIndex(where: { $0.id == id }) { offers[now] = before }
             noteOffers(whole: false)
             changed()

@@ -283,47 +283,6 @@ final class AttachmentsEndToEndTests: XCTestCase {
 
     // MARK: 10. Viewer
 
-    /// Owner 2026-11-19: "I catch myself trying to like fling the image away to close and it doesn't work." A quick
-    /// flick down and a fling up each close the viewer (as Photos-style viewers in other apps do); a sideways swipe
-    /// still pages and never closes.
-    @MainActor func test10b_ViewerFlingsAwayUpOrDown() throws {
-        try account.control("/__fixture/attachments-history", ["profile": "default"])
-        let app = launch()
-        let table = app.tables["chat.table"]
-        let second = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.media.' AND identifier ENDSWITH '.1'")).firstMatch
-        for _ in 0..<10 where !(second.exists && second.isHittable) { table.swipeDown(velocity: .slow); sleep(1) }
-        XCTAssertTrue(second.exists, "row 5's photos")
-        clearSavePassword(app)
-        let viewer = app.otherElements["viewer"]
-        let window = app.windows.firstMatch
-        func open() {
-            for _ in 0..<5 where !second.isHittable { table.swipeDown(velocity: .slow); sleep(1) }
-            second.tap()
-            XCTAssertTrue(app.buttons["viewer.close"].waitForExistence(timeout: 5), "the viewer opens")
-            sleep(1)
-        }
-        func fling(_ name: String, from: CGVector, to: CGVector, velocity: XCUIGestureVelocity) {
-            window.coordinate(withNormalizedOffset: from)
-                .press(forDuration: 0, thenDragTo: window.coordinate(withNormalizedOffset: to), withVelocity: velocity, thenHoldForDuration: 0)
-            if !waitUntil(timeout: 5, { !viewer.exists }) {
-                shot(app, "zz-10b-\(name)")
-                XCTFail("a \(name) closes the viewer")
-                if app.buttons["viewer.close"].exists { app.buttons["viewer.close"].tap() }
-                _ = waitUntil(timeout: 5) { !viewer.exists }
-            }
-        }
-        open()
-        // Sideways pages, never closes.
-        window.swipeRight(velocity: .fast)
-        sleep(1)
-        XCTAssertTrue(viewer.exists, "a sideways swipe doesn't close the viewer")
-        fling("fling up", from: CGVector(dx: 0.5, dy: 0.6), to: CGVector(dx: 0.5, dy: 0.35), velocity: .fast)
-        open()
-        fling("quick flick down", from: CGVector(dx: 0.5, dy: 0.45), to: CGVector(dx: 0.5, dy: 0.62), velocity: .fast)
-        open()
-        fling("diagonal fling", from: CGVector(dx: 0.45, dy: 0.5), to: CGVector(dx: 0.6, dy: 0.25), velocity: .fast)
-    }
-
     @MainActor func test10_ViewerPagesZoomsSavesAndShares() throws {
         try account.control("/__fixture/attachments-history", ["profile": "default"])
         let app = launch()

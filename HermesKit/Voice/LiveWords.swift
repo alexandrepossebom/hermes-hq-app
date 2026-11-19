@@ -260,36 +260,6 @@ nonisolated struct LiveWordsEngine: Equatable, @unchecked Sendable {
         }
     }
 
-    /// Every language this device can write words in, by name: the person's own and their keyboards' first (`mine`, in
-    /// their order), then the rest of what Apple's two speech models offer, by name. A tester 2026-11-18 spoke
-    /// Portuguese on a phone set to English with an English keyboard: the list held only the phone's languages, so it
-    /// was hidden, the words were heard as English, and there was no way to say otherwise.
-    static func allChoices(mine: [(id: String, name: String)], offered: [Locale], naming: Locale = .current) -> [(id: String, name: String)] {
-        var seen = Set(mine.map { $0.id.lowercased() })
-        var rest: [(id: String, name: String)] = []
-        for locale in offered {
-            let id = locale.identifier(.bcp47)
-            guard !id.isEmpty, seen.insert(id.lowercased()).inserted,
-                  let name = naming.localizedString(forIdentifier: locale.identifier) else { continue }
-            rest.append((id, name))
-        }
-        return mine + rest.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    /// The languages Apple's speech models on this device offer (the newer model's and the dictation model's).
-    static func offeredLocales() async -> [Locale] {
-        var out: [Locale] = []
-        if SpeechTranscriber.isAvailable { out += await SpeechTranscriber.supportedLocales }
-        out += await DictationTranscriber.supportedLocales
-        return out
-    }
-
-    /// The language Automatic listens for now: the first of the person's languages (`wanted`, no choice) by name.
-    static func automaticName(preferred: [String], keyboards: [String], current: Locale, naming: Locale = .current) -> String? {
-        guard let first = wanted(chosen: nil, preferred: preferred, keyboards: keyboards, current: current).first else { return nil }
-        return naming.localizedString(forLanguageCode: first.language.languageCode?.identifier ?? "")
-    }
-
     /// The first wanted language the device can hear: Apple's newer model where it offers the language, else the
     /// dictation model (it hears more languages).
     private static func pick(_ wanted: [Locale]) async -> (locale: Locale, dictation: Bool)? {

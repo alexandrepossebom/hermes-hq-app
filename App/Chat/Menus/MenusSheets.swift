@@ -1,17 +1,15 @@
 import UIKit
 
 // Shared pieces of the menus stream's sheets (spec 1x §6, §7.3): the picker sheet frame (page sheet, medium → large on
-// search, grabber, leading ✕ (the Mac: Cancel or Done), a glass page with solid rows), skeleton rows, footnote section headers, and the "Copied" HUD.
+// search, grabber, leading Cancel, a glass page with solid rows), skeleton rows, footnote section headers, and the "Copied" HUD.
 
 enum MenusSheet {
-    /// A picker sheet: a pick closes it, so the close leads and there is no Done (S:ui-chat/model-sheet.tsx:125).
+    /// A picker sheet: a pick closes it, so Cancel leads and there is no Done (S:ui-chat/model-sheet.tsx:125).
     /// [mac] Stress test 2026-10-28 #55: `closeWord` .done for a sheet that is a list to browse (Commands): nothing in it
-    /// is thrown away by closing, so the Mac says Done, not Cancel.
-    /// [popup-consistency] The iPhone closes with the system's ✕ (`.close`), as Chat Info and every `ChatSheet` does:
-    /// `.cancel` drew the same ✕ but VoiceOver called it Cancel, and a pick-or-close list throws nothing away.
+    /// is thrown away by closing, so the Mac says Done, not Cancel. The iPhone keeps the system's item.
     static func wrap(_ root: UIViewController, title: String, closeWord: UIBarButtonItem.SystemItem = .cancel) -> UINavigationController {
         root.title = title
-        let cancel = UIBarButtonItem.hqClose(DeviceWord.isMac ? closeWord : .close, action: UIAction { [weak root] _ in
+        let cancel = UIBarButtonItem.hqClose(DeviceWord.isMac ? closeWord : .cancel, action: UIAction { [weak root] _ in
             guard let root else { return }
             MenusSheet.close(root) {}
         })

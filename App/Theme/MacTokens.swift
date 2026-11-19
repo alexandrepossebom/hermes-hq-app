@@ -124,10 +124,8 @@ extension View {
     /// [mac] #55: a segmented control's row in a List, placed one way on every page: a section of its own with no card,
     /// edge to edge at the cards' width in both looks (round 7: no Desktop Look outline round it). Elsewhere the row
     /// keeps the insets its page gave it (`otherwise`).
-    /// The Desktop Look on the iPhone and iPad takes the same bare row (owner 2026-11-19: Bot Info's tabs sat in an
-    /// outlined card, a box in a box).
     @ViewBuilder func hqSegmentRow(otherwise insets: EdgeInsets) -> some View {
-        if DeviceWord.isMac || Theme.isDesktop {
+        if DeviceWord.isMac {
             // [mac] Stress test 2026-10-28 round 7: the Desktop Look outlined the segments' section as a card, so the
             // bordered strip sat in a second bordered frame (Import Sessions; Command Center while it had tabs). The row is now bare in
             // both looks: the strip stands on the page at the cards' width, as the iOS look's does.

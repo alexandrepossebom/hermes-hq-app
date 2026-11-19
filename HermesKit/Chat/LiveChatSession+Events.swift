@@ -16,7 +16,6 @@ extension LiveChatSession {
         case "sessions.changed":
             LeftChatProbe.of(self).changed += 1   // [diagnostics]
             scheduleChangedPass()
-            scheduleSteerLook()                   // [foreign-steer] a message another device sent into this reply
             return
         case "session.reclaimed":
             if let rid = runtimeSessionId, event.payload["session_id"]?.string == rid || event.sessionId == rid { reclaimed() }

@@ -67,15 +67,6 @@ final class AppModel: AppServices {
     private var eventsTask: Task<Void, Never>?
     /// The chat on screen (between its `start()` and `stopObserving()`).
     weak var focusedChat: LiveChatSession?
-    /// [viewing] Says which chat is in front of the person to the add-on (App/Notifications/ViewingBeat.swift).
-    lazy var viewingBeat: ViewingBeat = {
-        let beat = ViewingBeat()
-        beat.chat = { [weak self] in
-            guard let chat = self?.focusedChat, chat.observing, let id = chat.readSessionId else { return nil }
-            return ViewingRules.Chat(session: id, profile: chat.profile)
-        }
-        return beat
-    }()
     /// [offline] §6.10: the bot whose chat is on screen (the Capabilities warm-up reads for it).
     var focusedProfile: String? { focusedChat?.profile }
     /// Verify round 3: chats left with messages still queued behind a reply, held while they send them off screen
@@ -293,12 +284,10 @@ final class AppModel: AppServices {
         liveStatus?.setListVisible(visible)
     }
 
-    /// The Sessions rows' Working…: turns this app heard, chats holding a live child (§8.4), and what the gateway says
-    /// (its turns, and [roster-working] chats whose background command or helper still runs after the turn ended).
+    /// The Sessions rows' Working…: turns this app heard, chats holding a live child (§8.4), and what the gateway says.
     private func pushRunning() {
         sessionStore?.setRunning(runningSessions.union(activityStore?.liveWorkStoredIds ?? [])
-            .union(workingLedger?.storedIds ?? []).union(workingLedger?.backgroundIds ?? [])   // [roster-working]
-            .union(liveStatus?.working ?? []))
+            .union(workingLedger?.storedIds ?? []).union(liveStatus?.working ?? []))
     }
 
     /// [live-status] The gateway's word changed: the Sessions rows and the bots follow.
@@ -523,9 +512,6 @@ final class AppModel: AppServices {
         // [/sessions-m9]
         sessions.onChange = { [weak self] in
             self?.onSessionsChange?()
-            for entry in self?.openChatScreens ?? [] {
-                if let screen = entry.screen.value { self?.updatePRTitle(screen) }
-            }
             NotificationCenter.default.post(name: SessionStrip.listChanged, object: nil)   // [session-strip]
             self?.onLaunchListsChange?()              // [restore]
             self?.refreshNotificationDirectory()      // [notifications]
@@ -542,7 +528,6 @@ final class AppModel: AppServices {
         activityStore = activity
         let ledger = WorkingLedgerWatch(client: client)       // [working-ledger]
         ledger.onChange = { [weak self] in self?.pushRunning() }
-        ledger.profiles = { [weak self] in self?.bots.map(\.id) ?? [] }   // [roster-working]
         workingLedger = ledger
         let live = LiveStatusWatch(client: client)            // [live-status]
         live.onChange = { [weak self] in self?.liveStatusChanged() }
@@ -692,7 +677,6 @@ final class AppModel: AppServices {
         NotificationHub.shared.becameActive()
         refreshBadge()
         Task { @MainActor in await PushRegistrar.shared.flush() }
-        viewingBeat.poke()                            // [viewing] in front again
         if PushRegistrar.shared.retry { PushRegistrar.shared.sync() }
         notificationsSettleOwedRemovals()             // [notifications] audit 14-1: another gateway's owed removal
         DeviceAccessCenter.shared.appActive()        // [device-access] what bots asked while the wake-up didn't come
@@ -713,7 +697,6 @@ final class AppModel: AppServices {
         activityStore?.setAppActive(false)       // [activity]
         settingsHub.appActive(false)                  // settings stream
         ledgerAppActive = false                       // [working-ledger]
-        viewingBeat.poke()                            // [viewing] no longer in front: taken back
         liveStatus?.setWanted(false)                  // [live-status]
         updateLedgerWanted()
         groupsHub.appActive(false)                    // [groups] the rooms reach the disk and the mirror
@@ -773,15 +756,6 @@ final class AppModel: AppServices {
             }
             if changed { screen.botIdentityChanged() }
         }
-    }
-
-    private func updatePRTitle(_ screen: ChatViewController) {
-        guard let live = screen.session as? LiveChatSession, let id = live.storedSessionId,
-              let store = sessionStore, store.isCodingSession(profile: live.profile, id: id, fallbackCwd: live.menus.cwd) else {
-            screen.sessionPR = nil
-            return
-        }
-        screen.sessionPR = store.pullRequest(profile: live.profile, id: id)
     }
 
     private static func displayNames(_ bots: [Bot]) -> [String: String] {
@@ -1116,13 +1090,6 @@ final class AppModel: AppServices {
         chat.onSeenAfterLeaving = { [weak self, weak chat] seen in
             guard let self, let chat, let id = chat.storedSessionId else { return }
             self.botStore?.noteSeenAfterLeaving(profile: chat.profile, sessionId: id, seenThrough: seen)
-            // [read-sync] The reply watched to its end, then Back before its stored row was read (a tester 2026-11-19:
-            // "I open the chat and leave it. The unread indicator remains"): leaving wrote nothing, because what had
-            // been read then ended before the reply, so the gateway's mark stayed at the open and the next list page
-            // called the chat unread. The turn's end is read on the gateway too now, as the bot's own chat already was.
-            if self.ledgerAppActive {
-                self.sessionStore?.shareRead(id: id, profile: chat.profile, through: seen.timeIntervalSince1970)
-            }
         }
     }
 
@@ -1173,7 +1140,6 @@ final class AppModel: AppServices {
         if focusedChat === chat { sessionStore?.setSessionOnScreen(chat.storedSessionId) }   // [read-sync] its id may be new
         guard fresh, focusedChat === chat, let id = chat.storedSessionId else { return }
         sessionStore?.setFocusedSession(id)
-        if ledgerAppActive { sessionStore?.readOpened(id: id, profile: chat.profile) }   // [read-sync] every way in, not a row's tap alone
         botStore?.setFocusedChat(profile: chat.profile, sessionId: id)
         if let bot = botStore?.bot(named: chat.profile), bot.canonicalSessionId == nil || bot.canonicalSessionId == id {
             botStore?.markRead(bot)
@@ -1231,7 +1197,6 @@ final class AppModel: AppServices {
     func makeChatScreen(_ model: any ChatSessionModel) -> UIViewController {
         AppLog.note("screen", "open chat (\(model.messages.count) messages)")
         let screen = ChatViewController(session: model)
-        updatePRTitle(screen)
         screen.promptSheets = promptSheets   // [questions]
         let head = HeadView(side: 34)
         head.configure(raw: model.head, profile: model.profile, follows: true)   // [moods] the face acts out its turn

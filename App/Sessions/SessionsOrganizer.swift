@@ -85,7 +85,7 @@ extension AppModel: SessionsServices {}
             .action("Move Up", "arrow.up", disabled: !moves.up) { [weak self] in self?.host?.moveChat(item, by: -1) },
             .action("Move Down", "arrow.down", disabled: !moves.down) { [weak self] in self?.host?.moveChat(item, by: 1) },
         ] } ?? []
-        let end: [BotMenuNode] = prMarkNodes(for: session) + [
+        let end: [BotMenuNode] = [
             .action(archiveWords(session).menu, archiveWords(session).symbol) { [weak self] in
                 self?.archive(session)
             },
@@ -520,27 +520,6 @@ extension AppModel: SessionsServices {}
         }
     }
 
-    /// [pr-manage] On a coding project's page: the owner's own label on the chat's code changes (owner 2026-11-19:
-    /// "How do I mark a PR as closed"). Mark as Closed where nothing is merged; Reopen takes the mark back. A label
-    /// only, so it says nothing of branches. Not shown on a gateway that takes no marks.
-    func prMarkNodes(for session: SessionSummary) -> [BotMenuNode] {
-        guard onProjectPage, let store, store.prManage, store.isCodingSession(profile: session.profile, cwd: session.cwd) else { return [] }
-        let status = store.pullRequest(profile: session.profile, id: session.id) ?? session.pullRequest
-        if status?.manual == true {
-            return [BotMenuNode(title: "Reopen", image: "arrow.uturn.backward.circle", identifier: "sessions.row.prReopen",
-                                kind: .action({ [weak self] in self?.markPRClosed(session, false) }))]
-        }
-        guard let state = status?.state, [.draft, .none, .unknown].contains(state) else { return [] }
-        return [BotMenuNode(title: "Mark as Closed", image: "xmark.circle", identifier: "sessions.row.prClose",
-                            kind: .action({ [weak self] in self?.markPRClosed(session, true) }))]
-    }
-
-    func markPRClosed(_ session: SessionSummary, _ closed: Bool) {
-        guard let store else { return }
-        Haptics.play(.selection)
-        run(closed ? "Couldn’t Mark as Closed" : "Couldn’t Reopen", owner: session.owner) { try await store.setPRClosed(session, closed) }
-    }
-
     func pin(_ session: SessionSummary) {
         guard let store else { return }
         Haptics.play(.selection)
@@ -655,12 +634,10 @@ extension AppModel: SessionsServices {}
     }
 
     /// A project header's hold › Delete Project…: asked first; the chats and the folder are kept.
-    func deleteProject(key: String, title: String, showFolder: Bool = false) {
+    func deleteProject(key: String, title: String) {
         guard let host, let store else { return }
-        let folder = showFolder && !key.hasPrefix("id:") ? "Folder: \(key)\n\n" : ""
-        let scope = showFolder ? "It is removed for every bot that has it.\n\n" : ""
         TextPrompt.confirm(title: "Delete “\(title)”?",
-                           message: folder + scope + "Its chats and its folder are kept. Chats still in the folder will show under the folder’s name instead.",
+                           message: "Its chats and its folder are kept. Chats still in the folder will show under the folder’s name instead.",
                            action: "Delete Project", from: host) { [weak self] in
             self?.run("Couldn’t Delete Project", { try await store.deleteProject(key: key) }, done: { [weak self] in
                 Haptics.play(.success)

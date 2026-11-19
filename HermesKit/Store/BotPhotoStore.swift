@@ -129,7 +129,7 @@ final class BotPhotoStore {
     var onSupportChange: (() -> Void)?
 
     private struct Pair: Equatable { var bots = 0; var head = 0 }
-    private enum Reason { case first, revision, followUp, refresh, confirm }
+    private enum Reason { case first, revision, followUp, refresh }
     private struct Pending {
         var due: ContinuousClock.Instant
         var reason: Reason
@@ -146,12 +146,6 @@ final class BotPhotoStore {
     private var pending: [String: Pending] = [:]
     /// Bots whose fetch failed through the whole ladder: tried again on reconnect or when asked for.
     private var exhausted: Set<String> = []
-    /// [keep-photo] Bots whose kept photo one roster answer has spoken against (no avatar, or no such bot): the photo
-    /// goes when the next answer agrees. A tester 2026-11-17: custom pictures were replaced by the generated heads at
-    /// odd moments. One answer was enough to delete the kept file: Hermes answers "no avatar" whenever its look at the
-    /// bot's folder fails for any reason, some of its roster answers leave the field off a row, and a bot can be
-    /// missing from one answer while Hermes is busy. Getting the picture back then took a download, one bot at a time.
-    private var doubted: Set<String> = []
     /// Bumped whenever this phone learns a bot's picture another way: a fetch answer older than that is dropped.
     private var tokens: [String: Int] = [:]
     /// When this phone last wrote a bot's picture or meta: a roster read sent before that says nothing new about it.
@@ -378,18 +372,10 @@ final class BotPhotoStore {
                 if written > issuedAt { continue }
                 writtenAt[name] = nil
             }
-            // [keep-photo] A row without the field says nothing about the picture (others in the same answer have it).
-            if profile.raw["has_avatar"] == nil { continue }
             let pair = Pair(bots: profile.uiMetaRevision(BotStore.botsKey), head: profile.uiMetaRevision(BotStore.headKey))
             let previous = rows[name]?.pair
-            if !profile.hasAvatar, entries[name]?.verdict == .photo, doubted.insert(name).inserted {
-                // [keep-photo] The first "no avatar" against a kept photo: believed when the next answer says it too.
-                continue
-            }
-            if profile.hasAvatar { doubted.remove(name) }
             rows[name] = (profile.hasAvatar, pair)
             guard profile.hasAvatar else {
-                doubted.remove(name)
                 // No avatar: the head, at once, and no call.
                 if pending[name] != nil || fetching == name { bump(name) }
                 exhausted.remove(name)
@@ -421,9 +407,6 @@ final class BotPhotoStore {
         }
         // A bot that is gone takes its picture with it.
         for name in Set(entries.keys).union(rows.keys).union(pending.keys) where !seen.contains(name) {
-            // [keep-photo] Missing from one answer: its photo waits for the next one to agree.
-            if entries[name]?.verdict == .photo, doubted.insert(name).inserted { continue }
-            doubted.remove(name)
             bump(name)
             rows[name] = nil
             exhausted.remove(name)
@@ -595,12 +578,6 @@ final class BotPhotoStore {
                 // The same picture as before: the other device's upload may still be on its way. Look once more, then
                 // take the answer as it is.
                 pending[name] = Pending(due: .now + timing.followUpDelay, reason: .followUp)
-                return
-            }
-            if item.reason != .confirm, let before, before.verdict == .photo, classified.verdict == .none || classified.verdict == .unreadable {
-                // [keep-photo] The gateway has no picture where this device keeps one: asked once more before the
-                // kept one goes (an empty or cut-off answer from a busy gateway read the same as "removed").
-                pending[name] = Pending(due: .now + timing.followUpDelay, reason: .confirm)
                 return
             }
             apply(name, classified, pair: pair)

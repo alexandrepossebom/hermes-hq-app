@@ -20,7 +20,6 @@ extension SessionStore: GatewaySynced {
             "favoriteProjects": .array(device.favoriteProjects.map { .string($0) }),
             "archivedProjects": .array(device.archivedProjects.map { .string($0) }),       // [project-pills]
             "projectBots": .object(device.projectBots.mapValues { .string($0) }),          // [project-default-bot]
-            "codingProjects": .object(device.codingProjects.mapValues { .bool($0) }),
             "colors": .object(device.colors.mapValues { .number(Double($0)) }),
             "sortBy": .string(view.sortBy.rawValue),
             "groupBy": .string(view.groupBy.rawValue),
@@ -30,7 +29,6 @@ extension SessionStore: GatewaySynced {
     }
 
     func adoptSynced(_ value: JSONValue, merge: GatewaySyncMerge, base: JSONValue?) {
-        let oldCodingProjects = device.codingProjects
         func strings(_ key: String) -> [String] { (value[key]?.array ?? []).compactMap(\.string) }
         /// The gateway's order first; this device's chats it doesn't name keep their places after it.
         func joined(_ remote: [String], _ local: [String]) -> [String] {
@@ -44,9 +42,6 @@ extension SessionStore: GatewaySynced {
             }
             for (key, raw) in value["projectBots"]?.object ?? [:] where device.projectBots[key] == nil {
                 if let bot = raw.string { device.projectBots[key] = bot }
-            }
-            for (key, raw) in value["codingProjects"]?.object ?? [:] where device.codingProjects[key] == nil {
-                if let enabled = raw.bool { device.codingProjects[key] = enabled }
             }
         } else {
             device.chatOrder = joined(strings("chatOrder"), device.chatOrder)
@@ -63,11 +58,6 @@ extension SessionStore: GatewaySynced {
                 for (key, raw) in remote { if let bot = raw.string { chosen[key] = bot } }
                 device.projectBots = chosen
             }
-            if let remote = value["codingProjects"]?.object {
-                var chosen = merge == .firstContact ? device.codingProjects : [:]
-                for (key, raw) in remote { if let enabled = raw.bool { chosen[key] = enabled } }
-                device.codingProjects = chosen
-            }
             var prefs = view
             if let raw = value["sortBy"]?.string, let sort = SessionSortBy(rawValue: raw) { prefs.sortBy = sort }
             if let raw = value["groupBy"]?.string, let group = SessionGroupBy(rawValue: raw) { prefs.groupBy = group }
@@ -80,7 +70,6 @@ extension SessionStore: GatewaySynced {
             device.view = prefs
         }
         persistState()
-        if oldCodingProjects != device.codingProjects { codingProjectsChanged() }
         rebuild()
     }
 }

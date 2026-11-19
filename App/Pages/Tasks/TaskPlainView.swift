@@ -1172,14 +1172,25 @@ struct TaskSectionHead<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title).font(DeviceWord.isMac ? Font.hq(.subheadline).weight(.semibold) : Font.hq(.callout).weight(.hqBold)).foregroundStyle(Color.hqLabel).lineLimit(1)
-            if let count { Text(count).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).lineLimit(1) }
+            // [goals step 2] Side by side while they fit; at the largest sizes the count goes under the name, never
+            // "Mile… 2 of 5".
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) { name; countText }
+                VStack(alignment: .leading, spacing: 0) { name; countText }
+            }
             Spacer(minLength: 8)
             trailing()
         }
         .padding(.horizontal, TaskGrid.edge)
         .frame(minHeight: 40)
         .accessibilityElement(children: .contain)
+    }
+
+    private var name: some View {
+        Text(title).font(DeviceWord.isMac ? Font.hq(.subheadline).weight(.semibold) : Font.hq(.callout).weight(.hqBold)).foregroundStyle(Color.hqLabel).lineLimit(1)
+    }
+    @ViewBuilder private var countText: some View {
+        if let count { Text(count).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2).lineLimit(1) }
     }
 }
 

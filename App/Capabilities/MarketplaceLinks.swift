@@ -65,9 +65,7 @@ import UIKit
         root.loadViewIfNeeded()
         let close = UIBarButtonItem.hqClose(action: UIAction { [weak navigation] _ in navigation?.dismiss(animated: true) })
         close.accessibilityIdentifier = "marketplace.link.close"
-        // [popup-consistency] Where every sheet's lone close sits (`hqPlaceClose`): the ✕ leading on the iPhone, as Chat
-        // Info's and Commands' are (it stood trailing here alone); Done trailing-most on the Mac, as before.
-        root.navigationItem.hqPlaceClose(close)
+        root.navigationItem.rightBarButtonItems = [close] + (root.navigationItem.rightBarButtonItems ?? [])
         navigation.setViewControllers([root], animated: false)
         model.presenter = root
         Task { tab == .plugins ? await model.reloadPlugins() : await model.reloadSkills() }

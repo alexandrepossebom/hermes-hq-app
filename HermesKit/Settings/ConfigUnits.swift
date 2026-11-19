@@ -16,7 +16,6 @@ nonisolated enum ConfigUnits {
     static let units: [String: Unit] = [
         "model_context_length": .count("token", "tokens"),
         "approvals.timeout": .count("second", "seconds"),
-        "agent.clarify_timeout": .count("second", "seconds"),
         "terminal.timeout": .count("second", "seconds"),
         "auxiliary.compression.timeout": .count("second", "seconds"),
         "delegation.child_timeout_seconds": .count("second", "seconds"),

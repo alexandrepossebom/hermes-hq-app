@@ -37,7 +37,7 @@ extension LiveChatSession {
     }
 
     nonisolated static func editable(_ item: QueuedMessage) -> Bool {
-        !item.hidden && item.memo == nil && item.display == nil && !VoiceChatRecord.isRecord(item.text)   // [voice record]
+        !item.hidden && item.memo == nil && item.display == nil
     }
 
     func beginQueuedEdit(_ id: String) -> String? {

@@ -54,11 +54,11 @@ extension ComposerUITests {
         IPad.shot(app, "composer-recent-photo-in-tray", in: self)
     }
 
-    /// Owner 2026-11-18: in Dark the sheet "looks awful: the buttons are black and the pop up is light". Then
-    /// 2026-11-19, of + / the model sheet / Commands side by side in Dark: every pop-up is "lighter grey glass, like
-    /// Commands". So the sheet is Commands' own glass, its tiles Commands' frosted cards (no black buttons on a light
-    /// sheet), over a plain chat and over a white picture at Dim 0 (the worst case), in Dark and Light.
-    @MainActor func testContextSheetIsCommandsGlassOverABrightPicture() throws {
+    /// Owner 2026-11-18: in Dark the sheet "looks awful: the buttons are black and the pop up is light" (plain glass is a
+    /// mid grey in Dark, and shows a bright chat picture through, as the message bar did: E-23). In Dark the sheet's
+    /// glass takes the page colour, with or without a picture; in Light it stays plain glass. A white picture at Dim 0
+    /// is the worst case (0.31 before, with a 0.12 bar).
+    @MainActor func testContextSheetStaysDarkOverABrightPictureInDark() throws {
         let picture = FileManager.default.temporaryDirectory.appendingPathComponent("context-sheet-background.png")
         let white = UIGraphicsImageRenderer(size: CGSize(width: 60, height: 120)).image { context in
             UIColor.white.setFill()
@@ -74,35 +74,20 @@ extension ComposerUITests {
             let privacyOK = app.buttons["OK"]
             if privacyOK.waitForExistence(timeout: 5) { privacyOK.tap() }
             Thread.sleep(forTimeInterval: 2)
-            let name = "\(mode)\(pictured ? " over a white picture" : "")"
-            let plusClose = app.buttons["Close"].frame
             let shot = app.screenshot()
             IPad.shot(app, "composer-add-context-\(pictured ? "white-picture" : "no-picture")-\(mode)", in: self)
-            let plus = Self.medianLuminance(shot, in: Self.besideClose(plusClose))
-            // A tile beside the sheet between two tiles (the glass darkens down the sheet, so the gap next to it).
-            let files = app.buttons["composer.plus.files"].frame, memo = app.buttons["composer.plus.memo"].frame
-            let tile = Self.medianLuminance(shot, in: CGRect(x: files.minX + 8, y: files.minY + 6, width: files.width - 16, height: 12))
-            let gap = Self.medianLuminance(shot, in: CGRect(x: files.maxX + 2, y: files.minY + 6, width: max(2, memo.minX - files.maxX - 4), height: 12))
-            app.buttons["Close"].tap()
-            XCTAssertTrue(IPad.waitUntil(timeout: 5) { !title.exists })
-            Thread.sleep(forTimeInterval: 0.8)
-
-            app.buttons["composer.commands"].tap()
-            let commandsClose = app.buttons["Close"]
-            XCTAssertTrue(commandsClose.waitForExistence(timeout: 8), "the Commands sheet")
-            Thread.sleep(forTimeInterval: 1.5)
-            let commands = Self.medianLuminance(app.screenshot(), in: Self.besideClose(commandsClose.frame))
-            XCTAssertEqual(plus, commands, accuracy: 0.04, "\(name): + is Commands' glass (+ \(plus), Commands \(commands))")
+            // The sheet's own surface: beside the title, and the gap under the last row (no card, no photo there).
+            let link = app.buttons["composer.plus.link"].frame
+            let head = Self.medianLuminance(shot, in: title.frame.insetBy(dx: -24, dy: -4))
+            let foot = Self.medianLuminance(shot, in: CGRect(x: link.minX + 30, y: link.maxY + 4, width: link.width - 60, height: 12))
             if mode == "dark" {
-                XCTAssertGreaterThan(tile, gap, "\(name): the tiles are frosted cards lifted off the glass, not black buttons (tile \(tile), glass beside it \(gap))")
+                XCTAssertLessThan(head, 0.12, "Dark\(pictured ? " over a white picture" : ""): the sheet reads as a dark surface (luminance \(head))")
+                XCTAssertLessThan(foot, 0.12, "Dark: under the last row too (luminance \(foot))")
+            } else {
+                XCTAssertGreaterThan(head, 0.6, "Light: the sheet stays light (luminance \(head))")
             }
             app.terminate()
         }
-    }
-
-    /// A strip of the sheet right of its ✕, left of every title: the sheet's own surface.
-    private static func besideClose(_ close: CGRect) -> CGRect {
-        CGRect(x: close.maxX + 8, y: close.midY - 5, width: 20, height: 10)
     }
 
     /// The median relative luminance (0…1) of the screenshot inside `rect` (points): the words on it don't move it.

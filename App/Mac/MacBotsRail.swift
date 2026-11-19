@@ -880,43 +880,22 @@ final class MacSidebarTools: UIView {
                 button.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hover(_:))))
             }
         }
-        // [rail-actions] Owner 2026-11-19: folded, Search and New Chat read as two more places. They are actions, so
-        // they sit smaller and quieter in one shared tray, a step apart from the places under them.
-        let side = ((folded ? 28 : 34) * MacSidebar.chrome).rounded()
+        let side = ((folded ? 38 : 34) * MacSidebar.chrome).rounded()
         levelShift = folded ? 0 : side - 34
-        if folded {
-            tray.translatesAutoresizingMaskIntoConstraints = false
-            tray.isUserInteractionEnabled = false
-            tray.layer.cornerCurve = .continuous
-            tray.layer.cornerRadius = (9 * MacSidebar.chrome).rounded()
-            tray.layer.borderWidth = 1 / max(UIScreen.main.scale, 1)
-            insertSubview(tray, at: 0)
-            // A CGColor edge does not follow Light/Dark by itself.
-            registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (tools: MacSidebarTools, _: UITraitCollection) in tools.recolor() }
-        }
-        let inset: CGFloat = 2
         if folded, named {
             NSLayoutConstraint.activate([
-                tray.topAnchor.constraint(equalTo: topAnchor), tray.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-                tray.centerXAnchor.constraint(equalTo: centerXAnchor),
-                search.topAnchor.constraint(equalTo: tray.topAnchor, constant: inset),
-                search.bottomAnchor.constraint(equalTo: tray.bottomAnchor, constant: -inset),
-                search.leadingAnchor.constraint(equalTo: tray.leadingAnchor, constant: inset),
-                compose.leadingAnchor.constraint(equalTo: search.trailingAnchor, constant: 1),
-                compose.trailingAnchor.constraint(equalTo: tray.trailingAnchor, constant: -inset),
+                search.topAnchor.constraint(equalTo: topAnchor), search.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+                search.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -2),
+                compose.leadingAnchor.constraint(equalTo: centerXAnchor, constant: 2),
                 compose.centerYAnchor.constraint(equalTo: search.centerYAnchor),
                 search.widthAnchor.constraint(equalToConstant: side), search.heightAnchor.constraint(equalToConstant: side),
                 compose.widthAnchor.constraint(equalToConstant: side), compose.heightAnchor.constraint(equalToConstant: side),
             ])
         } else if folded {
             NSLayoutConstraint.activate([
-                tray.topAnchor.constraint(equalTo: topAnchor), tray.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-                tray.centerXAnchor.constraint(equalTo: centerXAnchor),
-                search.topAnchor.constraint(equalTo: tray.topAnchor, constant: inset),
-                search.leadingAnchor.constraint(equalTo: tray.leadingAnchor, constant: inset),
-                search.trailingAnchor.constraint(equalTo: tray.trailingAnchor, constant: -inset),
-                compose.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 1), compose.centerXAnchor.constraint(equalTo: search.centerXAnchor),
-                compose.bottomAnchor.constraint(equalTo: tray.bottomAnchor, constant: -inset),
+                search.topAnchor.constraint(equalTo: topAnchor), search.centerXAnchor.constraint(equalTo: centerXAnchor),
+                compose.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 2), compose.centerXAnchor.constraint(equalTo: centerXAnchor),
+                compose.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
                 search.widthAnchor.constraint(equalToConstant: side), search.heightAnchor.constraint(equalToConstant: side),
                 compose.widthAnchor.constraint(equalToConstant: side), compose.heightAnchor.constraint(equalToConstant: side),
             ])
@@ -948,11 +927,7 @@ final class MacSidebarTools: UIView {
     func recolor() {
         let well = Self.well
         var find = UIButton.Configuration.plain()
-        let glassIcon = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13 * MacSidebar.chrome, weight: .medium))
-        if folded {
-            tray.backgroundColor = Self.trayFill
-            tray.layer.borderColor = Self.trayEdge.resolvedColor(with: traitCollection).cgColor
-        }
+        let glassIcon = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: (folded ? 17 : 13) * MacSidebar.chrome, weight: .medium))
         find.baseForegroundColor = HQPalette.label2
         if !folded {
             // [sidebar-intent] The glass and "Search" are views of this box's own, on the sidebar's two columns: the
@@ -1001,16 +976,11 @@ final class MacSidebarTools: UIView {
             search.configuration = find
         }
         var write = UIButton.Configuration.plain()
-        write.image = UIImage(systemName: "square.and.pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: (folded ? 13 : 15) * MacSidebar.chrome, weight: .medium))
-        write.baseForegroundColor = folded ? HQPalette.label2 : HQPalette.label   // [rail-actions] quieter than the places
+        write.image = UIImage(systemName: "square.and.pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: (folded ? 17 : 15) * MacSidebar.chrome, weight: .medium))
+        write.baseForegroundColor = HQPalette.label
         if !folded { write.background.backgroundColor = well; write.background.cornerRadius = 9 }
         compose.configuration = write
     }
-
-    /// [rail-actions] Folded: the one box Search and New Chat share.
-    private let tray = UIView()
-    private static let trayFill = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.05) : UIColor(white: 0, alpha: 0.04) }
-    private static let trayEdge = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.08) : UIColor(white: 0, alpha: 0.07) }
 
     private let shortcut = UILabel()
     private let glass = UIImageView()

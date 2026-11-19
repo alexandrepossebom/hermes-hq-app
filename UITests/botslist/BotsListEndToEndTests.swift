@@ -247,7 +247,6 @@ extension SettingsEndToEndTests {
         let app = launchSignedIn(["-HQDebugDesktopLook", desktop ? "YES" : "NO"] + (text.map { ["-UIPreferredContentSizeCategoryName", $0] } ?? []))
         openBotInfo(app, "ivy")
         app.botInfoTab("Brain")   // [page-tabs]
-        shot(app, "L14-bot-info-tabs-\(look)")   // the tab strip stands bare in the Desktop Look, not in a second box
         let row = app.buttons["bot-info.soul"]
         let list = app.collectionViews["bot-info.list"]
         for _ in 0..<6 where !row.isHittable { list.swipeUp() }   // Brain sits low on the sheet (PresenceStressTests' own pattern)

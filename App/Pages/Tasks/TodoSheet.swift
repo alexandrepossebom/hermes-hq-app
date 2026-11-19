@@ -154,13 +154,9 @@ final class TodoSheetModel {
 
     /// The task view's line, tapped: the chat takes the screen (the task as its bar).
     func showChat() {
-        let latest = glimpse()
-        let unread = latest.map { isUnread($0) } ?? false
-        if let latest { seenGlimpse = latest.id }
+        if let latest = glimpse() { seenGlimpse = latest.id }
         PagesHaptics.selection()
         tuck(.chat)
-        // [notify] Owner 2026-11-19: "New reply ›" opens on that reply's top, not its last lines.
-        if unread { chat?.landOnNewestReply() }
     }
 
     /// The bar's tap, or the title's: the whole brief again.

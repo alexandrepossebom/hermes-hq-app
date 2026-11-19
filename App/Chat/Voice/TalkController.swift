@@ -129,8 +129,6 @@ import UIKit
     private(set) var live: Conversation?
     private var waiting: [String: Waiting] = [:]
     private var endedCaptions: [String: String] = [:]
-    /// [resume] A live talk that ended before its answer was heard, by chat: the next live talk there tells the bot.
-    private var resumes: [String: LiveTalkResume] = [:]
     /// The chat whose screen is in front (set by its host).
     private(set) weak var front: (any ChatVoiceTurns)?
     private var ticker: Timer?
@@ -489,7 +487,6 @@ import UIKit
     /// Sign-out or a gateway switch: the conversation ends and every notice and caption goes with the account.
     func accountGone() {
         if let current = live { finish(current, .gone) }
-        resumes.removeAll()
         guard !waiting.isEmpty || !endedCaptions.isEmpty else { return }
         waiting.removeAll()
         endedCaptions.removeAll()
@@ -720,7 +717,6 @@ import UIKit
         live = nil
         let chat = conversation.chat, scope = chat.memoScope
         let length = now() - conversation.startedAt
-        resumes[scope] = reason == .gone ? nil : conversation.liveState.unheardRequest.map { LiveTalkResume(request: $0, endedAt: now()) }
         conversation.replyTimer?.invalidate()
         chat.onVoiceChange = nil
         chat.onDelegationRefused = nil   // [gpt-live]
@@ -922,7 +918,6 @@ import UIKit
         shuttingDown = nil
         waiting.removeAll()
         endedCaptions.removeAll()
-        resumes.removeAll()
         front = nil
         inputs.removeAll()
     }
@@ -1044,7 +1039,6 @@ extension TalkController {
         let chat = conversation.chat
         conversation.engine = engine
         conversation.liveState = LiveTalkState(engine: engine)
-        conversation.liveState.resumeNote = resumes.removeValue(forKey: chat.memoScope)?.note(now: now())
         conversation.liveSince = Date()
         conversation.capture = LiveInertCapture()
         if conversation.leased {

@@ -367,20 +367,12 @@ import Testing
         #expect(await BotsTest.waitUntil { store.bot(named: "herald")?.preview == words })
         #expect(client.restCalls.count == 1)
 
-        // The rows carry their times, as Hermes stores them: the two you saw before the list was read, the talk with Otto after.
-        tail.value = Self.askedByOtto.enumerated().map { index, row in
-            var row = row.object ?? [:]
-            row["timestamp"] = .number(index < 2 ? 1_790_999_900 + Double(index) : 1_791_000_040 + Double(index))
-            return .object(row)
-        }
+        tail.value = Self.askedByOtto
         store.noteChatActivity(profile: "herald", sessionId: "tip", preview: "**The side door is closed:** position 0, confirmed just now.",
                                at: Date(timeIntervalSince1970: 1_791_000_100), unseen: true, said: false)
         #expect(await BotsTest.waitUntil { client.restCalls.count == 2 })
         try await Task.sleep(for: .milliseconds(80))
         #expect(store.bot(named: "herald")?.preview == words)
-        // A tester 2026-11-19: the bot only answered another bot, and still lit up as unread when its turn ended off
-        // screen. The dot waits for the same read as the words, and that read found nothing written to you.
-        #expect(store.bot(named: "herald")?.unread == false)
         store.stop()
         RosterDiskWriter.shared.flush()
     }

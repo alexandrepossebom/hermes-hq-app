@@ -343,7 +343,7 @@ extension MacShots {
             let page = UIGraphicsImageRenderer(size: CGSize(width: 1600, height: 1000)).image { context in
                 UIColor.white.setFill()
                 context.fill(CGRect(x: 0, y: 0, width: 1600, height: 1000))
-                let words: [NSAttributedString.Key: Any] = [.font: HQFont.face(size: 44, weight: .semibold, family: nil), .foregroundColor: UIColor.darkGray]
+                let words: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 44, weight: .semibold), .foregroundColor: UIColor.darkGray]
                 ("A white page edge to edge" as NSString).draw(at: CGPoint(x: 40, y: 20), withAttributes: words)
                 ("Its foot" as NSString).draw(at: CGPoint(x: 40, y: 920), withAttributes: words)
             }

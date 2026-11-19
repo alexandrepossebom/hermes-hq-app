@@ -283,9 +283,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
     func windowScene(_ windowScene: UIWindowScene, didUpdateEffectiveGeometry previousEffectiveGeometry: UIWindowScene.Geometry) {
         let size = windowScene.effectiveGeometry.coordinateSpace.bounds.size
         AppRoot.noteScreen(windowScene)
-        #if targetEnvironment(macCatalyst)
-        MacWindow.frameChanged(windowScene)   // where the window is now is where it opens next time
-        #endif
         guard let last = lastWindowSize, last != size else { lastWindowSize = size; return }
         lastWindowSize = size
         #if targetEnvironment(macCatalyst)
@@ -416,9 +413,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
         returnGate.resignedActive()                     // [offline] §6.8
         LiveActivityCenter.shared.appLeaving()          // [live] a long turn goes on the Lock Screen (iOS starts one only now)
         AppLog.trace("app", "inactive")                 // [diagnostics] the Mac: another app came to the front
-        // [viewing] Another app in front (or the phone locking): the chat is no longer in front of the person. Looked
-        // at a moment later, once the app's state says so.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.model?.viewingBeat.poke() }
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {

@@ -217,6 +217,15 @@ import UIKit
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil, height == 0, let navigation else { return }
+        #if !targetEnvironment(macCatalyst)
+        // [goals step 2] The iPad's form sheet: a page whose list has its whole height at once (a goal's page, a plain
+        // stack in a scroll view) fitted here, mid-presentation, and the presentation never finished: its fade stayed
+        // on the sheet and every tap on it fell through to the dimming view. On the iPad it fits once it is up.
+        if let coordinator = navigation.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.setNeedsLayout() }
+            return
+        }
+        #endif
         navigation.view.layoutIfNeeded()
         guard let page = navigation.topViewController?.viewIfLoaded, let scroll = watched ?? Self.list(in: page, depth: 0) else { return }
         scroll.layoutIfNeeded()
@@ -224,6 +233,13 @@ import UIKit
     }
 
     private func follow(_ scroll: UIScrollView) {
+        #if !targetEnvironment(macCatalyst)
+        // [goals step 2] Never mid-presentation on the iPad (see `didMoveToWindow`): once the sheet is up.
+        if let coordinator = navigation?.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { [weak self, weak scroll] _ in if let scroll { self?.follow(scroll) } }
+            return
+        }
+        #endif
         // The first measure of a page that is already drawn: at once (see `didMoveToWindow`).
         if height == 0, scroll.window != nil, scroll.contentSize.height > 0 { fit(scroll, settled: true); return }
         settle?.cancel()
@@ -413,11 +429,7 @@ extension UIBarButtonItem {
         close.title = word
         return close
         #else
-        let close = UIBarButtonItem(systemItem: item, primaryAction: action)
-        // [popup-consistency] The ✕ says "Close" to VoiceOver, as the sheets that draw their own ✕ do
-        // (`SheetCloseDisc`); the system item alone said "close".
-        if item == .close { close.accessibilityLabel = SheetCloseDisc.Glyph.close.label }
-        return close
+        return UIBarButtonItem(systemItem: item, primaryAction: action)
         #endif
     }
 
