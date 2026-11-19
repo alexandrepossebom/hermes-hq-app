@@ -32,7 +32,11 @@ struct TileModelView: View {
                 choiceRow(TileModels.eachBotsModel, subtitle: nil, selected: chosen == nil, id: "tile-model.default.bots") { setDefault(nil) }
                 choiceRow(chosen.map(TileModels.name) ?? "Choose a Model…", subtitle: chosen.map { catalog.providerName($0.provider) },
                           selected: chosen != nil, id: "tile-model.default.pick") { openChooser(fallback: false) }
-            } header: { HQSectionLabel { Text("Default Model") } }
+            } header: { HQSectionLabel { Text("Default Model") } } footer: { HQSectionFooter {
+                // Owner 2026-11-18: "I'm using a powerful model for my bots' default, but for quick recurring tasks I'd
+                // use a cheaper model." The tiles' model is its own choice, apart from the bots' chat model.
+                Text(TileModels.defaultFooter).accessibilityIdentifier("tile-model.default.footer")
+            } }
             Section {
                 choiceRow(TileModels.eachBotsFallback, subtitle: nil, selected: fallback == nil, id: "tile-model.fallback.bots") { setFallback(nil) }
                 choiceRow(fallback.map(TileModels.name) ?? "Choose a Model…", subtitle: fallback.map { catalog.providerName($0.provider) },
