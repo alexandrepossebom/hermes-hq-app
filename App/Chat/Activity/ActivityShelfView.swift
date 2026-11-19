@@ -67,6 +67,21 @@ final class ActivityShelfView: UIView {
         collapseAll.accessibilityIdentifier = "chat.shelf.collapse"
         collapseAll.accessibilityLabel = "Collapse Activity"
         collapseAll.addTarget(self, action: #selector(collapseAllTapped), for: .touchUpInside)
+        // Owner 2026-11-19: "The little hover thing over the close arrow is messed up". The Mac's hover disc took the
+        // 44 pt tap area, whose glyph sits at its trailing edge, so it sat beside the ⌃ over the card's corner; a circle
+        // round the glyph still crowded the corner. Of three drawn options he picked A: no fill, the arrow itself
+        // brightens under the pointer, as the Mac sidebar's headings do. The iPad's pointer lifts the arrow alone.
+        #if targetEnvironment(macCatalyst)
+        MacHover.drawsOwnHover(collapseAll)
+        #endif
+        let hover = UIHoverGestureRecognizer(target: self, action: #selector(collapseHovered(_:)))
+        hover.cancelsTouchesInView = false
+        collapseAll.addGestureRecognizer(hover)
+        collapseAll.isPointerInteractionEnabled = true
+        collapseAll.pointerStyleProvider = { button, _, _ in
+            guard button.window != nil, let arrow = button.imageView else { return nil }
+            return UIPointerStyle(effect: .highlight(UITargetedPreview(view: arrow)))
+        }
         addSubview(collapseAll)
         glass.contentView.addSubview(overview)
         glass.contentView.addSubview(headerRule)
@@ -100,6 +115,18 @@ final class ActivityShelfView: UIView {
 
     @objc private func toggled() { Haptics.play(.selection); onToggle?() }
     @objc private func collapseAllTapped() { Haptics.play(.selection); onCollapseAll?() }
+
+    @objc private func collapseHovered(_ recognizer: UIHoverGestureRecognizer) {
+        let over = recognizer.state == .began || recognizer.state == .changed
+        UIView.animate(withDuration: HQMotion.hover, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { // motion-ok: tint only
+            self.collapseAll.tintColor = over ? ChatPalette.label : ChatPalette.label2
+        }
+    }
+
+    #if DEBUG
+    /// Tours: the ⌃'s hover as the pointer over it draws it.
+    func debugHoverCollapse() { collapseAll.tintColor = ChatPalette.label }
+    #endif
 
     func piece(_ kind: ShelfPieceKind, make: () -> ShelfPieceView) -> ShelfPieceView {
         if let p = pieces[kind] { return p }
