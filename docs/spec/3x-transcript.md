@@ -695,7 +695,16 @@ copies the full reply.
 
 ## 4. Position and paging
 
-### 4.1 §5 L329 — Reopening a chat with unread replies lands on them (not started)
+### 4.1 §5 L329 — Reopening a chat with unread replies lands on them (partial: a chat opened for a reply, 2026-11-19)
+
+**Done 2026-11-19 (owner, a task's reply alert: "I could not read the chat. It wasn't showing me what I was needing
+to see").** A chat opened FOR a reply lands with the top of the newest reply (the bot's run since your last
+message) 4 pt under the bar when that run is taller than the room, else at the end: a tapped alert or the peek on any
+road (Bots, Sessions, a task's page; `ChatViewController.landsNext`, `opensAtReply`), the alert for the chat already on
+show (`landOnNewestReply`; a task's page also rolls the task up to its bar), and a task's "New reply ›". It is applied
+again as the open's reads land and the bar changes height, until you scroll, send or jump, or 12 s pass
+(`landOnReplyIfAsked`). Guard: `UITests/pages/TasksChatStressUITests` (six roads). Still not built: the plain reopen
+from a list with a `SeenStore` mark, and the "New" divider.
 
 **Web.** `src/fe-convo-r5.ts:129-185` (r5-86): the newest message id the reader has seen is saved per chat
 (120 chats kept). `reopenScrollTarget`: when the chat is unread (or was marked read within the last

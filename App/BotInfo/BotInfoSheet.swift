@@ -652,8 +652,7 @@ struct BotInfoView: View {
                     .opacity(model.headerFolded ? 0 : 1)   // [ui-sizing] the pinned copy stands in for it
                     .accessibilityHidden(model.headerFolded)
                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { tabsTop = $0; refold() }
-                    .hqSegmentRow(otherwise: Theme.isDesktop ? EdgeInsets(top: 4, leading: 12, bottom: 12, trailing: 12)
-                                                             : EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0))
+                    .hqSegmentRow(otherwise: EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0))
             }
             .listSectionSpacing(.compact)
 

@@ -1130,7 +1130,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             let page = TodoSheet.page(taskID: id, store: store, context: context, beside: true)
             TodoSheet.model(of: page)?.onMarkedDone = { [weak self] task in self?.offerUndoDone(task) }
             TodoSheet.model(of: page)?.onAssigned = { [weak self] words in self?.openTask(id, asking: words) }   // [tasks-first]
-            if atReply { (page as? ChatViewController)?.opensAtNewest(); TodoSheet.model(of: page)?.tuck(.alert) }   // the reply first, the task as its bar
+            if atReply { (page as? ChatViewController)?.opensAtReply(); TodoSheet.model(of: page)?.tuck(.alert) }   // the reply's top, the task as its bar
             if isTable { MacDash.closes(page) }   // [mac-tools] the table takes the window back
             openDetail(page, animated: question == nil)
             markOnShow(id, keepsSelection: true)   // [mac] #41
@@ -1143,7 +1143,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         // [tasks-first] A bot given the task from its who row: the page opens again with that bot's conversation.
         TodoSheet.model(of: sheet.viewControllers.first)?.onAssigned = { [weak self] words in self?.openTask(id, asking: words) }
         if atReply {
-            (sheet.viewControllers.first as? ChatViewController)?.opensAtNewest()
+            (sheet.viewControllers.first as? ChatViewController)?.opensAtReply()   // [notify] from the reply's top
             TodoSheet.model(of: sheet.viewControllers.first)?.tuck(.alert)   // the reply first, the task as its bar
         }
         present(sheet, animated: true) { [weak self, weak sheet] in
