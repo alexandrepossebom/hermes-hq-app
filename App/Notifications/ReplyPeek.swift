@@ -1,6 +1,6 @@
 // The in-app counterpart of a notification banner (port of the web app's DispatchReplyPeek, HermesUIChat.swift, build
 // 222+): another chat's finished reply drops in as a Liquid Glass capsule — the system's own untinted glass — just under
-// the Dynamic Island, with the bot's face, name, the chat's title and the reply (three lines on the Mac, two on the iPhone, at the system banner's size). The whole card
+// the Dynamic Island, with the bot's face, name, the chat's title and up to three lines of the reply. The whole card
 // opens the chat; a swipe up sends it away (on the Mac also its ✕); a finger (on the Mac, the pointer) resting on it
 // holds it; it leaves by itself after 6 s (twice that with VoiceOver). [owner 2026-11-18] "These notifications need to
 // have more detail in them and be overall larger to make them easier to see": bigger face and words, the chat's title,
@@ -23,13 +23,10 @@ struct PeekAlert {
 
 @MainActor final class ReplyPeek: NSObject {
     static let shared = ReplyPeek()
-    /// [owner 2026-11-18] The bigger card is the Mac's ("more detail … overall larger" was a Mac report); the iPhone
-    /// and iPad keep the system banner's size ("They need be normal iOS size"): a 38 pt face, 15 pt words, two lines.
-    static var mac: Bool { DeviceWord.isMac }
-    static var height: CGFloat { mac ? 76 : 64 }
-    static var shownFor: TimeInterval { mac ? 6 : 4.5 }
+    static let height: CGFloat = 76
+    static let shownFor: TimeInterval = 6
     /// The card's widest: the iPhone's banner width; on the Mac a little more, as the window is wide.
-    static var widest: CGFloat { mac ? 560 : 440 }
+    static var widest: CGFloat { DeviceWord.isMac ? 560 : 460 }
 
     private(set) var view: PeekView?
     private var timer: Timer?
@@ -58,20 +55,6 @@ struct PeekAlert {
         // [mac] A reply that takes the place of one under the pointer stays held until the pointer leaves.
         if peek.hovering { timer?.invalidate() } else { restartTimer() }
     }
-
-    #if DEBUG
-    /// `-HQDebugPeekDemo short|long` (with `-HQDemoLists`): a reply peek drops in 2 s after launch and stays, so a
-    /// simulator screenshot can be set beside the system's own banner.
-    static func demoIfAsked(_ window: UIWindow) {
-        guard let kind = UserDefaults.standard.string(forKey: "HQDebugPeekDemo") else { return }
-        UserDefaults.standard.set(true, forKey: "HQDebugPeekHold")
-        let alert = kind == "long"
-            ? PeekAlert(name: "Otto", body: "I’ve made this the standard for everything I send you from now on: the headline first, then the "
-                        + "three numbers that moved, then what I need from you.", chat: "Landing page audit", session: "demo-peek", profile: nil, face: nil)
-            : PeekAlert(name: "Sam", body: "The venue confirmed Friday at noon.", session: "demo-peek", profile: nil, face: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { shared.show(alert, in: window) { _ in } }
-    }
-    #endif
 
     private func makeView(in window: UIWindow) -> PeekView {
         let peek = PeekView()
@@ -187,7 +170,7 @@ struct PeekAlert {
             face.clipsToBounds = true
             face.layer.cornerRadius = Self.faceSize / 2
             face.layer.cornerCurve = .continuous
-            initial.font = HQFont.system(ofSize: ReplyPeek.mac ? 20 : 16, weight: .semibold) // a11y-font-ok: the letter inside the face
+            initial.font = HQFont.system(ofSize: 20, weight: .semibold) // a11y-font-ok: the letter inside the 48 pt face
             initial.accessibilityIdentifier = "reply-peek.initial"
             initial.textColor = .white
             initial.textAlignment = .center
@@ -195,8 +178,7 @@ struct PeekAlert {
             face.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([face.widthAnchor.constraint(equalToConstant: Self.faceSize), face.heightAnchor.constraint(equalToConstant: Self.faceSize)])
 
-            name.font = ReplyPeek.mac ? HQFont.scaled(17, weight: .semibold, like: .headline, cap: 26)
-                : HQFont.scaled(15, weight: .semibold, like: .subheadline, cap: 22)
+            name.font = HQFont.scaled(17, weight: .semibold, like: .headline, cap: 26)
             name.adjustsFontForContentSizeCategory = true   // [a11y] follows a live text-size change
             name.textColor = .label   // system-ink-ok: on the system's untinted glass
             // The name keeps to its words and the title takes the rest of the row, so the words fill the card and
@@ -204,7 +186,7 @@ struct PeekAlert {
             name.setContentHuggingPriority(.defaultHigh, for: .horizontal)
             name.setContentCompressionResistancePriority(.defaultHigh + 1, for: .horizontal)
             // The chat's title gives way first when the row is short of room: the name stays whole.
-            chat.font = ReplyPeek.mac ? HQFont.scaled(15, like: .subheadline, cap: 24) : HQFont.scaled(15, like: .subheadline, cap: 22)
+            chat.font = HQFont.scaled(15, like: .subheadline, cap: 24)
             chat.adjustsFontForContentSizeCategory = true   // [a11y] follows a live text-size change
             chat.textColor = .secondaryLabel   // system-ink-ok: on the system's untinted glass
             chat.accessibilityIdentifier = "reply-peek.chat"
@@ -214,15 +196,15 @@ struct PeekAlert {
             heading.axis = .horizontal
             heading.spacing = 6
             heading.alignment = .firstBaseline
-            line.font = ReplyPeek.mac ? HQFont.scaled(15, like: .subheadline, cap: 24) : HQFont.scaled(15, like: .subheadline, cap: 22)
+            line.font = HQFont.scaled(15, like: .subheadline, cap: 24)
             line.adjustsFontForContentSizeCategory = true   // [a11y] follows a live text-size change
             line.textColor = .label.withAlphaComponent(0.78)   // system-ink-ok: on the system's untinted glass
-            line.numberOfLines = ReplyPeek.mac ? 3 : 2
+            line.numberOfLines = 3
             line.setContentHuggingPriority(.defaultLow - 1, for: .horizontal)
             line.accessibilityIdentifier = "reply-peek.line"
             let words = UIStackView(arrangedSubviews: [heading, line])
             words.axis = .vertical
-            words.spacing = ReplyPeek.mac ? 2 : 1
+            words.spacing = 2
             [name, chat, line].forEach { $0.lineBreakMode = .byTruncatingTail }
 
             count.font = HQFont.scaled(13, weight: .semibold, like: .footnote, cap: 20)
@@ -251,7 +233,7 @@ struct PeekAlert {
             }
             contentStack.axis = .horizontal
             contentStack.alignment = .center
-            contentStack.spacing = ReplyPeek.mac ? 12 : 10
+            contentStack.spacing = 12
             contentStack.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(contentStack)
             NSLayoutConstraint.activate([
@@ -274,11 +256,11 @@ struct PeekAlert {
 
         func materialize(_ on: Bool) { effect = on ? glass : nil }
 
-        static var faceSize: CGFloat { ReplyPeek.mac ? 48 : 38 }
-        static var lead: CGFloat { ReplyPeek.mac ? 14 : 12 }
+        static let faceSize: CGFloat = 48
+        static let lead: CGFloat = 14
         /// Above and below the words when they are taller than the face.
-        static var pad: CGFloat { ReplyPeek.mac ? 14 : 10 }
-        private var trail: CGFloat { close == nil ? 18 : 14 }
+        static let pad: CGFloat = 14
+        private var trail: CGFloat { close == nil ? 20 : 14 }
 
         /// The words' height at this width and the current text size, with room above and below. Measured from the
         /// text's own width (what is left beside the face, the count and the ✕): a stack's fitting pass can wrap a
@@ -299,7 +281,7 @@ struct PeekAlert {
         /// under the glass (`BackedGlassCard`) already follows.
         func shape(height: CGFloat) {
             if height <= ReplyPeek.height + 0.5 { cornerConfiguration = .capsule() }
-            else { cornerConfiguration = .corners(radius: .fixed(ReplyPeek.mac ? ModelPanelView.radius : 26)) }
+            else { cornerConfiguration = .corners(radius: .fixed(ModelPanelView.radius)) }
         }
 
         func fill(_ alert: PeekAlert, others: Int) {

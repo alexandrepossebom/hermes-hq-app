@@ -206,7 +206,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
             window.rootViewController = arguments.contains("-HQDemoSignIn") ? ListsDemo.makeSignIn() : ListsDemo.makeRoot()
             window.makeKeyAndVisible()
             ThemeDebugHooks.openThemeOverDemo(window.rootViewController)   // [backdrop] Theme on a tab's stack
-            ReplyPeek.demoIfAsked(window)   // [owner 2026-11-18] -HQDebugPeekDemo short|long: a reply peek over the lists
             #if targetEnvironment(macCatalyst)
             MacShots.startIfAsked(window)              // [mac] -HQDebugMacShots
             MacSettingsWindow.openIfAsked()            // [mac-layout] -HQDebugSettingsWindow

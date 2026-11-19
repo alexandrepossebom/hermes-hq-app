@@ -36,6 +36,11 @@ Tasks ([tasks], hermes-hq-push 0.9.32, docs/tasks.md): /api/plugins/hermes-hq-pu
 the add-on's /status with every flag on (tasks: true), POST /tasks/prep-job/{profile}. Seeded with the owner-approved
 mockup's list and a chat ('s-tasks') where Hermes adds two with tasks_add; --tasks-chat puts that exchange at the end of
 Hermes's own Bot Chat too; --no-tasks answers 404 for the routes (an add-on older than 0.9.32).
+
+Goals ([goals], hermes-hq-push 0.9.65, docs/goals.md): `goals` in the list answer, POST /goals, PATCH /goals/{id} with
+rev (a stale one is a 409 {"detail": {"goal": …}}; `measure_now` adds a reading), DELETE /goals/{id} (its tasks keep no
+goal), `goal`/`milestone` on tasks (an unknown goal is a 400; clearing the goal clears the milestone) and `task_goals`
+in /status. --task-goals or /__fixture/tasks-mode {"goals": true} seeds five made-up goals; older_addon leaves it all out.
 """
 import shutil
 import argparse, base64, copy, datetime, hashlib, importlib.util, json, mimetypes, os, pathlib, re, socket, struct, sys, threading, time, zlib
@@ -496,6 +501,16 @@ NO_TASKS = False
 TASKS_CHAT = False
 TASKS_JSON = None   # --tasks-json: a list exported from a real tasks.db (kept out of git), shown first
 TASKS_ROUTE = '/api/plugins/hermes-hq-push/tasks'
+# [goals] hermes-hq-push 0.9.65 (docs/goals.md): goals beside the list, sharing its rev. --task-goals (or
+# /__fixture/tasks-mode {"goals": true}) turns goals on and seeds five made-up ones (seed_task_goals); {"goals": "empty"}
+# turns them on with none. Otherwise, or as an older add-on (older_addon), `goals` is left out and the routes answer 404
+# (the add-on the tests written before goals expect).
+GOALS = {}
+GOALS_ROUTE = '/api/plugins/hermes-hq-push/goals'
+TASK_GOALS = False
+GOAL_SEEDS = 0   # how many times seed_task_goals has run (its revs climb)
+GOALS_ON = False   # the add-on keeps goals (0.9.65)
+GOAL_STATUSES = ('active', 'paused', 'achieved', 'let_go')
 
 # [plugin-pages] The "notes" page plugin's bundle: the dashboard SDK's components, its own API.
 NOTES_PAGE_JS = r"""
@@ -686,6 +701,174 @@ def seed_tasks():
          created=15 * 1440, steps=[step(1, 'Gather the recipes into one note', 'bot'), step(2, 'Pick two to try', 'me')])
     seed_ideas()
     if TASK_LISTS: seed_task_lists()
+    global GOALS_ON
+    GOALS.clear()
+    GOALS_ON = TASK_GOALS
+    if TASK_GOALS: seed_task_goals()
+
+def seed_task_goals():
+    """[goals] Step 1's boards (docs/goals.md, boards 1 and 2), with every name invented: a goal with a number, a date
+    and five milestones (two done, the third open with its tasks); one with milestones and no number; one with only
+    tasks; one paused; one achieved."""
+    global GOAL_SEEDS
+    GOALS.clear()
+    # Each seeding's revs start above the last one's: the app keeps a task it holds at a higher rev than a read's (a
+    # gateway's revs never go back), so a reset after a test ticked these tasks would otherwise keep them ticked.
+    GOAL_SEEDS += 1
+    seed_rev = 2 + GOAL_SEEDS * 100
+    t0 = local(T0)
+    today = t0.date()
+    def day(n): return (today + datetime.timedelta(days=n)).isoformat()
+    def ago_days(n): return iso(t0 - datetime.timedelta(days=n))
+    def at(n, hour, minute_=0): return iso(datetime.datetime.combine(today + datetime.timedelta(days=n), datetime.time(hour, minute_)).astimezone())
+    def milestone(mid, title, due, done_days=None):
+        return {'id': mid, 'title': title, 'due': due, 'done': done_days is not None,
+                'done_at': ago_days(done_days) if done_days is not None else None}
+    def goal(gid, title, why='', status='active', status_days=None, color='blue', due=None, created_days=30, measure=None,
+             milestones=(), order=0):
+        GOALS[gid] = {'id': gid, 'rev': seed_rev, 'title': title, 'why': why, 'status': status,
+                      'status_at': ago_days(status_days if status_days is not None else created_days), 'color': color, 'due': due,
+                      'position': t0.timestamp() - 10_000 + order * 10, 'measure': measure,
+                      'milestones': list(milestones), 'created_at': ago_days(created_days), 'updated_at': ago_days(1),
+                      'log': [{'at': ago_days(created_days), 'by': 'you', 'text': 'Added'}]}
+    def readings(values, days_back):
+        return [{'at': ago_days(d), 'value': v} for v, d in zip(values, days_back)]
+    def gtask(tid, title, goal_id, milestone_id=None, due=None, done_days=None, created=None, who='me', bot=None, status=None):
+        stamp = ago_days(created if created is not None else 20)
+        TASKS[tid] = {'id': tid, 'rev': seed_rev, 'title': title, 'notes': '', 'who': who, 'bot': bot,
+                      'status': status or ('done' if done_days is not None else 'open'), 'status_note': '', 'due': due, 'repeat': None,
+                      'prep': False, 'steps': [], 'made': [], 'source': {'kind': 'app'}, 'created_at': stamp, 'updated_at': stamp,
+                      'done_at': ago_days(done_days) if done_days is not None else None, 'created_by': 'you', 'log': [],
+                      'section': None, 'position': (t0 - datetime.timedelta(days=created if created is not None else 20)).timestamp(),
+                      'watch': '', 'chat': {}, 'priority': 0, 'tags': [], 'alert': None, 'starts': None,
+                      'goal': goal_id, 'milestone': milestone_id}
+    # A number, a date and five milestones: 340 of 1,000, 48 days to go, an even pace would be 42% today (a week behind).
+    goal('g_testers', '1,000 public testers', why='So the public launch opens to a crowd, not an empty room.', color='blue',
+         due=day(48), created_days=36, order=0,
+         measure={'unit': 'testers', 'start': 0, 'target': 1000, 'now': 340, 'at': ago_days(2), 'source': 'you',
+                  'history': readings([60, 180, 250, 340], [26, 15, 8, 2])},
+         milestones=[milestone('ms_beta', 'Beta page live on the website', day(-25), 25),
+                     milestone('ms_250', 'First 250 testers', day(-12), 9),
+                     milestone('ms_launch', 'Launch week', day(6)),
+                     milestone('ms_500', '500 testers', day(27)),
+                     milestone('ms_1000', '1,000 testers', day(48))])
+    gtask('t_g_email', 'Write the launch email', 'g_testers', 'ms_launch', done_days=1, created=6)
+    gtask('t_g_notes', 'Post the build notes to the forum', 'g_testers', 'ms_launch', due=day(0), created=5)
+    gtask('t_g_reviews', 'Reply to the three beta reviews', 'g_testers', 'ms_launch', created=4)
+    gtask('t_g_demo', 'Record the 60 second demo', 'g_testers', 'ms_launch', due=day(3), created=3)
+    # Milestones and no number: one of four done, on pace for a day 17 weeks away; two tasks under the open one, one loose.
+    goal('g_10k', 'Run a 10K', why='I said I would. A friend is running it too.', color='orange', due=day(120), created_days=40, order=1,
+         milestones=[milestone('ms_2mi', 'Run 2 miles without stopping', day(-14), 14),
+                     milestone('ms_5k', 'Run a 5K', day(18)),
+                     milestone('ms_5mi', 'Run 5 miles', day(60)),
+                     milestone('ms_race', 'Race day', day(120))])
+    gtask('t_g_easy', 'Easy 3 mile run', 'g_10k', 'ms_5k', due=at(0, 17, 30), created=10)
+    gtask('t_g_shoes', 'Buy real running shoes', 'g_10k', 'ms_5k', due=day(4), created=9)
+    gtask('t_g_signup', 'Sign up for the race', 'g_10k', created=8)
+    # Only tasks: four of six done, with Hermes helping on the next one.
+    goal('g_trip', 'Family trip to the coast', color='green', due=day(13), created_days=20, order=2)
+    for n, title in enumerate(['Pick the week', 'Book the cabin', 'Ask about the dog sitter', 'Rent the car seat']):
+        gtask(f't_g_trip{n}', title, 'g_trip', done_days=10 - n * 2, created=19 - n)
+    gtask('t_g_tickets', 'Book the aquarium tickets', 'g_trip', created=12, who='together', bot='default')
+    gtask('t_g_pack', 'Make the packing list', 'g_trip', created=11)
+    # Someday: paused 18 days ago, with one task waiting.
+    goal('g_spanish', 'Learn conversational Spanish', why='To talk with the neighbours in their own words.', status='paused',
+         status_days=18, color='purple', created_days=60, order=3,
+         milestones=[milestone('ms_es1', 'Finish the first course', day(-30), 30), milestone('ms_es2', 'A ten minute chat', None)])
+    gtask('t_g_lesson', 'Book a trial lesson', 'g_spanish', 'ms_es2', created=40)
+    # Achieved three days ago.
+    goal('g_books', 'Read 12 books this year', status='achieved', status_days=3, color='teal', due=day(40), created_days=200, order=4,
+         measure={'unit': 'books', 'start': 0, 'target': 12, 'now': 12, 'at': ago_days(3), 'source': 'you',
+                  'history': readings([4, 8, 12], [120, 60, 3])})
+    TSTATE['rev'] += 1
+
+def goals_shown():
+    return [copy.deepcopy(g) for g in sorted(GOALS.values(), key=lambda g: (g['position'], g['id']))]
+
+def goal_milestones(raw, was):
+    """A PATCH's or POST's milestone list: in order, 30 at most; a known id keeps its done_at (unless its tick changed),
+    one without an id gets one."""
+    known = {m['id']: m for m in (was or [])}
+    stamp = iso(local(now()))
+    out = []
+    for i, item in enumerate((raw or [])[:30]):
+        title = (item.get('title') or '').strip()[:120]
+        if not title: continue
+        mid = item.get('id') if item.get('id') in known else 'ms_' + hashlib.sha256(f'{title}{now()}{i}'.encode()).hexdigest()[:8]
+        done = bool(item.get('done'))
+        before = known.get(mid)
+        done_at = (before or {}).get('done_at') if before and before.get('done') == done else (stamp if done else None)
+        out.append({'id': mid, 'title': title, 'due': item.get('due') or None, 'done': done, 'done_at': done_at})
+    return out
+
+def goal_measure(raw, was):
+    if raw is None: return None
+    stamp = iso(local(now()))
+    start = float(raw.get('start') or 0); target = float(raw.get('target') or 0)
+    measure = {'unit': (raw.get('unit') or '')[:20], 'start': start, 'target': target, 'source': 'you',
+               'now': (was or {}).get('now', start), 'at': (was or {}).get('at'), 'history': list((was or {}).get('history') or [])}
+    if 'now' in raw and raw['now'] is not None and float(raw['now']) != measure['now']:
+        measure['now'] = float(raw['now']); measure['at'] = stamp
+        measure['history'] = (measure['history'] + [{'at': stamp, 'value': measure['now']}])[-60:]
+    return measure
+
+def goals_route(method, path, body):
+    if NO_TASKS or TMODE['older_addon'] or not GOALS_ON: return 404, {'detail': 'Not Found'}
+    rest = path[len(GOALS_ROUTE):].strip('/')
+    stamp = iso(local(now()))
+    if rest == '' and method == 'POST':
+        title = (body.get('title') or '').strip()[:200]
+        if not title: return 422, {'detail': 'title is required'}
+        gid = hashlib.sha256(f'{title}{now()}'.encode()).hexdigest()[:32]
+        used = {g['color'] for g in GOALS.values() if g['status'] == 'active'}
+        color = body.get('color') if body.get('color') in LIST_COLORS else next((c for c in LIST_COLORS if c not in used), 'blue')
+        goal = {'id': gid, 'rev': 1, 'title': title, 'why': (body.get('why') or '')[:300], 'status': 'active', 'status_at': stamp,
+                'color': color, 'due': body.get('due') or None, 'position': now(), 'measure': None,
+                'milestones': goal_milestones(body.get('milestones'), []), 'created_at': stamp, 'updated_at': stamp,
+                'log': [{'at': stamp, 'by': 'you', 'text': 'Added'}]}
+        if body.get('measure'): goal['measure'] = goal_measure(dict(body['measure'], now=body['measure'].get('now', body['measure'].get('start'))), None)
+        GOALS[gid] = goal; TSTATE['rev'] += 1
+        return 200, copy.deepcopy(goal)
+    goal = GOALS.get(unquote(rest))
+    if not goal: return 404, {'detail': 'Goal not found'}
+    if method == 'DELETE':
+        GOALS.pop(goal['id'], None)
+        for t in TASKS.values():
+            if t.get('goal') == goal['id']: t['goal'] = None; t['milestone'] = None; t['rev'] += 1
+        TSTATE['rev'] += 1
+        return 200, {'ok': True}
+    if method == 'PATCH':
+        if int(body.get('rev', -1)) != goal['rev']: return 409, {'detail': {'goal': copy.deepcopy(goal)}}
+        for key in ('title', 'why', 'color', 'position', 'due'):
+            if key in body: goal[key] = body[key]
+        if 'status' in body and body['status'] in GOAL_STATUSES and body['status'] != goal['status']:
+            goal['status'] = body['status']; goal['status_at'] = stamp
+            goal['log'].append({'at': stamp, 'by': 'you', 'text': f"Status: {body['status']}"})
+        if 'measure' in body: goal['measure'] = goal_measure(body['measure'], goal['measure'])
+        if 'measure_now' in body and goal['measure'] is not None:
+            goal['measure'] = goal_measure(dict(goal['measure'], now=body['measure_now']), goal['measure'])
+        if 'milestones' in body:
+            goal['milestones'] = goal_milestones(body['milestones'], goal['milestones'])
+            kept = {m['id'] for m in goal['milestones']}
+            for t in TASKS.values():
+                if t.get('goal') == goal['id'] and t.get('milestone') and t['milestone'] not in kept: t['milestone'] = None; t['rev'] += 1
+        goal['log'] = goal['log'][-50:]
+        goal['rev'] += 1; goal['updated_at'] = stamp; TSTATE['rev'] += 1
+        return 200, copy.deepcopy(goal)
+    return 405, {'detail': 'Method Not Allowed'}
+
+def task_goal_fields(task, body):
+    """[goals] A task's goal and milestone as the add-on keeps them: an unknown goal is a 400 (None), clearing the goal
+    clears the milestone, and a milestone that isn't one of the goal's is cleared."""
+    if TMODE['older_addon']: return True
+    if 'goal' in body:
+        if body['goal'] and body['goal'] not in GOALS: return None
+        task['goal'] = body['goal'] or None
+        if not task['goal']: task['milestone'] = None
+    if 'milestone' in body: task['milestone'] = body['milestone'] or None
+    goal = GOALS.get(task.get('goal') or '')
+    if not goal or task.get('milestone') not in {m['id'] for m in goal['milestones']}: task['milestone'] = None
+    return True
 
 def seed_task_lists():
     """[task-lists] hermes-hq-push 0.9.55, the six boards the owner agreed to (2026-11-14): a Work list Hermes keeps,
@@ -910,10 +1093,11 @@ def tasks_list(since):
               'sections': copy.deepcopy(TSTATE['sections']), 'pages': True, 'ideas': len(ideas_new()) if ideas_on() else 0,
               'fields': True, 'files': True,   # [tasks-first] 0.9.53
               'lists': True, 'offers': offers_shown()}   # [task-lists] 0.9.55
+    if GOALS_ON: answer['goals'] = goals_shown()   # [goals] 0.9.65
     if TMODE['older_addon']:
-        answer.pop('ideas'); answer.pop('fields'); answer.pop('files'); answer.pop('lists'); answer.pop('offers')
+        answer.pop('ideas'); answer.pop('fields'); answer.pop('files'); answer.pop('lists'); answer.pop('offers'); answer.pop('goals', None)
         answer['sections'] = [{'id': x['id'], 'name': x['name']} for x in answer['sections']]
-        hide = ('priority', 'tags', 'alert', 'starts', 'offer', 'edited')
+        hide = ('priority', 'tags', 'alert', 'starts', 'offer', 'edited', 'goal', 'milestone')
         answer['tasks'] = [{k: v for k, v in t.items() if k not in hide} for t in answer['tasks']]
         answer['settings'] = {k: v for k, v in answer['settings'].items() if not k.startswith('ideas')}
     return 200, answer
@@ -937,7 +1121,9 @@ def tasks_route(method, path, query, body):
                 'made': [], 'source': body.get('source') or {'kind': 'app'}, 'created_at': stamp, 'updated_at': stamp,
                 'done_at': None, 'created_by': 'you', 'log': [{'at': stamp, 'by': 'you', 'text': 'Added'}],
                 'section': body.get('section') if body.get('section') in {x['id'] for x in TSTATE['sections']} else None,
-                'position': body.get('position') or now(), 'watch': body.get('watch') or '', 'chat': body.get('chat') or {}}
+                'position': body.get('position') or now(), 'watch': body.get('watch') or '', 'chat': body.get('chat') or {},
+                'goal': None, 'milestone': None}
+        if task_goal_fields(task, body) is None: return 400, {'detail': 'Unknown goal'}   # [goals]
         TASKS[tid] = task; TSTATE['rev'] += 1
         return 200, copy.deepcopy(task)
     if rest == 'ideas' or rest.startswith('ideas/'):
@@ -1017,9 +1203,11 @@ def tasks_route(method, path, query, body):
         return 200, {'ok': True}
     if method == 'PATCH':
         if int(body.get('rev', -1)) != task['rev']: return 409, {'detail': {'task': tshown(task)}}
+        if body.get('goal') and body['goal'] not in GOALS and not TMODE['older_addon']: return 400, {'detail': 'Unknown goal'}
         for key, value in body.items():
-            if key in ('rev', 'id', 'created_at', 'created_by', 'log', 'keep_open'): continue
+            if key in ('rev', 'id', 'created_at', 'created_by', 'log', 'keep_open', 'goal', 'milestone'): continue
             task[key] = value
+        task_goal_fields(task, body)   # [goals]
         if body.get('keep_open') and task.get('offer'): task['offer']['kept'] = True   # [task-lists] the bot isn't to ask again
         if body.get('status') == 'done': task.pop('offer', None)
         if any(k in body for k in ('title', 'notes', 'due')): task['edited'] = True
@@ -1037,7 +1225,8 @@ def addon_status():
     body.update({'replies': 'watcher', 'deviceAccessKinds': ['contacts', 'calendar', 'reminders', 'location', 'photos'],
                  'pluginVersion': '0.9.31' if NO_TASKS else '0.9.44'})
     if not NO_TASKS: body.update(tasks=True, task_pages=True, task_ideas=not TMODE['older_addon'],
-                                 task_fields=not TMODE['older_addon'], task_files=not TMODE['older_addon'])
+                                 task_fields=not TMODE['older_addon'], task_files=not TMODE['older_addon'],
+                                 task_goals=GOALS_ON and not TMODE['older_addon'])   # [goals] 0.9.65
     if TMODE['older_addon']: body['pluginVersion'] = '0.9.38'
     return 200, body
 
@@ -1429,6 +1618,8 @@ def handler(gateway):
                 with lock: return 200, {'jobs': list(copy.deepcopy(BOT_WORKING).values())}
             if path == TASKS_ROUTE or path.startswith(TASKS_ROUTE + '/'):
                 with lock: return tasks_route(method, path, query, body)
+            if path == GOALS_ROUTE or path.startswith(GOALS_ROUTE + '/'):   # [goals] 0.9.65
+                with lock: return goals_route(method, path, body)
             if path == '/api/plugins/hermes-hq-push/status' and method == 'GET':
                 return addon_status()
             # [plugin-pages] Page plugins (HermesKit/Plugins/DashboardPages.swift): "notes" works and calls its own API,
@@ -1588,11 +1779,16 @@ def handler(gateway):
                 self.body_json()
                 reseed()
                 return self.reply(200, {'ok': True})
-            if path == '/__fixture/tasks-mode':   # [task-ideas] {"older_addon": true} and/or {"empty": true} (no tasks)
+            if path == '/__fixture/tasks-mode':   # [task-ideas] {"older_addon": true} and/or {"empty": true} (no tasks); [goals] {"goals": true}
                 mode = self.body_json()
                 with lock:
                     TMODE['older_addon'] = bool(mode.get('older_addon'))
                     if mode.get('lists'): seed_task_lists()   # [task-lists] what --task-lists starts with
+                    if mode.get('goals'):   # [goals] what --task-goals starts with; "empty": goals kept, none yet
+                        global GOALS_ON
+                        GOALS_ON = True
+                        if mode['goals'] == 'empty': GOALS.clear(); TSTATE['rev'] += 1
+                        else: seed_task_goals()
                     if mode.get('empty'): TASKS.clear()
                     # "keep_rev": as an add-on update does (before 0.9.40), the list's rev stays, so `?since=` says unchanged
                     if not mode.get('keep_rev'): TSTATE['rev'] += 1
@@ -1728,7 +1924,7 @@ def ticker(seconds):
         broadcast()
 
 def main():
-    global NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS, FILES, NO_TASKS, TASKS_CHAT, TASKS_JSON, TASK_LISTS
+    global NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS, FILES, NO_TASKS, TASKS_CHAT, TASKS_JSON, TASK_LISTS, TASK_GOALS
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=9735)
     parser.add_argument('--credentials', required=True)
@@ -1737,6 +1933,7 @@ def main():
     parser.add_argument('--no-tasks', action='store_true')   # [tasks] an add-on older than 0.9.32
     parser.add_argument('--tasks-chat', action='store_true')   # [tasks] Hermes's Bot Chat ends with the tasks_add exchange
     parser.add_argument('--task-lists', action='store_true')   # [task-lists] lists, a kept list, an offer and its chat
+    parser.add_argument('--task-goals', action='store_true')   # [goals] five made-up goals with milestones and tasks
     parser.add_argument('--tasks-json')   # [tasks] add tasks exported from a real tasks.db (a private file, never committed)
     parser.add_argument('--empty-kanban', action='store_true')
     parser.add_argument('--trigger-seconds', type=float, default=3)
@@ -1747,6 +1944,7 @@ def main():
     NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS = args.no_kanban, args.empty_kanban, args.trigger_seconds
     NO_TASKS, TASKS_CHAT, TASKS_JSON = args.no_tasks, args.tasks_chat, args.tasks_json
     TASK_LISTS = args.task_lists
+    TASK_GOALS = args.task_goals
     FILES = pathlib.Path(args.files)
     make_files(args.port)
     reseed()

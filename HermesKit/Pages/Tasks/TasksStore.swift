@@ -145,6 +145,8 @@ nonisolated struct TodoSnapshot: Codable, Sendable {
     var files: Bool?
     var lists: Bool?
     var offers: [TodoOffer]?
+    /// [goals] nil: the add-on keeps no goals.
+    var goals: [Goal]?
 }
 
 /// `POST /tasks/offers/{id}`'s answer.
@@ -185,6 +187,10 @@ final class TasksStore {
     private(set) var listsSupported = false
     /// Bots' offers of a list or a batch of tasks: the ones that wait, and the last day's answered ones.
     private(set) var offers: [TodoOffer] = []
+    /// [goals] Every goal, any status (optimistic edits applied); docs/goals.md.
+    private(set) var goals: [Goal] = []
+    /// [goals] The add-on keeps goals (0.9.65+: `goals` in `GET /tasks`). Without it nothing of Goals shows.
+    private(set) var goalsSupported = false
     /// [task-ideas] New ideas to decide; nil when the add-on has no Ideas (older than 0.9.39), and the page keeps its
     /// Add a task row instead of the To Do | Ideas switch.
     private(set) var ideasCount: Int?
@@ -215,6 +221,9 @@ final class TasksStore {
     @ObservationIgnored private var lastReadAt: Date?
     @ObservationIgnored private var sectionsWriting = false
     @ObservationIgnored private var offersWriting = 0
+    /// [goals] Goals with a write on its way (by id): a read that left before it landed doesn't take it back.
+    @ObservationIgnored private var goalsInFlight: [String: Int] = [:]
+    private var goalsAPI: GoalsAPI { GoalsAPI(client: api.client) }
     /// [13-5] Forgotten at sign-out or a switch: an answer still on its way neither writes tasks.json again nor resets
     /// the phone's due reminders to this account's tasks.
     @ObservationIgnored private var closed = false
@@ -243,6 +252,8 @@ final class TasksStore {
         filesSupported = cached.value.files == true
         listsSupported = cached.value.lists == true
         offers = Self.once(cached.value.offers ?? [])
+        goals = cached.value.goals ?? []
+        goalsSupported = cached.value.goals != nil
         noteOffers(whole: false)
         ideasCount = cached.value.ideas
         rev = cached.value.rev
@@ -255,7 +266,8 @@ final class TasksStore {
         let snapshot = TodoSnapshot(rev: rev, tasks: tasks.filter { !TodoIDs.isLocal($0.id) }, settings: settings,
                                     sections: sectionsSupported ? sections.filter { !TodoIDs.isLocal($0.id) } : nil,
                                     pages: pagesSupported, ideas: ideasCount, fields: fieldsSupported, files: filesSupported,
-                                    lists: listsSupported, offers: offers)
+                                    lists: listsSupported, offers: offers,
+                                    goals: goalsSupported ? goals.filter { !TodoIDs.isLocal($0.id) } : nil)
         PagesCache.write(PagesCached(at: Date().timeIntervalSince1970, value: snapshot), to: url)
     }
 
@@ -298,6 +310,7 @@ final class TasksStore {
             listsSupported = answer.lists
             if offersWriting == 0 { offers = Self.once(answer.offers); noteOffers(whole: answer.lists) }
             ideasCount = answer.ideas
+            adoptGoals(answer.goals)
             if !sectionsWriting {
                 sections = answer.sections ?? []
                 sectionsSupported = answer.sections != nil
@@ -336,6 +349,24 @@ final class TasksStore {
         hasList = true
         save()
         changed()
+    }
+
+    /// [goals] A read's goals, keeping ones with a write on its way and ones added here and not yet answered (nil: the
+    /// add-on keeps none).
+    private func adoptGoals(_ fresh: [Goal]?) {
+        guard let fresh else { goalsSupported = false; goals = []; return }
+        goalsSupported = true
+        var next = fresh
+        let places = Dictionary(next.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        for local in goals {
+            let inHand = goalsInFlight[local.id] != nil || TodoIDs.isLocal(local.id)
+            if let at = places[local.id] {
+                if inHand || next[at].rev < local.rev { next[at] = local }
+            } else if inHand {
+                next.append(local)
+            }
+        }
+        goals = next
     }
 
     /// [task-ideas] The Ideas page read or decided: the switch's count follows it at once.
@@ -410,6 +441,7 @@ final class TasksStore {
     func patch(_ id: String, _ fields: [String: JSONValue], touch: Bool = false) async -> Bool {
         guard !refuse(about: id), let base = task(id) else { return false }
         guard !TodoIDs.isLocal(id) else { notice("This task is still being added. Try again in a moment.", about: id); return false }
+        let fields = GoalViews.withMilestoneRule(fields, task: base)   // [goals] another goal: no milestone of the last one
         if var shown = TodoEdits.applying(fields, to: base) {
             if touch { shown.updatedAt = TodoDates.now() }
             put(shown); changed()
@@ -577,6 +609,144 @@ final class TasksStore {
         }
     }
 
+    // MARK: Goals ([goals], hermes-hq-push 0.9.65)
+
+    func goal(_ id: String) -> Goal? { goals.first { $0.id == id } }
+
+    private func putGoal(_ goal: Goal) {
+        if let at = goals.firstIndex(where: { $0.id == goal.id }) { goals[at] = goal } else { goals.append(goal) }
+    }
+
+    /// Why the last `addGoal` failed, in words (New Goal says it on its own line; nil when it worked).
+    @ObservationIgnored private(set) var addGoalFailure: String?
+
+    /// Adds a goal (`GoalWire.newGoal`'s body): shown at once, then swapped for the gateway's. nil when it failed.
+    @discardableResult
+    func addGoal(_ fields: [String: JSONValue]) async -> Goal? {
+        addGoalFailure = nil
+        guard !refuse() else { addGoalFailure = JobsStore.readOnlyNotice; return nil }
+        guard goalsSupported else {
+            addGoalFailure = "Goals need the newest HQ add-on on your computer (0.9.65 or later)."
+            notice(addGoalFailure ?? "")
+            return nil
+        }
+        let localID = TodoIDs.local()
+        let stamp = TodoDates.now()
+        var shown = GoalWire.applying(fields, to: Goal(id: localID, rev: 0, title: "", color: nil, position: Date().timeIntervalSince1970,
+                                                       createdAt: stamp, updatedAt: stamp))
+        if shown.color == nil { shown.color = GoalViews.nextColor(goals).rawValue }
+        goals.append(shown)
+        changed()
+        do {
+            let made = try await goalsAPI.create(fields)
+            goals.removeAll { $0.id == localID }
+            putGoal(made)
+            save()
+            changed()
+            return made
+        } catch {
+            goals.removeAll { $0.id == localID }
+            changed()
+            let reason = PagesREST.reason(error)
+            addGoalFailure = reason
+            notice("Couldn’t add the goal. \(reason)")
+            return nil
+        }
+    }
+
+    /// Changes a goal's fields (wire names: `title`, `why`, `color`, `position`, `due`, `status`, `measure`,
+    /// `measure_now`, `milestones`). Shown at once; a 409 re-sends it on the current rev when the other edit left these
+    /// fields alone, else the current goal shows. A milestone taken out takes its tasks to no milestone here too.
+    @discardableResult
+    func patchGoal(_ id: String, _ fields: [String: JSONValue]) async -> Bool {
+        guard !refuse(), let base = goal(id) else { return false }
+        guard !TodoIDs.isLocal(id) else { notice("This goal is still being added. Try again in a moment."); return false }
+        let beforeTasks = tasks
+        putGoal(GoalWire.applying(fields, to: base))
+        if fields["milestones"] != nil { releaseTasks(of: id, keeping: Set(goal(id)?.milestones.map(\.id) ?? [])) }
+        changed()
+        goalsInFlight[id, default: 0] += 1
+        defer {
+            let left = (goalsInFlight[id] ?? 1) - 1
+            goalsInFlight[id] = left > 0 ? left : nil
+        }
+        // A milestone made here goes without its local id; the gateway's answer brings the real one.
+        do {
+            let answer = try await goalsAPI.patch(id, rev: base.rev, fields: fields)
+            putGoal(answer)
+            save()
+            changed()
+            return true
+        } catch {
+            if let current = GoalsAPI.conflict(error) {
+                if case .resend(let rev) = GoalWire.resolve(base: base, current: current, fields: fields),
+                   let answer = try? await goalsAPI.patch(id, rev: rev, fields: fields) {
+                    putGoal(answer); save(); changed()
+                    return true
+                }
+                putGoal(current); tasks = beforeTasks; save(); changed()
+                notice("This goal changed somewhere else. Showing the latest.")
+                return false
+            }
+            if PagesREST.status(error) == 404 {
+                goals.removeAll { $0.id == id }
+                releaseTasks(of: id, keeping: nil)
+                save(); changed()
+                notice("This goal was deleted somewhere else.")
+                return false
+            }
+            putGoal(base)
+            tasks = beforeTasks
+            changed()
+            notice("Couldn’t save the change. \(PagesREST.reason(error))")
+            return false
+        }
+    }
+
+    /// Deletes a goal. Its tasks stay, with no goal and no milestone (the gateway clears them too).
+    @discardableResult
+    func deleteGoal(_ id: String) async -> Bool {
+        guard !refuse() else { return false }
+        let at = goals.firstIndex { $0.id == id }
+        let removed = at.map { goals.remove(at: $0) }
+        let beforeTasks = tasks
+        releaseTasks(of: id, keeping: nil)
+        changed()
+        do {
+            try await goalsAPI.delete(id)
+            save()
+            return true
+        } catch {
+            if PagesREST.status(error) == 404 { save(); return true }
+            if let removed, let at { goals.insert(removed, at: min(at, goals.count)) }
+            tasks = beforeTasks
+            changed()
+            notice("Couldn’t delete the goal. \(PagesREST.reason(error))")
+            return false
+        }
+    }
+
+    /// The goal's tasks lose their milestone when it isn't in `keeping`; with `keeping` nil they lose the goal too.
+    private func releaseTasks(of goal: String, keeping: Set<String>?) {
+        tasks = tasks.map { task in
+            guard task.goal == goal else { return task }
+            var task = task
+            if let keeping {
+                if let milestone = task.milestone, !keeping.contains(milestone) { task.milestone = nil }
+            } else {
+                task.goal = nil
+                task.milestone = nil
+            }
+            return task
+        }
+    }
+
+    /// Puts a task in a goal (nil: no goal), under one of its milestones or none.
+    @discardableResult
+    func setGoal(_ taskID: String, goal: String?, milestone: String? = nil) async -> Bool {
+        await patch(taskID, GoalViews.assign(goal: goal, milestone: milestone, goals: goals))
+    }
+
     // MARK: Sections
 
     /// Saves your sections (the whole list, in order). Shown at once; a section left out takes its tasks back to no
@@ -742,6 +912,7 @@ final class TasksStore {
     func forget() {
         tasks = []
         sections = []
+        goals = []
         rev = 0
         hasList = false
         prepared = false
@@ -761,7 +932,8 @@ nonisolated enum TodoWire {
 
     /// A new task's body.
     static func newTask(title: String, who: TodoWho, bot: String?, due: String?, repeatRule: String?, prep: Bool,
-                        notes: String = "", steps: [TodoStep] = [], source: TodoSource? = TodoSource(kind: "app")) -> [String: JSONValue] {
+                        notes: String = "", steps: [TodoStep] = [], source: TodoSource? = TodoSource(kind: "app"),
+                        goal: String? = nil, milestone: String? = nil) -> [String: JSONValue] {
         var body: [String: JSONValue] = [
             "title": .string(title), "who": .string(who.rawValue), "notes": .string(notes), "prep": .bool(prep && who != .me),
             "steps": Self.steps(steps), "due": optional(due), "repeat": optional(who == .me ? repeatRule : nil),
@@ -773,6 +945,12 @@ nonisolated enum TodoWire {
             if let session = source.sessionId { object["session_id"] = .string(session) }
             if let reminder = source.reminderId { object["reminder_id"] = .string(reminder) }
             body["source"] = .object(object)
+        }
+        // [goals] Added on a goal's page: it starts in that goal (and the milestone it was added under). Sent only
+        // then, so an older add-on never sees the keys.
+        if let goal {
+            body["goal"] = .string(goal)
+            if let milestone { body["milestone"] = .string(milestone) }
         }
         return body
     }

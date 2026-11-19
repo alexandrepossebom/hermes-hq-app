@@ -34,16 +34,35 @@ enum TaskDust {
         let picture = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
             source.drawHierarchy(in: bounds, afterScreenUpdates: false)
         }
-        // A grain is a point across: finer reads as a fade, coarser as tiles.
-        guard let whole = picture.cgImage, let parts = split(whole, grain: max(1, Int(format.scale))) else { return false }
+        return play(picture, scale: format.scale, frame: source.convert(bounds, to: host), in: host, direction: source.effectiveUserInterfaceLayoutDirection)
+    }
 
-        let cloud = UIView(frame: source.convert(bounds, to: host))
+    /// [goals] Plays over what `host` shows inside `area` (its own coordinates): a row drawn in SwiftUI (a goal's
+    /// page), whose picture is the screen's under it. The caller hides the row as it starts.
+    @discardableResult
+    static func play(area: CGRect, of host: UIView) -> Bool {
+        guard host.window != nil, area.width >= 1, area.height >= 1 else { return false }
+        let format = UIGraphicsImageRendererFormat.preferred()
+        format.opaque = false
+        format.scale = min(2, host.traitCollection.displayScale)
+        let picture = UIGraphicsImageRenderer(bounds: area, format: format).image { _ in
+            host.drawHierarchy(in: host.bounds, afterScreenUpdates: false)
+        }
+        return play(picture, scale: format.scale, frame: area, in: host, direction: host.effectiveUserInterfaceLayoutDirection)
+    }
+
+    private static func play(_ picture: UIImage, scale: CGFloat, frame: CGRect, in host: UIView,
+                             direction: UIUserInterfaceLayoutDirection) -> Bool {
+        // A grain is a point across: finer reads as a fade, coarser as tiles.
+        guard let whole = picture.cgImage, let parts = split(whole, grain: max(1, Int(scale))) else { return false }
+
+        let cloud = UIView(frame: frame)
         cloud.isUserInteractionEnabled = false
         cloud.layer.zPosition = 50
         host.addSubview(cloud)
 
         let now = CACurrentMediaTime()
-        let leadingToTrailing = source.effectiveUserInterfaceLayoutDirection == .leftToRight
+        let leadingToTrailing = direction == .leftToRight
         let wind: CGFloat = leadingToTrailing ? 1 : -1
         var rng = SystemRandomNumberGenerator()
         for (index, part) in parts.enumerated() {

@@ -10,9 +10,17 @@ import UIKit
 
 final class TasksViewController: UIViewController, UICollectionViewDelegate, UISearchResultsUpdating,
                                   UICollectionViewDragDelegate, UICollectionViewDropDelegate {
-    private nonisolated enum Section: Hashable { case offers, keeper, week, group(TodoGroupKind), empty, ideas, skeleton }
+    private nonisolated enum Section: Hashable {
+        case offers, keeper, week, group(TodoGroupKind), empty, ideas, skeleton
+        /// [goals] The Goals view: a group of goal cards, then "+ New Goal" (or what a goal is, with none).
+        case goals(GoalGroupKey), goalsFoot
+    }
+    /// [goals] The Goals view's groups (docs/goals.md "The Goals view").
+    nonisolated enum GoalGroupKey: String, Hashable { case active, someday, achieved, letGo }
     private nonisolated enum Item: Hashable {
         case task(String), skeleton(Int), week, viewEmpty(String)
+        /// [goals] A goal's card (its id), "+ New Goal", and the view with no goals.
+        case goal(String), newGoal, goalsEmpty
         /// [task-lists] A bot's offer (its id), the line naming a list's bot, and "4 more in Work" (the list's id).
         case offer(String), keeper(String), more(String)
         case ideaHead, idea(String), ideaNote(TaskIdeasNote)
@@ -70,6 +78,11 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private var updateAsked = false
     private lazy var ideas: TaskIdeasStore = TaskIdeasStore(api: store.api, directory: store.directory)
     private var ideaCards: [String: TaskIdeaCardModel] = [:]
+    private var shownGoalCards: [String: GoalCardModel] = [:]
+    /// [goals] The Goals view's cards on show, its groups (ids in order), and the folded groups opened.
+    private var goalCards: [String: GoalCardModel] = [:]
+    private var goalGroups: [(GoalGroupKey, [String])] = []
+    private var goalFoldsOpen: Set<GoalGroupKey> = []
     /// Ideas being added (their buttons wait for the gateway).
     private var addingIdeas: Set<String> = []
     private var shownIdeaCards: [String: TaskIdeaCardModel] = [:]
@@ -238,11 +251,18 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                 self.notices.show(text, seconds: 4)
                 return
             }
-            let root = (sheet as? UINavigationController)?.viewControllers.first ?? sheet
+            // [goals] A task opened from a goal's page stands over that page: the top sheet says it.
+            var top = sheet
+            while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+            let root = (top as? UINavigationController)?.viewControllers.first ?? top
             if let model = TodoSheet.model(of: root) {
                 model.show(text)
+            } else if let goal = root as? GoalPageHost {
+                goal.model.show(text)
             } else if let host = root as? NewTodoHost, host.model.saving {
                 return   // New Task says why on its own line
+            } else if let host = root as? NewGoalHost, host.model.saving {
+                return   // [goals] so does New Goal
             } else {
                 // Over a sheet (Tasks Settings, New Task): the page's own notice would be under it, out of sight.
                 PagesHUD.show(text, symbol: "exclamationmark.triangle", from: root, duration: 4)
@@ -438,6 +458,26 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             cell.contentConfiguration = UIHostingConfiguration { TodoViewEmptyRow(text: text) }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
         }
+        // [goals] A goal's card (a tap opens its page: `didSelectItemAt`), "+ New Goal", and the view with no goals.
+        let goalCell = UICollectionView.CellRegistration<SoftCardListCell, String> { [weak self] cell, _, id in
+            guard let self, let card = self.goalCards[id] else { return }
+            cell.contentConfiguration = UIHostingConfiguration {
+                GoalCard(model: card) { [weak self] task in self?.toggleDone(task) }
+            }.margins(.all, 0)
+            cell.backgroundConfiguration = .clear()
+            cell.accessibilityIdentifier = "goal-cell-\(card.title)"
+        }
+        let newGoalCell = UICollectionView.CellRegistration<UICollectionViewListCell, Item> { cell, _, _ in
+            cell.contentConfiguration = UIHostingConfiguration { GoalNewRow() }.margins(.all, 0)
+            cell.configurationUpdateHandler = { cell, state in Self.rowBackground(cell as! UICollectionViewListCell, state) }
+        }
+        let goalsEmptyCell = UICollectionView.CellRegistration<SoftCardListCell, Item> { [weak self] cell, _, _ in
+            let enabled = !(self?.store.readOnlyGateway ?? true)
+            cell.contentConfiguration = UIHostingConfiguration {
+                GoalsEmptyRow(enabled: enabled) { [weak self] in self?.newGoal() }
+            }.margins(.all, 0)
+            cell.backgroundConfiguration = .clear()
+        }
         let skeletonCell = UICollectionView.CellRegistration<SoftCardListCell, Int> { cell, _, _ in
             cell.contentConfiguration = UIHostingConfiguration { PageSkeletonRow() }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
@@ -459,6 +499,9 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             case .offer(let id): return cv.dequeueConfiguredReusableCell(using: offerCell, for: path, item: id)
             case .keeper(let text): return cv.dequeueConfiguredReusableCell(using: keeperCell, for: path, item: text)
             case .more(let id): return cv.dequeueConfiguredReusableCell(using: moreCell, for: path, item: id)
+            case .goal(let id): return cv.dequeueConfiguredReusableCell(using: goalCell, for: path, item: id)
+            case .newGoal: return cv.dequeueConfiguredReusableCell(using: newGoalCell, for: path, item: item)
+            case .goalsEmpty: return cv.dequeueConfiguredReusableCell(using: goalsEmptyCell, for: path, item: item)
             }
         }
         dataSource.supplementaryViewProvider = { cv, _, path in cv.dequeueConfiguredReusableSupplementary(using: header, for: path) }
@@ -506,6 +549,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     }
 
     private func hasHeader(_ section: Section) -> Bool {
+        if case .goals(let key) = section { return key != .active }   // [goals] Someday, Achieved, Let Go
         guard case .group(let kind) = section else { return false }
         return heading(kind) != nil
     }
@@ -520,6 +564,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func configureHeader(_ header: UICollectionViewListCell, _ section: Section) {
+        if case .goals(let key) = section { configureGoalHeader(header, key); return }
         guard case .group(let kind) = section, let words = heading(kind) else { return }
         let count = groups.first { $0.0 == kind }?.1.count ?? 0
         var view = TodoGroupHeaderView(title: words.title, detail: words.detail, count: count, red: kind == .overdue)
@@ -569,7 +614,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                     TodoGroup(kind: .done, tasks: TodoSections.sorted(done, in: .done))].filter { !$0.tasks.isEmpty }
         } else {
             made = TodoViews.groups(visible, view: current, sections: store.sections, bots: bots.map(\.id), now: now,
-                                    sort: store.settings.sort)
+                                    sort: store.settings.sort, paused: GoalViews.paused(store.goals))
         }
         // Upcoming's week: its dots from every coming day (and today's own tasks), then the picked day alone.
         week = current == .upcoming && !searching ? weekDays(made, visible: visible, now: now) : []
@@ -638,8 +683,11 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                 if kind != .done || open { snapshot.appendItems(ids.map { .task($0) }, toSection: .group(kind)) }
                 if case .next(let id) = kind, mores[id] != nil { snapshot.appendItems([.more(id)], toSection: .group(kind)) }
             }
+            // [goals] The Goals view: its cards, not tasks.
+            let goalsShown = current == .goals && !searching
+            if goalsShown { appendGoals(to: &snapshot, now: now) } else { goalCards = [:]; goalGroups = [] }
             // No tasks at all: every view says so, with New Task (and Inbox's ideas still under it).
-            let nothing = groups.isEmpty && !searching
+            let nothing = groups.isEmpty && !searching && !goalsShown
             if nothing, all.isEmpty {
                 snapshot.appendSections([.empty])
                 snapshot.appendItems([.ideaNote(.noTasks(text: Self.nothingText(scope: PagesScope.all, botName: ""), imports: true))], toSection: .empty)
@@ -657,6 +705,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         }
         let previousIdeaCards = shownIdeaCards
         shownIdeaCards = ideaCards
+        let previousGoalCards = shownGoalCards
+        shownGoalCards = goalCards
         var changed = snapshot.itemIdentifiers.compactMap { item -> Item? in
             guard case .task(let id) = item, let old = rows[id], old != nextRows[id] else { return nil }
             return item
@@ -668,6 +718,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             case .week, .ideaHead, .more: return true
             case .offer(let id): return previousOffers[id] != nil && previousOffers[id] != offerCards[id]
             case .idea(let id): return previousIdeaCards[id] != nil && previousIdeaCards[id] != ideaCards[id]
+            case .goal(let id): return previousGoalCards[id] != nil && previousGoalCards[id] != goalCards[id]
             default: return false
             }
         }
@@ -677,6 +728,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         notePaneListEmpty(!snapshot.itemIdentifiers.contains { taskID(of: $0) != nil })   // [mac] #57
         refreshHeaders()
         addItem.isEnabled = !store.readOnlyGateway && !store.needsAddOn
+        addItem.accessibilityLabel = current == .goals ? "New Goal" : "New Task"   // [goals] the bar's + makes a goal there
         header.update(pills: listShown ? pills(visible, now: now) : [], picked: current,
                       editsLists: !store.readOnlyGateway && store.sectionsSupported)
         if selecting {
@@ -715,6 +767,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         switch current {
         case .list(let id) where !store.sections.contains { $0.id == id }: current = .today
         case .bots where !TodoViews.showsBots(tasks): current = .today
+        case .goals where !store.goalsSupported: current = .today   // [goals] an add-on that keeps no goals
         default: break
         }
     }
@@ -741,7 +794,10 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     /// ran into the next one; owner 2026-11-12, a screen recording: "Look at the Upcoming pill. It's glitching.")
     private func pills(_ tasks: [TodoTask], now: Date) -> [TaskViewPill] {
         func count(_ view: TodoView) -> Int { TodoViews.openCount(tasks, view: view, sections: store.sections, now: now) }
-        var out = [TaskViewPill(view: .today, title: "Today", count: count(.today)),
+        var out: [TaskViewPill] = []
+        // [goals] Goals is the first pill, with its active goals, on an add-on that keeps goals.
+        if store.goalsSupported { out.append(TaskViewPill(view: .goals, title: "Goals", count: GoalViews.activeCount(store.goals))) }
+        out += [TaskViewPill(view: .today, title: "Today", count: count(.today)),
                    TaskViewPill(view: .upcoming, title: "Upcoming", count: count(.upcoming)),
                    TaskViewPill(view: .inbox, title: "Inbox", count: count(.inbox))]
         for list in store.sections {
@@ -807,16 +863,12 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         var dot = searching ? TodoLists.color(store.sections.first { $0.id == task.section })
             : TodoLists.dot(task, in: current, sections: store.sections)
         if case .next = kind { dot = nil }   // "Next in Work" names the list over the rows
-        return TodoRowModel(
-            id: task.id, title: task.title.isEmpty ? "Untitled Task" : task.title,
-            words: TodoViews.row(task, in: kind, now: now, botName: name),
-            line: isTable ? TodoWords.rowLine(task, section: TodoSections.section(task, now: now), now: now, botName: name)
-                          : TodoRowLine(lead: nil, tone: .plain, rest: []),
-            done: task.isDone, ticking: ticking.contains(task.id),
-            face: helper, head: helper.flatMap { heads[$0] ?? nil },
-            selecting: selecting, picked: picked.contains(task.id),
-            wide: isTable, who: TodoWords.whoWords(task, botName: name),
-            listDot: dot, listName: dot == nil ? nil : listName(task.section))
+        var model = TodoRowModel.make(task, kind: kind, now: now, botName: name, head: helper.flatMap { heads[$0] ?? nil },
+                                      ticking: ticking.contains(task.id), dot: dot, listName: dot == nil ? nil : listName(task.section),
+                                      wide: isTable)
+        model.selecting = selecting
+        model.picked = picked.contains(task.id)
+        return model
     }
 
     private func refreshHeaders() {
@@ -1013,6 +1065,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     /// A new task starts where you are: in the list on show, due today on Today.
     func newTask() {
         guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
+        if current == .goals, !searching { newGoal(); return }   // [goals] the bar's + makes a goal in the Goals view
         PagesHaptics.selection()
         let scoped = scope.effective(bots: bots)
         let sheet = NewTodoSheet.make(store: store, bots: bots, preferredBot: scoped == PagesScope.all || scoped == PagesScope.me ? nil : scoped,
@@ -1549,6 +1602,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
 
     func collectionView(_ collectionView: UICollectionView, itemsForBeginning session: UIDragSession,
                         at indexPath: IndexPath) -> [UIDragItem] {
+        if let item = goalDragItem(at: indexPath) { return [item] }   // [goals] active goals, in your order
         guard canArrange, let id = taskID(at: indexPath), let task = store.task(id), !task.isDone else { return [] }
         let item = UIDragItem(itemProvider: NSItemProvider(object: task.title as NSString))
         item.localObject = id
@@ -1570,11 +1624,13 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     }
 
     func collectionView(_ collectionView: UICollectionView, canHandle session: UIDropSession) -> Bool {
-        session.localDragSession?.items.first?.localObject is String
+        let object = session.localDragSession?.items.first?.localObject
+        return object is String || object is GoalDrag
     }
 
     func collectionView(_ collectionView: UICollectionView, dropSessionDidUpdate session: UIDropSession,
                         withDestinationIndexPath destinationIndexPath: IndexPath?) -> UICollectionViewDropProposal {
+        if session.localDragSession?.items.first?.localObject is GoalDrag { return goalDropProposal(destinationIndexPath) }
         guard session.localDragSession != nil, let index = dropIndex(destinationIndexPath) else {
             return UICollectionViewDropProposal(operation: .forbidden)
         }
@@ -1590,6 +1646,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: UIDropSession) { dropPlace = nil }
 
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
+        if coordinator.items.first?.dragItem.localObject is GoalDrag { dropGoal(coordinator); return }
         guard let drop = coordinator.items.first, let id = drop.dragItem.localObject as? String, let list = currentList,
               let target = dropIndex(coordinator.destinationIndexPath) else { return }
         var ids = groups.first { $0.0 == .open }?.1 ?? []
@@ -1608,6 +1665,132 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             notices.show("Sorted by \(store.settings.sort == "due" ? "Due Date" : (store.settings.sort == "priority" ? "Priority" : "Date Added")). Choose My Order in Sort By to arrange tasks by hand.", seconds: 4)
         }
         Task { if await !store.move([id], to: list, position: position) { PagesHaptics.error() } }
+    }
+
+    // MARK: [goals] The Goals view (docs/goals.md; App/Pages/Goals)
+
+    /// Active goals as cards, then Someday's quieter ones, then Achieved and Let Go folded to their headings, then
+    /// "+ New Goal". With no goals at all, what a goal is, with New Goal.
+    private func appendGoals(to snapshot: inout NSDiffableDataSourceSnapshot<Section, Item>, now: Date) {
+        let made = GoalViews.groups(store.goals)
+        let tasks = store.tasks
+        goalCards = Dictionary(store.goals.map { ($0.id, GoalCardModel.make($0, tasks: tasks, now: now, ticking: ticking)) },
+                               uniquingKeysWith: { first, _ in first })
+        let all: [(GoalGroupKey, [Goal])] = [(.active, made.active), (.someday, made.someday), (.achieved, made.achieved), (.letGo, made.letGo)]
+        goalGroups = all.filter { !$0.1.isEmpty }.map { key, goals in (key, goals.map(\.id)) }
+        guard !made.isEmpty else {
+            snapshot.appendSections([.goalsFoot])
+            snapshot.appendItems([.goalsEmpty], toSection: .goalsFoot)
+            return
+        }
+        for (key, ids) in goalGroups {
+            snapshot.appendSections([.goals(key)])
+            let folded = (key == .achieved || key == .letGo) && !goalFoldsOpen.contains(key)
+            if !folded { snapshot.appendItems(ids.map { .goal($0) }, toSection: .goals(key)) }
+        }
+        snapshot.appendSections([.goalsFoot])
+        snapshot.appendItems([.newGoal], toSection: .goalsFoot)
+    }
+
+    private func configureGoalHeader(_ header: UICollectionViewListCell, _ key: GoalGroupKey) {
+        let title = switch key { case .active: "Active"; case .someday: "Someday"; case .achieved: "Achieved"; case .letGo: "Let Go" }
+        let count = goalGroups.first { $0.0 == key }?.1.count ?? 0
+        var view = TodoGroupHeaderView(title: title, detail: nil, count: count)
+        if key == .achieved || key == .letGo {
+            view.fold = (goalFoldsOpen.contains(key) ? "Hide" : "Show", { [weak self] in self?.toggleGoalFold(key) })
+            view.foldID = "goals.fold.\(key.rawValue)"
+        }
+        header.contentConfiguration = UIHostingConfiguration { view }.margins(.all, 0)
+        header.backgroundConfiguration = .clear()
+        header.accessibilityIdentifier = "tasks.section.\(title)"
+    }
+
+    private func toggleGoalFold(_ key: GoalGroupKey) {
+        PagesHaptics.selection()
+        if goalFoldsOpen.contains(key) { goalFoldsOpen.remove(key) } else { goalFoldsOpen.insert(key) }
+        reload(animated: true)
+    }
+
+    /// New Goal: the quick-add sheet; on Add it closes and the new goal's page opens.
+    func newGoal() {
+        guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
+        guard presentedViewController == nil else { return }
+        PagesHaptics.selection()
+        present(NewGoalSheet.make(store: store) { [weak self] goal in
+            guard let self, let goal else { return }
+            if self.current != .goals { self.show(.goals) }
+            self.reload(animated: true)
+            self.openGoal(goal.id)
+        }, animated: true)
+    }
+
+    /// A goal's page, as a sheet over the list (as a task's is).
+    func openGoal(_ id: String) {
+        guard store.goal(id) != nil else { notices.show("That goal isn’t there anymore."); return }
+        if let presented = presentedViewController { presented.dismiss(animated: false) }
+        present(GoalPage.make(goalID: id, store: store, context: context), animated: true)
+    }
+
+    /// [goals] `-HQPagesOpenGoal "<title>"`: the Goals view, then that goal's page.
+    func debugOpenGoal(titled title: String) {
+        show(.goals)
+        guard let goal = store.goals.first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) else { return }
+        openGoal(goal.id)
+    }
+
+    /// Hold a card: the goal page's ⋯ rows (Edit Goal…, Pause or Resume, Mark Achieved, Let It Go, Delete Goal…).
+    private func goalMenu(_ id: String) -> UIContextMenuConfiguration? {
+        guard store.goal(id) != nil, !store.readOnlyGateway else { return nil }
+        return UIContextMenuConfiguration(identifier: ("goal:" + id) as NSString, previewProvider: nil) { [weak self] _ in
+            guard let self else { return nil }
+            let source = self.dataSource.indexPath(for: .goal(id)).flatMap { self.collectionView.cellForItem(at: $0) }
+            return UIMenu(children: GoalMenu.items(goalID: id, store: self.store, from: self, source: source))
+        }
+    }
+
+    /// Active goals go in your order by hand (their `position`).
+    private func goalDragItem(at path: IndexPath) -> UIDragItem? {
+        guard current == .goals, !searching, !selecting, !store.readOnlyGateway,
+              case .goal(let id)? = dataSource.itemIdentifier(for: path),
+              dataSource.sectionIdentifier(for: path.section) == .goals(.active), let goal = store.goal(id) else { return nil }
+        let item = UIDragItem(itemProvider: NSItemProvider(object: goal.title as NSString))
+        item.localObject = GoalDrag(id: id)
+        return item
+    }
+
+    private func goalDropProposal(_ path: IndexPath?) -> UICollectionViewDropProposal {
+        guard let path, dataSource.sectionIdentifier(for: path.section) == .goals(.active) else {
+            return UICollectionViewDropProposal(operation: .forbidden)
+        }
+        let place = "goal:\(path.item)"
+        if place != dropPlace {
+            if dropPlace != nil { Haptics.play(.selection) }
+            dropPlace = place
+        }
+        return UICollectionViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
+    }
+
+    private func dropGoal(_ coordinator: UICollectionViewDropCoordinator) {
+        guard let drop = coordinator.items.first, let id = (drop.dragItem.localObject as? GoalDrag)?.id,
+              let path = coordinator.destinationIndexPath else { return }
+        var ids = goalGroups.first { $0.0 == .active }?.1 ?? []
+        var index = min(path.item, ids.count)
+        if let from = ids.firstIndex(of: id) {
+            ids.remove(at: from)
+            if from < index { index -= 1 }
+        }
+        index = min(index, ids.count)
+        let above = index > 0 ? store.goal(ids[index - 1])?.order : nil
+        let below = index < ids.count ? store.goal(ids[index])?.order : nil
+        let position: Double = switch (above, below) {
+        case let (a?, b?): (a + b) / 2
+        case let (a?, nil): a + 1
+        case let (nil, b?): b - 1
+        default: Date().timeIntervalSince1970
+        }
+        coordinator.drop(drop.dragItem, toItemAt: path)
+        Haptics.play(.soft)
+        Task { if await !store.patchGoal(id, ["position": .number(position)]) { PagesHaptics.error() } }
     }
 
     // MARK: Selection, menus, swipes
@@ -1647,6 +1830,13 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             collectionView.deselectItem(at: indexPath, animated: false)
             PagesHaptics.selection()
             show(.list(id))
+        case .goal(let id)?:
+            collectionView.deselectItem(at: indexPath, animated: true)
+            PagesHaptics.selection()
+            openGoal(id)
+        case .newGoal?:
+            collectionView.deselectItem(at: indexPath, animated: true)
+            newGoal()
         default:
             collectionView.deselectItem(at: indexPath, animated: true)
         }
@@ -1700,7 +1890,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
         if selecting { return taskID(at: indexPath) != nil }
         switch dataSource.itemIdentifier(for: indexPath) {
-        case .task?, .idea?, .more?: return true
+        case .task?, .idea?, .more?, .goal?, .newGoal?: return true
         default: return false
         }
     }
@@ -1716,11 +1906,14 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                         point: CGPoint) -> UIContextMenuConfiguration? {
         guard !selecting, let path = indexPaths.first else { return nil }
         if let id = ideaID(at: path) { return ideaMenu(id) }
+        if case .goal(let id)? = dataSource.itemIdentifier(for: path) { return goalMenu(id) }   // [goals]
         guard let id = taskID(at: path), let task = store.task(id) else { return nil }
         let stale = isStale(path)
         return UIContextMenuConfiguration(identifier: id as NSString, previewProvider: nil) { [weak self] _ in
             guard let self else { return nil }
             let keep = UIAction(title: "Keep", image: UIImage(systemName: "pin")) { [weak self] _ in self?.keep(id) }
+            // [goals] Add to Goal, beside Move To (docs/goals.md "A task in a goal").
+            let goalRow: [UIMenuElement] = GoalChoices.menu(for: id, store: self.store) { [weak self] goal in self?.openGoal(goal) }.map { [$0] } ?? []
             return UIMenu(children: [
                 UIMenu(options: .displayInline, children: (stale ? [keep] : []) + [
                     UIAction(title: "Open Task", image: UIImage(systemName: "arrow.up.forward.square")) { [weak self] _ in self?.openTask(id) },
@@ -1728,6 +1921,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                              image: UIImage(systemName: task.isDone ? "circle" : "checkmark.circle")) { [weak self] _ in self?.toggleDone(id) },
                     UIMenu(title: "Move To", subtitle: self.listName(task.section),
                            image: UIImage(systemName: "folder"), children: self.moveChoices(for: [id])),
+                ] + goalRow + [
                     UIAction(title: "Select", image: UIImage(systemName: "checkmark.circle.badge.plus")) { [weak self] _ in
                         guard let self else { return }
                         self.setSelecting(true)
@@ -1809,6 +2003,12 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
 #if targetEnvironment(macCatalyst)
 extension TasksViewController: PaneListEmptiness {}   // [mac] #57
 #endif
+
+/// [goals] A goal card on its way to a new place among the active goals.
+private final class GoalDrag: NSObject {
+    let id: String
+    init(id: String) { self.id = id }
+}
 
 /// A task's row: tells its page how tall it came out (`TasksViewController.footRoom`).
 private final class TaskListCell: SoftCardListCell {

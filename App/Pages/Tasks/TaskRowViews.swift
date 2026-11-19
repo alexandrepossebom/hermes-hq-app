@@ -58,6 +58,22 @@ struct TodoRowModel: Hashable {
     var listName: String?
 }
 
+extension TodoRowModel {
+    /// A task's row as the list draws it ([goals] the goal's page draws its tasks with the same rows).
+    static func make(_ task: TodoTask, kind: TodoGroupKind, now: Date, botName: @escaping (String?) -> String, head: JSONValue?,
+                     ticking: Bool = false, dot: TodoListColor? = nil, listName: String? = nil, wide: Bool = false) -> TodoRowModel {
+        TodoRowModel(
+            id: task.id, title: task.title.isEmpty ? "Untitled Task" : task.title,
+            words: TodoViews.row(task, in: kind, now: now, botName: botName),
+            line: wide ? TodoWords.rowLine(task, section: TodoSections.section(task, now: now), now: now, botName: botName)
+                       : TodoRowLine(lead: nil, tone: .plain, rest: []),
+            done: task.isDone, ticking: ticking,
+            face: task.helper, head: head,
+            wide: wide, who: TodoWords.whoWords(task, botName: botName),
+            listDot: dot, listName: listName)
+    }
+}
+
 struct TodoRowView: View {
     var row: TodoRowModel
     var toggle: () -> Void
@@ -275,6 +291,8 @@ struct TodoGroupHeaderView: View {
     var note: String?
     /// Done: "Show" or "Hide", and what it does.
     var fold: (title: String, action: () -> Void)?
+    /// [goals] The fold's identifier (Achieved and Let Go fold too).
+    var foldID = "tasks.show-done"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -292,7 +310,7 @@ struct TodoGroupHeaderView: View {
                     .foregroundStyle(Color.hqTintText)
                     .buttonStyle(.plain)
                     .padding(.top, -16).padding(.bottom, -6)
-                    .accessibilityIdentifier("tasks.show-done")
+                    .accessibilityIdentifier(foldID)
                 }
             }
             .padding(.horizontal, onCard ? 20 + BackdropCards.side : 20)

@@ -245,9 +245,14 @@ struct TaskOfferCard: View {
 }
 
 /// On a task's page: a bot thinks your task is done and says why. It never ticks it itself.
+/// [goals] The goal's page asks its two questions with the same card ("That was the last task in Launch week. Mark it
+/// done?" Mark Done / Not Yet): its button words and identifier are the caller's.
 struct TaskCloseOfferCard: View {
     var line: String
     var enabled: Bool
+    var yes = "Mark Done"
+    var no = "Keep Open"
+    var identifier = "task.close-offer"
     var done: () -> Void
     var keep: () -> Void
 
@@ -264,12 +269,12 @@ struct TaskCloseOfferCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
-                Button("Mark Done", action: done)
+                Button(yes, action: done)
                     .buttonStyle(TaskCardButtonStyle(main: true))
-                    .accessibilityIdentifier("task.close-offer.done")
-                Button("Keep Open", action: keep)
+                    .accessibilityIdentifier(identifier + ".done")
+                Button(no, action: keep)
                     .buttonStyle(TaskCardButtonStyle(main: false))
-                    .accessibilityIdentifier("task.close-offer.keep")
+                    .accessibilityIdentifier(identifier + ".keep")
             }
             .disabled(!enabled)
         }
@@ -277,7 +282,7 @@ struct TaskCloseOfferCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(TaskCardBackground())
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("task.close-offer")
+        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -428,30 +433,10 @@ struct TaskListEditView: View {
     }
 
     private var swatches: some View {
-        PagesFlowLayout(spacing: 12, lineSpacing: 10) {
-            ForEach(TodoListColor.allCases, id: \.self) { choice in
-                let picked = color == choice
-                Button {
-                    PagesHaptics.selection()
-                    model.draft.color = picked ? nil : choice.rawValue
-                    model.save()
-                } label: {
-                    Circle().fill(choice.ink)
-                        .frame(width: 28, height: 28)
-                        .overlay {
-                            if picked { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).foregroundStyle(.white) }   // a11y-font-ok: a tick inside a fixed 28 pt swatch
-                        }
-                        .padding(4)
-                        .overlay { if picked { Circle().strokeBorder(choice.ink, lineWidth: 2) } }
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(choice.name)
-                .accessibilityAddTraits(picked ? .isSelected : [])
-                .accessibilityIdentifier("tasks.list-edit.color.\(choice.rawValue)")
-            }
+        TaskColorSwatches(picked: color, identifier: "tasks.list-edit.color") { choice in
+            model.draft.color = choice?.rawValue
+            model.save()
         }
-        .padding(.vertical, 4)
     }
 
     private var icons: some View {
@@ -474,6 +459,41 @@ struct TaskListEditView: View {
                 .accessibilityLabel(TodoListIcons.spoken(icon))
                 .accessibilityAddTraits(picked ? .isSelected : [])
                 .accessibilityIdentifier("tasks.list-edit.icon.\(icon)")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// [goals] A list's colours to pick from (Edit List, and Edit Goal: a goal takes a list's colours). A tap on the picked
+/// one clears it when `clears`; otherwise it stays.
+struct TaskColorSwatches: View {
+    var picked: TodoListColor?
+    var identifier: String
+    var clears = true
+    var pick: (TodoListColor?) -> Void
+
+    var body: some View {
+        PagesFlowLayout(spacing: 12, lineSpacing: 10) {
+            ForEach(TodoListColor.allCases, id: \.self) { choice in
+                let isPicked = picked == choice
+                Button {
+                    PagesHaptics.selection()
+                    if isPicked { if clears { pick(nil) } } else { pick(choice) }
+                } label: {
+                    Circle().fill(choice.ink)
+                        .frame(width: 28, height: 28)
+                        .overlay {
+                            if isPicked { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).foregroundStyle(.white) }   // a11y-font-ok: a tick inside a fixed 28 pt swatch
+                        }
+                        .padding(4)
+                        .overlay { if isPicked { Circle().strokeBorder(choice.ink, lineWidth: 2) } }
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(choice.name)
+                .accessibilityAddTraits(isPicked ? .isSelected : [])
+                .accessibilityIdentifier("\(identifier).\(choice.rawValue)")
             }
         }
         .padding(.vertical, 4)

@@ -34,7 +34,9 @@ nonisolated enum TodoQuickParse {
     private static let counts: [String: Int] = ["a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6]
 
     /// `dates: false` leaves every date word in the name (the date was picked by hand).
-    static func read(_ text: String, now: Date, calendar: Calendar = .current, dates: Bool = true) -> TodoQuickRead {
+    /// [goals] `goal: true` reads New Goal's line: a day only, with the "by" before it ("Run a 10K by may 3" is the goal
+    /// "Run a 10K" by May 3); no time, repeat, tag or priority (a goal has none, and "#1" may be part of its name).
+    static func read(_ text: String, now: Date, calendar: Calendar = .current, dates: Bool = true, goal: Bool = false) -> TodoQuickRead {
         let raw = text.split(whereSeparator: { $0 == " " || $0.isNewline }).map(String.init)
         // A word as it is matched: lower case, without the comma or full stop after it.
         let words = raw.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",.;")) }
@@ -99,18 +101,18 @@ nonisolated enum TodoQuickParse {
             guard !used.contains(i) else { continue }
 
             // Tags and priority: no date in them, read whatever `dates` says.
-            if word.hasPrefix("#"), word.count > 1 {
+            if !goal, word.hasPrefix("#"), word.count > 1 {
                 let tag = String(raw[i].dropFirst().trimmingCharacters(in: CharacterSet(charactersIn: ",.;")).prefix(30))
                 if !tag.isEmpty, !out.tags.contains(where: { $0.lowercased() == tag.lowercased() }) { out.tags.append(tag) }
                 take(i...i, date: false); continue
             }
-            if let level = ["!high": 1, "!1": 1, "p1": 1, "!medium": 2, "!med": 2, "!2": 2, "p2": 2, "!low": 3, "!3": 3, "p3": 3][word] {
+            if !goal, let level = ["!high": 1, "!1": 1, "p1": 1, "!medium": 2, "!med": 2, "!2": 2, "p2": 2, "!low": 3, "!3": 3, "p3": 3][word] {
                 out.priority = level; take(i...i, date: false); continue
             }
             guard dates else { continue }
 
             // How it repeats.
-            if word == "every", let next {
+            if !goal, word == "every", let next {
                 if let weekday = weekdays[next] ?? (next == "sun" ? 1 : nil) {
                     out.repeatRule = "weekly"; day = day ?? coming(weekday, includingToday: true); take(i...i + 1); continue
                 }
@@ -118,7 +120,7 @@ nonisolated enum TodoQuickParse {
                     out.repeatRule = rule; take(i...i + 1); continue
                 }
             }
-            if let rule = ["daily": "daily", "weekdays": "weekdays", "weekly": "weekly", "monthly": "monthly", "yearly": "yearly",
+            if !goal, let rule = ["daily": "daily", "weekdays": "weekdays", "weekly": "weekly", "monthly": "monthly", "yearly": "yearly",
                            "annually": "yearly"][word] {
                 out.repeatRule = rule; take(i...i); continue
             }
@@ -156,6 +158,7 @@ nonisolated enum TodoQuickParse {
             }
 
             // A time.
+            if goal { continue }
             if word == "noon" { clock = (12, 0); take(i...i); continue }
             if word == "at", let next {
                 if next == "noon" { clock = (12, 0); take(i...i + 1); continue }
@@ -166,8 +169,12 @@ nonisolated enum TodoQuickParse {
             if let found = time(word) { clock = found; take(i...i); continue }
         }
 
+        // [goals] "by", "before" or "until" just before the day is part of the date words.
+        if goal, let first = dateUsed.min(), first > 0, !used.contains(first - 1), ["by", "before", "until"].contains(words[first - 1]) {
+            take((first - 1)...(first - 1))
+        }
         // A time with no day is today while that time is still ahead, else tomorrow.
-        if let clock {
+        if let clock, !goal {
             let base = day ?? today
             var moment = calendar.date(bySettingHour: clock.hour, minute: clock.minute, second: 0, of: base) ?? base
             if day == nil, moment <= now { moment = calendar.date(byAdding: .day, value: 1, to: moment) ?? moment }

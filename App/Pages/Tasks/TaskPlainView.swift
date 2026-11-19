@@ -45,6 +45,7 @@ struct TaskPlainView: View {
                     priorityRow
                     tagsRow
                     whoRow
+                    goalRow
                     sourceRow
                     closeOffer
                     if model.gone {
@@ -336,7 +337,7 @@ struct TaskPlainView: View {
                 }
             }
         } label: {
-            TaskGridRow(last: sourceLine == nil) {
+            TaskGridRow(last: sourceLine == nil && goalShown == nil) {
                 Image(systemName: task.whoKind == .together ? "person.2" : "person").foregroundStyle(Color.hqLabel2)
             } text: {
                 HStack(spacing: 6) {
@@ -382,6 +383,59 @@ struct TaskPlainView: View {
         .disabled(model.gone || bots.isEmpty)
         .accessibilityLabel("Who: \(words)\(watched.map { ", \($0)" } ?? "")\(TodoViews.botState(task, running: model.chat?.session.isRunning == true).map { ", \($0.words)" } ?? ""). Change")
         .accessibilityIdentifier("task.who")
+    }
+
+    // MARK: [goals] The goal it serves (docs/goals.md "A task in a goal", board 2's right phone)
+
+    /// The task's goal, on an add-on that keeps goals.
+    private var goalShown: Goal? {
+        guard model.store.goalsSupported, let id = task.goal else { return nil }
+        return model.store.goal(id)
+    }
+
+    /// The goal's mark in its colour, its name, and at the end its milestone with ›. Its menu: each active goal (then
+    /// that goal's milestones), No Goal, and Open Goal.
+    @ViewBuilder private var goalRow: some View {
+        if let goal = goalShown {
+            let milestone = goal.milestone(task.milestone)?.title
+            Menu {
+                GoalChoiceItems(task: task, store: model.store) { id in openGoal(id) }
+            } label: {
+                TaskGridRow(last: sourceLine == nil) {
+                    GoalMark(color: goal.tint)
+                } text: {
+                    HStack(spacing: 6) {
+                        Text(goal.title).foregroundStyle(Color.hqLabel).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                        Spacer(minLength: 8)
+                        if let milestone {
+                            HStack(spacing: 3) {
+                                Text(milestone).lineLimit(1)
+                                Image(systemName: "chevron.right").imageScale(.small).accessibilityHidden(true)
+                            }
+                            .font(Font.hq(.footnote))
+                            .foregroundStyle(Color.hqLabel2)
+                            .layoutPriority(-1)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(model.gone || model.store.readOnlyGateway)
+            .accessibilityLabel("Goal: \(goal.title)\(milestone.map { ", \($0)" } ?? ""). Change")
+            .accessibilityIdentifier("task.goal")
+        }
+    }
+
+    /// Open Goal: the goal's page over this one.
+    private func openGoal(_ id: String) {
+        guard let controller = model.controller, model.store.goal(id) != nil else { return }
+        controller.present(GoalPage.make(goalID: id, store: model.store, context: model.context), animated: true)
+    }
+
+    /// "+ Goal" waits with the quiet words once you have an active goal.
+    private var offersGoal: Bool {
+        model.store.goalsSupported && task.goal == nil && !model.store.readOnlyGateway
+            && model.store.goals.contains { $0.state == .active }
     }
 
     // MARK: [task-lists] Where it came from, and a bot's offer to close it
@@ -436,12 +490,13 @@ struct TaskPlainView: View {
     /// What isn't set yet, as quiet words under the who row, always one line: "+ Notes  + Repeat  + Priority  + Tags
     /// + More". As many as fit show as words, in this order; the rest are under "+ More". Each goes once it is set
     /// (it has its own row then). Two lines of them on a new task read as clutter (2026-11-12).
-    enum Unset: Hashable { case notes, repeats, priority, tags, start, file }
+    enum Unset: Hashable { case notes, goal, repeats, priority, tags, start, file }
 
     private var unset: [Unset] {
         guard !task.isDone, !model.gone else { return [] }
         var out: [Unset] = []
         if task.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !model.editingNotes { out.append(.notes) }
+        if offersGoal { out.append(.goal) }   // [goals]
         // Your own task repeats; one you share does on an add-on that keeps it (0.9.53). A bot's own never does.
         if task.repeatRule == nil, task.whoKind == .me || (task.whoKind == .together && model.hasFields) { out.append(.repeats) }
         if model.hasFields {
@@ -458,6 +513,7 @@ struct TaskPlainView: View {
         if !items.isEmpty {
             // The first line that fits: every word, else one fewer with the rest under "+ More", and so on.
             ViewThatFits(in: .horizontal) {
+                moreLine(items, shown: 7)
                 moreLine(items, shown: 6)
                 moreLine(items, shown: 5)
                 moreLine(items, shown: 4)
@@ -495,6 +551,10 @@ struct TaskPlainView: View {
             Button { model.editNotes() } label: { more("+ Notes") }
                 .accessibilityLabel("Add Notes")
                 .accessibilityIdentifier("task.notes.add")
+        case .goal:
+            Menu { GoalChoiceItems(task: task, store: model.store) { id in openGoal(id) } } label: { more("+ Goal") }
+                .accessibilityLabel("Add to Goal")
+                .accessibilityIdentifier("task.goal.add")
         case .repeats:
             Menu { repeatChoices } label: { more("+ Repeat") }
                 .accessibilityLabel("Repeat")
@@ -523,6 +583,7 @@ struct TaskPlainView: View {
     @ViewBuilder private func moreEntry(_ item: Unset) -> some View {
         switch item {
         case .notes: Button { model.editNotes() } label: { Label("Notes", systemImage: "note.text") }
+        case .goal: Menu { GoalChoiceItems(task: task, store: model.store) { id in openGoal(id) } } label: { Label("Goal", systemImage: "smallcircle.filled.circle") }
         case .repeats: Menu { repeatChoices } label: { Label("Repeat", systemImage: "repeat") }
         case .priority: Menu { priorityChoices } label: { Label("Priority", systemImage: "flag") }
         case .tags: Button { model.editTags() } label: { Label("Tags…", systemImage: "tag") }

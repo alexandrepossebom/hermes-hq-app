@@ -20,6 +20,8 @@ import Foundation
 /// What the Tasks page shows.
 nonisolated enum TodoView: Hashable, Sendable {
     case today, upcoming, inbox
+    /// [goals] Your goals (docs/goals.md): the first pill, when the add-on keeps goals. It shows cards, not tasks.
+    case goals
     /// One of your lists (`TodoUserSection.id`).
     case list(String)
     case bots
@@ -30,6 +32,7 @@ nonisolated enum TodoView: Hashable, Sendable {
         case .today: return "today"
         case .upcoming: return "upcoming"
         case .inbox: return "inbox"
+        case .goals: return "goals"
         case .list(let id): return "list:" + id
         case .bots: return "bots"
         }
@@ -40,6 +43,7 @@ nonisolated enum TodoView: Hashable, Sendable {
         case "today": self = .today
         case "upcoming": self = .upcoming
         case "inbox": self = .inbox
+        case "goals": self = .goals
         case "bots": self = .bots
         default:
             guard key.hasPrefix("list:"), key.count > 5 else { return nil }
@@ -135,8 +139,10 @@ nonisolated enum TodoViews {
 
     /// The view's groups, top to bottom; empty ones are left out. `sort` orders a list's open tasks ("smart": your
     /// drag order, "due", "added"). `bots`: the roster's order, for the Bots view.
+    /// [goals] `paused`: paused goals' ids; their tasks stay out of Today's "Next in <List>" groups (a dated one
+    /// still shows on its day).
     static func groups(_ tasks: [TodoTask], view: TodoView, sections: [TodoUserSection] = [], bots: [String] = [],
-                       now: Date, sort: String = "smart", calendar: Calendar = .current) -> [TodoGroup] {
+                       now: Date, sort: String = "smart", paused: Set<String> = [], calendar: Calendar = .current) -> [TodoGroup] {
         let today = calendar.startOfDay(for: now)
         let known = Set(sections.map(\.id))
         func dueDay(_ task: TodoTask) -> Date? { TodoDates.due(task.due, calendar: calendar).map { calendar.startOfDay(for: $0.date) } }
@@ -179,7 +185,7 @@ nonisolated enum TodoViews {
             for section in sections where section.inToday {
                 let rest = TodoSections.ordered(mine.filter { task in
                     task.section == section.id && !botsOwn(task) && !shown.contains(task.id) && !waits(task)
-                        && (dueDay(task).map { $0 <= today } ?? true)
+                        && (dueDay(task).map { $0 <= today } ?? true) && !(task.goal.map(paused.contains) ?? false)
                 }, sort: "smart", calendar: calendar)
                 guard !rest.isEmpty else { continue }
                 out.append(TodoGroup(kind: .next(section.id), tasks: Array(rest.prefix(nextCount)),
@@ -219,6 +225,8 @@ nonisolated enum TodoViews {
                 })
             }
             add(.done, newestDone(done.filter(botsOwn)))
+        case .goals:
+            break   // the Goals view draws goal cards (GoalViews), not task groups
         }
         return out
     }
@@ -455,6 +463,7 @@ nonisolated enum TodoViews {
         case .inbox: return "Nothing left to file. A task in no list lands here."
         case .list: return "No tasks in \(listName ?? "this list") yet."
         case .bots: return "No bot has a task of its own right now."
+        case .goals: return GoalViews.emptyText
         }
     }
 }

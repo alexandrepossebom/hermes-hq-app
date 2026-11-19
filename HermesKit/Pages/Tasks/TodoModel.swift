@@ -66,12 +66,16 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
     var starts: String?
     /// [task-lists] A bot's offer to close it (hermes-hq-push 0.9.55); nil when none.
     var offer: TodoCloseOffer?
+    /// [goals] The goal it is under (`Goal.id`) and that goal's milestone (hermes-hq-push 0.9.65); a task has at most
+    /// one goal. A milestone that isn't one of its goal's is cleared; clearing the goal clears the milestone.
+    var goal: String?
+    var milestone: String?
 
     enum CodingKeys: String, CodingKey {
         case id, rev, title, notes, who, bot, status, due, prep, steps, made, source, log, section, position, watch, chat
         case statusNote = "status_note", repeatRule = "repeat", createdAt = "created_at", updatedAt = "updated_at"
         case doneAt = "done_at", createdBy = "created_by", pageAt = "page_at", page, nextCheck = "next_check", choices
-        case priority, tags, alert, starts, offer
+        case priority, tags, alert, starts, offer, goal, milestone
         // App-only: kept in the disk cache and edit merges so a reopened list still knows the gateway said "no chat".
         case chatKnown = "chat_known"
     }
@@ -126,6 +130,8 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
         alert = (try? c.decodeIfPresent(Int.self, forKey: .alert)).flatMap { $0 }.flatMap { $0 >= 0 ? $0 : nil }
         starts = (try? c.decodeIfPresent(String.self, forKey: .starts)).flatMap { $0?.isEmpty == true ? nil : $0 }
         offer = (try? c.decodeIfPresent(TodoCloseOffer.self, forKey: .offer)).flatMap { $0 }
+        goal = (try? c.decodeIfPresent(String.self, forKey: .goal)).flatMap { $0?.isEmpty == true ? nil : $0 }
+        milestone = goal == nil ? nil : (try? c.decodeIfPresent(String.self, forKey: .milestone)).flatMap { $0?.isEmpty == true ? nil : $0 }
     }
 
     /// Where it sits in its section: its position, or when it was added on an older add-on.
@@ -408,8 +414,10 @@ nonisolated struct TodoListAnswer: Decodable, Sendable {
     /// [task-lists] The add-on keeps a list's colour, icon, bot and rules, and bots' offers (hermes-hq-push 0.9.55).
     var lists = false
     var offers: [TodoOffer] = []
+    /// [goals] Every goal, any status, by position (hermes-hq-push 0.9.65); nil from an older add-on, which keeps none.
+    var goals: [Goal]?
 
-    enum CodingKeys: String, CodingKey { case rev, tasks, settings, sections, unchanged, pages, ideas, fields, files, lists, offers }
+    enum CodingKeys: String, CodingKey { case rev, tasks, settings, sections, unchanged, pages, ideas, fields, files, lists, offers, goals }
 
     init(rev: Int, tasks: [TodoTask]?, settings: TodoSettings? = nil, sections: [TodoUserSection]? = nil, unchanged: Bool = false) {
         self.rev = rev; self.tasks = tasks; self.settings = settings; self.sections = sections; self.unchanged = unchanged
@@ -441,6 +449,10 @@ nonisolated struct TodoListAnswer: Decodable, Sendable {
         // Each offer on its own, as the tasks and sections are.
         if let raw = try? c.decodeIfPresent([JSONValue].self, forKey: .offers) {
             offers = raw.compactMap { value in (try? value.encoded()).flatMap { try? JSONDecoder().decode(TodoOffer.self, from: $0) } }
+        }
+        // [goals] Each goal on its own too: one this app can't read never loses the others.
+        if let raw = try? c.decodeIfPresent([JSONValue].self, forKey: .goals) {
+            goals = raw.compactMap { value in (try? value.encoded()).flatMap { try? JSONDecoder().decode(Goal.self, from: $0) } }
         }
     }
 }

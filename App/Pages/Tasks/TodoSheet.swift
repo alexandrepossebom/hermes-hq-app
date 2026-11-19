@@ -915,12 +915,15 @@ struct TodoNoteView: View {
 enum TodoDatePicker {
     /// `rings`: this phone alerts at the due time (your own task, or one you share with a bot).
     /// `dayOnly`: a day with no time and no alert (the day a task starts).
-    static func make(date: Date?, hasTime: Bool, rings: Bool = true, dayOnly: Bool = false, done: @escaping (Date, Bool) -> Void) -> UINavigationController {
+    /// [goals] `title` and `note`: a day picked for something else (a goal's or a milestone's date), with its own words.
+    static func make(date: Date?, hasTime: Bool, rings: Bool = true, dayOnly: Bool = false, title: String? = nil, note: String? = nil,
+                     done: @escaping (Date, Bool) -> Void) -> UINavigationController {
         let model = TodoDateModel(date: date ?? Date(), hasTime: hasTime && !dayOnly)
         model.rings = rings && !dayOnly
         model.dayOnly = dayOnly
+        model.note = note
         let host = TodoDateHost(model: model, done: done)
-        let nav = ChatSheet.wrap(host, title: dayOnly ? "Starts" : "Due", detents: [.large()])
+        let nav = ChatSheet.wrap(host, title: title ?? (dayOnly ? "Starts" : "Due"), detents: [.large()])
         let set = UIBarButtonItem(title: "Set", primaryAction: UIAction { [weak host] _ in host?.set() })
         set.style = .prominent
         set.accessibilityIdentifier = "task.due.set"
@@ -970,6 +973,7 @@ final class TodoDateModel {
     var hasTime: Bool
     var rings = true
     var dayOnly = false
+    var note: String?
     init(date: Date, hasTime: Bool) { self.date = date; self.hasTime = hasTime }
 }
 
@@ -990,7 +994,9 @@ struct TodoDateView: View {
                 }
             } footer: {
                 HQSectionFooter {
-                    if model.dayOnly {
+                    if let note = model.note {
+                        Text(note)
+                    } else if model.dayOnly {
                         Text("The task joins Today on this day and stays there until it’s due.")
                     } else if model.rings {
                         Text(TodoWords.alertNote(hasTime: model.hasTime))

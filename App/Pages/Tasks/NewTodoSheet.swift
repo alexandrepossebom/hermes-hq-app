@@ -172,17 +172,7 @@ final class NewTodoHost: UIHostingController<HQScaledRoot<NewTodoView>>, Editing
         super.init(rootView: HQScaledRoot(NewTodoView(model: model)))
         model.controller = self
         rootView = HQScaledRoot(NewTodoView(model: model, onHeight: { [weak self] in self?.fit($0) }))
-        modalPresentationStyle = DeviceWord.isMac ? .formSheet : .pageSheet
-        preferredContentSize = CGSize(width: 520, height: fitted)
-        view.backgroundColor = HQPalette.groupedCard   // solid-ok: a quick-add bar a few rows tall riding the keyboard; its fields sit on one opaque card
-        view.accessibilityIdentifier = "tasks.new.sheet"
-        if let sheet = sheetPresentationController {
-            sheet.detents = [.custom(identifier: .init("tasks.new")) { [weak self] _ in self?.fitted ?? 150 }]
-            sheet.prefersGrabberVisible = false
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
-            sheet.prefersEdgeAttachedInCompactHeight = true
-            sheet.preferredCornerRadius = Theme.isDesktop ? DesktopRows.radius + 6 : nil
-        }
+        QuickAddSheet.configure(self, identifier: "tasks.new") { [weak self] in self?.fitted ?? 150 }
         presentationController?.delegate = guardian
     }
 
@@ -225,18 +215,7 @@ final class NewTodoHost: UIHostingController<HQScaledRoot<NewTodoView>>, Editing
     }
 
     /// The content's height changed (a second line of notes, the bot's note): the sheet follows.
-    private func fit(_ height: CGFloat) {
-        let next = max(110, height.rounded(.up))
-        guard abs(next - fitted) > 0.5 else { return }
-        fitted = next
-        preferredContentSize = CGSize(width: 520, height: next)
-        guard let sheet = sheetPresentationController else { return }
-        if view.window == nil || HQMotion.reduced {
-            sheet.invalidateDetents()
-        } else {
-            sheet.animateChanges { sheet.invalidateDetents() }
-        }
-    }
+    private func fit(_ height: CGFloat) { QuickAddSheet.fit(self, height, fitted: fitted) { fitted = $0 } }
 
     override var keyCommands: [UIKeyCommand]? {
         var commands = super.keyCommands ?? []
@@ -249,6 +228,88 @@ final class NewTodoHost: UIHostingController<HQScaledRoot<NewTodoView>>, Editing
     override var canBecomeFirstResponder: Bool { true }
     @objc private func addFromKeyboard() { model.add() }
     @objc private func closeFromKeyboard() { closeAsking() }
+}
+
+/// [goals] What a quick add's sheet is (New Task's, and New Goal's): as tall as its content, over the keyboard, on one
+/// opaque card, the list dimmed behind it.
+enum QuickAddSheet {
+    static func configure(_ host: UIViewController, identifier: String, height: @escaping () -> CGFloat) {
+        host.modalPresentationStyle = DeviceWord.isMac ? .formSheet : .pageSheet
+        host.preferredContentSize = CGSize(width: 520, height: height())
+        host.view.backgroundColor = HQPalette.groupedCard   // solid-ok: a quick-add bar a few rows tall riding the keyboard; its fields sit on one opaque card
+        host.view.accessibilityIdentifier = identifier + ".sheet"
+        if let sheet = host.sheetPresentationController {
+            sheet.detents = [.custom(identifier: .init(identifier)) { _ in height() }]
+            sheet.prefersGrabberVisible = false
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            sheet.prefersEdgeAttachedInCompactHeight = true
+            sheet.preferredCornerRadius = Theme.isDesktop ? DesktopRows.radius + 6 : nil
+        }
+    }
+
+    /// The content's height changed (a second line, a note under it): the sheet follows. `store` keeps the new height
+    /// before the detent is asked for it (never an `inout`: the detent reads the same property while it resolves).
+    static func fit(_ host: UIViewController, _ height: CGFloat, fitted: CGFloat, store: (CGFloat) -> Void) {
+        let next = max(110, height.rounded(.up))
+        guard abs(next - fitted) > 0.5 else { return }
+        store(next)
+        host.preferredContentSize = CGSize(width: 520, height: next)
+        guard let sheet = host.sheetPresentationController else { return }
+        if host.view.window == nil || HQMotion.reduced {
+            sheet.invalidateDetents()
+        } else {
+            sheet.animateChanges { sheet.invalidateDetents() }
+        }
+    }
+}
+
+/// [goals] One of a quick add's buttons: a capsule, tinted once it holds something.
+struct QuickAddChip: View {
+    var words: String?
+    var symbol: String?
+    var set: Bool
+    var tint: Color? = nil
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let symbol { Image(systemName: symbol).imageScale(.small).foregroundStyle(tint ?? (set ? Color.hqTintText : Color.hqLabel2)) }
+            if let words { Text(words).lineLimit(1) }
+        }
+        .font(Font.hq(.footnote).weight(set && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the tint shows it is set
+        .foregroundStyle(set ? Color.hqTintText : Color.hqLabel2)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
+        .background(Capsule().fill(set ? Color.hqTint.opacity(0.12) : Color.hqFill3))
+        .contentShape(Capsule())
+    }
+}
+
+/// [goals] A quick add's round Add at the end of its buttons.
+struct QuickAddButton: View {
+    var enabled: Bool
+    var saving: Bool
+    var identifier: String
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if saving {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(Font.hq(.title).weight(.regular))
+                        .foregroundStyle(enabled ? Color.hqTint : Color.hqLabel3)
+                }
+            }
+            .frame(width: 36, height: 36)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel("Add")
+        .accessibilityIdentifier(identifier)
+    }
 }
 
 /// [Mac UI check 2026-11-13] A tap outside or a pull down on a quick add with words to lose asks first.
@@ -341,23 +402,7 @@ struct NewTodoView: View {
                     .padding(.vertical, 2)
                 }
                 .scrollIndicators(.hidden)
-                Button { model.add() } label: {
-                    Group {
-                        if model.saving {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(Font.hq(.title).weight(.regular))
-                                .foregroundStyle(model.canAdd ? Color.hqTint : Color.hqLabel3)
-                        }
-                    }
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!model.canAdd)
-                .accessibilityLabel("Add")
-                .accessibilityIdentifier("tasks.new.add")
+                QuickAddButton(enabled: model.canAdd, saving: model.saving, identifier: "tasks.new.add") { model.add() }
             }
             .padding(.top, 12)
             .padding(.bottom, 12)
@@ -373,16 +418,7 @@ struct NewTodoView: View {
     // MARK: The buttons
 
     private func chip(_ words: String?, symbol: String?, set: Bool, tint: Color? = nil) -> some View {
-        HStack(spacing: 5) {
-            if let symbol { Image(systemName: symbol).imageScale(.small).foregroundStyle(tint ?? (set ? Color.hqTintText : Color.hqLabel2)) }
-            if let words { Text(words).lineLimit(1) }
-        }
-        .font(Font.hq(.footnote).weight(set && !DeviceWord.isMac ? .semibold : .regular))   // [type] Mac: the tint shows it is set
-        .foregroundStyle(set ? Color.hqTintText : Color.hqLabel2)
-        .padding(.horizontal, 10)
-        .frame(minHeight: 32)
-        .background(Capsule().fill(set ? Color.hqTint.opacity(0.12) : Color.hqFill3))
-        .contentShape(Capsule())
+        QuickAddChip(words: words, symbol: symbol, set: set, tint: tint)
     }
 
     private func dateChip(_ read: TodoQuickRead) -> some View {

@@ -575,10 +575,7 @@ class BackdropCardView: UICollectionReusableView {
             let hugs = edge.minX - Self.rim > BackdropCards.side + Self.rim
             let left = inset && hugs ? max(0, edge.minX - Self.rim) : BackdropCards.side
             let right = inset && hugs ? min(width, edge.maxX + Self.rim) : width - BackdropCards.side
-            // Only the part near the screen is drawn; a side cut off there runs on with no corners (`open`).
-            let shown = Self.drawn(top: top, bottom: bottom, near: list.bounds)
-            let frame = CGRect(x: left, y: shown.top, width: max(0, right - left), height: max(0, shown.bottom - shown.top))
-            if plate.open != shown.open { plate.open = shown.open }
+            let frame = CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
             if plate.frame != frame { plate.frame = frame }
             if plate.superview !== list {
                 if let picture { list.insertSubview(plate, aboveSubview: picture) } else { list.insertSubview(plate, at: 0) }
@@ -795,24 +792,6 @@ class BackdropCardView: UICollectionReusableView {
     }
     /// How much further one end of a card may stand from its words than the other.
     static let lean: CGFloat = 1.5
-
-    /// How far past the screen a card is drawn, so a fast scroll never shows its cut end before the next `update`.
-    static let drawnPast: CGFloat = 160
-
-    /// The part of a card from `top` to `bottom` (in the list) that is drawn while the list shows `visible`, and the
-    /// sides cut off there. A tester, 2026-11-18 (More › Files, a long folder, Solid soft cards on Ember): "That theme
-    /// error is there in the files tab." A section's card was as tall as the section (10,600 pt for 200 files), and a
-    /// layer that tall is not drawn whole: partway down it simply stopped, so the rows under it stood
-    /// on the bare picture and the top rows on the card, one list in two colours.
-    static func drawn(top: CGFloat, bottom: CGFloat, near visible: CGRect) -> (top: CGFloat, bottom: CGFloat, open: SoftCardSurface.Sides) {
-        let low = visible.minY - drawnPast, high = visible.maxY + drawnPast
-        var open: SoftCardSurface.Sides = []
-        var shownTop = top, shownBottom = bottom
-        if top < low { shownTop = low; open.insert(.top) }
-        if bottom > high { shownBottom = high; open.insert(.bottom) }
-        if shownBottom < shownTop { shownBottom = shownTop }   // wholly off screen: nothing to draw
-        return (shownTop, shownBottom, open)
-    }
 
     /// Each section near the screen, from its title's top to its note's foot.
     private func sections(of list: UIScrollView, near rect: CGRect) -> [Section] {
