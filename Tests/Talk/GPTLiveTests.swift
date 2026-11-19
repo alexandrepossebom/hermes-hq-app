@@ -25,6 +25,20 @@ struct GPTLiveWireTests {
         }
     }
 
+    /// Owner, 2026-11-18: the voice spoke of "your agent" and narrated the wait. One assistant, first person; the
+    /// earlier messages are background only.
+    @Test func theVoiceIsOneAssistantThatNeverNarratesAHandOff() {
+        for text in [LiveVoiceWire.quietWhileWorking, LiveVoiceWire.statusFromTheBackend, LiveVoiceWire.chatNote,
+                     LiveVoiceWire.toolNote("Search"), LiveVoiceWire.nobodyAsked, LiveVoiceWire.respondNow, LiveVoiceWire.stopTalking] {
+            for word in ["agent", "backend", "waiting on", "sending"] {
+                #expect(!text.localizedCaseInsensitiveContains(word), "\(word) in: \(text)")
+            }
+        }
+        #expect(LiveVoiceWire.quietWhileWorking.contains("first person") && LiveVoiceWire.quietWhileWorking.contains("Let me look."))
+        #expect(LiveVoiceWire.quietWhileWorking.contains("answer them directly"))
+        #expect(LiveVoiceWire.chatNote.contains("never recap"))
+    }
+
     @Test func statusIsReadOnlyFromAnOkAnswer() {
         let ok = LiveVoiceStatus(json: ["ok": true, "mode": "gpt-live", "available": true, "model": "gpt-live-1", "voice": "cedar"])
         #expect(ok == LiveVoiceStatus(mode: .gptLive, available: true, model: "gpt-live-1", voice: "cedar"))
@@ -218,6 +232,63 @@ struct GPTLiveLoopTests {
         #expect(loop.send(.tick, at: 60).isEmpty)
         #expect(loop.send(.tick, at: 67) == [.think(delegationId: "d1", text: LiveVoiceWire.toolNote("Edit file"))])
         #expect(loop.send(.tick, at: 120).isEmpty)
+    }
+
+    /// [resume] A talk that ends before its answer is out, or while it is said, leaves the request; one heard does not.
+    @Test func aTalkEndedBeforeItsAnswerWasHeardLeavesTheRequest() {
+        var waiting = Loop()
+        waiting.ready()
+        waiting.said("Book a table for two", at: 1)
+        waiting.send(.delegation(id: "d1"), at: 2)
+        waiting.send(.end)
+        #expect(waiting.live.unheardRequest == "Book a table for two")
+
+        func answered() -> Loop {
+            var loop = Loop()
+            loop.ready()
+            loop.said("Book a table for two", at: 1)
+            loop.send(.delegation(id: "d1"), at: 2)
+            loop.send(.turnRunning(true))
+            loop.send(.reply(SpokenReply(messageId: "m1", text: "Booked for 7.", pending: false)))
+            loop.send(.turnRunning(false))
+            return loop
+        }
+        var passed = answered()
+        passed.send(.end)
+        #expect(passed.live.unheardRequest == "Book a table for two", "passed on, never spoken")
+
+        var heard = answered()
+        heard.send(.assistantSpeaking(true))
+        heard.send(.assistantSpeaking(false))
+        heard.send(.end)
+        #expect(heard.live.unheardRequest == nil)
+
+        var cut = answered()
+        cut.send(.assistantSpeaking(true))
+        cut.send(.stopOrInterrupt)
+        cut.send(.assistantSpeaking(false))
+        cut.send(.end)
+        #expect(cut.live.unheardRequest == "Book a table for two", "cut off while said")
+    }
+
+    /// [resume] The first request after a stopped talk carries the earlier words and the stopped line; later ones don't.
+    @Test func theResumeNoteRidesOnlyTheFirstDelegationWithinTenMinutes() throws {
+        let previous = LiveTalkResume(request: "Find the  hotel booking", endedAt: 1_000)
+        let note = try #require(previous.note(now: 1_000 + 9 * 60))
+        #expect(note == "Previous voice chat, User: Find the hotel booking\n" + LiveTalkResume.stoppedLine)
+        #expect(LiveTalkResume.stoppedLine == "(The last reply was stopped before it was spoken; the person is resuming — finish that first.)")
+        #expect(previous.note(now: 1_000 + 11 * 60) == nil)
+        #expect(previous.note(now: 999) == nil)
+
+        var loop = Loop()
+        loop.live.resumeNote = note
+        loop.ready()
+        loop.said("Where were we", at: 1)
+        #expect(loop.send(.delegation(id: "d1"), at: 2) == [.submit(text: "Where were we", context: note + "\nUser: Where were we")])
+        loop.said("And the flight", at: 3)
+        let second = loop.send(.delegation(id: "d2"), at: 4)
+        guard case .submit(_, let context)? = second.first else { Issue.record("no second submit"); return }
+        #expect(!context.contains(LiveTalkResume.stoppedLine))
     }
 
     /// A session given some of the chat is told that is only its latest part, and to ask rather than guess.

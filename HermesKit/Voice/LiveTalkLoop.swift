@@ -111,6 +111,40 @@ nonisolated struct LiveTalkState: Sendable, Equatable {
     /// Replies a catch-up has settled, with the length of their text then: not cleaned for speech again (ten times a
     /// second while anything streams) until that text changes.
     var caughtUp: [String: Int] = [:]
+    /// [resume] The newest request handed over and how far its answer got toward the person's ears: a talk ended
+    /// before it was heard leaves `unheardRequest` for the next one (`LiveTalkResume`).
+    var lastAsked: String?
+    var answer: AnswerStage = .none
+    /// Rides the first delegation's context, then cleared: the previous talk's answer was never heard.
+    var resumeNote: String?
+
+    enum AnswerStage: Sendable, Equatable { case none, waiting, passed, speaking, heard }
+
+    /// The last request, when the talk ends with its answer not yet out, not yet spoken, or cut off.
+    var unheardRequest: String? {
+        switch answer {
+        case .waiting, .passed, .speaking: lastAsked
+        case .none, .heard: nil
+        }
+    }
+}
+
+/// [resume] Owner, 2026-11-18: a talk stopped before its answer was spoken, and the next talk minutes later started
+/// cold. The next live talk in the same chat within `window` tells the first request it hands over.
+nonisolated struct LiveTalkResume: Sendable, Equatable {
+    var request: String
+    var endedAt: TimeInterval
+
+    static let window: TimeInterval = 10 * 60
+    static let stoppedLine = "(The last reply was stopped before it was spoken; the person is resuming — finish that first.)"
+
+    /// The lines for the first delegation's context, or nil when the earlier talk ended too long ago.
+    func note(now: TimeInterval) -> String? {
+        guard now >= endedAt, now - endedAt <= Self.window else { return nil }
+        let words = String(LiveVoiceWire.collapse(request).prefix(600))
+        guard !words.isEmpty else { return nil }
+        return "Previous voice chat, User: \(words)\n" + Self.stoppedLine
+    }
 }
 
 nonisolated enum LiveTalkLoop {
@@ -234,9 +268,14 @@ nonisolated enum LiveTalkLoop {
                 }
                 return
             }
-            if characters.count > live.spokenLength {
+            let fresh = characters.count > live.spokenLength
+            if fresh {
                 effects.append(.speak(delegationId: id, text: String(characters[live.spokenLength...])))
                 live.spokenLength = characters.count
+            }
+            // [resume] The answer is out; heard once the voice has said it (all of it went out earlier: said already).
+            if id != nil, live.answer == .waiting, !characters.isEmpty {
+                live.answer = live.assistantSpeaking ? .speaking : (fresh ? .passed : .heard)
             }
             clearDelegation()
         }
@@ -252,14 +291,18 @@ nonisolated enum LiveTalkLoop {
         func settleIfQuiet() {
             guard let id = live.delegationId, !state.turnRunning,
                   live.turnObserved || now - live.submittedAt > submitSettleGrace else { return }
-            if live.spokenLength == 0, id != otherTurn { effects.append(.think(delegationId: id, text: LiveVoiceWire.noSpokenResult)) }
+            if live.spokenLength == 0, id != otherTurn {
+                effects.append(.think(delegationId: id, text: LiveVoiceWire.noSpokenResult))
+                if live.answer == .waiting { live.answer = .none }   // nothing to hear
+            }
             clearDelegation()
         }
 
         /// A delegation becomes a turn: `asked` is the request when the voice said it (Grok's tool argument), else
         /// everything the person said since the last one.
         func delegate(_ id: String, asked: String?) {
-            let (lastTurn, context) = LiveVoiceWire.delegationPrompt(LiveVoiceWire.contextWindow(live.transcript))
+            let (lastTurn, exchange) = LiveVoiceWire.delegationPrompt(LiveVoiceWire.contextWindow(live.transcript))
+            var context = exchange
             let request = asked.map(LiveVoiceWire.collapse) ?? LiveVoiceWire.spokenRequest(live.heard)
             let prompt = request.isEmpty ? lastTurn : request
             live.heard = []
@@ -289,6 +332,12 @@ nonisolated enum LiveTalkLoop {
             live.turnObserved = false
             live.submittedAt = now
             live.ignoredReplyId = state.lastReply?.messageId
+            live.lastAsked = prompt
+            live.answer = .waiting
+            if let note = live.resumeNote {
+                live.resumeNote = nil
+                context = context.isEmpty ? note : note + "\n" + context
+            }
             effects.append(.submit(text: prompt, context: context))
             refreshStatus()
         }
@@ -345,6 +394,8 @@ nonisolated enum LiveTalkLoop {
 
         case .assistantSpeaking(let speaking):
             live.assistantSpeaking = speaking
+            if speaking, live.answer == .passed { live.answer = .speaking }
+            if !speaking, live.answer == .speaking { live.answer = .heard }
             refreshStatus()
 
         case .level(let level):
@@ -392,6 +443,8 @@ nonisolated enum LiveTalkLoop {
             effects.append(.instruct(LiveVoiceWire.respondNow))
 
         case .stopOrInterrupt:
+            // An answer cut off while spoken was not heard (the voice going quiet next is not its end).
+            if live.answer == .speaking { live.answer = .passed }
             if state.turnRunning { effects.append(.stopTurn) }
             if live.assistantSpeaking { effects.append(.instruct(LiveVoiceWire.stopTalking)) }
             if live.delegationId != nil {

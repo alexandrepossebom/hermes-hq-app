@@ -1697,7 +1697,9 @@ final class LiveChatSession: ChatSessionModel {
     func unparkQueue() { isQueueParked = false }
 
     func parkQueue() {
-        guard !queuedMessages.isEmpty, !isQueueParked else { return }
+        // [voice record] Stop holds what was typed, never a voice chat's words alone: parked, a record waited as a
+        // card and was deleted, and the bot never had the talk (owner, 2026-11-18).
+        guard queuedMessages.contains(where: { !VoiceChatRecord.isRecord($0.text) }), !isQueueParked else { return }
         AppLog.trace("send", "queue parked in \(logIds): \(queuedMessages.count) held until the next send")
         isQueueParked = true
         queueDrainTask?.cancel(); queueDrainTask = nil
