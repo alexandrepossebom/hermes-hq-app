@@ -118,23 +118,58 @@ struct SessionStripTests {
         #expect(all.map(\.id) == ["new", "old"])
     }
 
-    @Test("The Chats tab's groups: Working, Pinned, Today, Yesterday, Earlier, each chat in the first that fits, empty ones left out")
+    @Test("The Chats tab's groups: Active (at work, then unread), Pinned, Today, Earlier, each chat in the first that fits, empty ones left out")
     func groups() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         let noon = calendar.startOfDay(for: now).addingTimeInterval(12 * 3600)
-        func at(_ id: String, hours: Double, running: Bool = false, pinned: Bool = false) -> SessionSummary {
+        func at(_ id: String, hours: Double, running: Bool = false, pinned: Bool = false, unread: Bool = false) -> SessionSummary {
             var row = SessionSummary(id: id, profile: "hermes-hq", title: id, preview: nil, lastActive: noon.addingTimeInterval(-hours * 3600),
-                                     source: "desktop", unread: false, isRunning: running)
+                                     source: "desktop", unread: unread, isRunning: running)
             row.pinned = pinned
             return row
         }
-        let chats = [at("morning", hours: 3), at("busy", hours: 30, running: true), at("pinned-busy", hours: 31, running: true, pinned: true),
-                     at("yesterday", hours: 20), at("pinned", hours: 200, pinned: true), at("last-week", hours: 170)]
+        let chats = [at("unread", hours: 1, unread: true), at("morning", hours: 3), at("yesterday", hours: 20),
+                     at("busy", hours: 30, running: true), at("pinned-unread", hours: 40, pinned: true, unread: true),
+                     at("last-week", hours: 170), at("pinned", hours: 200, pinned: true)]
         let groups = SessionStripRules.groups(chats, now: noon, calendar: calendar)
-        #expect(groups.map(\.title) == ["Working", "Pinned", "Today", "Yesterday", "Earlier"])
-        #expect(groups.map { $0.chats.map(\.id) } == [["busy", "pinned-busy"], ["pinned"], ["morning"], ["yesterday"], ["last-week"]])
+        #expect(groups.map(\.title) == ["Active", "Pinned", "Today", "Earlier"])
+        #expect(groups.map { $0.chats.map(\.id) } == [["busy", "unread", "pinned-unread"], ["pinned"], ["morning"], ["yesterday", "last-week"]])
         #expect(SessionStripRules.groups([at("morning", hours: 3)], now: noon, calendar: calendar).map(\.title) == ["Today"])
         #expect(SessionStripRules.groups([], now: noon, calendar: calendar).isEmpty)
+    }
+
+    // [bot-tabs-ux] The Mac's tabs keep their places.
+
+    @Test("The Mac's tabs keep their places as chats work: a new chat comes in first, the rest stay in the order they had, a gone one leaves")
+    func settled() {
+        func entry(_ id: String, bot: Bool = false) -> SessionStripEntry {
+            SessionStripEntry(id: id, title: id, isBotChat: bot, working: false, unread: false, current: bot)
+        }
+        let first = SessionStripRules.settled([entry("bc", bot: true), entry("a"), entry("b"), entry("c")], order: [])
+        #expect(first.entries.map(\.id) == ["bc", "a", "b", "c"] && first.order == ["a", "b", "c"])
+        // "c" became the newest and "d" is new: only "d" moves in, at the front; "b" is gone.
+        let next = SessionStripRules.settled([entry("bc", bot: true), entry("c"), entry("d"), entry("a")], order: first.order)
+        #expect(next.entries.map(\.id) == ["bc", "d", "a", "c"] && next.order == ["d", "a", "c"])
+        #expect(SessionStripRules.settled([entry("bc", bot: true)], order: next.order).entries.map(\.id) == ["bc"])
+        // Coming in together, a chat at work leads, then one with a reply not read, then the rest.
+        var busy = entry("busy"), unread = entry("unread")
+        busy.working = true
+        unread.unread = true
+        #expect(SessionStripRules.settled([entry("bc", bot: true), entry("plain"), unread, busy], order: []).order == ["busy", "unread", "plain"])
+    }
+
+    @Test("A tab carries its last line for the tip, or the step while it works, and whether it is pinned")
+    func detail() {
+        var said = chat("said", ago: 60, unread: true)
+        said.preview = "Three key points.\nAnd one question."
+        var busy = chat("busy", ago: 90, running: true)
+        busy.step = "Searching the web"
+        var pinned = chat("pinned", ago: 120, pinned: true)
+        pinned.preview = nil
+        let by = Dictionary(uniqueKeysWithValues: entries([said, busy, pinned], onBotChat: true).map { ($0.id, $0) })
+        #expect(by["said"]?.detail == "Three key points. And one question.")
+        #expect(by["busy"]?.detail == "Searching the web")
+        #expect(by["pinned"]?.detail == "" && by["pinned"]?.pinned == true && by["said"]?.pinned == false)
     }
 }

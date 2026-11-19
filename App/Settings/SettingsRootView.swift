@@ -1163,7 +1163,7 @@ struct SettingsRootView: View {
                     : " ⌘N starts a new chat with the ⌘N bot, in its project, at once; ⌥⌘N starts one with the bot and project of the chat"
                       + " you’re in; ⇧⌘N asks for both.") : "")
                  + (DeviceWord.isMac
-                    ? " Other Chats at the Top shows a bot’s chats that are working, unread or pinned as buttons under a chat’s title; All opens the full list beside the chat."
+                    ? " Other Chats at the Top shows a bot’s chats that are working, unread or pinned as tabs under the title of the bot’s own chat; All opens the full list beside the chat."
                     : " Other Chats at the Top shows a bot’s other recent chats as buttons under a chat’s title, so one tap moves between them.")
                  + " Message Reactions adds Tapbacks to a message’s menu, and lets the bot react to yours."
                  + (model.configStore != nil ? " Reopen Last Chat on Launch is saved on \(HostWord.phrase)." : ""))

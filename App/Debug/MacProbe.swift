@@ -58,6 +58,12 @@ import UIKit
                     let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
                     write(press(bits.count > 1 ? bits[1] : ""), to: folder.appending(path: "\(name)-\(bits[0])"), "txt")
                 case "release": release()
+                case "menu":
+                    // [bot-tabs-ux] menu <file> <label>: the rows of that button's own (right-click) menu
+                    let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
+                    let button = locate(bits.count > 1 ? bits[1] : "")?.0 as? UIButton
+                    func rows(_ menu: UIMenu?) -> [String] { (menu?.children ?? []).flatMap { ($0 as? UIMenu).map(rows) ?? [$0.title] } }
+                    write(button == nil ? "none" : rows(button?.menu).joined(separator: " | "), to: folder.appending(path: "\(name)-\(bits[0])"), "txt")
                 case "tap":
                     // [bot-chat-sessions] tap <file> <label>: that control's own action, or that table row's selection
                     let bits = arg.split(separator: " ", maxSplits: 1).map(String.init)
