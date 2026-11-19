@@ -85,27 +85,13 @@ A pure reducer beside `TalkLoop`, sharing `TalkLoopState` so the dock, the pill 
   narration (owner, build 407: too much filler). A seeded session is also told that what it was given is only the
   chat's latest part, that the backend has the whole chat and its memory, and to delegate anything earlier instead of
   asking the person to explain it or guessing (`LiveVoiceWire.chatNote`).
-- The voice says hello first (owner, 2026-11-16: "some warm intro that needs to not be the same thing every time").
-  Nothing is scripted: the voice model writes its own line from `VoiceHello.prompt`: one short, ordinary, friendly
-  hello; one of five leanings picked at random and never the last one used; a tone; the day and time only in the one
-  leaning about them; its last three hellos, to stay away from (kept in `hq.voice.hello.recent`, gathered by the loop
-  until the person speaks or 10 s pass); nothing about the person, their voice, calling or the phone; and "nobody has
-  asked for anything yet".
-  - GPT-Live, as OpenAI's guide greets before the caller speaks: the request ends the seed as a `developer` message and
-    is sent once more as `session.commentary.append` (no delegation) on `session.started`.
-  - Grok: the request joins the conversation as a user item marked "(Not from the person. The app says:)" and the
-    response is asked for with `tool_choice: none`, 0.7 s after the audio engine is up (not during its own restart);
-    no microphone audio is sent from the request until that response is done and played out (8 s at most).
-  - Nothing reaches the bot before the person has been heard: a GPT-Live delegation with no words from the person yet
-    is answered with a note and not run; a Grok `ask_agent` call before xAI's speech start or the person's words is
-    answered "nobody asked" with tools off.
-  - The standard engine says nothing first.
-  - History, on the owner's phone. Build 1058 (Grok): silent. Build 1063 (Grok): still silent, and worse, asked for a
-    hello with `response.create` + instructions over a seeded chat, Grok sent the chat's last request to `ask_agent`
-    (a search, a sign-in). Reproduced against xAI every time; the item + tools-off form greeted in twenty of twenty
-    sessions. Build 1063 (GPT-Live): heard, "creepy" (the request spoke of a friend picking up the phone and being glad
-    they called). Why Grok's audio was not heard at all is not settled: its pieces had a player and were not cut off.
-    A stopped player is now started again when a piece arrives, and the summary line counts pieces played out.
+- GPT-Live and Grok Live play a local connected chime once when the live session is ready, instead of a spoken hello.
+  The reducer emits `.connectedChime` on the first `sessionReady`; the controller plays it locally. A failed start
+  does not chime, and the standard engine does not chime. The sound creates no model turn, fake history item, greeting
+  prompt or remembered greeting; real chat history is still seeded normally.
+- Nothing reaches the bot before the person has been heard: a GPT-Live delegation with no words from the person yet
+  is answered with a note and not run; a Grok `ask_agent` call before xAI's speech start or the person's words is
+  answered "nobody asked" with tools off. This protection remains even though startup no longer asks for a greeting.
 - Progress notes are rare: the newest tool's title goes to the voice 20 s into a turn at the earliest, then at most every
   45 s, phrased so the voice need not say it.
 - A turn the voice did not ask for (a bot's message, a finished background job, a schedule) is treated as one: its reply

@@ -225,7 +225,7 @@ nonisolated enum LiveVoiceWire {
 
     /// A delegation made before the person had said a word is not run (`LiveTalkLoop`).
     static let nobodyAsked = "That was not sent: the user has not spoken yet, so nobody asked for it. Do not act on the "
-        + "earlier messages. Say hello and wait for them."
+        + "earlier messages. Wait for the person to speak."
     static let noSpokenResult = "That request finished without a spoken result."
     static let couldNotReach = "Sorry, that request didn't go through. Please try again."
 

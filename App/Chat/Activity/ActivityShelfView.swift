@@ -21,6 +21,8 @@ final class ActivityShelfView: UIView {
     /// The folded pill's glass inside its 44 pt tap area, above and below (34 pt of glass).
     static let pillMargin: CGFloat = 5
     static let minCardBody: CGFloat = 60
+    /// [pill-card-floats] The folded pill's height (its 44 pt tap area, taller at accessibility sizes), last measured.
+    private(set) var foldedHeight: CGFloat = 44
     private var themeWatch: NSObjectProtocol?
     private var styledExpanded: Bool?
     private var turnedExpanded: Bool?
@@ -144,7 +146,7 @@ final class ActivityShelfView: UIView {
         let w = expanded ? cardWidth(width) : width
         prepareHeader(width: w)
         let header = summaryHeader.height(width: w)
-        guard expanded else { return header }
+        guard expanded else { foldedHeight = header; return header }
         if let detail {
             // Keep a usable body viewport even when the keyboard leaves less room than both headers.
             let floor = header + detail.header.height(width: w) + Self.minCardBody

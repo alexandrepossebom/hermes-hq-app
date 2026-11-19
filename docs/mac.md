@@ -262,17 +262,20 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   Tabs Info, Steps (the thinking row and ⋯ › Steps open it), Files (the chat's folder), Helpers
   (`HelpersPanelController`, fed by `ChatActivityController.updateHelpersPanel`; the open helper's tail is polled
   while the tab shows).
-- **A bot's chats on its chat** (owner 2026-11-18, `[bot-chat-sessions]`): the strip under a chat's bar
-  (`SessionStrip`, Settings › Chat › Other Chats at the Top, on unless turned off on the Mac) holds the bot's own chat
-  and only what is live: chats working, unread, pinned, the one on screen and the ones gone through this run.
-  On the Mac they are tabs, not pills (his pick of four designs): plain words, the chat on screen with the tint's
-  line under it, a hairline under the row, the row fading at an edge it runs past. "All N"
-  at its end opens the inspector's fifth tab, **Chats** (`BotChatsPanel`): the bot's own chat, New Chat, then every
-  chat in groups (Working, Pinned, Today, Yesterday, Earlier) with its last line and time. A click opens that chat in
-  the other's place; the panel keeps its place and lights the new row (`MacInspector.follow`). No strip for a bot with
-  no chat besides its own. While either is drawn the chats are read at the on-screen pace (`AppModel.setChatList`).
+- **A bot's chats on its chat** (owner 2026-11-18, `[bot-chat-sessions]`, `[bot-tabs-ux]`): on a bot's own chat only,
+  a row of underline tabs under the bar (`SessionStrip`, Settings › Chat › Other Chats at the Top, on unless turned off
+  on the Mac; the iPhone and iPad keep their pills on any chat with the bot): Bot Chat with the tint's line under it,
+  a short rule, then only what is live (chats working, unread, pinned, and the ones shown before this run). A tab is
+  one target that lights under the pointer; its tip is the whole title and last line; a right-click offers Open, Mark
+  as Read, Pin, Remove from Tabs and Archive. Tabs keep their places (`SessionStripRules.settled`: a new one comes in
+  first) and share the row's width (`fitTabs`), fading at an edge the row runs past. "All N" opens the inspector's
+  fifth tab, **Chats** (`BotChatsPanel`), drawn as the sidebar is: no rules, a glyph-or-dot column and a words column,
+  a rounded fill for the row under the pointer and the chat on show. Bot Chat and New Chat, then Active (at work,
+  unread), Pinned, Today, Earlier; one line (title, time) for a chat that needs nothing, a second only for the step
+  at work or the reply not read. A click opens that chat in the other's place; the panel keeps its place
+  (`MacInspector.follow`). While either is drawn the chats are read at the on-screen pace (`AppModel.setChatList`).
   Check: the sessions fixture's demo seed, `-HQDebugOpenBot <bot> -HQMacInspectorShown YES -HQMacInspectorTab 4`, and
-  the probe's `tap <name> <label>` for a click.
+  the probe's `tap <name> <label>` (a click) and `menu <name> <label>` (a tab's right-click rows).
 - **Settings window** (`MacSettingsWindow`, ⌘, and ⌘W): a scene of its own (configuration "Settings"), about
   600×640 on the screen (Polish pass), themed. Info.plist is preprocessed so only the Mac build supports multiple scenes (`HQ_MAC_WINDOWS`). Its list's
   soft top edge shows only once rows scroll under the bar: SwiftUI re-shows a list's edge on every update, so the
@@ -282,6 +285,32 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   `-HQDemoHelperOpen <id>`, `-HQMacInspectorShown YES -HQMacInspectorTab 0…4`, `-HQDebugSettingsWindow <name>`.
   Theme for shots with argument-domain keys only (`-hqn.theme.skin`, `-hqn.appearance`); the `-HQDebug*` theme hooks
   save to the stored theme.
+
+## Sessions pane (Nov 18, branch feat/mac-sessions-pane)
+
+Owner: the Mac's Sessions pane "feels like I am using something designed for iOS". His rule: "the way they're organized
+and structured should at least match, like the hierarchy should match. But the design doesn't necessarily have to
+match." So the order of sections, a row's words and the text size are the iPhone's, and the controls and spacing are
+the Mac's. (A first try that put New for You and Working above Pinned on the Mac alone was taken out for that rule; a
+search field always showing was turned down: "behind a click".)
+
+- **The row under the bar** (`SessionsHeaderView.macRow`): the Bots | Projects switch, the view's "All Bots" / "All
+  Projects" menu (`pages.scope`), and New and Working as counts at its end ("5 new"; a click narrows the list, another
+  clears it). No pills that scroll sideways. This reverses the owner's 2026-11-17 pick of the iPhone's pill row.
+- **Rows** (`SessionRowView.macTight`, `ProjectCard.rowPad`): in the iOS look at Standard density a one-line chat row
+  and a project's row are 36 pt (about 32 on the screen; they were 44 and 39). Compact and the Desktop Look keep theirs.
+- **Captions** are a size under the rows' titles (`SessionDateHeaderView.captionStyle`, footnote) in the iOS look.
+- **A project's header** (`ProjectPageHeader.macBody`): no card and no count capsules. The name, then one grey line:
+  folder, bots, "7 chats", and each count that isn't zero as words that narrow the page with a click.
+- **Under the pointer** (`SessionRowHover`): a row's time gives way to Pin, Archive and More (the row's menu). The right
+  click and the swipes stay. `-HQDebugRowHover "<title>"` draws it on one row for a picture.
+- **Yesterday's rows say the hour** ("5:31 PM"), not "Yesterday" again under the Yesterday heading.
+- **No pencil in the list's bar**: New Chat is the sidebar's (⌘N, ⇧⌘N). On a project's page the pencil stays, as that
+  project's New Chat.
+- Checked: `-HQDebugMacShotsSessions YES` on the sessions fixture (everyday seed) at two window widths, iOS look dark
+  and light and the Desktop Look dark; the iPhone build and `SessionListPipelineTests`. NOT checked: the menu opened
+  (the tour can't open a system menu), the hover buttons under a real pointer and clicks on them, the counts' clicks,
+  Mac UI tests, the full suites, more bots or a longer project name than the fixture's.
 
 ## Polish pass (Nov 7, branch fix/mac-polish)
 

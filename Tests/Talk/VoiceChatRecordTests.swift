@@ -121,8 +121,7 @@ struct VoiceChatRecordControllerTests {
         talk.holdsLeases = false
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
-        talk.helloPrompt = { nil }
-        talk.rememberHello = { _ in }
+        talk.playConnectedChime = { }
         return (talk, box)
     }
 

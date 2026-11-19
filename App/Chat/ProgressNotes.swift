@@ -18,7 +18,7 @@ nonisolated enum ProgressNotes {
     static let longest = 600
 
     /// Steps drawn as rows of their own in every style, never on the reply's line.
-    private static let ownRows: Set<String> = [BotDMs.tool, "image_generate", DraftCards.tool, "clarify"]
+    private static let ownRows: Set<String> = [BotDMs.tool, "image_generate", DraftCards.tool, "clarify", AskCards.tool]   // [asks]
 
     /// The indexes of `m`'s text parts (at `index` in the chat) that fold into its line; empty while its turn works.
     static func folded(_ m: ChatMessage, at index: Int, input: ChatRowBuilder.Input) -> Set<Int> {

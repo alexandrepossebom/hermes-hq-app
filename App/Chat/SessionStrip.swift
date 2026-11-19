@@ -14,6 +14,12 @@ import UIKit
 // The Mac draws them as tabs, not pills (owner 2026-11-18, picking "A · Underline tabs" of four designs: the pills
 // read as a second row of buttons): plain words on the bar's own ground, the chat on screen in the label colour with
 // a line of the tint under it, the rest grey, a hairline under the row.
+// [bot-tabs-ux] Owner 2026-11-18, on the built tabs ("I don't want these to show on every session. Only on a bot chat
+// … same direction, [just] better. The UX needs improvement"): on the Mac the row is drawn on a bot's own chat only,
+// which makes it that bot's doorway to its live chats. A tab is a whole target (it lights under the pointer, no dead
+// gaps between tabs), a short rule parts Bot Chat from the chats, the tabs keep their places as chats work (a new one
+// comes in first; nothing is re-sorted under the pointer), a tab's tip gives its whole title and last line, and a
+// right-click offers Mark as Read, Pin, Archive and Remove from Tabs.
 
 /// Settings › Chat › Other Chats at the Top (opt-in).
 enum SessionStripPref {
@@ -43,6 +49,9 @@ nonisolated struct SessionStripEntry: Equatable, Sendable {
     var working: Bool
     var unread: Bool
     var current: Bool
+    /// The Mac's tip: what was last said (or the step at work).
+    var detail: String = ""
+    var pinned: Bool = false
 }
 
 nonisolated enum SessionStripRules {
@@ -81,11 +90,28 @@ nonisolated enum SessionStripRules {
         for chat in chats {
             let isCurrent = !onBotChat && chat.id == currentId
             guard isCurrent || out.count < most else { continue }
-            out.append(SessionStripEntry(id: chat.id, title: chat.title, isBotChat: false,
-                                         working: chat.isRunning || chat.status == .working,
-                                         unread: chat.unread && !isCurrent, current: isCurrent))
+            let working = chat.isRunning || chat.status == .working
+            let said = (chat.preview ?? "").split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            out.append(SessionStripEntry(id: chat.id, title: chat.title, isBotChat: false, working: working,
+                                         unread: chat.unread && !isCurrent, current: isCurrent,
+                                         detail: working ? (chat.step ?? "Working…") : said, pinned: chat.pinned))
         }
         return out
+    }
+
+    /// [bot-tabs-ux] The Mac's tabs keep their places: the bot's own chat, then chats not shown before (in the order
+    /// given, newest first), then the ones already shown in the order they had. Returns that order to keep.
+    static func settled(_ entries: [SessionStripEntry], order: [String]) -> (entries: [SessionStripEntry], order: [String]) {
+        let chats = entries.filter { !$0.isBotChat }
+        let known = Set(order)
+        // Among the ones coming in, what wants the eye leads: at work, then a reply not read, then the rest.
+        func rank(_ entry: SessionStripEntry) -> Int { entry.working ? 0 : entry.unread ? 1 : 2 }
+        let fresh = chats.filter { !known.contains($0.id) }.enumerated()
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        let byId = Dictionary(chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let old = order.compactMap { byId[$0] }
+        let placed = fresh + old
+        return (entries.filter(\.isBotChat) + placed, placed.map(\.id))
     }
 }
 
@@ -96,18 +122,19 @@ nonisolated struct BotChatGroup: Equatable, Sendable {
 }
 
 extension SessionStripRules {
-    /// The Chats tab's groups, each chat in the first that fits: Working, Pinned, Today, Yesterday, Earlier. The
-    /// chats keep the order they came in (newest first); an empty group is left out.
+    /// The Chats tab's groups, each chat in the first that fits: Active (at work, then a reply not read), Pinned, Today,
+    /// Earlier. Within a group the chats keep the order they came in (newest first); an empty group is left out.
     static func groups(_ chats: [SessionSummary], now: Date = Date(), calendar: Calendar = .current) -> [BotChatGroup] {
-        let titles = ["Working", "Pinned", "Today", "Yesterday", "Earlier"]
+        let titles = ["Active", "Pinned", "Today", "Earlier"]
         var held: [[SessionSummary]] = Array(repeating: [], count: titles.count)
         let today = calendar.startOfDay(for: now)
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today.addingTimeInterval(-86_400)
+        var working: [SessionSummary] = []
         for chat in chats {
-            let at = chat.lastActive ?? .distantPast
-            let index = chat.isRunning || chat.status == .working ? 0 : chat.pinned ? 1 : at >= today ? 2 : at >= yesterday ? 3 : 4
+            if chat.isRunning || chat.status == .working { working.append(chat); continue }
+            let index = chat.unread ? 0 : chat.pinned ? 1 : (chat.lastActive ?? .distantPast) >= today ? 2 : 3
             held[index].append(chat)
         }
+        held[0] = working + held[0]
         return zip(titles, held).filter { !$0.1.isEmpty }.map { BotChatGroup(title: $0.0, chats: $0.1) }
     }
 }
@@ -119,12 +146,14 @@ extension SessionStripRules {
     /// Offers the strip to a chat screen as it is made (`AppModel.makeChatScreen`). It takes the slot under the bar
     /// when the chat first appears, so a task's page, which puts its own panel there, keeps it.
     static func offer(to screen: ChatViewController, model: any ChatSessionModel, app: AppModel) {
-        guard model is LiveChatSession, !(model is ChatRoomSurface) else { return }
-        screen.makeTopStrip = { [weak screen, weak app] in
+        guard let live = model as? LiveChatSession, !(model is ChatRoomSurface) else { return }
+        // [bot-tabs-ux] The Mac: on a bot's own chat only. The iPhone and iPad keep it on any chat with the bot.
+        let wanted = !DeviceWord.isMac || live.isBotChat
+        if wanted { screen.makeTopStrip = { [weak screen, weak app] in
             // A task keeps its one chat: none over the Mac's task pane either (a chat with no panel of the task's on it).
             guard let screen, let app, screen.menus?.isTaskChat != true else { return nil }
             return SessionStripController(screen: screen, app: app)
-        }
+        } }
         #if targetEnvironment(macCatalyst)
         // [bot-chat-sessions] The inspector's Chats tab beside this chat: every chat of its bot's.
         screen.makeChatsPanel = { [weak screen, weak app] in
@@ -150,7 +179,19 @@ extension SessionStripRules {
                                                 currentId: live?.storedSessionId, onBotChat: live?.isBotChat == true,
                                                 kept: shownBefore[profile] ?? [], recent: !DeviceWord.isMac)
         shownBefore[profile, default: []].formUnion(entries.filter { !$0.isBotChat }.map(\.id))
-        return entries
+        guard DeviceWord.isMac else { return entries }
+        let settled = SessionStripRules.settled(entries, order: tabOrder[profile] ?? [])
+        tabOrder[profile] = settled.order
+        return settled.entries
+    }
+
+    /// [bot-tabs-ux] The Mac's tabs in the places they have, by bot (kept in memory only).
+    private static var tabOrder: [String: [String]] = [:]
+
+    /// Remove from Tabs: a chat kept in the row only because it was shown before leaves it.
+    static func forget(_ id: String, profile: String) {
+        shownBefore[profile]?.remove(id)
+        NotificationCenter.default.post(name: listChanged, object: nil)
     }
 
     /// That chat opens in this one's place: a quick fade, the bar and the strip staying where they are.
@@ -279,7 +320,35 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        fitTabs()
         placeFade()
+    }
+
+    /// [bot-tabs-ux] The chats' tabs share the row: each shows its whole title while they all fit, and when they don't
+    /// the longest give way first, evenly, down to `narrowestTab` (then the row scrolls). A fixed cap cut titles in a
+    /// half-empty row.
+    private static let widestTab: CGFloat = 340
+    private static let narrowestTab: CGFloat = 120
+    private var tabCaps: [(tab: UIButton, cap: NSLayoutConstraint)] = []
+    private var fittedFor: CGFloat = -1
+
+    private func fitTabs() {
+        guard tabs, !tabCaps.isEmpty, scroller.bounds.width > 0, scroller.bounds.width != fittedFor else { return }
+        fittedFor = scroller.bounds.width
+        let wants = tabCaps.map { min(Self.widestTab, ceil($0.tab.intrinsicContentSize.width)) }
+        let others = row.arrangedSubviews.filter { view in !tabCaps.contains { $0.tab === view } }
+            .reduce(CGFloat(0)) { $0 + $1.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width }
+        let room = scroller.bounds.width - 28 - others - row.spacing * CGFloat(max(0, row.arrangedSubviews.count - 1))
+        // The largest cap at which the tabs fit (a tab narrower than the cap takes only what it needs).
+        var cap = Self.widestTab
+        if wants.reduce(0, +) > room {
+            var left = room, count = CGFloat(wants.count)
+            cap = Self.narrowestTab
+            for want in wants.sorted() {
+                if want * count <= left { left -= want; count -= 1 } else { cap = max(Self.narrowestTab, floor(left / count)); break }
+            }
+        }
+        for item in tabCaps where item.cap.constant != cap { item.cap.constant = cap }
     }
     private var pillHeight: CGFloat { tabs ? max(34, ceil(font.lineHeight) + 18) : max(34, ceil(font.lineHeight) + 14) }
     private var stripHeight: CGFloat { tabs ? pillHeight : pillHeight + 12 }
@@ -310,7 +379,7 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         if tabs {
             newConfig = .plain()
             newConfig.image = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .medium))
-            newConfig.baseForegroundColor = ChatPalette.tint
+            newConfig.baseForegroundColor = ChatPalette.label2   // quiet: the row's one colour is the line under Bot Chat
             newConfig.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
         }
         newChat.configuration = newConfig
@@ -335,7 +404,7 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         allChats.addAction(UIAction { [weak self] _ in self?.showAll() }, for: .primaryActionTriggered)
         view.addSubview(allChats)
         row.axis = .horizontal
-        row.spacing = tabs ? 18 : 7
+        row.spacing = tabs ? 2 : 7
         rule.backgroundColor = ChatPalette.separator
         rule.isUserInteractionEnabled = false
         rule.isHidden = !tabs
@@ -420,8 +489,13 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         guard entries != shown else { return }
         shown = entries
         row.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for (index, entry) in entries.enumerated() { row.addArrangedSubview(pill(entry, index: index)) }
-        if tabs { DispatchQueue.main.async { [weak self] in self?.view.layoutIfNeeded(); self?.placeFade() } }
+        tabCaps = []
+        fittedFor = -1
+        for (index, entry) in entries.enumerated() {
+            row.addArrangedSubview(pill(entry, index: index))
+            if tabs, index == 0, entry.isBotChat, entries.count > 1 { row.addArrangedSubview(divider()) }
+        }
+        if tabs { DispatchQueue.main.async { [weak self] in self?.view.setNeedsLayout(); self?.view.layoutIfNeeded(); self?.placeFade() } }
         if height > 0, !placedCurrent || !personScrolled {
             placedCurrent = true
             DispatchQueue.main.async { [weak self] in self?.showCurrent() }
@@ -483,9 +557,11 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
 
     /// [bot-chat-sessions] The Mac's tab: its words (the bot's own chat reads "Bot Chat": the bar above names the bot),
     /// a dot before them for a chat at work or with a reply not read, and the tint's line under the chat on screen.
+    /// [bot-tabs-ux] The whole tab is the target and lights under the pointer; its tip is the whole title and last line.
     private func tab(_ entry: SessionStripEntry) -> UIButton {
+        let inset: CGFloat = 10
         var config = UIButton.Configuration.plain()
-        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
+        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: inset, bottom: 6, trailing: inset)
         config.imagePadding = 6
         config.titleLineBreakMode = .byTruncatingTail
         let face = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: HQFont.system(ofSize: 14, weight: entry.current ? .semibold : .regular),
@@ -496,11 +572,15 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         } else if entry.unread {
             config.image = SessionStrip.dot(SessionStrip.unreadColor)
         }
-        config.baseForegroundColor = entry.current ? ChatPalette.label : ChatPalette.label2
+        // An unread chat's words are the label colour too: the dot alone is easy to miss.
+        config.baseForegroundColor = entry.current || entry.unread ? ChatPalette.label : ChatPalette.label2
         let button = UIButton(configuration: config)
         button.isPointerInteractionEnabled = true
         button.heightAnchor.constraint(equalToConstant: pillHeight).isActive = true
-        button.widthAnchor.constraint(lessThanOrEqualToConstant: 240).isActive = true
+        // Its width is shared out with the other tabs once the row is laid out (`fitTabs`).
+        let cap = button.widthAnchor.constraint(lessThanOrEqualToConstant: Self.widestTab)
+        cap.isActive = true
+        if !entry.isBotChat { tabCaps.append((button, cap)) }
         if entry.current {
             let line = UIView()
             line.backgroundColor = ChatPalette.tint
@@ -508,13 +588,79 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
             line.translatesAutoresizingMaskIntoConstraints = false
             button.addSubview(line)
             NSLayoutConstraint.activate([
-                line.leadingAnchor.constraint(equalTo: button.leadingAnchor),
-                line.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+                line.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: inset),
+                line.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -inset),
                 line.bottomAnchor.constraint(equalTo: button.bottomAnchor),
                 line.heightAnchor.constraint(equalToConstant: 2),
             ])
+        } else {
+            PointerEffects.surface(button, radius: 6)
+            button.toolTip = entry.isBotChat || entry.detail.isEmpty ? entry.title : entry.title + "\n" + entry.detail
+            if !entry.isBotChat { button.menu = tabMenu(entry) }
         }
         return button
+    }
+
+    /// The short rule between Bot Chat and the bot's chats.
+    private func divider() -> UIView {
+        let line = UIView()
+        line.backgroundColor = ChatPalette.separator
+        line.isUserInteractionEnabled = false
+        line.translatesAutoresizingMaskIntoConstraints = false
+        let box = UIView()
+        box.isUserInteractionEnabled = false
+        box.addSubview(line)
+        NSLayoutConstraint.activate([
+            box.widthAnchor.constraint(equalToConstant: 9),
+            box.heightAnchor.constraint(equalToConstant: 16),
+            line.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+            line.topAnchor.constraint(equalTo: box.topAnchor),
+            line.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            line.widthAnchor.constraint(equalToConstant: 1),
+        ])
+        return box
+    }
+
+    /// A right-click on a chat's tab: what the Sessions list's row offers that fits a tab.
+    private func tabMenu(_ entry: SessionStripEntry) -> UIMenu {
+        var items: [UIMenuElement] = [
+            UIAction(title: "Open", image: UIImage(systemName: "bubble.left")) { [weak self] _ in
+                guard let self, let screen = self.screen, let app = self.app else { return }
+                SessionStrip.open(entry, from: screen, app: app)
+            },
+        ]
+        if entry.unread {
+            items.append(UIAction(title: "Mark as Read", image: UIImage(systemName: "envelope.open")) { [weak self] _ in
+                self?.act(entry, failed: "") { store, chat in store.setUnread(chat, false) }
+            })
+        }
+        items.append(UIAction(title: entry.pinned ? "Unpin" : "Pin", image: UIImage(systemName: entry.pinned ? "pin.slash" : "pin")) { [weak self] _ in
+            self?.act(entry, failed: entry.pinned ? "Couldn’t unpin that chat." : "Couldn’t pin that chat.") { store, chat in
+                try await store.setPinned(chat, !entry.pinned)
+            }
+        })
+        var tail: [UIMenuElement] = []
+        if !entry.working, !entry.unread, !entry.pinned {
+            tail.append(UIAction(title: "Remove from Tabs", image: UIImage(systemName: "xmark")) { [weak self] _ in
+                guard let screen = self?.screen else { return }
+                SessionStrip.forget(entry.id, profile: screen.session.profile.isEmpty ? "default" : screen.session.profile)
+            })
+        }
+        tail.append(UIAction(title: "Archive", image: UIImage(systemName: "archivebox")) { [weak self] _ in
+            self?.act(entry, failed: "Couldn’t archive that chat.") { store, chat in try await store.setArchived(chat, true) }
+        })
+        items.append(UIMenu(options: .displayInline, children: tail))
+        return UIMenu(children: items)
+    }
+
+    private func act(_ entry: SessionStripEntry, failed: String, _ work: @escaping @MainActor (SessionStore, SessionSummary) async throws -> Void) {
+        guard let app, let store = app.sessionStore, let chat = app.sessions.first(where: { $0.id == entry.id }) else { return }
+        Task { @MainActor [weak self] in
+            do { try await work(store, chat) } catch {
+                AppLog.note("chat", "strip: a tab's action failed, \(error.localizedDescription)")
+                if !failed.isEmpty { self?.screen?.showNotice(failed) }
+            }
+        }
     }
 
     private func pill(_ entry: SessionStripEntry, index: Int) -> UIButton {

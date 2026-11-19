@@ -180,19 +180,10 @@ nonisolated enum GrokLiveWire {
                                             "text": .string("(Not from the person — your agent says:) \(words). Tell the person this briefly.")]]]])
     }
 
-    /// A response that may not call `ask_agent` (the hello, and the answer to a call nobody asked for).
+    /// A response that may not call `ask_agent` (the answer to a call nobody asked for).
     static let responseWithoutTools = #"{"type":"response.create","response":{"tool_choice":"none"}}"#
 
-    /// The hello's request as an item of the conversation. Tried against xAI, 2026-11-16, over a seeded chat that ended
-    /// on a request: `response.create` with the hello as its instructions (builds 1058, 1063) or as a system item was
-    /// ignored and the chat's last request sent to `ask_agent` every time; this, with tools off, greeted every time.
-    static func helloItem(_ prompt: String) -> String {
-        event(["type": "conversation.item.create",
-               "item": ["type": "message", "role": "user",
-                        "content": [["type": "input_text", "text": .string("(Not from the person. The app says:) \(prompt)")]]]])
-    }
-
-    static let nobodyAskedNote = "Not sent: the person has not spoken yet, so nobody asked for this. Do not act on the earlier messages. Say hello and wait for them."
+    static let nobodyAskedNote = "Not sent: the person has not spoken yet, so nobody asked for this. Do not act on the earlier messages. Wait for the person to speak."
 
     static func responseCreate(instructions: String? = nil) -> String {
         guard let instructions, !instructions.isEmpty else { return #"{"type":"response.create"}"# }
@@ -320,11 +311,6 @@ nonisolated struct GrokLiveCalls: Sendable, Equatable {
         return [.send(GrokLiveWire.functionOutput(callId: id, answer: "", note: GrokLiveWire.noWordsNote)), .send(GrokLiveWire.responseCreate())]
     }
 
-    /// The hello: its request joins the conversation, and the response that answers it may not call the agent.
-    mutating func greet(_ prompt: String) -> [GrokAction] {
-        [.send(GrokLiveWire.helloItem(prompt)), .send(GrokLiveWire.responseWithoutTools)]
-    }
-
     /// The loop's `.instruct`: Send Now asks for a response, Interrupt cancels one; the GPT-Live persona note is not sent
     /// (the add-on's instructions carry it), nor the chat note (`sessionUpdate` adds Grok's own).
     mutating func instruct(_ text: String) -> [GrokAction] {
@@ -347,11 +333,9 @@ nonisolated struct GrokLiveStages: Sendable, Equatable {
     /// Microphone pieces sent to xAI, and those dropped because the setup was not confirmed yet.
     var sent = 0
     var held = 0
-    /// Times the voice was cut off (the person spoke over it, or xAI heard something as that), pieces of the voice
-    /// that had no player to take them, and microphone pieces kept back while the hello was said.
+    /// Times the voice was cut off and pieces that had no player to take them.
     var flushes = 0
     var unplayed = 0
-    var heldForHello = 0
     /// Voice pieces that played to their end, and times a stopped player had to be started for one.
     var playedOut: Int?
     var revived = 0
@@ -401,7 +385,6 @@ nonisolated struct GrokLiveStages: Sendable, Equatable {
             + "voice audio back \(audioChunks) (first \(at(firstAudioMs))), words heard first \(at(firstHeardMs)), "
             + "reply words first \(at(firstReplyWordsMs)), tool calls \(toolCalls) (first \(at(firstToolMs))), errors \(errors)"
             + (flushes > 0 ? ", voice cut off \(flushes)" : "") + (unplayed > 0 ? ", voice pieces with no player \(unplayed)" : "")
-            + (heldForHello > 0 ? ", mic pieces held for the hello \(heldForHello)" : "")
             + (playedOut.map { ", voice pieces played out \($0)" } ?? "") + (revived > 0 ? ", player started again \(revived)" : "")
     }
 }

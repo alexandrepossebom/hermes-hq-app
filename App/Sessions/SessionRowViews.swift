@@ -36,6 +36,17 @@ struct SessionRowView: View {
     /// Group By Recent is on: a card chat follows its Preview (`previewLine`); the other groupings' cards keep one line.
     var recentLayout = false
     enum Fresh { case pinned, recent }
+    /// [mac-pane] The Mac: the pointer over a row swaps its time for Pin, Archive and More (`SessionRowHover`). nil
+    /// elsewhere (a finger has the swipes and the hold).
+    var hover: SessionRowHover? = nil
+    @State private var over = false
+    private var showsHover: Bool {
+        guard hover != nil, !busy else { return false }
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "HQDebugRowHover") == session.title { return true }   // pictures (by title): no pointer there
+        #endif
+        return over
+    }
     /// [working-ring] Theme › Working Ring: off, a working chat whose row has no "Working…" line gets the working dots.
     @AppStorage(WorkingRing.key) private var ringOn = true
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -54,6 +65,18 @@ struct SessionRowView: View {
     }
 
     var body: some View {
+        if hover != nil { rowBody.onHover { over = $0 } } else { rowBody }   // [mac-pane]
+    }
+
+    /// [mac-pane] Owner 2026-11-18 ("Are we separating them properly?"): the iOS look's one-line rows on the Mac stood a
+    /// finger's 44 pt apart (39 on the screen), where a pointer's list has about 32 (Mail's and Finder's sidebars). On the
+    /// Mac at Standard density a row is `mac` tall (36: about 32 on the screen), Pinned's and Recent's alike; Compact
+    /// and the iPhone keep `Density.ios`.
+    static func macTight(_ standard: CGFloat, _ compact: CGFloat, mac: CGFloat) -> CGFloat {
+        DeviceWord.isMac && !Density.compact ? HQFont.scaled(mac) : Density.ios(standard, compact)
+    }
+
+    @ViewBuilder private var rowBody: some View {
         if let card { cardBody(card) } else if let fresh { freshBody(fresh) } else if compact && !large { compactBody } else { fullBody }
     }
 
@@ -188,9 +211,9 @@ struct SessionRowView: View {
                 }
             }
         }
-        .padding(.vertical, fresh == .pinned ? (desk ? 4 : Density.ios(7, 4)) : (desk ? 6 : Density.ios(10, 5)))
+        .padding(.vertical, fresh == .pinned ? (desk ? 4 : Self.macTight(7, 4, mac: 5)) : (desk ? 6 : Self.macTight(10, 5, mac: 6)))
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, minHeight: fresh == .pinned ? (desk ? HQFont.scaled(32) : Density.ios(40, 30)) : (desk ? HQFont.scaled(36) : Density.ios(44, 32)),
+        .frame(maxWidth: .infinity, minHeight: fresh == .pinned ? (desk ? HQFont.scaled(32) : Self.macTight(40, 30, mac: 36)) : (desk ? HQFont.scaled(36) : Self.macTight(44, 32, mac: 36)),
                alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -365,6 +388,8 @@ struct SessionRowView: View {
     @ViewBuilder private var trailingText: some View {
         if busy {
             ProgressView().controlSize(.small).accessibilityLabel("Deleting")
+        } else if showsHover, let hover {
+            SessionRowHoverButtons(hover: hover, pinned: session.pinned, archived: session.archived)   // [mac-pane]
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
                 if showsWorkingDots { workingDots }   // [working-ring]
@@ -784,6 +809,9 @@ struct SessionDateHeaderView: View {
     /// "grouped together tightly … your eyes to fall in the right place"). It was 36 pt, centred: the caption stood as
     /// far from its rows as from the group above it.
     static let captionHeight: CGFloat = 24
+    /// [mac-pane] The Mac's captions a size under the rows' titles (footnote), as a Mac sidebar's headings are; the
+    /// iPhone's stay at the subheadline.
+    static var captionStyle: Font.TextStyle { DeviceWord.isMac ? .footnote : .subheadline }
     /// Where a caption's words start. [soft-cards] Owner 2026-11-13 (a screenshot of Sessions on build 974): "Projects"
     /// stood 10 pt further in than "Pinned" and "Recent". On a card all three start where the rows' column does.
     static var captionLead: CGFloat { ProjectCard.lead }
@@ -810,7 +838,7 @@ struct SessionDateHeaderView: View {
             // [desktoplook2] In the look no font on the Text: one set there beats the label's (UX study #196).
             // Text.font(nil) is still a font of the Text's own (the body font), so the look's branch sets none at all.
             Group {
-                if Theme.isDesktop { Text(title) } else { Text(title).font(Font.hq(.subheadline).weight(.semibold)) }
+                if Theme.isDesktop { Text(title) } else { Text(title).font(Font.hq(Self.captionStyle).weight(.semibold)) }
             }
             .foregroundStyle(dropTarget ? Color.hqTint : ink(over && fold != nil))
             .hqDesktopLabel(color: dropTarget ? .hqTint : ink(over && fold != nil))   // [desktoplook2] EARLIER TODAY, as the desktop's group label
@@ -865,7 +893,7 @@ struct SessionDateHeaderView: View {
             // closes its group); See All and Edit keep their own taps.
             HStack(spacing: 8) {
                 Group {
-                    if Theme.isDesktop { Text(caption) } else { Text(caption).font(Font.hq(.subheadline).weight(.semibold)) }
+                    if Theme.isDesktop { Text(caption) } else { Text(caption).font(Font.hq(Self.captionStyle).weight(.semibold)) }
                 }
                 .foregroundStyle(ink(overCaption && onFoldCaption != nil))
                 .hqDesktopLabel(color: ink(overCaption && onFoldCaption != nil))
@@ -1134,3 +1162,51 @@ private extension View {
     }
 }
 #endif
+
+/// [mac-pane] Owner 2026-11-18 (the Mac's Sessions "feels like … something designed for iOS"): a row's everyday actions
+/// were behind a swipe or a right click. With the pointer over a row its time gives way to these three, as Mail's and
+/// Things' rows do; the right click's menu and the swipes stay.
+struct SessionRowHover {
+    var onPin: () -> Void
+    var onArchive: () -> Void
+    var onMore: () -> Void
+}
+
+private struct SessionRowHoverButtons: View {
+    var hover: SessionRowHover
+    var pinned: Bool
+    var archived: Bool
+
+    var body: some View {
+        HStack(spacing: 2) {
+            SessionRowHoverButton(symbol: pinned ? "pin.slash" : "pin", words: pinned ? "Unpin" : "Pin", id: "pin", action: hover.onPin)
+            SessionRowHoverButton(symbol: archived ? "tray.and.arrow.up" : "archivebox", words: archived ? "Unarchive" : "Archive",
+                                  id: "archive", action: hover.onArchive)
+            SessionRowHoverButton(symbol: "ellipsis", words: "More", id: "more", action: hover.onMore)
+        }
+    }
+}
+
+private struct SessionRowHoverButton: View {
+    var symbol: String
+    var words: String
+    var id: String
+    var action: () -> Void
+    @State private var over = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(Font.hq(.subheadline))
+                .foregroundStyle(over ? Color.hqLabel : Color.hqLabel2)
+                .frame(width: 24, height: 20)
+                .background(over ? Color.hqFill3 : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { over = $0 }
+        .help(words)
+        .accessibilityLabel(words)
+        .accessibilityIdentifier("session-row.hover.\(id)")
+    }
+}

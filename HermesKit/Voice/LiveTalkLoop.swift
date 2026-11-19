@@ -53,12 +53,10 @@ nonisolated enum LiveTalkEffect: Sendable, Equatable {
     case speak(delegationId: String?, text: String)
     case think(delegationId: String?, text: String)
     case instruct(String)
-    /// The hello the voice opens with (`VoiceHello.prompt`): asked for once, when the session is ready.
-    case greet(String)
+    /// The live session is ready for the person to speak.
+    case connectedChime
     /// What the person said in answer to the bot's question `id`.
     case answerQuestion(id: String, text: String)
-    /// What the voice said for its hello.
-    case helloSaid(String)
     case setMuted(Bool)
     case closeSession
     case haptic(TalkHaptic)
@@ -74,17 +72,12 @@ nonisolated struct LiveTalkState: Sendable, Equatable {
     var wholeAnswers: Bool { engine == .grokLive }
     /// The session was given some of the chat (`LiveVoiceWire.history`): the voice is told that is only its latest part.
     var seeded = false
-    /// What the voice is asked to open with (`VoiceHello.prompt`); nil says nothing first (a conversation that fell
-    /// back and came again, tests).
-    var hello: String?
+    /// A closed transport cannot later become ready, even if its readiness callback was already queued.
+    var readinessInvalidated = false
     /// The person's words have been heard in this session: until then no delegation becomes a turn.
     var personSpoke = false
-    /// What the voice says in answer to the hello's request, gathered until the person speaks or a while has passed,
-    /// then kept so the next hello is told not to repeat it (`VoiceHello.remember`).
-    var helloWords: String?
     /// The bot's question the voice has asked and the person has not answered yet: what they say next answers it.
     var questionId: String?
-    var helloAt: TimeInterval = 0
     var transcript: [LiveTranscriptFragment] = []
     var assistantSpeaking = false
     /// The delegation Hermes is answering; late replies for an older one are not spoken.
@@ -126,8 +119,6 @@ nonisolated enum LiveTalkLoop {
     /// Quiet after the person's last words before the utterance is judged as a whole ("stop" ends the chat; "stop the
     /// container" is a request).
     static let utteranceSettle: TimeInterval = 1.5
-    /// The hello's words are gathered this long after it was asked for, unless the person speaks first.
-    static let helloGather: TimeInterval = 10
     /// A progress note waits this long into a turn, and this long after the last one.
     static let toolNoteAfter: TimeInterval = 20
     static let toolNoteEvery: TimeInterval = 45
@@ -267,14 +258,6 @@ nonisolated enum LiveTalkLoop {
 
         /// A delegation becomes a turn: `asked` is the request when the voice said it (Grok's tool argument), else
         /// everything the person said since the last one.
-        /// The hello's words are complete (the person spoke, or long enough has passed): kept for next time.
-        func helloOver() {
-            guard let words = live.helloWords else { return }
-            live.helloWords = nil
-            let said = LiveVoiceWire.collapse(words)
-            if !said.isEmpty { effects.append(.helloSaid(said)) }
-        }
-
         func delegate(_ id: String, asked: String?) {
             let (lastTurn, context) = LiveVoiceWire.delegationPrompt(LiveVoiceWire.contextWindow(live.transcript))
             let request = asked.map(LiveVoiceWire.collapse) ?? LiveVoiceWire.spokenRequest(live.heard)
@@ -316,19 +299,14 @@ nonisolated enum LiveTalkLoop {
             state.silence.reset(now: now)
 
         case .sessionReady:
-            guard state.started, !state.micReady else { break }
+            guard state.started, !state.micReady, !live.readinessInvalidated else { break }
             state.micReady = true
             state.listened = true
             state.silence.reset(now: now)
             effects.append(.instruct(LiveVoiceWire.quietWhileWorking))
             if live.seeded { effects.append(.instruct(LiveVoiceWire.chatNote)) }
             if state.muted { effects.append(.setMuted(true)) }
-            if let hello = live.hello {
-                live.hello = nil
-                live.helloWords = ""
-                live.helloAt = now
-                effects.append(.greet(hello))
-            }
+            effects.append(.connectedChime)
             refreshStatus()
 
         case .sessionFailed(let title, let message, let detail):
@@ -341,12 +319,8 @@ nonisolated enum LiveTalkLoop {
             }
             live.heard.append(fragment)
             if live.heard.count > heardKeep { live.heard.removeFirst(live.heard.count - heardKeep) }
-            guard fragment.speaker == .user else {
-                if live.helloWords != nil { live.helloWords? += fragment.text }
-                break
-            }
+            guard fragment.speaker == .user else { break }
             if !LiveVoiceWire.collapse(fragment.text).isEmpty { live.personSpoke = true }
-            helloOver()
             state.silence.reset(now: now)
             state.silenceState = .ok
             live.utterance += fragment.text
@@ -440,7 +414,6 @@ nonisolated enum LiveTalkLoop {
                 live.utteranceAt = nil
                 if TalkStopWord.isStop(words, config: state.stopPhrases) { end(.said); break }
             }
-            if live.helloWords != nil, now - live.helloAt >= helloGather { helloOver() }
             noteTool()
             settleIfQuiet()
             state.silence.observe(status: state.status, level: 0, muted: state.muted, now: now)
@@ -480,6 +453,7 @@ nonisolated enum LiveTalkLoop {
 
         case .closed(let reason, _):
             // Not the person's doing (their end is recorded first, and nothing comes after it): carry on without it.
+            live.readinessInvalidated = true
             live.delegationId = nil
             effects.append(.fallBack(reason: reason))
 

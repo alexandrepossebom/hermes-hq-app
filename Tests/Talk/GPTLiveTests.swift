@@ -225,7 +225,10 @@ struct GPTLiveLoopTests {
         var loop = Loop()
         loop.live.seeded = true
         let started = loop.send(.start) + loop.send(.sessionReady)
-        #expect(started == [.instruct(LiveVoiceWire.quietWhileWorking), .instruct(LiveVoiceWire.chatNote)])
+        #expect(started.count == 3)
+        #expect(started.contains(.instruct(LiveVoiceWire.quietWhileWorking)))
+        #expect(started.contains(.instruct(LiveVoiceWire.chatNote)))
+        #expect(started.filter { $0 == .connectedChime }.count == 1)
         #expect(LiveVoiceWire.chatNote.count <= LiveVoiceWire.appendCharLimit)
         #expect(LiveVoiceWire.quietWhileWorking.count <= LiveVoiceWire.appendCharLimit)
     }
@@ -278,13 +281,16 @@ struct GPTLiveLoopTests {
         #expect(long.count == LiveVoiceWire.voiceContextLimit && long.hasSuffix("END") && long.hasPrefix(LiveVoiceWire.spokenOnlyNote))
     }
 
-    /// The hello is asked for once, when the session is ready.
-    @Test func theHelloIsAskedForOnceTheSessionIsReady() {
+    /// The default session makes a local sound once, only after it is ready.
+    @Test func theConnectedChimeIsEmittedOnceWhenReady() {
         var loop = Loop()
-        loop.live.hello = "Say hello now."
+        #expect(loop.send(.sessionReady).isEmpty)
         #expect(loop.send(.start).isEmpty)
-        #expect(loop.send(.sessionReady) == [.instruct(LiveVoiceWire.quietWhileWorking), .greet("Say hello now.")])
-        #expect(loop.live.hello == nil)
+        let effects = loop.send(.sessionReady)
+        #expect(effects.count == 2)
+        #expect(effects.contains(.instruct(LiveVoiceWire.quietWhileWorking)))
+        #expect(effects.filter { $0 == .connectedChime }.count == 1)
+        #expect(loop.send(.sessionReady).isEmpty)
     }
 
     /// A voice seeded with the chat can take the chat's last request for a new one: until the person's words have been
@@ -294,70 +300,18 @@ struct GPTLiveLoopTests {
         loop.live.personSpoke = false
         loop.ready()
         #expect(loop.send(.delegation(id: "d0"), at: 1) == [.think(delegationId: "d0", text: LiveVoiceWire.nobodyAsked)])
+        loop.said("   ", at: 1)
+        #expect(loop.send(.delegation(id: "d_blank"), at: 1) == [.think(delegationId: "d_blank", text: LiveVoiceWire.nobodyAsked)])
         loop.said("Check the server", at: 2)
         guard case .submit(let text, _)? = loop.send(.delegation(id: "d1"), at: 3).first else { Issue.record("no submit"); return }
         #expect(text == "Check the server")
     }
 
-    /// What the voice says for its hello is handed back once the person speaks (or after a while), to be kept.
-    @Test func theHellosWordsAreKeptForNextTime() {
-        var loop = Loop()
-        loop.live.hello = "Say hello now."
-        loop.ready()
-        loop.send(.transcript(LiveTranscriptFragment(speaker: .assistant, text: "Hey, good ", startMs: 0, endMs: 1)), at: 1)
-        loop.send(.transcript(LiveTranscriptFragment(speaker: .assistant, text: "to hear you.", startMs: 1, endMs: 2)), at: 1)
-        #expect(loop.send(.tick, at: 5).isEmpty)
-        #expect(loop.send(.tick, at: 11) == [.helloSaid("Hey, good to hear you.")])
-        #expect(loop.send(.tick, at: 12).isEmpty)
-        // The person speaking first ends the gathering too.
-        var other = Loop()
-        other.live.hello = "Say hello now."
-        other.ready()
-        other.send(.transcript(LiveTranscriptFragment(speaker: .assistant, text: "Hi there.", startMs: 0, endMs: 1)), at: 1)
-        let spoke = other.send(.transcript(LiveTranscriptFragment(speaker: .user, text: "Hello", startMs: 2, endMs: 3)), at: 2)
-        #expect(spoke == [.helloSaid("Hi there.")])
-    }
-
-    /// The last few hellos ride the next request, and the request never grows past one append.
-    @Test func recentHellosAreNamedInTheNextRequest() {
-        let defaults = UserDefaults(suiteName: "voice-hello-tests-\(UUID().uuidString)")!
-        for line in ["One.", "Two.", "Three.", "Two.", String(repeating: "long ", count: 60)] { VoiceHello.remember(line, defaults: defaults) }
-        let kept = VoiceHello.recent(defaults)
-        #expect(kept.count == VoiceHello.recentKeep && kept.first == "Three." && kept[1] == "Two.")
-        #expect(kept.last?.count == VoiceHello.recentChars)
-        let longest = VoiceHello.leanings.indices.map { VoiceHello.prompt(leaning: $0, tone: "calm and unhurried", recent: Array(repeating: String(repeating: "x", count: 90), count: 3)) }
-        #expect(longest.allSatisfy { $0.count <= LiveVoiceWire.appendCharLimit })
-        #expect(VoiceHello.prompt(leaning: 0, recent: ["Hey, good evening."]).contains("\"Hey, good evening.\""))
-        #expect(VoiceHello.prompt(leaning: 0, recent: []).contains("Nobody has asked for anything yet"))
-        // Only the leaning about the time is told the time.
-        #expect(VoiceHello.prompt(leaning: VoiceHello.timeLeaning, recent: []).contains("It is "))
-        #expect(!VoiceHello.prompt(leaning: 0, recent: []).contains("It is "))
-    }
-
-    @Test func theHelloRequestChangesFromOneStartToTheNext() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        calendar.locale = Locale(identifier: "en_US")
-        let monday = Date(timeIntervalSince1970: 20_752 * 86_400)   // a midnight
-        let day = calendar.weekdaySymbols[calendar.component(.weekday, from: monday) - 1]
-        #expect(VoiceHello.moment(monday.addingTimeInterval(9 * 3_600), calendar: calendar) == "\(day) morning")
-        #expect(VoiceHello.moment(monday.addingTimeInterval(14 * 3_600), calendar: calendar) == "\(day) afternoon")
-        #expect(VoiceHello.moment(monday.addingTimeInterval(19 * 3_600), calendar: calendar) == "\(day) evening")
-        #expect(VoiceHello.moment(monday.addingTimeInterval(23 * 3_600), calendar: calendar) == "late at night on \(day)")
-        // The same leaning is never handed out twice running, whatever the dice say.
-        let first = VoiceHello.nextLeaning(random: { _ in 2 })
-        let second = VoiceHello.nextLeaning(random: { _ in 2 })
-        #expect(first != second)
-        let prompts = Set(VoiceHello.leanings.indices.map { VoiceHello.prompt(now: monday, calendar: calendar, leaning: $0, tone: nil, recent: []) })
-        #expect(prompts.count == VoiceHello.leanings.count)
-        // One commentary append: under OpenAI's cap.
-        #expect(prompts.allSatisfy { $0.count <= LiveVoiceWire.appendCharLimit })
-    }
 
     @Test func theRequestIsEverythingSaidSinceTheLastOne() {
         var loop = Loop()
         let started = loop.send(.start) + loop.send(.sessionReady)
-        #expect(started == [.instruct(LiveVoiceWire.quietWhileWorking)])
+        #expect(started.count == 2 && started.contains(.instruct(LiveVoiceWire.quietWhileWorking)) && started.contains(.connectedChime))
         loop.said("Switch the other bots", at: 1)
         loop.send(.transcript(LiveTranscriptFragment(speaker: .assistant, text: "Mm-hmm.", startMs: 1500, endMs: 1600)))
         loop.said(" to Terra too", at: 2)
@@ -558,6 +512,7 @@ struct GPTLiveControllerTests {
         var transport: FixtureLiveVoice?
         var exchanged: [String] = []
         var history: JSONValue?
+        var chimes = 0
     }
 
     private func make(available: Bool = true, exchange: Result<String, VoiceFailure> = .success("v=0\r\nanswer")) -> (TalkController, Box) {
@@ -590,29 +545,27 @@ struct GPTLiveControllerTests {
         talk.holdsLeases = false
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
-        talk.helloPrompt = { nil }
-        talk.rememberHello = { _ in }
+        talk.playConnectedChime = { box.chimes += 1 }
         return (talk, box)
     }
 
-    /// The voice says hello first: the request ends the seed as a developer message and goes once more as commentary
-    /// when the session starts, with no delegation.
-    @Test func theVoiceIsAskedToSayHelloFirst() async throws {
+    /// Startup plays locally; the real history is unchanged and no model turn is requested.
+    @Test func connectionChimesWithoutAStartupModelTurn() async throws {
         let (talk, box) = make()
-        talk.helloPrompt = { "Say hello now." }
         let chat = FakeTalkChat()
         chat.history = [(false, "Earlier question"), (true, "Earlier answer")]
         talk.setFront(chat, onScreen: true)
         talk.start(in: chat, name: "Ivy")
         #expect(await waitUntil { talk.view?.phase == .listening })
-        let seed = try #require(box.history?.array)
-        #expect(seed.count == 3)
-        #expect(seed.last?["role"]?.string == "developer")
-        #expect(seed.last?["content"]?[0]?["type"]?.string == "input_text")
-        #expect(seed.last?["content"]?[0]?["text"]?.string == "Say hello now.")
-        let hellos = sent("session.commentary.append").filter { $0["content"]?.string == "Say hello now." }
-        #expect(hellos.count == 1)
-        #expect(hellos.first?["delegation_id"] == .null)
+        #expect(await waitUntil { box.chimes == 1 })
+        try await Task.sleep(for: .seconds(1))
+        #expect(box.history == LiveVoiceWire.history(chat.history))
+        #expect(sent("session.commentary.append").isEmpty)
+        #expect(sent("response.create").isEmpty)
+        #expect(chat.delegated.isEmpty)
+        let transport = try #require(box.transport)
+        transport.play(#"{"type":"session.started","session":{"id":"sess_test"}}"#)
+        #expect(box.chimes == 1)
         talk.end()
         #expect(await waitUntil { !talk.isLive })
         await talk.resetForTests()
@@ -760,7 +713,7 @@ struct GPTLiveControllerTests {
     }
 
     @Test func aRefusedSessionFallsBackToTheStandardEngine() async throws {
-        let (talk, _) = make(exchange: .failure(VoiceFailure(reason: "OpenAI refused the GPT-Live session.", detail: "HTTP 502")))
+        let (talk, box) = make(exchange: .failure(VoiceFailure(reason: "OpenAI refused the GPT-Live session.", detail: "HTTP 502")))
         standardMicrophone()
         let chat = FakeTalkChat()
         talk.setFront(chat, onScreen: true)
@@ -769,16 +722,18 @@ struct GPTLiveControllerTests {
         #expect(talk.isLive)
         #expect(talk.notice(for: chat.memoScope) == nil)
         #expect(chat.onDelegationRefused == nil)
+        #expect(box.chimes == 0)
         await talk.resetForTests()
     }
 
     @Test func aDeniedMicrophoneStillStops() async throws {
-        let (talk, _) = make()
+        let (talk, box) = make()
         FixtureLiveVoice.failWith = .denied
         let chat = FakeTalkChat()
         talk.setFront(chat, onScreen: true)
         talk.start(in: chat, name: "Ivy")
         #expect(await waitUntil { !talk.isLive })
+        #expect(box.chimes == 0)
         await talk.resetForTests()
     }
 

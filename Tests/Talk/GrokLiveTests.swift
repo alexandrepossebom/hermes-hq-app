@@ -270,6 +270,14 @@ struct GrokLiveLoopTests {
         }
     }
 
+    @Test func connectionChimesOnceWhenReady() {
+        var loop = Loop()
+        #expect(loop.send(.start).isEmpty)
+        let ready = loop.send(.sessionReady)
+        #expect(ready.filter { $0 == .connectedChime }.count == 1)
+        #expect(loop.send(.sessionReady).isEmpty)
+    }
+
     @Test func theRequestIsTheToolsArgumentAndTheAnswerGoesOnceWhole() {
         var loop = Loop()
         loop.send(.start)
@@ -320,6 +328,7 @@ struct GrokLiveControllerTests {
     @MainActor final class Box {
         var transport: FixtureGrokLiveVoice?
         var sessions = 0
+        var chimes = 0
     }
 
     private func make(available: Bool = true, answer: Result<String, VoiceFailure> = .success(sessionAnswer)) -> (TalkController, Box) {
@@ -353,8 +362,7 @@ struct GrokLiveControllerTests {
         talk.holdsLeases = false
         talk.isOnScreen = { true }
         talk.speaksReplies = { true }
-        talk.helloPrompt = { nil }
-        talk.rememberHello = { _ in }
+        talk.playConnectedChime = { box.chimes += 1 }
         return (talk, box)
     }
 
@@ -372,25 +380,23 @@ struct GrokLiveControllerTests {
         FixtureTalkCapture.startDelay = 0.02
     }
 
-    /// Grok says hello first: a response asked for with the hello as its instructions, once the session is ready.
-    @Test func grokIsAskedToSayHelloFirst() async throws {
-        let (talk, _) = make()
-        talk.helloPrompt = { "Say hello now." }
+    /// Startup has only real history, and never asks Grok for a response.
+    @Test func connectionChimesWithoutAStartupModelTurn() async throws {
+        defer { TalkController.chosenEngine = nil }
+        let (talk, box) = make()
         let chat = FakeTalkChat()
+        chat.history = [(false, "Earlier question"), (true, "Earlier answer")]
         talk.setFront(chat, onScreen: true)
         talk.start(in: chat, name: "Ivy")
         #expect(await waitUntil { talk.view?.phase == .listening })
-        func hellos() -> [JSONValue] {
-            FixtureGrokLiveVoice.sent.compactMap(json).filter { $0["item"]?["content"]?[0]?["text"]?.string?.hasSuffix("Say hello now.") == true }
-        }
-        #expect(await waitUntil { !hellos().isEmpty })
-        // The request joins the conversation as a note from the app, and the response that answers it has tools off.
-        #expect(hellos().count == 1)
-        #expect(hellos().first?["item"]?["role"]?.string == "user")
-        #expect(hellos().first?["item"]?["content"]?[0]?["text"]?.string?.hasPrefix("(Not from the person.") == true)
-        let responses = FixtureGrokLiveVoice.sent.compactMap(json).filter { $0["type"]?.string == "response.create" }
-        #expect(responses.count == 1 && responses.first?["response"]?["tool_choice"]?.string == "none")
-        #expect(responses.first?["response"]?["instructions"] == nil)
+        #expect(await waitUntil { box.chimes == 1 })
+        try await Task.sleep(for: .seconds(1))
+        #expect(sent("conversation.item.create") == GrokLiveWire.historyItems(LiveVoiceWire.history(chat.history)).compactMap(json))
+        #expect(sent("response.create").isEmpty)
+        #expect(chat.delegated.isEmpty)
+        let transport = try #require(box.transport)
+        transport.play(#"{"type":"session.updated"}"#)
+        #expect(box.chimes == 1)
         talk.end()
         #expect(await waitUntil { !talk.isLive })
         await talk.resetForTests()
@@ -490,7 +496,7 @@ struct GrokLiveControllerTests {
 
     @Test func aRefusedSessionFallsBackToTheStandardEngine() async throws {
         defer { TalkController.chosenEngine = nil }
-        let (talk, _) = make(answer: .failure(VoiceFailure(reason: "no_credentials", detail: "HTTP 503")))
+        let (talk, box) = make(answer: .failure(VoiceFailure(reason: "no_credentials", detail: "HTTP 503")))
         standardMicrophone()
         let chat = FakeTalkChat()
         talk.setFront(chat, onScreen: true)
@@ -498,6 +504,7 @@ struct GrokLiveControllerTests {
         #expect(await waitUntil { talk.debugSnapshot["engine"] as? String == "chained" && talk.view?.phase == .listening })
         #expect(talk.isLive)
         #expect(talk.notice(for: chat.memoScope) == nil)
+        #expect(box.chimes == 0)
         await talk.resetForTests()
     }
 
@@ -517,12 +524,13 @@ struct GrokLiveControllerTests {
 
     @Test func aDeniedMicrophoneStillStops() async throws {
         defer { TalkController.chosenEngine = nil }
-        let (talk, _) = make()
+        let (talk, box) = make()
         FixtureGrokLiveVoice.failWith = .denied
         let chat = FakeTalkChat()
         talk.setFront(chat, onScreen: true)
         talk.start(in: chat, name: "Ivy")
         #expect(await waitUntil { !talk.isLive })
+        #expect(box.chimes == 0)
         await talk.resetForTests()
     }
 }

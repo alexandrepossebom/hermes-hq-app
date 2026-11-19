@@ -64,15 +64,17 @@ final class MacSidebar: UIView {
     static func shrink(_ font: UIFont, least: CGFloat) -> CGFloat {
         SidebarRules.shrink(pointSize: font.pointSize, least: least, smallest: HQFont.macSmallest)
     }
-    /// Folded, the icons alone: never narrower than the window's three buttons over its top corner (about 70 pt on the
-    /// screen, 92 here).
-    /// [bots-rail] Room for a bot's head (`MacBotsRail.face`) and its selection box inside the glass panel too.
     static var railWidth: CGFloat { railNamed ? namedRailWidth : compactRailWidth }
     /// [rail-names] Owner 2026-11-02: "some more room on the side ... to fit in the name of each bot underneath", the
     /// rail's edge dragged with the pointer: pushed in, the faces alone (`compactRailWidth`); pulled out a little, it
     /// locks at a width with each name under its face and the places at its foot two across with their names
     /// (`namedRailWidth`). No third width: the sidebar's button still opens the whole sidebar and list.
-    static var compactRailWidth: CGFloat { max(92, (2 * contentInset + 56 * chrome).rounded()) }
+    static var compactRailWidth: CGFloat {
+        // The native buttons span x = 9…69 in Mac window points. Mirror the red button's 9 pt
+        // leading margin after the green button; only the selection tile grows with UI Scale.
+        let centeredWidth = (69 + 9) / MacTypeSteps.catalyst
+        return max(centeredWidth, 2 * contentInset + MacBotsRail.tileSide)
+    }
     static var namedRailWidth: CGFloat { max(136, (2 * contentInset + 116 * chrome).rounded()) }
     static let railNamedKey = "HQMacRailNamed"
     static var railNamed: Bool {

@@ -170,7 +170,94 @@ struct SessionsHeaderView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.strip)
     }
 
-    @ViewBuilder private var rail: some View { pillRail }
+    @ViewBuilder private var rail: some View {
+        if DeviceWord.isMac { macRow } else { pillRail }
+    }
+
+    /// [mac-pane] Owner 2026-11-18: the Mac's list keeps the iPhone's order and words, but not its controls ("where we
+    /// have the pills that you can scroll over that works very well on an iPhone I don't know if that's best practice on
+    /// a Mac app"; he took the drawing with the menu). The row under the bar is the Bots | Projects switch, the view's
+    /// "All Bots" / "All Projects" menu, and New and Working as counts at its end: nothing scrolls sideways or is cut at
+    /// the pane's edge. It reverses his 2026-11-17 pick of the iPhone's pill row for the Mac ([mac-switch]).
+    private var macRow: some View {
+        HStack(spacing: 10) {
+            if model.showsSwitch { SessionsPillsSwitch(model: model).fixedSize() }
+            if model.hasPills { scopeMenu }
+            Spacer(minLength: 4)
+            ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip) }
+        }
+        .padding(.leading, ProjectCard.lead - 4)
+        .padding(.trailing, ProjectCard.lead)
+        .padding(.top, Theme.isDesktop ? 6 : 4)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// New's or Working's count ("5 new"): a click narrows the list to those chats, another brings every chat back.
+    private func macStatus(_ chip: SessionStatusChip) -> some View {
+        let count = model.statusChips[chip] ?? 0
+        let word = chip == .new ? "new" : "working"
+        let picked = model.status == chip
+        return Button { model.onPickStatus(picked ? nil : chip) } label: {
+            HStack(spacing: 5) {
+                StatusChipMark(chip: chip, picked: false)
+                Text("\(count) \(word)").lineLimit(1)
+            }
+            .font(Font.hq(.footnote).weight(picked ? .semibold : .regular))
+            .foregroundStyle(picked ? Color.hqLabel : Color.hqLabel2)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(picked ? Color.hqFill3 : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help(chip == .new ? "Chats with a reply you haven’t read" : "Chats a bot is working in")
+        .accessibilityLabel("\(chip == .new ? "New" : "Working"), \(count) \(count == 1 ? "chat" : "chats")")
+        .accessibilityAddTraits(picked ? .isSelected : [])
+        .accessibilityIdentifier("sessions.chip.status.\(chip.rawValue)")
+    }
+
+    /// The view's choices: every bot or one, every project or one (a project opens its page).
+    private var scopeMenu: some View {
+        let projects = model.pills == .projects
+        let pickedProject = model.projects.first { model.pickedProjects.contains($0.key) }
+        let title = projects ? (model.pickedProjects.count == 1 ? pickedProject?.label ?? "All Projects" : "All Projects")
+            : model.picked.flatMap { id in model.bots.first { $0.id == id }?.name } ?? "All Bots"
+        return Menu {
+            if projects {
+                Picker(selection: Binding(get: { model.pickedProjects.count == 1 ? model.pickedProjects.first : nil },
+                                          set: { model.onPickProject($0) })) {
+                    Text("All Projects").tag(String?.none)
+                    Divider()
+                    ForEach(model.projects) { project in
+                        Text(project.archived ? "\(project.label) (Archived)" : project.label).tag(Optional(project.key))
+                    }
+                } label: { EmptyView() }
+                .pickerStyle(.inline)
+            } else {
+                Picker(selection: Binding(get: { model.picked }, set: { model.onPick($0) })) {
+                    Text("All Bots").tag(String?.none)
+                    Divider()
+                    ForEach(model.bots) { bot in Text(bot.name).tag(Optional(bot.id)) }
+                } label: { EmptyView() }
+                .pickerStyle(.inline)
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(title).lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down").font(Font.hq(.caption2).weight(.semibold)).foregroundStyle(Color.hqLabel2)
+            }
+            .font(Font.hq(.subheadline).weight(.medium))
+            .foregroundStyle(Color.hqLabel)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Color.hqFill3, in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: false, vertical: true)   // a long project's name is cut, not the counts after it
+        .accessibilityIdentifier("pages.scope")
+    }
 
     /// The Mac's faces rail with ‹ › arrows, unused since the pop-up took its place (#20); kept until the owner has seen it.
     @ViewBuilder private var macRail: some View {

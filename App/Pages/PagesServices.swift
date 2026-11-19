@@ -36,7 +36,9 @@ extension PagesServices {
 extension AppModel: PagesServices {
     var gateway: (any GatewayClient)? { client }
     func botModelName(_ profile: String) -> String? {
-        botStore?.profile(named: profile)?.model.map { ModelNames.displayModelName($0) }
+        // [tile-models] As Bot Info › Brain names it: the owner's name for the model under its provider, when there is one.
+        guard let row = botStore?.profile(named: profile), let model = row.model, !model.isEmpty else { return nil }
+        return row.provider.map { ModelNames.displayModelName(model, provider: $0) } ?? ModelNames.displayModelName(model)
     }
 }
 
