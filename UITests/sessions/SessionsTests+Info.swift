@@ -30,6 +30,10 @@ extension SessionsTests {
         shot(app, "project-card-coding-off")
         let info = app.buttons["sessions.projectPage.info"]
         let note = app.staticTexts["Counts include only available PR statuses."]
+        // Owner 2026-11-19: the ⓘ is the card's last control, the ⋯ to its left; both whole on the card.
+        let more = app.buttons["sessions.projectPage.more"]
+        XCTAssertGreaterThan(info.frame.midX, more.frame.midX, "the ⓘ is right of the ⋯")
+        XCTAssertLessThanOrEqual(info.frame.midX + 12, app.cells["sessions.projectPage"].frame.maxX, "the ⓘ's glyph is inside the card")
         info.tap()
         XCTAssertTrue(app.navigationBars["Project Icons"].waitForExistence(timeout: 5))
         XCTAssertFalse(note.exists)

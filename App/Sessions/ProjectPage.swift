@@ -178,9 +178,9 @@ struct ProjectPageHeader: View {
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                infoButton
                 // [mac-coding-project] Always: Coding Project is switched here, per device, also in a one-bot project.
                 moreButton(menu)
+                infoButton
             }
             .frame(height: HQFont.scaled(24))
             HStack(spacing: 0) {
@@ -288,8 +288,8 @@ struct ProjectPageHeader: View {
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                infoButton
                 moreButton(menu)
+                infoButton
             }
             .frame(height: HQFont.scaled(carded ? 26 : 30))
             if !meta.isEmpty {
@@ -325,6 +325,8 @@ struct ProjectPageHeader: View {
         .padding(.bottom, carded ? 0 : 6)
     }
 
+    /// Owner 2026-11-19: "The information icon needs to be on the right side and the three dots to the left." The ⓘ is
+    /// the header's last control: its glyph stands on the card's inner edge (as the ⋯'s did), its touch 44 pt across.
     private var infoButton: some View {
         Button(action: onInfo) {
             Image(systemName: "info.circle")
@@ -336,9 +338,10 @@ struct ProjectPageHeader: View {
         .accessibilityLabel("Project icon guide")
         .accessibilityIdentifier("sessions.projectPage.info")
         .help("Project icon guide")
+        .padding(.trailing, DeviceWord.isMac ? -6 : -12)
     }
 
-    /// [project-default-bot] The ⋯ at the name's end: its glyph stands on the card's inner edge, its touch 44 pt across.
+    /// [project-default-bot] The ⋯ beside the name's end, left of the ⓘ; its touch 44 pt across.
     private func moreButton(_ menu: BotMenu?) -> some View {
         HeaderMoreButton(label: "Actions for \(name)", identifier: "sessions.projectPage.more", glyph: Theme.isDesktop ? 14 : 17,
                          cap: 22, height: HQFont.scaled(carded ? 26 : 30), above: 8) {
@@ -364,7 +367,6 @@ struct ProjectPageHeader: View {
                 .accessibilityIdentifier("sessions.projectPage.defaultBot")
             }
         }
-        .padding(.trailing, -13)
     }
 
     private var pullRequestCounts: some View {
