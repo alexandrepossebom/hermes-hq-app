@@ -325,17 +325,9 @@ final class ChatMenus: NSObject, ModelSwitchUI {
             if handingOff { screen.oweKeys() } else { screen.focusComposer() }
         })
         AppLog.trace("chatui", "model panel opened \(AppLog.tag(logScope))")
-        // [model-sheet] Owner 2026-11-18: on the iPhone the card is a sheet from the bottom, as the +'s Add context is.
-        // The iPad keeps the card over the message box.
-        if screen.traitCollection.userInterfaceIdiom == .phone {
-            modelPanel = ModelPanelView.presentSheet(over: screen, from: composer.modelChip,
-                                                     face: (screen.session.head, screen.session.profile), actions: actions)
-            if modelPanel == nil { composer.holdsRows = false }
-        } else {
-            modelPanel = ModelPanelView.present(in: host, under: composer, from: composer.modelChip, floor: floor,
-                                                face: (screen.session.head, screen.session.profile), actions: actions)
-            if let modelPanel { screen.tuckJumpButton(under: modelPanel) } else { composer.holdsRows = false }
-        }
+        modelPanel = ModelPanelView.present(in: host, under: composer, from: composer.modelChip, floor: floor,
+                                            face: (screen.session.head, screen.session.profile), actions: actions)
+        if let modelPanel { screen.tuckJumpButton(under: modelPanel) } else { composer.holdsRows = false }
         // A context window models.dev lists shows on the next open once its copy is fetched (a day old at most).
         Task { _ = await ModelsDevCache.shared.load() }
     }

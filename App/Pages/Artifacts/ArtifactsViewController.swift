@@ -2716,8 +2716,13 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     private func readTileJobs() async -> Duration {
         let pages = pins.pins.filter(\.isPage)
         guard !pages.isEmpty else { return .seconds(60) }
-        let (marks, ran) = await TileUpdates.shared.refresh(pages, accountId: store.account.id, client: services?.gateway)
+        let (marks, ran, modelFailed) = await TileUpdates.shared.refresh(pages, accountId: store.account.id, client: services?.gateway)
         if !ran.isEmpty { AppLog.trace("pages", "\(ran.count) tile(s) redrawn after their job ran") }
+        // [tile-models] A tile's model couldn't be put on its job: said once, as a menu's change that failed is.
+        if modelFailed != nil, view.window != nil {
+            PagesHaptics.error()
+            PagesHUD.show("Couldn’t Change a Tile’s Model", symbol: "exclamationmark.triangle", from: self)
+        }
         for id in ran { redrawTile(id) }
         for id in Set(marks).subtracting(ran) { pinUpdated(id) }
         return TileUpdates.shared.anyUpdating ? .seconds(15) : .seconds(60)

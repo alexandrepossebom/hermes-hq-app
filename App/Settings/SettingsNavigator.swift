@@ -54,7 +54,7 @@ enum SettingsNavigator {
         case "attachment-limit": return DeviceWord.isMac ? .gateway : .chat   // a row of Chat Behavior on the Mac (below)
         case "sound-picker": return .sounds
         case "vault", "sessions", "providers", "keys", "billing", "auxiliary-models", "browser-use-cloud": return .gateway
-        case "capabilities", "skills", "connectors", "tools", "plugins", ComposioRow.id: return .tools
+        case "capabilities", "skills", "connectors", "tools", "plugins", ComposioRow.id, "tile-model": return .tools
         case "about", "diagnostics", "licenses", "about:perf-log", "about:detailed-log", "about:mark": return .about
         default: return nil
         }
@@ -102,6 +102,9 @@ enum SettingsNavigator {
             router.push(SettingsSearch.sessionsPageTitle, SessionsSettingsView(store: store, router: router))
         // [cap-pages] Capabilities, and each of its lists over it (Back goes to the four rows).
         case "capabilities": router.push(CapabilitiesHubController(services: services, settingsPage: true))
+        case "tile-model":   // [tile-models] the tiles' jobs' model and fallback
+            guard let account = services.account else { return }
+            router.push("Tile Model", TileModelView(router: router, accountId: account.id))
         case "skills", "connectors", "tools", "plugins":
             if let tab = CapabilitiesTab(rawValue: id) { router.push(CapabilitiesPages.pages(tab, services: services, settingsPage: true)) }
         case "auxiliary-models":   // [capabilities] 3x §17.5 g

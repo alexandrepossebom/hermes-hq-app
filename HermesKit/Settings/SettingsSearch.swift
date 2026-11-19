@@ -188,6 +188,8 @@ nonisolated enum SettingsSearch {
         ("browser-use-cloud", "Browser Use Cloud", ["browser use", "cloud browser", "api key", "all bots", "watch", "take over"]),
         ("sessions", sessionsPageTitle, ["sessions", "archive", "chats", "project folder", "chat folder", "retention"]),
         ("capabilities", "Capabilities", ["abilities", "what bots can do"]),   // [cap-pages]
+        // [tile-models] The model the tiles' jobs run, and their fallback.
+        ("tile-model", "Tile Model", ["tiles", "tile model", "dashboard", "fallback", "jobs model", "cron model"]),
         ("composio", "Composio", ["connect apps", "api key", "gmail", "slack", "apps"]),   // [composio-row]
         ("about", "About", ["version", "support", "privacy", "build", "app version"]),
         // [macpass-settings2] Device Access was not found at all ("contacts", "location", "health" found nothing).

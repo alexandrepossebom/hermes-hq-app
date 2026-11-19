@@ -262,20 +262,17 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   Tabs Info, Steps (the thinking row and ⋯ › Steps open it), Files (the chat's folder), Helpers
   (`HelpersPanelController`, fed by `ChatActivityController.updateHelpersPanel`; the open helper's tail is polled
   while the tab shows).
-- **A bot's chats on its chat** (owner 2026-11-18, `[bot-chat-sessions]`, `[bot-tabs-ux]`): on a bot's own chat only,
-  a row of underline tabs under the bar (`SessionStrip`, Settings › Chat › Other Chats at the Top, on unless turned off
-  on the Mac; the iPhone and iPad keep their pills on any chat with the bot): Bot Chat with the tint's line under it,
-  a short rule, then only what is live (chats working, unread, pinned, and the ones shown before this run). A tab is
-  one target that lights under the pointer; its tip is the whole title and last line; a right-click offers Open, Mark
-  as Read, Pin, Remove from Tabs and Archive. Tabs keep their places (`SessionStripRules.settled`: a new one comes in
-  first) and share the row's width (`fitTabs`), fading at an edge the row runs past. "All N" opens the inspector's
-  fifth tab, **Chats** (`BotChatsPanel`), drawn as the sidebar is: no rules, a glyph-or-dot column and a words column,
-  a rounded fill for the row under the pointer and the chat on show. Bot Chat and New Chat, then Active (at work,
-  unread), Pinned, Today, Earlier; one line (title, time) for a chat that needs nothing, a second only for the step
-  at work or the reply not read. A click opens that chat in the other's place; the panel keeps its place
-  (`MacInspector.follow`). While either is drawn the chats are read at the on-screen pace (`AppModel.setChatList`).
+- **A bot's chats on its chat** (owner 2026-11-18, `[bot-chat-sessions]`): the strip under a chat's bar
+  (`SessionStrip`, Settings › Chat › Other Chats at the Top, on unless turned off on the Mac) holds the bot's own chat
+  and only what is live: chats working, unread, pinned, the one on screen and the ones gone through this run.
+  On the Mac they are tabs, not pills (his pick of four designs): plain words, the chat on screen with the tint's
+  line under it, a hairline under the row, the row fading at an edge it runs past. "All N"
+  at its end opens the inspector's fifth tab, **Chats** (`BotChatsPanel`): the bot's own chat, New Chat, then every
+  chat in groups (Working, Pinned, Today, Yesterday, Earlier) with its last line and time. A click opens that chat in
+  the other's place; the panel keeps its place and lights the new row (`MacInspector.follow`). No strip for a bot with
+  no chat besides its own. While either is drawn the chats are read at the on-screen pace (`AppModel.setChatList`).
   Check: the sessions fixture's demo seed, `-HQDebugOpenBot <bot> -HQMacInspectorShown YES -HQMacInspectorTab 4`, and
-  the probe's `tap <name> <label>` (a click) and `menu <name> <label>` (a tab's right-click rows).
+  the probe's `tap <name> <label>` for a click.
 - **Settings window** (`MacSettingsWindow`, ⌘, and ⌘W): a scene of its own (configuration "Settings"), about
   600×640 on the screen (Polish pass), themed. Info.plist is preprocessed so only the Mac build supports multiple scenes (`HQ_MAC_WINDOWS`). Its list's
   soft top edge shows only once rows scroll under the bar: SwiftUI re-shows a list's edge on every update, so the

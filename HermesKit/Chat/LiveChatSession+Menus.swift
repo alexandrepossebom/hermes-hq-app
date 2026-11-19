@@ -226,10 +226,6 @@ extension LiveChatSession: ChatSessionActions {
         // A gateway can name a greeting before the user has said what this chat is for.
         if let first = firstUserText, !ShortTitle.isNamingRequest(first), firstNamingRequest == nil { return }
         let first = firstUserText ?? ""
-        // [log review 2026-11-18] The gateway's instant name for a chat that opens with a memo or a file is that
-        // file's line. Before the first page was here it was shown and saved as the chat's name (`MEDIA:"/Users/…`,
-        // which the gateway then refused as already in use). It waits for the words instead.
-        if first.isEmpty, ShortTitle.isFileLine(raw) { return }
         let opening = ShortTitle.isPlaceholder(raw, firstMessage: first)
         // An opening excerpt is no improvement on an existing name, even if its older save was skipped.
         guard !opening || title.count > ShortTitle.excerptCharacters ||

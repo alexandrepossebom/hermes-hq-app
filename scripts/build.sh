@@ -10,10 +10,7 @@ ACTION=${1:-build}; SIM=${2:-${HQ_SIM:-00CC6911-5CB1-458A-AEAE-DE5A5CB4F81A}}
 [[ ${HQ_IDENTITY:-native} == original ]] && export HQ_ORIGINAL=YES || unset HQ_ORIGINAL
 xcodegen generate -q
 mkdir -p build
-# Builds and test runs step behind everything else on this Mac (it also runs Hermes: on 2026-11-18 a test run here
-# stalled the gateway for 25 minutes and both apps said they couldn't reach it). HQ_NICE=0 runs at full priority.
-NICE=(nice -n ${HQ_NICE:-10}); [[ ${HQ_NICE:-10} == 0 ]] && NICE=()
-$NICE xcodebuild -project HermesHQNative.xcodeproj -scheme HermesHQNative -destination "platform=iOS Simulator,id=$SIM" \
+xcodebuild -project HermesHQNative.xcodeproj -scheme HermesHQNative -destination "platform=iOS Simulator,id=$SIM" \
   -derivedDataPath build/dd $ACTION -quiet > build/last-$ACTION.log 2>&1 && STATUS=0 || STATUS=$?
 grep -v -E '^(note:|\s*$)|appintentsmetadataprocessor' build/last-$ACTION.log | tail -80
 echo "xcodebuild $ACTION exit $STATUS"; exit $STATUS

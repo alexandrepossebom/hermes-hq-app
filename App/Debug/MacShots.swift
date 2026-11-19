@@ -105,8 +105,6 @@ enum MacShots {
             }
             guard tabs != nil || demoChat else { return }
             try? await Task.sleep(for: .seconds(2))
-            // [owner 2026-11-18] `-HQDebugMacShotsPeek YES`: the reply peek, short and long, in both appearances.
-            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsPeek") { await peekTour(window, name: name, folder: folder); exit(0) }
             // [Mac AAA 2026-11-16] `-HQDebugSheetsTour <stops>`: update sheets, alerts, Add Gateway (SheetsTour.swift).
             if let tabs, await SheetsTour.runIfAsked(window, tabs: tabs, name: name, folder: folder) { exit(0) }
             // Mac audit #11: `-HQDemoChat 12 -HQDemoAutoOpen -HQDebugMacShotsSelect YES` selects in the demo's rich replies.

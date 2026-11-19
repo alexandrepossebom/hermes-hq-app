@@ -621,15 +621,6 @@ For a 402 pt-wide phone with a 34 pt home-indicator inset:
   - **Model panel** (a tap on the bubble, or ⋯ › Model; `App/Chat/Menus/ModelPanel.swift`): the keys go down and the
     bar keeps its two rows, the bubble's glass tinted. A glass card (radius 34, at most 440 wide, 12 pt above the bar)
     springs out of the bubble, with the page dimmed and lightly blurred behind it and the bar sharp on top.
-    - **[model-sheet] On the iPhone it is a bottom sheet** (owner 2026-11-18: "rebuilt as a pop-up from the bottom,
-      just like when you click on the plus icon … all the same kind of like animations and functionality and fun";
-      he chose the "quick tiles" design). The system sheet, set up as the Add context sheet (grabber, the app's glass
-      with the page colour over it in Dark, fitted to its page, `ModelCardSheet`). Top down: a close disc, the name
-      in the middle (the Switch Model button, its tag after it in lighter words) and the bot's face at the right;
-      Thinking on a tall card with small stars that brighten with the level; the facts as a row of tiles; Fast,
-      Approval Mode and YOLO as one card of rows. The pieces, menus, drive and haptics are the card's own; the
-      drive's sky sits over the chat behind the sheet. The sheet covers the message box, so Send waits until it is
-      closed. The iPad keeps the card described here; the Mac has its own selector.
     - **Two ways in, one place.** The bubble shows only in the two-row bar, so the ⋯'s **Model** row (`cpu`, the
       model and its thinking under it, "Sonnet 5 · Medium", or "Offline") opens the same panel: from a one-row bar the
       bar grows into its two rows first and the card springs from the bubble there, which shows where it lives; the

@@ -26,11 +26,6 @@ nonisolated struct JobsStoreTiming: Sendable {
     var dueRecheck: TimeInterval = 10
     /// …for this long after the start, then leave it (an overdue job the scheduler isn't coming for).
     var dueWindow: TimeInterval = 120
-    /// [log review 2026-11-18] With no Jobs screen up, only the tab's spinner is waiting on these reads, and each one
-    /// is the whole list (119 jobs were 449 KB, read some 600 times a day on each device): an unclaimed start is read
-    /// again after at least this long (about +3, +43, +86 s), and while work is out the list is read this often.
-    var dueRecheckOffScreen: TimeInterval = 40
-    var backstopWorkOutOffScreen: Duration = .seconds(90)
     /// [phone-logs] A read that started this recently covers the reconnect's read: a return from the background ran
     /// two whole-list reads in the same second (the foreground's and `gateway.ready`'s, 300 KB each).
     var freshRead: TimeInterval = 5
@@ -179,16 +174,10 @@ final class JobsStore {
     /// Jobs (list or detail) on screen: read now when the list is over 30 s old (or never read). The backstop runs off
     /// screen too (the tab's spinner has to clear when the work ends).
     func setVisible(_ shown: Bool) {
-        guard shown else {
-            // Off screen the reads slow down (`backstopWorkOutOffScreen`, `dueRecheckOffScreen`).
-            startBackstop()
-            armDueRead()
-            return
-        }
+        guard shown else { return }
         if !throttle.dirty, lastRead.map({ Date().timeIntervalSince($0) > 30 }) ?? true { Task { await refresh() } }
         throttle.pump()
         startBackstop()
-        armDueRead()
     }
 
     func appDidBecomeActive() {
@@ -230,7 +219,7 @@ final class JobsStore {
     private func startBackstop() {
         backstopTask?.cancel()
         // A run that dies before Hermes marks the job writes no jobs.json, so no `cron.changed` says it ended.
-        let gap = Self.backstopGap(changeEvents: changeEvents, runOut: runOut, onScreen: showing > 0, timing: timing)
+        let gap = changeEvents && !runOut ? timing.backstop : timing.backstopWithoutEvents
         backstopTask = Task { [weak self] in
             while !Task.isCancelled {
                 // [offline] §6.9: stretched in Low Power Mode or when the phone is hot; re-armed on a power change.
@@ -320,22 +309,13 @@ final class JobsStore {
         }
     }
 
-    /// How often the whole list is read with nothing else asking: every `backstop` on a gateway that says when its
-    /// jobs change, every `backstopWithoutEvents` on one that doesn't or while work is out with a Jobs screen up, and
-    /// every `backstopWorkOutOffScreen` while work is out and only the tab's spinner shows it.
-    nonisolated static func backstopGap(changeEvents: Bool, runOut: Bool, onScreen: Bool, timing: JobsStoreTiming = .standard) -> Duration {
-        guard changeEvents else { return timing.backstopWithoutEvents }
-        guard runOut else { return timing.backstop }
-        return onScreen ? timing.backstopWithoutEvents : timing.backstopWorkOutOffScreen
-    }
-
     /// The Jobs tab's spinner has to start when a job does, and only the gateway's own bot's jobs send `cron.changed`
     /// (Hermes watches one jobs.json): every other bot's run would wait for the 5 min backstop. So a read is set for
     /// just after the soonest start, and every `dueRecheck` while a start has passed unclaimed.
     private func armDueRead() {
         dueTask?.cancel()
         dueTask = nil
-        guard appActive, let delay = Self.nextDueRead(jobs, now: Date(), timing: timing, onScreen: showing > 0) else { return }
+        guard appActive, let delay = Self.nextDueRead(jobs, now: Date(), timing: timing) else { return }
         dueTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self, self.appActive else { return }
@@ -347,9 +327,8 @@ final class JobsStore {
 
     /// Seconds until the read for the soonest job start: `dueLead` after a start ahead (or just passed), `dueRecheck`
     /// while one passed less than `dueWindow` ago and its run isn't out yet; nil with none. Paused, completed and
-    /// disabled jobs and jobs already running don't count. `onScreen` false: `dueRecheckOffScreen` instead.
-    nonisolated static func nextDueRead(_ jobs: [CronJob], now: Date, timing: JobsStoreTiming = .standard, onScreen: Bool = true) -> TimeInterval? {
-        let recheck = onScreen ? timing.dueRecheck : max(timing.dueRecheck, timing.dueRecheckOffScreen)
+    /// disabled jobs and jobs already running don't count.
+    nonisolated static func nextDueRead(_ jobs: [CronJob], now: Date, timing: JobsStoreTiming = .standard) -> TimeInterval? {
         var soonest: TimeInterval?
         for job in jobs {
             guard job.enabled != false, !JobWords.workIsOut(job), !["paused", "completed", "disabled"].contains(JobWords.jobState(job)),
@@ -361,7 +340,7 @@ final class JobsStore {
                 // [phone-logs] Backing off: a re-read every 10 s for 2 min was 12 whole-list reads per start (94 jobs
                 // across the bots, a start every few minutes), about 1.8 MB a minute.
                 let passed = -ahead
-                let wait = max(recheck, passed)
+                let wait = max(timing.dueRecheck, passed)
                 guard passed + wait <= timing.dueWindow else { continue }
                 delay = wait
             }

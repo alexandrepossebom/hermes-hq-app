@@ -11,11 +11,7 @@
 //   (`GET /api/sessions/{id}`): for bots showing a dot or waiting for one after every roster and whenever the gateway
 //   says its chats changed (`sessions.changed` fires for a watermark write; at most every ten seconds), and for every
 //   bot at launch, on a reconnect, and at most every two minutes while chats keep changing (every ten on a gateway
-//   that doesn't say when they change). The row is the whole chat record (100 KB and more) and the gateway's signal
-//   names no chat, so while other chats keep changing these reads back off: each round that brings no new watermark
-//   doubles both gaps (to two and ten minutes at most), and a round that brings one, or the link coming back, puts
-//   them back. (The owner's logs, 2026-11-18: three bots' rows read every ten seconds all day, 97% of them the same
-//   as the read before, about half a gigabyte a day on each device.)
+//   that doesn't say when they change).
 // - A watermark at or past the chat's newest activity means it was read, on some device: the dot goes. A watermark
 //   older than that moves the point the chat's new rows are judged from. A watermark at 0 that wasn't 0 before is a
 //   Mark as Unread from another device: the dot shows. A bot seen for the first time (a fresh install) takes the
@@ -166,10 +162,9 @@ extension BotStore {
         guard timing.sharesReads, !stopped else { return }
         readChangedAt = .now
         // Off screen nothing is read; whatever changed meanwhile is found by the roster read on the way back.
-        if sweep || !isAppActive { readSweptAt = nil; readQuietRounds = 0 }
+        if sweep || !isAppActive { readSweptAt = nil }
         guard isAppActive, readLearnTask == nil else { return }
-        let gap = readGap(timing.readLearnGap, atMost: timing.readLearnGapMax)
-        let wait = readLearntAt.map { max(.zero, gap - (ContinuousClock.now - $0)) } ?? .zero
+        let wait = readLearntAt.map { max(.zero, timing.readLearnGap - (ContinuousClock.now - $0)) } ?? .zero
         readLearnTask = Task { [weak self] in
             try? await Task.sleep(for: wait)
             guard let self, !Task.isCancelled else { return }
@@ -184,7 +179,7 @@ extension BotStore {
     func learnReads(sweeps: Bool, gap: Duration? = nil) {
         guard timing.sharesReads, !stopped, !readShareAbsent, phase == .full else { return }
         readLearntAt = .now
-        let every = gap ?? readGap(timing.readSweepGap, atMost: timing.readSweepGapMax)
+        let every = gap ?? timing.readSweepGap
         let sweep = sweeps && (readSweptAt.map { ContinuousClock.now - $0 >= every } ?? true)
         if sweep {
             readSweptAt = .now
@@ -199,7 +194,6 @@ extension BotStore {
                 if self.isAppActive { self.learnReads(sweeps: true, gap: gap) } else { self.readSweptAt = nil }
             }
         }
-        readDottedAtLearn = readDottedNow()
         for profile in profiles {
             guard sharesReads(profile) != nil else { continue }
             let name = profile.name
@@ -207,28 +201,7 @@ extension BotStore {
             guard dotted || sweep || readFirstSight.contains(name) else { continue }
             if !readLearnQueue.contains(name), !readLearnsOut.contains(name) { readLearnQueue.append(name) }
         }
-        if !readRoundOpen, !readLearnQueue.isEmpty {
-            readRoundOpen = true
-            readRoundMoved = false
-        }
         pumpReadLearns()
-    }
-
-    /// The bots showing a dot or waiting for one, among those whose reads are shared.
-    func readDottedNow() -> Set<String> {
-        Set(profiles.filter { sharesReads($0) != nil && (device.unread.isMarked($0) || device.unread.held($0.name) != nil) }.map(\.name))
-    }
-
-    /// A gap between reads, doubled for each round in a row that brought nothing new (`readQuietRounds`).
-    func readGap(_ base: Duration, atMost most: Duration) -> Duration {
-        min(base * (1 << min(readQuietRounds, 8)), max(base, most))
-    }
-
-    /// The round of reads now out has all answered: one more quiet round, or none when it brought a change.
-    private func closeReadRound() {
-        guard readRoundOpen, readLearnQueue.isEmpty, readLearnsOut.isEmpty else { return }
-        readRoundOpen = false
-        readQuietRounds = readRoundMoved ? 0 : readQuietRounds + 1
     }
 
     private func pumpReadLearns() {
@@ -260,7 +233,7 @@ extension BotStore {
     /// The gateway's watermark for a bot's chat arrived. See the head of this file for what each value does.
     func readLearnt(_ name: String, _ answer: BotReadAnswer) {
         readLearnsOut.remove(name)
-        defer { pumpReadLearns(); closeReadRound() }
+        defer { pumpReadLearns() }
         guard !stopped else { return }
         let mark: Double
         switch answer {
@@ -279,7 +252,6 @@ extension BotStore {
         // This device's own write is on its way: its answer is the newer word.
         guard share.owed == nil, !readWritesOut.contains(name) else { return }
         let before = share.watermark
-        if before != mark { readRoundMoved = true }
         share.watermark = mark
         readFreshAt[name] = .now
         var saved = false

@@ -10,13 +10,7 @@ import Foundation
 import MachO
 
 nonisolated enum MainStack {
-    /// How many frames of a stall are logged from where the thread is, innermost first…
     static let limit = 48
-    /// …how deep the stack is read, and how many of the app's own frames past `limit` are logged with them. (The
-    /// owner's logs, 2026-11-18: 378 stalls on the Mac, half of them a sheet opening, and every one of the 48 frames
-    /// kept was SwiftUI's or UIKit's. The app's code that asked for the work sat further out and was never seen.)
-    static let depth = 256
-    static let ownPast = 16
     nonisolated(unsafe) private static var main: thread_act_t = 0
 
     /// Called once, on the main thread (HangWatch.install).
@@ -117,18 +111,6 @@ nonisolated enum MainStack {
             let binary = info.dli_fname.map { (String(cString: $0) as NSString).lastPathComponent } ?? "?"
             let symbol = LoadedImages.isApp(binary) ? nil : info.dli_sname.map { String(cString: $0) }
             return Frame(binary: binary, offset: Int64(address) - Int64(UInt(bitPattern: base)), symbol: symbol)
-        }
-    }
-
-    /// What a stall logs of a deep stack: each frame with its place in it. The innermost `limit` frames, then only the
-    /// app's own (`ownPast` at most).
-    static func kept(_ frames: [Frame], limit: Int = MainStack.limit, ownPast: Int = MainStack.ownPast) -> [(index: Int, frame: Frame)] {
-        var own = 0
-        return frames.enumerated().compactMap { index, frame in
-            if index < limit { return (index, frame) }
-            guard own < ownPast, LoadedImages.isApp(frame.binary) else { return nil }
-            own += 1
-            return (index, frame)
         }
     }
 

@@ -71,7 +71,7 @@ import UIKit
         talk.install()   // [talk]
         reader.install() // [talk]
         dictation.install() // [talk]
-        LiveWords.prepare(.chatOpened)   // [live words] whether this device can hear words, before the first memo or Talk
+        LiveWords.prepare()   // [live words] whether this device can hear words, before the first memo or Talk
         NotificationCenter.default.addObserver(self, selector: #selector(talkWordsChanged), name: TalkController.wordsChanged, object: nil)
         ReadAloudCenter.shared.onFailure = { scope, failure in ChatReadAloudHost.failed(failure, scope: scope) }
         composer.micAvailable = true

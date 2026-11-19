@@ -164,9 +164,7 @@ nonisolated enum HostedRoomLog {
     /// How often an open (or working) room is read.
     var pollEvery: TimeInterval = 2
     /// The shortest gap between two full listings.
-    /// (Was 20 s: every roster change asks for it, and each listing is one call per bot. The owner's logs, 2026-11-18:
-    /// about 4,800 `groups.list` calls a day for one room.)
-    var listEvery: TimeInterval = 60
+    var listEvery: TimeInterval = 20
 
     /// Profiles whose gateway has no `groups.*` (an older Hermes): not asked again this connection.
     private var unsupported: Set<String> = []

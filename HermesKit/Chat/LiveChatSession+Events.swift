@@ -46,16 +46,12 @@ extension LiveChatSession {
     /// A reconnect's `session.activate` can answer with a new runtime id too, and the gateway streams to it before it
     /// answers: those frames are held the same way (owner, 2026-10-15: "I was already in the same chat … its response is
     /// not showing"; the log showed 14 frames set aside on the open chat).
-    /// How many frames wait for a resume. Was 512: a slow resume beside a busy chat filled it within seconds and the
-    /// rest were dropped (the owner's logs, 2026-11-18); a frame is a few hundred bytes.
-    static let resumeHoldLimit = 2048
-
     private func holdForResume(_ event: GatewayEvent) {
-        guard resumeFlight != nil || activating, !event.sessionId.isEmpty, resumeHeld.count < Self.resumeHoldLimit else {
+        guard resumeFlight != nil || activating, !event.sessionId.isEmpty, resumeHeld.count < 512 else {
             if !event.sessionId.isEmpty {
                 LeftChatProbe.of(self).foreign += 1   // [diagnostics]
-                if resumeHeld.count >= Self.resumeHoldLimit && (resumeFlight != nil || activating) && event.type != "message.delta" {
-                    AppLog.trace("turn", "resume hold full (\(Self.resumeHoldLimit)) on \(logIds): \(event.type) for rt \(AppLog.tag(event.sessionId)) dropped")
+                if resumeHeld.count >= 512 && (resumeFlight != nil || activating) && event.type != "message.delta" {
+                    AppLog.trace("turn", "resume hold full (512) on \(logIds): \(event.type) for rt \(AppLog.tag(event.sessionId)) dropped")
                 }
                 if event.type == "message.complete" {
                     AppLog.trace("turn", "complete on foreign rt \(AppLog.tag(event.sessionId)) seen by \(logIds): tail read soon")

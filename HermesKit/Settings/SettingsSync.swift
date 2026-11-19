@@ -42,6 +42,7 @@ nonisolated enum SyncedSettingKeys {
     static let accountPrefixes: [String] = [
         "hq.favorite-commands|", "hermes.desktop.favorite-models|", "hermes.desktop.model-presets|", "dispatch.chat.recentModels|",
         "pages.kanbanTab.override.", "hqn.defaultProjectFolder.", "pages.filesRoot.", "hqn.botMessageColour.",
+        "hq.tileModels.",   // [tile-models] Settings › Tile Model, each tile's own model, and the pins the app applied
     ]
 
     static let accountToken = "{account}"

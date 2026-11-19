@@ -457,9 +457,6 @@ final class LiveChatSession: ChatSessionModel {
     var lastSyncIds: [String] = []
     var lastTurnEndReadAt: Date?
     var lastChangedPassAt: Date?
-    /// Tail reads in a row that got no answer (a chat the gateway hasn't stored yet answers 404 until its first turn
-    /// is saved): each doubles the wait before the next `sessions.changed` pass, up to eight times the gap.
-    var tailReadFailures = 0
     var resolvedStoredId: String?
     var pageSessionId: String?            // the REST page's `session_id` (the lineage tip, 03 §1)
     var chatGone = false

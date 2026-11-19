@@ -374,11 +374,10 @@ import Testing
         store.setListVisible(true)
         #expect(await BotsTest.waitUntil { store.loadState == .ready })
         for _ in 0..<5 { client.emit("sessions.changed") }
-        #expect(await BotsTest.waitUntil { probes(client) == 1 })         // leading edge
+        #expect(await BotsTest.waitUntil { fullReads(client) == 2 })      // leading edge
         try await Task.sleep(for: .milliseconds(700))
-        #expect(probes(client) == 2)                                      // one trailing pass, never stacked
-        // [log review 2026-11-18] On screen too a pass is the probe first: the same answer costs no full read.
-        #expect(fullReads(client) == 1)
+        #expect(fullReads(client) == 3)                                   // one trailing pass, never stacked
+        #expect(probes(client) == 0)                                      // on screen: always a full read
         store.stop()
     }
 
@@ -422,9 +421,9 @@ import Testing
         store.appDidEnterBackground()
         client.emit("sessions.changed")
         try await Task.sleep(for: .milliseconds(400))
-        #expect(fullReads(client) == 1 && probes(client) == 0)
+        #expect(fullReads(client) == 1)
         store.appDidBecomeActive()
-        #expect(await BotsTest.waitUntil { fullReads(client) == 2 || probes(client) == 1 })
+        #expect(await BotsTest.waitUntil { fullReads(client) == 2 })
         store.stop()
     }
 
@@ -461,7 +460,7 @@ import Testing
         var changes = 0
         store.onChange = { changes += 1 }
         client.emit("sessions.changed")
-        #expect(await BotsTest.waitUntil { probes(client) == 1 })
+        #expect(await BotsTest.waitUntil { fullReads(client) == 2 })
         #expect(await BotsTest.waitUntil { !store.isRefreshing })
         #expect(changes == 0 && store.loadState == .ready)
         store.stop()
@@ -482,7 +481,7 @@ import Testing
         // Only the pull is forced: a change-event read with the same answer after it stays quiet.
         let afterPull = changes
         client.emit("sessions.changed")
-        #expect(await BotsTest.waitUntil { probes(client) == 1 })
+        #expect(await BotsTest.waitUntil { fullReads(client) == 3 })
         #expect(await BotsTest.waitUntil { !store.isRefreshing })
         #expect(changes == afterPull)
         store.stop()

@@ -8,31 +8,29 @@ import UIKit
 /// was last said and when. A green dot is a chat at work, a blue one a reply not read yet; the chat beside the panel
 /// is lit. A click opens that chat in the other's place, the panel staying as it is. The strip under the chat's bar
 /// (`SessionStrip`) holds only what is live, and its "All N" opens this tab.
-/// [bot-tabs-ux] Owner 2026-11-18 ("needs some SERIOUS UI help. It feels so stressful to look at … technically
-/// correct, it just doesn't look thoughtfully designed"): the list was every row at one weight, two lines each, ruled
-/// off, its dots hanging in the margin. Now it reads as the Mac's sidebar does: no rules, one column for the glyph or
-/// dot and one for the words, a rounded fill for the row under the pointer and the chat on show, and one quiet line
-/// (title, time) for a chat that needs nothing. Only a chat at work or with a reply not read takes a second line, so
-/// the eye lands on what wants it. Groups: Active (at work or unread), Pinned, Today, Earlier.
 final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewDelegate {
-    fileprivate enum Kind: Equatable { case header, botChat, newChat, chat }
+    private enum Kind: Equatable { case botChat, newChat, chat }
 
-    fileprivate struct Row: Equatable {
+    private struct Row: Equatable {
         var kind: Kind
         var id: String
         var title: String
-        var detail: String = ""
-        var time: String = ""
-        var tip: String = ""
+        var detail: String
+        var time: String
         var working = false
         var unread = false
         var current = false
     }
 
+    private struct Section: Equatable {
+        var title: String?
+        var rows: [Row]
+    }
+
     private weak var screen: ChatViewController?
     private weak var app: AppModel?
     private let table = UITableView(frame: .zero, style: .plain)
-    private var rows: [Row] = []
+    private var sections: [Section] = []
     private var watches: [NSObjectProtocol] = []
 
     init(screen: ChatViewController, app: AppModel) {
@@ -54,11 +52,9 @@ final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewD
         table.dataSource = self
         table.delegate = self
         table.register(BotChatCell.self, forCellReuseIdentifier: "chat")
-        table.backgroundColor = .clear
-        table.separatorStyle = .none
-        table.sectionHeaderTopPadding = 0
-        table.contentInset = UIEdgeInsets(top: 2, left: 0, bottom: 12, right: 0)
+        table.sectionFooterHeight = 0
         table.accessibilityIdentifier = "mac.inspector.chats"
+        InspectorLook.dress(table)
         table.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(table)
         NSLayoutConstraint.activate([
@@ -102,68 +98,95 @@ final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewD
 
     private func reload(force: Bool) {
         guard let app, let screen else { return }
-        let next = Self.rows(app: app, model: screen.session)
-        guard force || next != rows else { return }
-        rows = next
+        let next = Self.sections(app: app, model: screen.session)
+        guard force || next != sections else { return }
+        sections = next
         table.reloadData()
     }
 
-    private static func rows(app: AppModel, model: any ChatSessionModel) -> [Row] {
+    private static func sections(app: AppModel, model: any ChatSessionModel) -> [Section] {
         let live = model as? LiveChatSession
         let profile = model.profile.isEmpty ? "default" : model.profile
         let bot = app.botStore?.bot(named: profile)
         let onBotChat = live?.isBotChat == true
         let currentId = onBotChat ? nil : live?.storedSessionId
-        var out: [Row] = []
+        var top: [Row] = []
         if let bot {
-            out.append(Row(kind: .botChat, id: bot.canonicalSessionId ?? "", title: "Bot Chat", tip: "Your ongoing chat with \(bot.name)",
+            top.append(Row(kind: .botChat, id: bot.canonicalSessionId ?? "", title: bot.name, detail: "Bot Chat", time: "",
                            working: bot.isWorking, unread: bot.unread && !onBotChat, current: onBotChat))
         }
-        out.append(Row(kind: .newChat, id: "", title: "New Chat"))
+        top.append(Row(kind: .newChat, id: "", title: "New Chat", detail: "", time: ""))
+        var out = [Section(title: nil, rows: top)]
         let chats = SessionStripRules.chats(bot: bot, sessions: app.sessions, profile: profile)
         for group in SessionStripRules.groups(chats) {
-            out.append(Row(kind: .header, id: group.title, title: group.title))
-            for chat in group.chats {
+            out.append(Section(title: group.title, rows: group.chats.map { chat in
                 let working = chat.isRunning || chat.status == .working
                 let current = chat.id == currentId
-                let unread = chat.unread && !current
-                let said = (chat.preview ?? "").split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-                // A second line only where something wants the eye: the step at work, the reply not read yet.
-                let detail = working ? (chat.step ?? "Working…") : unread ? said : ""
-                out.append(Row(kind: .chat, id: chat.id, title: chat.title, detail: detail, time: working ? "" : ListTime.string(chat.lastActive),
-                               tip: said.isEmpty ? chat.title : chat.title + "\n" + said, working: working, unread: unread, current: current))
-            }
+                let said = (chat.preview ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
+                    .trimmingCharacters(in: .whitespaces)
+                return Row(kind: .chat, id: chat.id, title: chat.title, detail: working ? (chat.step ?? "Working…") : said,
+                           time: ListTime.string(chat.lastActive), working: working, unread: chat.unread && !current, current: current)
+            }))
         }
         return out
     }
 
     // MARK: The table
 
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { rows.count }
+    func numberOfSections(in tableView: UITableView) -> Int { sections.count }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { sections[section].rows.count }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "chat", for: indexPath)
-        let row = rows[indexPath.row]
-        (cell as? BotChatCell)?.show(row)
+        let row = sections[indexPath.section].rows[indexPath.row]
+        if let cell = cell as? BotChatCell {
+            cell.show(title: row.title, detail: row.detail, time: row.time, working: row.working, unread: row.unread,
+                      current: row.current, action: row.kind == .newChat)
+        }
         switch row.kind {
-        case .header: cell.accessibilityIdentifier = "mac.inspector.chats.group.\(row.title.lowercased())"
         case .botChat: cell.accessibilityIdentifier = "mac.inspector.chats.bot"
         case .newChat: cell.accessibilityIdentifier = "mac.inspector.chats.new"
-        case .chat: cell.accessibilityIdentifier = "mac.inspector.chats.chat.\(rows[..<indexPath.row].filter { $0.kind == .chat }.count)"
+        case .chat: cell.accessibilityIdentifier = "mac.inspector.chats.chat.\(indexPath.section - 1).\(indexPath.row)"
         }
         return cell
     }
 
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { BotChatCell.height(rows[indexPath.row]) }
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard let title = sections[section].title else { return nil }
+        let label = UILabel()
+        label.font = InspectorLook.detailFont
+        label.textColor = HQPalette.label2
+        label.text = title
+        label.adjustsFontForContentSizeCategory = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        let header = UIView()
+        header.backgroundColor = HQPalette.groupedPage   // the panel's own colour: a header pinned over rows hides them
+        header.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: InspectorLook.margin),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -InspectorLook.margin),
+            label.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -6),
+        ])
+        header.accessibilityIdentifier = "mac.inspector.chats.group.\(title.lowercased())"
+        return header
+    }
 
-    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool { rows[indexPath.row].kind != .header }
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        sections[section].title == nil ? 0 : (InspectorLook.detailFont.lineHeight + 22).rounded(.up)
+    }
+
+    /// A row's height from its lines (one for New Chat, two for a chat), 9 pt above and below.
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        let row = sections[indexPath.section].rows[indexPath.row]
+        let lines = InspectorLook.textFont.lineHeight + (row.detail.isEmpty ? 0 : BotChatCell.lineGap + InspectorLook.detailFont.lineHeight)
+        return (lines + 18).rounded(.up)
+    }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: false)
         guard let app, let screen else { return }
-        let row = rows[indexPath.row]
+        let row = sections[indexPath.section].rows[indexPath.row]
         switch row.kind {
-        case .header: break
         case .newChat:
             guard let navigation = screen.navigationController,
                   app.openNewChat(like: screen.session, draft: "", replacing: screen) else { return }
@@ -179,132 +202,90 @@ final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewD
     }
 }
 
-/// One row of the Chats tab. A glyph or dot in the first column, the words in the second: a title with its time at the
-/// end, and for a chat at work or not read a grey line under it. The row under the pointer and the chat on show take a
-/// rounded fill, as the sidebar's rows do. A group's name is a row too (small, grey, with air above it).
+/// One row of the Chats tab: a title with its time at the end, a grey line under it, and a dot in the margin for a
+/// chat at work (green) or with a reply not read yet (blue).
 private final class BotChatCell: UITableViewCell {
-    static let lineGap: CGFloat = 2
-    /// The fill's inset from the panel's edges, the words' inset inside it, and the glyph column's width.
-    private static let fillInset: CGFloat = 8
-    private static let pad: CGFloat = 8
-    private static let column: CGFloat = 16
-    private static var headerFont: UIFont { HQFont.preferred(.caption1).pagesWeight(.semibold) }
-
-    static func height(_ row: BotChatsPanel.Row) -> CGFloat {
-        if row.kind == .header { return (headerFont.lineHeight + 26).rounded(.up) }
-        let lines = InspectorLook.textFont.lineHeight + (row.detail.isEmpty ? 0 : lineGap + InspectorLook.detailFont.lineHeight)
-        return (lines + 14).rounded(.up) + 2   // 1 pt of air above and below the fill
-    }
-
-    private let fill = UIView()
     private let dot = UIView()
     private let glyph = UIImageView()
     private let titleLabel = UILabel()
     private let timeLabel = UILabel()
     private let detailLabel = UILabel()
-    private let headerLabel = UILabel()
     private let lines = UIStackView()
+    static let lineGap: CGFloat = 2
     private var lit = false
-    private var hovers = true
-    private let tip = UIToolTipInteraction()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         selectionStyle = .none
-        fill.layer.cornerRadius = 6
-        fill.layer.cornerCurve = .continuous
-        fill.isUserInteractionEnabled = false
         dot.layer.cornerRadius = 3.5
-        glyph.contentMode = .center
+        dot.isHidden = true
+        glyph.contentMode = .scaleAspectFit
+        glyph.isHidden = true
+        glyph.image = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        titleLabel.font = InspectorLook.textFont
+        titleLabel.textColor = HQPalette.label
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        glyph.setContentHuggingPriority(.required, for: .horizontal)
+        glyph.setContentCompressionResistancePriority(.required, for: .horizontal)
         timeLabel.font = InspectorLook.detailFont
-        timeLabel.textColor = HQPalette.label3
+        timeLabel.textColor = HQPalette.label2
         timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         timeLabel.setContentHuggingPriority(.required, for: .horizontal)
         detailLabel.font = InspectorLook.detailFont
         detailLabel.textColor = HQPalette.label2
         detailLabel.lineBreakMode = .byTruncatingTail
-        headerLabel.font = Self.headerFont
-        headerLabel.textColor = HQPalette.label3
-        let first = UIStackView(arrangedSubviews: [titleLabel, timeLabel])
+        let first = UIStackView(arrangedSubviews: [glyph, titleLabel, timeLabel])
         first.axis = .horizontal
         first.spacing = 8
-        first.alignment = .firstBaseline
+        first.alignment = .center
         lines.axis = .vertical
         lines.spacing = Self.lineGap
         lines.addArrangedSubview(first)
         lines.addArrangedSubview(detailLabel)
-        for sub in [fill, dot, glyph, lines, headerLabel] {
+        for sub in [dot, lines] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(sub)
         }
-        let columnMiddle = Self.fillInset + Self.pad + Self.column / 2
-        let words = Self.fillInset + Self.pad + Self.column + 8
         NSLayoutConstraint.activate([
-            fill.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.fillInset),
-            fill.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.fillInset),
-            fill.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 1),
-            fill.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -1),
-            lines.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: words),
-            lines.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(Self.fillInset + Self.pad + 2)),
+            lines.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: InspectorLook.margin),
+            lines.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -InspectorLook.margin),
             lines.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 7),
             dot.heightAnchor.constraint(equalToConstant: 7),
-            dot.centerXAnchor.constraint(equalTo: contentView.leadingAnchor, constant: columnMiddle),
+            dot.centerXAnchor.constraint(equalTo: contentView.leadingAnchor, constant: InspectorLook.margin / 2),
             dot.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            glyph.centerXAnchor.constraint(equalTo: contentView.leadingAnchor, constant: columnMiddle),
-            glyph.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            // A group's name starts where the glyph column does and sits low in its row, near the rows it names.
-            headerLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.fillInset + Self.pad),
-            headerLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5),
         ])
-        addInteraction(tip)
         addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:))))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func show(_ row: BotChatsPanel.Row) {
-        let header = row.kind == .header
-        headerLabel.isHidden = !header
-        headerLabel.text = row.title
-        lines.isHidden = header
-        hovers = !header
-        lit = row.current
-        fill.backgroundColor = lit ? HQPalette.cellPressed : .clear
-        // The chat on show and a reply not read are the two things said in a heavier face.
-        titleLabel.font = row.current || row.unread ? InspectorLook.textFont.pagesWeight(.semibold) : InspectorLook.textFont
-        titleLabel.textColor = HQPalette.label
-        titleLabel.text = row.title
-        timeLabel.text = row.time
-        timeLabel.isHidden = row.time.isEmpty
-        detailLabel.text = row.detail
-        detailLabel.isHidden = row.detail.isEmpty
-        let dotted = !header && (row.working || row.unread)
-        dot.isHidden = !dotted
-        dot.backgroundColor = row.working ? SessionStrip.workingColor : SessionStrip.unreadColor
-        glyph.isHidden = header || dotted || row.kind == .chat
-        glyph.tintColor = HQPalette.label2
-        switch row.kind {
-        case .botChat: glyph.image = SessionStrip.robot(side: 15)
-        case .newChat: glyph.image = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .medium))
-        default: glyph.image = nil
-        }
-        tip.defaultToolTip = header || row.tip.isEmpty ? nil : row.tip
+    func show(title: String, detail: String, time: String, working: Bool, unread: Bool, current: Bool, action: Bool) {
+        titleLabel.text = title
+        titleLabel.textColor = action ? ChatPalette.tint : HQPalette.label
+        glyph.isHidden = !action
+        glyph.tintColor = ChatPalette.tint
+        timeLabel.text = time
+        timeLabel.isHidden = time.isEmpty
+        detailLabel.text = detail
+        detailLabel.isHidden = detail.isEmpty
+        dot.isHidden = !(working || unread)
+        dot.backgroundColor = working ? SessionStrip.workingColor : SessionStrip.unreadColor
+        lit = current
+        backgroundColor = current ? HQPalette.cellPressed : .clear   // the cell's, edge to edge (its content view stops short of the scroller)
+        accessibilityLabel = [title, working ? "Working" : nil, unread ? "New reply" : nil, detail.isEmpty ? nil : detail,
+                              time.isEmpty ? nil : time].compactMap { $0 }.joined(separator: ", ")
+        accessibilityTraits = current ? [.button, .selected] : .button
         isAccessibilityElement = true
-        accessibilityLabel = header ? row.title
-            : [row.title, row.working ? "Working" : nil, row.unread ? "New reply" : nil, row.detail.isEmpty ? nil : row.detail,
-               row.time.isEmpty ? nil : row.time].compactMap { $0 }.joined(separator: ", ")
-        accessibilityTraits = header ? .header : row.current ? [.button, .selected] : .button
     }
 
     /// The row under the pointer lights a little, as the sidebar's rows do.
     @objc private func hovered(_ hover: UIHoverGestureRecognizer) {
-        let over = hovers && (hover.state == .began || hover.state == .changed)
-        fill.backgroundColor = lit ? HQPalette.cellPressed : over ? HQPalette.cellPressed.withAlphaComponent(0.5) : .clear
+        let over = hover.state == .began || hover.state == .changed
+        backgroundColor = lit ? HQPalette.cellPressed : over ? HQPalette.cellPressed.withAlphaComponent(0.5) : .clear
     }
 }
 #endif

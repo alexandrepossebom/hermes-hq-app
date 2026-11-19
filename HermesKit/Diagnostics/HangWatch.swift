@@ -64,7 +64,7 @@ nonisolated final class HangWatch: Sendable {
     private let record: @Sendable (HangJudge.Report) -> Void
     private let sample: @Sendable () -> [UInt]?
 
-    static let shared = HangWatch(record: HangWatch.log, sample: { MainStack.sample(limit: MainStack.depth) })
+    static let shared = HangWatch(record: HangWatch.log, sample: { MainStack.sample() })
 
     /// `sample` reads the main thread's stack (MainStack.sample in the app; none by default, so tests never stop it).
     init(record: @escaping @Sendable (HangJudge.Report) -> Void = HangWatch.log, sample: @escaping @Sendable () -> [UInt]? = { nil }) {
@@ -212,7 +212,7 @@ nonisolated final class HangWatch: Sendable {
         if !facts.isEmpty { fields.append(("ctx", facts)) }
         LogUploader.shared.record("main.hang", fields)
         for (n, frames) in stacks.enumerated() {
-            for (i, frame) in MainStack.kept(frames) {
+            for (i, frame) in frames.enumerated() {
                 LogUploader.shared.record("main.hang.frame", [("rec", rec), ("n", n + 1), ("i", i), ("b", frame.binary),
                                                               ("o", frame.offset), ("s", frame.symbol ?? "")])
             }

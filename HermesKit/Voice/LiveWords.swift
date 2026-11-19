@@ -82,13 +82,12 @@ nonisolated protocol LiveWordsListening: AnyObject, Sendable {
 
     /// Checks whether this device can hear words in the person's language, and starts the model's download when that's
     /// all it lacks (Apple's shared model: other apps may have it already). Cheap once checked.
-    /// `ask`: a chat opening gets the larger model only for someone who talks (`ParakeetWords`).
-    static func prepare(_ ask: ParakeetWords.Ask = .use) {
+    static func prepare() {
         guard isOn else { return }
         #if DEBUG
         if debugScript != nil { return }
         #endif
-        ParakeetWords.prepare(ask)   // [more accurate words] the larger model, when it is wanted and can be had
+        ParakeetWords.prepare()   // [more accurate words] the larger model, when it is wanted and can be had
         guard readiness == .unknown else { return }
         set(.checking)
         let wanted = LiveWordsEngine.wanted(chosen: language, preferred: Locale.preferredLanguages, keyboards: keyboardLanguages, current: .current)

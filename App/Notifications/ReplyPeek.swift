@@ -1,10 +1,8 @@
 // The in-app counterpart of a notification banner (port of the web app's DispatchReplyPeek, HermesUIChat.swift, build
 // 222+): another chat's finished reply drops in as a Liquid Glass capsule — the system's own untinted glass — just under
-// the Dynamic Island, with the bot's face, name, the chat's title and up to three lines of the reply. The whole card
-// opens the chat; a swipe up sends it away (on the Mac also its ✕); a finger (on the Mac, the pointer) resting on it
-// holds it; it leaves by itself after 6 s (twice that with VoiceOver). [owner 2026-11-18] "These notifications need to
-// have more detail in them and be overall larger to make them easier to see": bigger face and words, the chat's title,
-// three lines of the reply instead of one, wider on the Mac; one line stays a capsule, more become a rounded card. A second reply
+// the Dynamic Island, with the bot's face, name and first line. The whole capsule opens the chat; a swipe up sends it
+// away (on the Mac also its ✕); a finger (on the Mac, the pointer) resting on it holds it; it leaves by itself after
+// 4.5 s (twice that with VoiceOver). A second reply
 // while it shows takes its place and counts the others ("+1"), so replies never stack up over the chat.
 
 import UIKit
@@ -12,8 +10,6 @@ import UIKit
 struct PeekAlert {
     var name: String
     var body: String
-    /// The chat's title beside the name (empty: an untitled chat, or a room, whose name is already in `name`).
-    var chat: String = ""
     /// The chat a tap opens (stored id) and its bot.
     var session: String
     var profile: String?
@@ -23,10 +19,8 @@ struct PeekAlert {
 
 @MainActor final class ReplyPeek: NSObject {
     static let shared = ReplyPeek()
-    static let height: CGFloat = 76
-    static let shownFor: TimeInterval = 6
-    /// The card's widest: the iPhone's banner width; on the Mac a little more, as the window is wide.
-    static var widest: CGFloat { DeviceWord.isMac ? 560 : 460 }
+    static let height: CGFloat = 64
+    static let shownFor: TimeInterval = 4.5
 
     private(set) var view: PeekView?
     private var timer: Timer?
@@ -73,12 +67,11 @@ struct PeekAlert {
 
     private func layout(_ peek: PeekView, in window: UIWindow) {
         let inset: CGFloat = 12
-        let width = min(window.bounds.width - inset * 2 - window.safeAreaInsets.left - window.safeAreaInsets.right, Self.widest)
+        let width = min(window.bounds.width - inset * 2 - window.safeAreaInsets.left - window.safeAreaInsets.right, 440)
         // Apple's banner spot: just under the status bar and the Dynamic Island.
         let y = window.safeAreaInsets.top + 2
         // [a11y] The capsule grows with its (capped) text: the web's is fixed, native follows the text size.
-        let height = max(Self.height, peek.fittingHeight(width: width))
-        peek.shape(height: height)
+        let height = max(Self.height, peek.wordsHeight + 16)
         peek.bounds = CGRect(x: 0, y: 0, width: width, height: height)
         peek.center = CGPoint(x: window.bounds.midX, y: y + height / 2)
         peek.resting = peek.center
@@ -130,8 +123,7 @@ struct PeekAlert {
         } completion: { _ in peek.removeFromSuperview() }
     }
 
-    /// The card: glass, a face, the name and the chat's title over up to three lines of the reply, and the others'
-    /// count at the end.
+    /// The capsule: glass, a face, a name over one line of the reply, and the others' count at the end.
     /// [Mac glass 2026-11-17] A `BackedGlassCard`: on the Mac a veil in the page's colour lies under the glass, so the
     /// title and messages it drops over no longer read through it (the pop-overs' backing). Elsewhere plain glass.
     final class PeekView: BackedGlassCard, UIGestureRecognizerDelegate {
@@ -144,7 +136,6 @@ struct PeekAlert {
         private let face = UIImageView()
         private let initial = UILabel()
         private let name = UILabel()
-        private let chat = UILabel()
         private let line = UILabel()
         private let count = UILabel()
         /// [mac] Mac stress #44: with a mouse the swipe up is hidden knowledge, so a small ✕ puts the capsule away, and
@@ -168,44 +159,26 @@ struct PeekAlert {
 
             face.contentMode = .scaleAspectFill
             face.clipsToBounds = true
-            face.layer.cornerRadius = Self.faceSize / 2
+            face.layer.cornerRadius = 20
             face.layer.cornerCurve = .continuous
-            initial.font = HQFont.system(ofSize: 20, weight: .semibold) // a11y-font-ok: the letter inside the 48 pt face
+            initial.font = HQFont.system(ofSize: 16, weight: .semibold) // a11y-font-ok: the letter inside the 40 pt face
             initial.accessibilityIdentifier = "reply-peek.initial"
             initial.textColor = .white
             initial.textAlignment = .center
             face.addSubview(initial)
             face.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([face.widthAnchor.constraint(equalToConstant: Self.faceSize), face.heightAnchor.constraint(equalToConstant: Self.faceSize)])
+            NSLayoutConstraint.activate([face.widthAnchor.constraint(equalToConstant: 40), face.heightAnchor.constraint(equalToConstant: 40)])
 
-            name.font = HQFont.scaled(17, weight: .semibold, like: .headline, cap: 26)
+            name.font = HQFont.scaled(15, weight: .semibold, like: .subheadline, cap: 22)
             name.adjustsFontForContentSizeCategory = true   // [a11y] follows a live text-size change
             name.textColor = .label   // system-ink-ok: on the system's untinted glass
-            // The name keeps to its words and the title takes the rest of the row, so the words fill the card and
-            // the count and ✕ sit at its end even for a short reply.
-            name.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-            name.setContentCompressionResistancePriority(.defaultHigh + 1, for: .horizontal)
-            // The chat's title gives way first when the row is short of room: the name stays whole.
-            chat.font = HQFont.scaled(15, like: .subheadline, cap: 24)
-            chat.adjustsFontForContentSizeCategory = true   // [a11y] follows a live text-size change
-            chat.textColor = .secondaryLabel   // system-ink-ok: on the system's untinted glass
-            chat.accessibilityIdentifier = "reply-peek.chat"
-            chat.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            chat.setContentHuggingPriority(.defaultLow - 1, for: .horizontal)
-            let heading = UIStackView(arrangedSubviews: [name, chat])
-            heading.axis = .horizontal
-            heading.spacing = 6
-            heading.alignment = .firstBaseline
-            line.font = HQFont.scaled(15, like: .subheadline, cap: 24)
+            line.font = HQFont.scaled(14, like: .footnote, cap: 22)
             line.adjustsFontForContentSizeCategory = true   // [a11y] follows a live text-size change
-            line.textColor = .label.withAlphaComponent(0.78)   // system-ink-ok: on the system's untinted glass
-            line.numberOfLines = 3
-            line.setContentHuggingPriority(.defaultLow - 1, for: .horizontal)
-            line.accessibilityIdentifier = "reply-peek.line"
-            let words = UIStackView(arrangedSubviews: [heading, line])
+            line.textColor = .secondaryLabel   // system-ink-ok: on the system's untinted glass
+            let words = UIStackView(arrangedSubviews: [name, line])
             words.axis = .vertical
-            words.spacing = 2
-            [name, chat, line].forEach { $0.lineBreakMode = .byTruncatingTail }
+            words.spacing = 1
+            [name, line].forEach { $0.lineBreakMode = .byTruncatingTail }
 
             count.font = HQFont.scaled(13, weight: .semibold, like: .footnote, cap: 20)
             count.adjustsFontForContentSizeCategory = true   // [a11y] follows a live text-size change
@@ -233,12 +206,12 @@ struct PeekAlert {
             }
             contentStack.axis = .horizontal
             contentStack.alignment = .center
-            contentStack.spacing = 12
+            contentStack.spacing = 10
             contentStack.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(contentStack)
             NSLayoutConstraint.activate([
-                contentStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.lead),
-                contentStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -trail),
+                contentStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+                contentStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: close == nil ? -18 : -12),
                 contentStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             ])
 
@@ -256,38 +229,11 @@ struct PeekAlert {
 
         func materialize(_ on: Bool) { effect = on ? glass : nil }
 
-        static let faceSize: CGFloat = 48
-        static let lead: CGFloat = 14
-        /// Above and below the words when they are taller than the face.
-        static let pad: CGFloat = 14
-        private var trail: CGFloat { close == nil ? 20 : 14 }
-
-        /// The words' height at this width and the current text size, with room above and below. Measured from the
-        /// text's own width (what is left beside the face, the count and the ✕): a stack's fitting pass can wrap a
-        /// short reply into three lines it never draws.
-        func fittingHeight(width: CGFloat) -> CGFloat {
-            let gap = contentStack.spacing
-            var beside = Self.faceSize + gap
-            if !count.isHidden { beside += count.intrinsicContentSize.width + gap }
-            if let close { beside += close.intrinsicContentSize.width + gap }
-            let text = max(40, width - Self.lead - trail - beside)
-            line.preferredMaxLayoutWidth = text
-            let heading = ceil(max(name.font.lineHeight, chat.isHidden ? 0 : chat.font.lineHeight))
-            let body = line.isHidden ? 0 : ceil(line.sizeThatFits(CGSize(width: text, height: .greatestFiniteMagnitude)).height) + 2
-            return max(Self.faceSize, heading + body) + Self.pad * 2
-        }
-
-        /// One line keeps the capsule; taller words get a rounded card with the pop-overs' corner, which the Mac's veil
-        /// under the glass (`BackedGlassCard`) already follows.
-        func shape(height: CGFloat) {
-            if height <= ReplyPeek.height + 0.5 { cornerConfiguration = .capsule() }
-            else { cornerConfiguration = .corners(radius: .fixed(ModelPanelView.radius)) }
-        }
+        /// The name over the line, at the current text size.
+        var wordsHeight: CGFloat { ceil(name.font.lineHeight) + (line.isHidden ? 0 : 1 + ceil(line.font.lineHeight)) }
 
         func fill(_ alert: PeekAlert, others: Int) {
             name.text = alert.name
-            chat.text = alert.chat
-            chat.isHidden = alert.chat.isEmpty || alert.chat == alert.name
             line.text = alert.body
             line.isHidden = alert.body.isEmpty
             count.text = others > 0 ? "+\(others)" : nil
@@ -296,18 +242,17 @@ struct PeekAlert {
                 face.image = shown.image; face.backgroundColor = .clear; initial.isHidden = true
                 // [photoheads] A photo comes as an app-icon tile with its own corners: it is never cut to a circle.
                 // What was drawn decides, not what the bot wears: a photo that was not ready comes as a head.
-                face.layer.cornerRadius = shown.isPhoto ? 0 : Self.faceSize / 2
+                face.layer.cornerRadius = shown.isPhoto ? 0 : 20
             } else {
                 face.image = nil
-                face.layer.cornerRadius = Self.faceSize / 2
+                face.layer.cornerRadius = 20
                 face.backgroundColor = .systemGray
                 initial.text = alert.name.first.map { String($0).uppercased() }
                 initial.isHidden = false
             }
-            initial.frame = CGRect(x: 0, y: 0, width: Self.faceSize, height: Self.faceSize)
-            let place = chat.isHidden ? "" : " in \(alert.chat)"
+            initial.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
             let more = others > 0 ? ", and \(others) more \(others == 1 ? "reply" : "replies")" : ""
-            accessibilityLabel = alert.body.isEmpty ? "\(alert.name) replied\(place)\(more)" : "\(alert.name) replied\(place): \(alert.body)\(more)"
+            accessibilityLabel = alert.body.isEmpty ? "\(alert.name) replied\(more)" : "\(alert.name) replied: \(alert.body)\(more)"
             accessibilityValue = others > 0 ? "+\(others)" : nil
         }
 

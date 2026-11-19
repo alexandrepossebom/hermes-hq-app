@@ -31,11 +31,9 @@ extension ComposerUITests {
         XCTAssertTrue(bubble.exists && !app.cells["bot-row-default"].isHittable, "the chat is still on screen: no swipe back")
         IPad.shot(app, "thinking-bar-drag-right", in: self)
 
-        // The sample keeps the level it was set to (since the Mac's selector, 2026-11-17): from the top, a drag left
-        // from the bar's far end runs it down to Off.
-        XCTAssertTrue(IPad.waitUntil(timeout: 5) { !(bar.value as? String ?? "").hasPrefix("High") })
-        let end = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 1)).withOffset(CGVector(dx: 0, dy: -17))
-        end.press(forDuration: 0.1, thenDragTo: end.withOffset(CGVector(dx: -420, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.2)
+        // The sample panel reads High again; a drag left runs it down to Off.
+        XCTAssertTrue(IPad.waitUntil(timeout: 5) { (bar.value as? String ?? "").hasPrefix("High") })
+        middle.press(forDuration: 0.1, thenDragTo: middle.withOffset(CGVector(dx: -200, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.2)
         XCTAssertTrue(IPad.waitUntil(timeout: 8) { self.reasoningSent(account).last == "none" },
                       "a drag left settles on Off (sent \(reasoningSent(account)))")
         XCTAssertEqual(reasoningSent(account).count, 2, "one config.set per drag")
@@ -164,14 +162,7 @@ extension ComposerUITests {
             XCTAssertTrue(panel.waitForExistence(timeout: 8), "\(look): the ⋯ opens the panel")
             XCTAssertTrue(app.descendants(matching: .any)["model.panel.thinking"].exists)
             let field = app.textViews["composer.text"]
-            // [model-sheet] The iPhone's panel is a sheet from the bottom, over the message box (it has a close disc);
-            // the iPad's card rests above the field.
-            if app.buttons["model.panel.close"].exists {
-                XCTAssertGreaterThan(panel.frame.maxY, app.frame.maxY - 60, "\(look): the sheet reaches the screen's foot")
-                XCTAssertGreaterThan(panel.frame.minY, app.frame.height * 0.3, "\(look): fitted to its page, not full height")
-            } else if field.exists {
-                XCTAssertLessThanOrEqual(panel.frame.maxY, field.frame.minY, "\(look): the card rests above the field")
-            }
+            if field.exists { XCTAssertLessThanOrEqual(panel.frame.maxY, field.frame.minY, "\(look): the card rests above the field") }
             IPad.shot(app, "more-model-panel-\(look)", in: self)
             let top = app.navigationBars.firstMatch.frame.maxY
             let above = panel.frame.minY - 24 > top + 8
@@ -195,13 +186,6 @@ extension ComposerUITests {
         let panel = app.descendants(matching: .any)["model.panel"]
         XCTAssertTrue(panel.waitForExistence(timeout: 8), "the panel opens")
         IPad.shot(app, "send-closes-panel-before", in: self)
-        // [model-sheet] On the iPhone the panel is a sheet over the message box (owner 2026-11-18), as the +'s sheet
-        // is: Send is under it, so its close disc comes first. The iPad's card still leaves Send in reach.
-        let close = app.buttons["model.panel.close"]
-        if close.exists {
-            close.tap()
-            XCTAssertTrue(IPad.waitUntil(timeout: 5) { !panel.exists }, "the disc closes the sheet")
-        }
         app.buttons["composer.send"].tap()
         XCTAssertTrue(IPad.waitUntil(timeout: 5) { !panel.exists }, "the send closes it")
         let field = IPad.field(app)

@@ -7,14 +7,11 @@ import Testing
 @Suite(.serialized) struct ReadSyncBotTests {
     private static let t0 = ReadSyncGateway.t0
 
-    private func store(_ hermes: ReadSyncGateway, readsTail: Bool = false, sweepGap: Duration = .zero,
-                       learnGapMax: Duration = .milliseconds(20)) -> BotStore {
+    private func store(_ hermes: ReadSyncGateway, readsTail: Bool = false, sweepGap: Duration = .zero) -> BotStore {
         var timing = BotStoreTiming.fast
         timing.sharesReads = true
         timing.readLearnGap = .milliseconds(20)
         timing.readSweepGap = sweepGap
-        timing.readLearnGapMax = learnGapMax      // (no back-off unless a test asks for it)
-        timing.readSweepGapMax = sweepGap
         timing.readsBotSaid = readsTail
         return BotStore(client: hermes.device(), account: .botsTestAccount, cacheDirectory: BotsTest.tempDirectory(), timing: timing)
     }
@@ -256,34 +253,6 @@ import Testing
         hermes.changed()
         #expect(await BotsTest.waitUntil { hermes.rowReads.count > dotted })
         device.stop()
-        RosterDiskWriter.shared.flush()
-    }
-
-    /// Reads that keep bringing the same watermark back off: each quiet round doubles the wait before the next, and a
-    /// round that brings a change puts it back. (The owner's logs, 2026-11-18: the same rows read every ten seconds.)
-    @Test func readsThatBringNothingNewBackOff() async throws {
-        let hermes = gateway()
-        // (The Mac reads nothing on its own here: every read counted below is the phone's.)
-        let mac = store(hermes, sweepGap: .seconds(3600)), phone = store(hermes, sweepGap: .seconds(3600), learnGapMax: .seconds(3600))
-        await settled(mac, phone)
-        hermes.activity("reg")
-        await phone.refresh()
-        await settled(phone)
-        #expect(herald(phone).unread)
-        // Quiet rounds: the gateway keeps saying its chats changed, the watermark stays the same.
-        for _ in 0..<40 where phone.readQuietRounds < 6 { hermes.changed(); try await Task.sleep(for: .milliseconds(50)) }
-        #expect(phone.readQuietRounds >= 4, "each round that brought nothing new counted")
-        #expect(phone.readGap(.seconds(10), atMost: .seconds(120)) == .seconds(120), "the gap between reads has grown to its most")
-        let quiet = hermes.rowReads.count
-        for _ in 0..<5 { hermes.changed(); try await Task.sleep(for: .milliseconds(30)) }
-        #expect(hermes.rowReads.count <= quiet + 1, "no read every time while backed off: \(hermes.rowReads.count - quiet) reads, \(phone.readQuietRounds) quiet rounds")
-        // The other device reads the chat: the round that learns it puts the pace back.
-        await mac.refresh()
-        await settled(mac)
-        mac.markRead(herald(mac))
-        #expect(await BotsTest.waitUntil(.seconds(8)) { hermes.changed(); return !herald(phone).unread })
-        #expect(await BotsTest.waitUntil { phone.readQuietRounds == 0 || !phone.readRoundOpen })
-        mac.stop(); phone.stop()
         RosterDiskWriter.shared.flush()
     }
 

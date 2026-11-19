@@ -14,25 +14,14 @@ nonisolated enum ModelLoad {
         if QueryRetry.cancelled(error) { return false }
         if let menus = error as? MenusError { return menus != .offline && menus != .loading }
         if let rpc = error as? RPCError {
-            if rpc.code == 4000 || rpc.code == -32601 || rpc.isNotConnected || needsRestart(rpc) { return false }
+            if rpc.code == 4000 || rpc.code == -32601 || rpc.isNotConnected { return false }
         }
         return true
     }
 
-    /// Hermes was updated on disk and is still running the old code (`5098`: "This gateway is running code from … but
-    /// the checkout on disk is now …"): it refuses the model list until it restarts, so asking again can't help.
-    static func needsRestart(_ error: any Error) -> Bool {
-        guard let rpc = error as? RPCError else { return false }
-        return rpc.code == 5098 || rpc.message.contains("checkout on disk is now")
-    }
-
-    static var restartWords: String { "\(HostWord.sentence) was updated and needs a restart before it can list models." }
-
     /// The line under "Couldn’t Load Models": nil = the title alone.
     static func words(for error: any Error, offline: Bool) -> String? {
         if offline || (error as? MenusError) == .offline || (error as? RPCError)?.isNotConnected == true { return "You’re offline." }
-        // [log review 2026-11-18] The gateway's own words here were a cut-off line about code and checkouts.
-        if needsRestart(error) { return restartWords }
         if QueryRetry.timedOut(error) || (error as? RPCError)?.isConnectionLost == true || error is URLError {
             return "\(HostWord.sentence) didn’t answer in time."
         }
