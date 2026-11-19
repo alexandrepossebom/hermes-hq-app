@@ -22,18 +22,20 @@ import UIKit
         let view = peek(PeekAlert(name: "Sam", body: "Done.", session: "s", profile: nil, face: nil))
         let height = max(ReplyPeek.height, view.fittingHeight(width: 440))
         #expect(height == ReplyPeek.height)
-        #expect(ReplyPeek.height >= 76)
+        // [owner 2026-11-18] The iPhone keeps the system banner's size; only the Mac's is bigger.
+        #expect(ReplyPeek.height == (DeviceWord.isMac ? 76 : 64))
+        #expect(ReplyPeek.PeekView.faceSize == (DeviceWord.isMac ? 48 : 38))
     }
 
-    @Test func longReplyGrowsToThreeLinesAndNoFurther() {
+    @Test func longReplyGrowsToItsLineLimitAndNoFurther() {
         let long = String(repeating: "The venue confirmed Friday at noon and the deposit is due Monday. ", count: 6)
         let view = peek(PeekAlert(name: "Otto", body: long, session: "s", profile: nil, face: nil))
         let line = label("reply-peek.line", in: view)
-        #expect(line?.numberOfLines == 3)
+        #expect(line?.numberOfLines == (DeviceWord.isMac ? 3 : 2))
         let height = view.fittingHeight(width: 440)
         let lineHeight = line?.font.lineHeight ?? 0
         #expect(height > ReplyPeek.height)
-        #expect(height < ReplyPeek.PeekView.pad * 2 + lineHeight * 5)   // the name's line and three of the reply, not six
+        #expect(height < ReplyPeek.PeekView.pad * 2 + lineHeight * (DeviceWord.isMac ? 5 : 4))   // the name's line and its lines, not six
     }
 
     @Test func theChatsTitleShowsBesideTheNameAndInTheLabel() {

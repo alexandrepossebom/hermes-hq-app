@@ -135,6 +135,30 @@ import UIKit
         #expect(tight[0].top < 0 && tight[1].bottom > 200)
     }
 
+    // A tester, 2026-11-18 (More › Files, a long folder): a section's card as tall as its 200 rows was not drawn whole, so
+    // the rows under where it stopped stood on the bare picture. Only the part near the screen is drawn, open where cut.
+    @MainActor @Test func longCardIsDrawnNearTheScreenOnly() {
+        let past = BackdropPlates.drawnPast
+        let screen = CGRect(x: 0, y: 5_000, width: 402, height: 874)
+        // A 10,600 pt card scrolled into its middle: cut at both ends, no corners there, never taller than the screen
+        // and the room each side.
+        let middle = BackdropPlates.drawn(top: 20, bottom: 10_620, near: screen)
+        #expect(middle.top == screen.minY - past && middle.bottom == screen.maxY + past)
+        #expect(middle.open == [.top, .bottom])
+        // Its top on screen: its own top and corners, cut below.
+        let head = BackdropPlates.drawn(top: 20, bottom: 10_620, near: CGRect(x: 0, y: -104, width: 402, height: 874))
+        #expect(head.top == 20 && head.bottom == 770 + past && head.open == [.bottom])
+        // Its foot on screen: cut above, its own foot and corners.
+        let foot = BackdropPlates.drawn(top: 20, bottom: 10_620, near: CGRect(x: 0, y: 10_000, width: 402, height: 874))
+        #expect(foot.top == 10_000 - past && foot.bottom == 10_620 && foot.open == [.top])
+        // A card that fits is drawn whole, as before.
+        let whole = BackdropPlates.drawn(top: 100, bottom: 400, near: CGRect(x: 0, y: 0, width: 402, height: 874))
+        #expect(whole.top == 100 && whole.bottom == 400 && whole.open.isEmpty)
+        // Wholly past the screen: nothing drawn.
+        let gone = BackdropPlates.drawn(top: 20, bottom: 300, near: screen)
+        #expect(gone.bottom - gone.top == 0)
+    }
+
     // Owner 2026-11-13 (a screenshot of Sessions on build 974): three projects on one card showed as three bands, one
     // piece of frosted glass per section. A run of joined sections has one card behind all of it.
     @MainActor @Test func joinedSectionsShareOneCard() throws {
