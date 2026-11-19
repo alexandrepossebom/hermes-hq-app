@@ -211,6 +211,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     /// A still (non-scrolling) scroll view holding the inverted table. The bar's scroll edge effect needs a
     /// scroll view whose top is the screen's top; the flipped table's own top is the screen's bottom.
     private let edgeHost = UIScrollView()
+    /// [status-bar-top] Takes the status bar's tap (the flipped table can't) and goes to the oldest message loaded.
+    private let topCatcher = StatusBarTopCatcher()
+    /// [status-bar-top] A tap's climb to the top: the old end's rows come into the table only as the reader nears them,
+    /// so one stop at the top of the rows on show fell well short. It goes on until every message loaded when the bar
+    /// was tapped is on show (an older page arriving meanwhile ends it there, as in Messages). Nil: no climb. `hops`
+    /// counts its tenth-of-a-second steps.
+    private var topClimb: (messages: Int, hops: Int)?
     /// [backdrop] Theme › Chat Background: the person's own picture behind everything, bars and message bar included.
     private let backdrop = BackdropView(place: .chats)
     #if targetEnvironment(macCatalyst)
@@ -626,6 +633,14 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         backdrop.frame = view.bounds
         backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.insertSubview(backdrop, at: 0)
+        if !DeviceWord.isMac {
+            // [status-bar-top] Under everything (the backdrop covers it, so it never takes a touch), along the top.
+            topCatcher.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 1)
+            topCatcher.autoresizingMask = [.flexibleWidth, .flexibleBottomMargin]
+            topCatcher.onTap = { [weak self] in self?.statusBarTapped() }
+            topCatcher.isFrontmost = { [weak self] in self?.isFrontmostForStatusBar ?? false }
+            view.insertSubview(topCatcher, at: 0)
+        }
 
         tableView.transform = CGAffineTransform(scaleX: 1, y: -1)
         #if targetEnvironment(macCatalyst)
@@ -648,7 +663,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         tableView.automaticallyAdjustsScrollIndicatorInsets = false
         tableView.allowsSelection = false
         tableView.delaysContentTouches = false
-        // A status-bar tap would scroll the flipped table to its own top: the newest end. Off.
+        // A status-bar tap would scroll the flipped table to its own top: the newest end. Off; `topCatcher` takes the
+        // tap and goes to the oldest message instead.
         tableView.scrollsToTop = false
         tableView.dataSource = self
         tableView.delegate = self
@@ -3689,6 +3705,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         if scrollView === tableView, !rows.isEmpty { onEngage?(.drag) }   // [tasks] the pinned panel rolls up
+        topClimb = nil   // [status-bar-top] your scroll wins
         endLift()
         stopGlide()
         stopStreamGlide()
@@ -3771,6 +3788,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     func jumpToLatest() {
         AppLog.trace("scroll", "jumped to bottom \(logTag): was \(unseen) unseen")
         leadPinEnded = true   // [tasks] the newest end wins
+        topClimb = nil   // [status-bar-top]
         endLift()
         anchorMessageId = nil
         unseen = 0
@@ -3812,9 +3830,11 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     /// [mac-feel D30] Page Up and Page Down move the transcript a screen (less a line or two, so the eye keeps its
     /// place), Home goes to the oldest message loaded and End to the newest, as in Messages and every Mac window that
-    /// scrolls. The keys did nothing: a chat could only be scrolled with the pointer.
-    func keyScroll(_ key: KeyScroll) {
+    /// scrolls. The keys did nothing: a chat could only be scrolled with the pointer. [status-bar-top] A tap on the
+    /// iPhone's and iPad's status bar is Home.
+    func keyScroll(_ key: KeyScroll, from source: String = "keys") {
         guard isViewLoaded else { return }
+        if source == "keys" { topClimb = nil }
         let low = minOffset
         let high = max(low, tableView.contentSize.height + tableView.contentInset.bottom - tableView.bounds.height)
         let page = max(88, transcriptBottom - topInset - 44)
@@ -3826,7 +3846,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         case .home: high
         case .end: low
         }
-        AppLog.note("keys", "scroll \(key)")
+        AppLog.note(source == "keys" ? "keys" : "chat", "scroll \(key) (\(source))")
         if target <= low + 2 {
             if !isAtBottom || !following { jumpToLatest() }   // the newest end: the jump's own glide, following again
             return
@@ -3854,6 +3874,51 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         updateJumpButton()
         scheduleTrim()
+    }
+
+    // MARK: [status-bar-top] A tap on the status bar goes to the top of the chat
+
+    /// Nothing is presented over the chat (it may itself be inside a presented page).
+    private var isFrontmostForStatusBar: Bool {
+        guard let window = viewIfLoaded?.window, var top = window.rootViewController else { return false }
+        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+        return view.isDescendant(of: top.view)
+    }
+
+    private func statusBarTapped() {
+        guard isViewLoaded, !rows.isEmpty else { return }
+        let first = topClimb == nil
+        topClimb = (session.messages.count, 0)
+        keyScroll(.home, from: "status bar")
+        if first { climbSoon(last: tableView.contentOffset.y) }
+    }
+
+    /// The climb, every tenth of a second until it ends: once the table has stopped moving (its scroll animation done,
+    /// or cut short by an update showing more rows, which ends it without a callback), on to the new top while rows are
+    /// still coming in above. Ends at the top with nothing left to show, on a new message, or after about eight seconds.
+    private func climbStep(last: CGFloat) {
+        guard var climb = topClimb, isViewLoaded, tableView.window != nil else { topClimb = nil; return }
+        climb.hops += 1
+        topClimb = climb
+        guard climb.hops < 80, session.messages.count == climb.messages else { topClimb = nil; return }
+        let now = tableView.contentOffset.y
+        if abs(now - last) > 0.5 { return climbSoon(last: now) }   // still moving
+        // Rows still to come above: hidden, unbuilt, or shown but not yet in the table (a measure in flight).
+        let more = model.hiddenOlder > 0 || model.builtFrom > 0 || rows.count < model.shownCount || layoutInFlight
+        let high = max(minOffset, tableView.contentSize.height + tableView.contentInset.bottom - tableView.bounds.height)
+        if high - now > 2 {
+            keyScroll(.home, from: "status bar")
+        } else if more {
+            revealIfNeeded()   // at the top of what's in the table: the rows above are on their way
+        } else {
+            topClimb = nil
+            return
+        }
+        climbSoon(last: now)
+    }
+
+    private func climbSoon(last: CGFloat) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.climbStep(last: last) }
     }
 
     private static let traceScroll = ProcessInfo.processInfo.arguments.contains("-HQDemoTraceScroll")
