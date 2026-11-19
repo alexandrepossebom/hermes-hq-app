@@ -14,6 +14,37 @@
 import UIKit
 
 extension MacShots {
+    /// [owner 2026-11-18 "more detail … overall larger"] The reply peek over the window: a short reply, a long one in a
+    /// titled chat, and one with others behind it, in light and dark (`<name>-peek-<n>-<label>.png`, the whole window).
+    @MainActor static func peekTour(_ window: UIWindow, name: String, folder: URL) async {
+        let long = "I’ve made this the standard for everything I send you from now on: the headline first, then the three "
+            + "numbers that moved, then what I need from you, with links to the sources at the end of each section."
+        let alerts: [(String, PeekAlert)] = [
+            ("short", PeekAlert(name: "Sam", body: "The venue confirmed Friday at noon.", session: "peek-1", profile: nil, face: nil)),
+            ("long", PeekAlert(name: "Otto", body: long, chat: "Landing page audit", session: "peek-2", profile: nil, face: nil)),
+            ("two-lines", PeekAlert(name: "Ivy", body: "Deploy finished. Two warnings in the build log, nothing blocking; details are in the chat.",
+                                    chat: "Release 1121", session: "peek-3", profile: nil, face: nil)),
+        ]
+        var log = ""
+        var step = 0
+        let saved = window.overrideUserInterfaceStyle
+        for style in [UIUserInterfaceStyle.dark, .light] {
+            window.overrideUserInterfaceStyle = style
+            for (label, alert) in alerts {
+                ReplyPeek.shared.show(alert, in: window) { _ in }
+                try? await Task.sleep(for: .seconds(1.4))
+                step += 1
+                let tag = "\(name)-peek-\(String(format: "%02d", step))-\(style == .dark ? "dark" : "light")-\(label)"
+                shoot(window, to: folder.appending(path: "\(tag).png"))
+                if let peek = ReplyPeek.shared.view { log += "\(tag): frame \(peek.frame) window \(window.bounds.size)\n" }
+                ReplyPeek.shared.dismiss(up: true)
+                try? await Task.sleep(for: .seconds(0.6))
+            }
+        }
+        window.overrideUserInterfaceStyle = saved
+        try? log.write(to: folder.appending(path: "\(name)-peek.txt"), atomically: true, encoding: .utf8)
+    }
+
     @MainActor static func hostileTour(_ window: UIWindow, tabs: MainTabController, name: String, folder: URL, stops: String) async {
         let wanted = Set(stops.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
         func wants(_ stop: String) -> Bool { wanted.contains("all") || wanted.contains(stop) || wanted.contains("YES") }
@@ -178,7 +209,14 @@ extension MacShots {
             ReplyPeek.shared.show(PeekAlert(name: "Sam", body: "The venue confirmed Friday at noon; the deposit is due Monday.",
                                             session: "hostile-peek", profile: nil, face: nil), in: window) { _ in }
             try? await Task.sleep(for: .seconds(1.5))
-            snap("reply peek", crop: CGRect(x: 0, y: 0, width: window.bounds.width, height: 160))
+            snap("reply peek", crop: CGRect(x: 0, y: 0, width: window.bounds.width, height: 200))
+            // A long reply in a titled chat: the title beside the name, three lines of the reply, then the card cuts.
+            ReplyPeek.shared.show(PeekAlert(name: "Otto", body: "I’ve made this the standard for everything I send you from now on: the headline first, "
+                                                + "then the three numbers that moved, then what I need from you, with links to the sources at the end of each "
+                                                + "section so you can check my work.",
+                                            chat: "Landing page audit", session: "hostile-peek-2", profile: nil, face: nil), in: window) { _ in }
+            try? await Task.sleep(for: .seconds(1.5))
+            snap("reply peek long", crop: CGRect(x: 0, y: 0, width: window.bounds.width, height: 200))
             ReplyPeek.shared.dismiss(up: true)
             try? await Task.sleep(for: .seconds(0.8))
             // The Undo pill over the chat, then over a list with rows under it.

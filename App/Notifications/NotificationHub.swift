@@ -321,8 +321,10 @@ import UIKit
 
     private func showPeek(name: String, body: String, entry: Entry) {
         guard NotificationPrefs.banners(), let window = window?() else { return }
-        let alert = PeekAlert(name: name.isEmpty ? "New reply" : name, body: body, session: entry.stored, profile: entry.profile,
-                              face: face?(entry.profile))
+        // The same words the system's banner would carry: the reply as plain text (masked, clipped) and the chat's title.
+        let copy = NotificationText.notification(kind: "message.complete", who: entry.who, text: body)
+        let alert = PeekAlert(name: name.isEmpty ? "New reply" : name, body: body.isEmpty ? "" : copy.body, chat: copy.subtitle,
+                              session: entry.stored, profile: entry.profile, face: face?(entry.profile))
         PresenceNotice.shared.dismiss(up: true)   // [presence] one banner at the banner spot: the newer one wins
         ReplyPeek.shared.show(alert, in: window) { [weak self] alert in self?.open(alert.session, profile: alert.profile) }
         AppLog.note("notify", "peek")
@@ -440,7 +442,7 @@ import UIKit
             let entry = directory[target.session]
             let name = entry?.who.sender.isEmpty == false ? entry!.who.sender : content.title
             let profile = target.profile ?? entry?.profile
-            let alert = PeekAlert(name: name, body: content.body, session: target.session, profile: profile,
+            let alert = PeekAlert(name: name, body: content.body, chat: content.subtitle, session: target.session, profile: profile,
                                   face: profile.flatMap { face?($0) })
             PresenceNotice.shared.dismiss(up: true)   // [presence] one banner at the banner spot
             ReplyPeek.shared.show(alert, in: window) { [weak self] alert in self?.open(alert.session, profile: alert.profile) }
