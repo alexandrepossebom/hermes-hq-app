@@ -41,6 +41,12 @@ final class SessionsHeaderModel {
     var pickedProjects: Set<String> = []
     /// [project-pills] A bot picked another way (Filter › All Bots off) keeps All from lighting.
     var botPicked = false
+    /// [mac-top] The Mac shows a project's page: its header carries the counts, so the row under the bar leaves them out.
+    var onPage = false
+    /// [mac-scope-menu] Each bot's New and Working counts, for its row in the Mac's menu.
+    var botCounts: [String: [SessionStatusChip: Int]] = [:]
+    /// [mac-scope-menu] A bot's face (its photo as a circle, or its head): profile, side, dark, scale.
+    @ObservationIgnored var face: (String, CGFloat, Bool, CGFloat) -> UIImage? = { _, _, _, _ in nil }
     @ObservationIgnored var onPick: (String?) -> Void = { _ in }
     @ObservationIgnored var onPickProject: (String?) -> Void = { _ in }
     /// [project-pills] A project pill's hold: Archive Project / Unarchive Project.
@@ -86,6 +92,17 @@ final class SessionsHeaderModel {
 struct SessionsHeaderView: View {
     var model: SessionsHeaderModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
+    @State private var scopeHover = Self.debugHover
+    /// `-HQDebugScopeHover YES` draws the menu button as under the pointer, for a picture.
+    private static var debugHover: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "HQDebugScopeHover")
+        #else
+        false
+        #endif
+    }
     /// [mac] Stress test 2026-10-28 #11: chips cut off at either end of the rail; that end fades as a hint to scroll.
     /// Round 2: the ends were read only from `onScrollGeometryChange`, which runs when
     /// the rail scrolls, not when it first lays out, so a rail cut at the pane's edge showed no fade until it was
@@ -179,49 +196,56 @@ struct SessionsHeaderView: View {
     /// a Mac app"; he took the drawing with the menu). The row under the bar is the Bots | Projects switch, the view's
     /// "All Bots" / "All Projects" menu, and New and Working as counts at its end: nothing scrolls sideways or is cut at
     /// the pane's edge. It reverses his 2026-11-17 pick of the iPhone's pill row for the Mac ([mac-switch]).
-    ///
-    /// [mac-pane-narrow] A tester 2026-11-19: with the pane dragged narrow the switch ran off its leading edge, the menu
-    /// read "Al…" and "1 working" was cut at the trailing one. The row now takes the widest form that fits: all of it;
-    /// then the counts as numbers beside their marks; then the switch as its two glyphs. Only after that is the menu's
-    /// name cut, and at the pane's narrowest (320 pt) that last form still fits whole.
     private var macRow: some View {
+        // [mac-top] Owner 2026-11-19 (a screenshot of a project's page: "the top section feels so messy", then "I just
+        // want to redo what we have to be better suited"): the same three things in the same places, drawn as one set of
+        // Mac controls: one height, one corner, one type size, their left edge on the rows' text. In a narrow pane the
+        // row had run past both edges (the switch cut at the left, the menu down to its arrows, "1 new" cut at the right);
+        // the menu's name now gives way first and keeps its room ahead of the counts. On a project's page the counts are
+        // the header's (that project's, and they narrow it), so the row doesn't say them a second time.
+        // A pane too narrow for it all says the counts as a mark and a number ("● 5"), then the switch's words without
+        // its glyphs, before the menu's name is cut. The switch always says Bots and Projects (owner 2026-11-19: "The
+        // toggle should have Bots and Projects written in it just like it has on iOS").
         ViewThatFits(in: .horizontal) {
-            macRowForm(words: true, counts: true)
-            macRowForm(words: true, counts: false)
-            macRowForm(words: false, counts: false)
+            macRowContent(switchIcons: true, countWords: true)
+            macRowContent(switchIcons: true, countWords: false)
+            macRowContent(switchIcons: false, countWords: false)
+            macRowContent(switchIcons: false, countWords: false, menuPicture: false)   // [mac-scope-button] words over faces
         }
-        .padding(.leading, ProjectCard.lead - 4)
-        .padding(.trailing, ProjectCard.lead)
+        .frame(height: SessionsMacControl.height)
+        .padding(.leading, Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead)   // the project header's edge
+        .padding(.trailing, (Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead) - 6)   // a count's text ends where the rows' times do (its 6 pt padding)
         .padding(.top, Theme.isDesktop ? 6 : 4)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// One form of the Mac's row. `words`: the switch names its sides; `counts`: New and Working say their word.
-    private func macRowForm(words: Bool, counts: Bool) -> some View {
-        HStack(spacing: counts ? 10 : 6) {
-            if model.showsSwitch { SessionsPillsSwitch(model: model, words: words).fixedSize() }
-            if model.hasPills { scopeMenu }
-            Spacer(minLength: 4)
-            ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip, worded: counts) }
+    private func macRowContent(switchIcons: Bool, countWords: Bool, menuPicture: Bool = true) -> some View {
+        HStack(spacing: countWords ? 8 : 6) {
+            if model.showsSwitch { SessionsPillsSwitch(model: model, macIcons: switchIcons).fixedSize() }
+            if model.hasPills { scopeMenu(picture: menuPicture).layoutPriority(1) }
+            Spacer(minLength: 0)
+            if !model.onPage {
+                ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip, words: countWords) }
+            }
         }
     }
 
     /// New's or Working's count ("5 new"): a click narrows the list to those chats, another brings every chat back.
-    /// In a narrow pane it is the mark and the number alone; the tip and VoiceOver still say which.
-    private func macStatus(_ chip: SessionStatusChip, worded: Bool = true) -> some View {
+    private func macStatus(_ chip: SessionStatusChip, words: Bool = true) -> some View {
         let count = model.statusChips[chip] ?? 0
         let word = chip == .new ? "new" : "working"
         let picked = model.status == chip
         return Button { model.onPickStatus(picked ? nil : chip) } label: {
             HStack(spacing: 5) {
                 StatusChipMark(chip: chip, picked: false)
-                Text(worded ? "\(count) \(word)" : "\(count)").lineLimit(1)
+                Text(words ? "\(count) \(word)" : "\(count)").lineLimit(1)
             }
             .font(Font.hq(.footnote).weight(picked ? .semibold : .regular))
             .foregroundStyle(picked ? Color.hqLabel : Color.hqLabel2)
-            .padding(.horizontal, worded ? 8 : 5).padding(.vertical, 4)
-            .background(picked ? Color.hqFill3 : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, words ? 6 : 4)
+            .frame(height: SessionsMacControl.height)
+            .background(picked ? Color.hqFill3 : Color.clear, in: RoundedRectangle(cornerRadius: SessionsMacControl.radius, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -233,45 +257,65 @@ struct SessionsHeaderView: View {
     }
 
     /// The view's choices: every bot or one, every project or one (a project opens its page).
-    private var scopeMenu: some View {
+    /// [mac-scope-menu] Owner 2026-11-19: "The all bots drop down needs to be better." The button shows the picked bot's
+    /// face (a project's folder) before its name, and the menu is a UIKit menu (`SessionsHeaderModel.scopeMenuElements`)
+    /// so each row can carry the bot's face and what is going on there ("2 working · 1 new"), archived projects
+    /// folded into a submenu. It had been names alone in a SwiftUI picker.
+    private func scopeMenu(picture: Bool) -> some View {
         let projects = model.pills == .projects
         let pickedProject = model.projects.first { model.pickedProjects.contains($0.key) }
         let title = projects ? (model.pickedProjects.count == 1 ? pickedProject?.label ?? "All Projects" : "All Projects")
             : model.picked.flatMap { id in model.bots.first { $0.id == id }?.name } ?? "All Bots"
-        return Menu {
-            if projects {
-                Picker(selection: Binding(get: { model.pickedProjects.count == 1 ? model.pickedProjects.first : nil },
-                                          set: { model.onPickProject($0) })) {
-                    Text("All Projects").tag(String?.none)
-                    Divider()
-                    ForEach(model.projects) { project in
-                        Text(project.archived ? "\(project.label) (Archived)" : project.label).tag(Optional(project.key))
-                    }
-                } label: { EmptyView() }
-                .pickerStyle(.inline)
-            } else {
-                Picker(selection: Binding(get: { model.picked }, set: { model.onPick($0) })) {
-                    Text("All Bots").tag(String?.none)
-                    Divider()
-                    ForEach(model.bots) { bot in Text(bot.name).tag(Optional(bot.id)) }
-                } label: { EmptyView() }
-                .pickerStyle(.inline)
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Text(title).lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down").font(Font.hq(.caption2).weight(.semibold)).foregroundStyle(Color.hqLabel2)
-            }
-            .font(Font.hq(.subheadline).weight(.medium))
-            .foregroundStyle(Color.hqLabel)
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Color.hqFill3, in: RoundedRectangle(cornerRadius: 7))
-            .contentShape(Rectangle())
+        let side = HQFont.scaled(15)
+        // [mac-scope-button] Owner 2026-11-19 ("And the button to open that drop down?"): it was a grey box like the
+        // switch beside it, so it read as the switch's third side. It is a Mac pop-up button now: an outline on the page
+        // (the switch is the filled control), a picture before the words (the first bots' faces overlapping for All
+        // Bots, the picked bot's face, a folder for projects), a downward chevron, and a fill under the pointer.
+        return HStack(spacing: 6) {
+            if picture { scopePicture(projects: projects, side: side) }
+            Text(title).lineLimit(1).truncationMode(.tail)
+            Image(systemName: "chevron.down").font(Font.hqSystem(size: HQFont.scaled(9), weight: .bold))
+                .foregroundStyle(Color.hqLabel2)
+                .fixedSize()
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
+        .font(SessionsMacControl.font)
+        .foregroundStyle(Color.hqLabel)
+        .padding(.leading, picture ? 5 : 8).padding(.trailing, 8)
+        .frame(minWidth: 64, maxHeight: SessionsMacControl.height)   // [mac-top] never just its arrows
+        .background {
+            let shape = RoundedRectangle(cornerRadius: SessionsMacControl.radius, style: .continuous)
+            shape.fill(scopeHover ? Color.hqLabel.opacity(0.16) : Color.clear)
+                .overlay { shape.strokeBorder(Color.hqStroke, lineWidth: 1) }
+        }
         .fixedSize(horizontal: false, vertical: true)   // a long project's name is cut, not the counts after it
-        .accessibilityIdentifier("pages.scope")
+        .accessibilityHidden(true)
+        .overlay {
+            SessionsScopeMenuButton(model: model, title: title) { scopeHover = $0 }
+        }
+    }
+
+    /// [mac-scope-button] The picture before the menu's words.
+    @ViewBuilder private func scopePicture(projects: Bool, side: CGFloat) -> some View {
+        let dark = colorScheme == .dark
+        if projects {
+            Image(systemName: model.pickedProjects.count == 1 ? "folder" : "square.stack")
+                .font(Font.hqSystem(size: HQFont.scaled(11), weight: .medium))
+                .foregroundStyle(Color.hqLabel2)
+                .frame(width: side, height: side)
+        } else if let id = model.picked, let face = model.face(id, side, dark, displayScale) {
+            Image(uiImage: face).resizable().frame(width: side, height: side)
+        } else {
+            // All Bots: the first three faces, each overlapping the one before it by half, ringed in the page colour.
+            let faces = model.bots.prefix(3).compactMap { model.face($0.id, side, dark, displayScale) }
+            HStack(spacing: -side * 0.45) {
+                ForEach(Array(faces.enumerated()), id: \.offset) { index, face in
+                    Image(uiImage: face).resizable().frame(width: side, height: side)
+                        .padding(1)
+                        .background(Circle().fill(Color.hqPage))
+                        .zIndex(Double(faces.count - index))
+                }
+            }
+        }
     }
 
     /// The Mac's faces rail with ‹ › arrows, unused since the pop-up took its place (#20); kept until the owner has seen it.
@@ -796,10 +840,127 @@ struct ChipPaging: ScrollTargetBehavior {
 }
 
 /// [projects-switch] The Bots | Projects switch: the pill rail's first item (iPhone, iPad and, since 2026-11-17, the Mac).
+/// [mac-scope-menu] The Mac's "All Bots" / "All Projects" menu: a clear button over the drawn one, opening a UIKit
+/// menu built when it opens (faces, subtitles and the submenu SwiftUI's picker could not draw).
+struct SessionsScopeMenuButton: UIViewRepresentable {
+    var model: SessionsHeaderModel
+    var title: String
+    /// The pointer came over the button, or left it.
+    var onHover: (Bool) -> Void = { _ in }
+
+    final class Coordinator: NSObject {
+        var onHover: (Bool) -> Void = { _ in }
+        @objc func hovered(_ hover: UIHoverGestureRecognizer) {
+            switch hover.state {
+            case .began, .changed: onHover(true)
+            default: onHover(false)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityIdentifier = "pages.scope"
+        button.addGestureRecognizer(UIHoverGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.hovered)))
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.onHover = onHover
+        let model = model
+        button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak button] done in
+            let traits = button?.traitCollection ?? .current
+            done(model.scopeMenuElements(dark: traits.userInterfaceStyle == .dark, scale: traits.displayScale))
+        }])
+        button.accessibilityLabel = title
+        button.accessibilityHint = model.pills == .projects ? "Picks a project" : "Picks a bot"
+        #if targetEnvironment(macCatalyst)
+        button.toolTip = title
+        #endif
+    }
+}
+
+extension SessionsHeaderModel {
+    /// "2 working · 1 new"; nil when nothing is going on.
+    nonisolated static func countWords(_ counts: [SessionStatusChip: Int]) -> String? {
+        var parts: [String] = []
+        if let working = counts[.working], working > 0 { parts.append("\(working) working") }
+        if let new = counts[.new], new > 0 { parts.append("\(new) new") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// A project's row: what its bots are doing there ("Needs you · Working"); nil when quiet.
+    nonisolated static func projectWords(_ project: SessionProjectPill) -> String? {
+        var parts: [String] = []
+        if project.states.contains(.needsYou) { parts.append("Needs you") }
+        if project.states.contains(.working) { parts.append("Working") }
+        if project.states.contains(.ready) { parts.append("New") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The menu's rows: All, then each bot with its face and counts (or each project with its folder and states, the
+    /// archived ones in a submenu). The picked one is checked.
+    func scopeMenuElements(dark: Bool, scale: CGFloat) -> [UIMenuElement] {
+        if pills == .projects {
+            let one = pickedProjects.count == 1 ? pickedProjects.first : nil
+            let all = UIAction(title: "All Projects", image: UIImage(systemName: "square.stack"), state: one == nil ? .on : .off) { [weak self] _ in self?.onPickProject(nil) }
+            func row(_ project: SessionProjectPill) -> UIAction {
+                let action = UIAction(title: project.label, image: UIImage(systemName: "folder"),
+                                      state: one == project.key ? .on : .off) { [weak self] _ in self?.onPickProject(project.key) }
+                action.subtitle = Self.projectWords(project)
+                return action
+            }
+            let live = projects.filter { !$0.archived }.map(row)
+            let archived = projects.filter(\.archived).map(row)
+            var out: [UIMenuElement] = [all]
+            if !live.isEmpty { out.append(UIMenu(options: .displayInline, children: live)) }
+            if !archived.isEmpty {
+                out.append(UIMenu(title: "Archived", image: UIImage(systemName: "archivebox"), children: archived))
+            }
+            return out
+        }
+        let all = UIAction(title: "All Bots", image: UIImage(systemName: "person.2"), state: picked == nil ? .on : .off) { [weak self] _ in
+            self?.onPick(nil)
+        }
+        var total: [SessionStatusChip: Int] = [:]
+        for counts in botCounts.values { for (chip, count) in counts { total[chip, default: 0] += count } }
+        all.subtitle = Self.countWords(total)
+        let rows: [UIMenuElement] = bots.map { bot in
+            let image = face(bot.id, 18, dark, scale)?.withRenderingMode(.alwaysOriginal)
+            let action = UIAction(title: bot.name, image: image, state: picked == bot.id ? .on : .off) { [weak self] _ in
+                self?.onPick(bot.id)
+            }
+            action.subtitle = Self.countWords(botCounts[bot.id] ?? [:])
+            return action
+        }
+        return [all, UIMenu(options: .displayInline, children: rows)]
+    }
+
+    /// A photo as a circle, as a face is drawn beside a name.
+    static func circled(_ image: UIImage, side: CGFloat, scale: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: side, height: side)).addClip()
+            image.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+    }
+}
+
+/// [mac-top] The Mac row's controls share one height, corner and type size (the switch, the menu, the counts).
+@MainActor enum SessionsMacControl {
+    static var height: CGFloat { HQFont.scaled(24) }
+    static let radius: CGFloat = 6
+    static var font: Font { Font.hq(.footnote).weight(.medium) }
+}
+
 struct SessionsPillsSwitch: View {
     var model: SessionsHeaderModel
-    /// False in the Mac's pane dragged narrow: each side is its glyph alone (the tip and VoiceOver name it).
-    var words = true
+    /// [mac-top] The Mac's switch names its sides, with their glyphs; in a narrow pane, the names alone.
+    var macIcons = true
     /// The side drawn is the tint while nothing is picked, a soft grey while a pill is.
     private var allPicked: Bool {
         model.pills == .projects ? model.pickedProjects.isEmpty && model.status == nil && !model.botPicked
@@ -807,6 +968,49 @@ struct SessionsPillsSwitch: View {
     }
 
     var body: some View {
+        if DeviceWord.isMac { macBody } else { phoneBody }
+    }
+
+    /// [mac-top] Owner 2026-11-19: the Mac's switch is a segmented control of the menu's height and corner beside it (it
+    /// was the iPhone's 44 pt glass capsule, a second style of control in one row). The view shown is a raised grey
+    /// segment, never the tint; a click anywhere on it flips the view, as on the iPhone ([switch-toggles]).
+    private var macBody: some View {
+        let other: SessionPills = model.pills == .bots ? .projects : .bots
+        let inner = SessionsMacControl.radius - 2
+        return Button { model.onSwitch(other) } label: {
+            HStack(spacing: 0) {
+                ForEach([SessionPills.bots, .projects], id: \.self) { view in
+                    let here = model.pills == view
+                    HStack(spacing: 4) {
+                        if macIcons, view == .bots {
+                            Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(12), line: 0.1)).renderingMode(.template)
+                        } else if macIcons {
+                            Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(11), weight: .medium))
+                        }
+                        Text(view == .bots ? "Bots" : "Projects").lineLimit(1).fixedSize()
+                    }
+                    .font(SessionsMacControl.font)
+                    .foregroundStyle(here ? Color.hqLabel : Color.hqLabel2)
+                    .padding(.horizontal, macIcons ? 8 : 7)
+                    .frame(maxHeight: .infinity)
+                    .background {
+                        if here { RoundedRectangle(cornerRadius: inner, style: .continuous).fill(Color.hqLabel.opacity(0.12)) }
+                    }
+                }
+            }
+            .padding(2)
+            .frame(height: SessionsMacControl.height)
+            .background(Color.hqFill3, in: RoundedRectangle(cornerRadius: SessionsMacControl.radius, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(other == .projects ? "Show Projects" : "Show Bots")
+        .accessibilityLabel(other == .projects ? "Switch to Projects" : "Switch to Bots")
+        .accessibilityValue(model.pills == .projects ? "Projects" : "Bots")
+        .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
+    }
+
+    private var phoneBody: some View {
         Group {
             let side: CGFloat = Theme.isDesktop ? HQFont.scaled(24) : HQFont.scaled(30)
             let half = side + 8
@@ -868,13 +1072,11 @@ struct SessionsPillsSwitch: View {
             } else {
                 Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
             }
-            if words {
-                Text(view == .bots ? "Bots" : "Projects")
-                    .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
-                    .lineLimit(1)
-                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                    .fixedSize()
-            }
+            Text(view == .bots ? "Bots" : "Projects")
+                .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
+                .lineLimit(1)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .fixedSize()
         }
         .padding(.horizontal, 11)
         .frame(minWidth: half, minHeight: side, maxHeight: side)

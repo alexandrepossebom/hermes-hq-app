@@ -28,6 +28,7 @@ extension MacShots {
             list.pickPills(.bots)
             await wait(1.5)
             snap("\(pass)a-bots")
+            if pass == 1 { drawScopeMenu(list, window: window, to: folder.appending(path: "\(name)-menu-bots.png")) }
             if let bot = tabs.services.bots.dropFirst(2).first?.id {
                 list.pickBot(bot)
                 await wait(1.5)
@@ -38,6 +39,7 @@ extension MacShots {
             list.pickPills(.projects)
             await wait(1.5)
             snap("\(pass)b-projects")
+            if pass == 1 { drawScopeMenu(list, window: window, to: folder.appending(path: "\(name)-menu-projects.png")) }
             if let key = list.debugProjectKeys.first {
                 list.pickProject(key)
                 await wait(1.5)
@@ -74,6 +76,71 @@ extension MacShots {
         try? log.write(to: url, atomically: true, encoding: .utf8)
         post(url)
         await wait(1)
+    }
+
+    /// [mac-scope-menu] The bot / project menu's real rows (the tour can't open a system menu), drawn as a menu draws
+    /// them: check, picture, title, grey subtitle, rules between sections, a submenu's ▸.
+    @MainActor static func drawScopeMenu(_ list: SessionsViewController, window: UIWindow, to url: URL) {
+        let dark = window.traitCollection.userInterfaceStyle == .dark
+        var rows: [(check: Bool, image: UIImage?, title: String, subtitle: String?, sub: Bool, rule: Bool)] = []
+        func walk(_ elements: [UIMenuElement]) {
+            for element in elements {
+                if let menu = element as? UIMenu, menu.options.contains(.displayInline) {
+                    if !rows.isEmpty, rows.last?.rule == false { rows.append((false, nil, "", nil, false, true)) }
+                    walk(menu.children)
+                    rows.append((false, nil, "", nil, false, true))
+                } else if let menu = element as? UIMenu {
+                    rows.append((false, menu.image, menu.title, nil, true, false))
+                } else if let action = element as? UIAction {
+                    rows.append((action.state == .on, action.image, action.title, action.subtitle, false, false))
+                }
+            }
+        }
+        walk(list.debugScopeMenu(dark: dark))
+        while rows.last?.rule == true { rows.removeLast() }
+        let width: CGFloat = 250
+        let height = rows.reduce(CGFloat(10)) { $0 + ($1.rule ? 11 : $1.subtitle == nil ? 24 : 36) }
+        let ink: UIColor = dark ? .white : .black, grey: UIColor = dark ? UIColor(white: 0.62, alpha: 1) : UIColor(white: 0.45, alpha: 1)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { _ in
+            let card = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: width, height: height), cornerRadius: 9)
+            (dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.97, alpha: 1)).setFill()
+            card.fill()
+            var y: CGFloat = 5
+            for row in rows {
+                if row.rule {
+                    (dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 0, alpha: 0.1)).setFill()
+                    UIRectFill(CGRect(x: 10, y: y + 5, width: width - 20, height: 1))
+                    y += 11
+                    continue
+                }
+                let h: CGFloat = row.subtitle == nil ? 24 : 36
+                if row.check {
+                    ("✓" as NSString).draw(at: CGPoint(x: 9, y: y + (row.subtitle == nil ? 4 : 10)),
+                                           withAttributes: [.font: HQFont.face(ofSize: 13, weight: .semibold), .foregroundColor: ink])
+                }
+                if let picture = row.image {
+                    let drawn = picture.renderingMode == .alwaysOriginal ? picture : picture.withTintColor(ink, renderingMode: .alwaysOriginal)
+                    let side: CGFloat = 17
+                    let fit = min(side / max(drawn.size.width, 1), side / max(drawn.size.height, 1))
+                    let size = CGSize(width: drawn.size.width * fit, height: drawn.size.height * fit)
+                    drawn.draw(in: CGRect(x: 26 + (side - size.width) / 2, y: y + (h - size.height) / 2, width: size.width, height: size.height))
+                }
+                (row.title as NSString).draw(at: CGPoint(x: 52, y: y + (row.subtitle == nil ? 4 : 3)),
+                                             withAttributes: [.font: HQFont.face(ofSize: 13), .foregroundColor: ink])
+                if let subtitle = row.subtitle {
+                    (subtitle as NSString).draw(at: CGPoint(x: 52, y: y + 19),
+                                                withAttributes: [.font: HQFont.face(ofSize: 11), .foregroundColor: grey])
+                }
+                if row.sub {
+                    ("›" as NSString).draw(at: CGPoint(x: width - 20, y: y + 2),
+                                           withAttributes: [.font: HQFont.face(ofSize: 15, weight: .semibold), .foregroundColor: grey])
+                }
+                y += h
+            }
+        }
+        try? image.pngData()?.write(to: url)
     }
 }
 #endif

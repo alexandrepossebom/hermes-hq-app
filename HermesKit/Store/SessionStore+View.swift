@@ -96,6 +96,17 @@ extension SessionStore {
         if wantsDeepRead, !wasDeep, lastFullLimit < Self.deepRecentsLimit { readInFull() }
     }
 
+    /// [mac-scope-menu] Each bot's New and Working counts (every project's), for the Mac's bot menu.
+    var botChipCounts: [String: [SessionStatusChip: Int]] {
+        var out: [String: [SessionStatusChip: Int]] = [:]
+        for session in sessions {
+            for chip in SessionStatusChip.allCases where SessionListPipeline.matches(chip, session) {
+                out[session.profile, default: [:]][chip, default: 0] += 1
+            }
+        }
+        return out
+    }
+
     /// [sessions-fresh] The chips' counts under the bot chip.
     var chipCounts: [SessionStatusChip: Int] {
         SessionListPipeline.chipCounts(SessionListInput(live: sessions, prefs: view, botFilter: botFilter,

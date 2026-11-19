@@ -1509,6 +1509,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 + SessionGrouping.groups(sessions.filter { !$0.pinned })
         }
         if DeviceWord.isMac { barCapsule?.composeItem?.isHidden = !isProjectPage }   // [mac-pane] as `refreshChrome`, once the groups are read
+        if DeviceWord.isMac, headerModel.onPage != isProjectPage { headerModel.onPage = isProjectPage; view.setNeedsLayout() }   // [mac-top]
         // [sessions-m9] A section gains or loses its header: the layout is read again.
         let flags = groups.map { !searching && !$0.title.isEmpty }
         let openCards = groups.indices.map(isOpenCard)
@@ -2257,6 +2258,10 @@ extension SessionsViewController {
 
     /// A project's page is on show (the Projects side, one project picked).
     var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
+    #if DEBUG
+    /// [mac-scope-menu] The Mac's bot / project menu as it would open now (the tour draws it).
+    func debugScopeMenu(dark: Bool) -> [UIMenuElement] { headerModel.scopeMenuElements(dark: dark, scale: 2) }
+    #endif
 
     /// [project-edge-swipe] Back from a project's page, the way it was come into: opened from the Bots side, the Bots
     /// side again (its bot and place, `projectPageReturn`); opened on the Projects side, every project.
@@ -2410,6 +2415,10 @@ extension SessionsViewController {
         // [sessions-fresh] New and Working after All, with their counts under the bot chip.
         let counts = store.chipCounts
         if headerModel.statusChips != counts { headerModel.statusChips = counts; headerChanged = true }
+        if DeviceWord.isMac {   // [mac-scope-menu] read as the menu opens; no layout of its own
+            let perBot = store.botChipCounts
+            if headerModel.botCounts != perBot { headerModel.botCounts = perBot }
+        }
         if headerModel.status != store.statusChip { headerModel.status = store.statusChip; headerChanged = true }
         // [project-pills] The projects as the pills (Group By › Project).
         let pills = state.prefs.pills   // [mac-switch] the Mac's bar switch reads it too (the rail is the iPhone's)
@@ -2440,6 +2449,7 @@ extension SessionsViewController {
         // beside it in this pane was a second path to the same thing. On a project's page it stays: there it is that
         // project's New Chat, which the sidebar's is not.
         if DeviceWord.isMac { barCapsule?.composeItem?.isHidden = !isProjectPage }
+        if DeviceWord.isMac, headerModel.onPage != isProjectPage { headerModel.onPage = isProjectPage; headerChanged = true }   // [mac-top]
         barCapsule?.composeItem?.accessibilityLabel = composeIn.map { "New Chat in \($0)" + (composeBot.map { " with \($0)" } ?? "") } ?? "New Chat"
         if headerChanged { view.setNeedsLayout() }
     }
@@ -2487,6 +2497,14 @@ extension SessionsViewController {
     private func installHeader() {
         guard store != nil else { return }
         headerModel.onPick = { [weak self] profile in self?.pickBot(profile) }
+        // [mac-scope-menu] A bot's face for the Mac's bot menu and its button: its photo as a circle, or its head.
+        headerModel.face = { [weak self] id, side, dark, scale in
+            guard let bot = self?.chipBots.first(where: { $0.id == id }) else { return nil }
+            if let face = BotFaces.shared.readyFace(profile: bot.id, raw: bot.head, side: side, scale: scale, dark: dark, shape: .square) {
+                return face.isPhoto ? SessionsHeaderModel.circled(face.image, side: side, scale: scale) : face.image
+            }
+            return BotFaces.shared.headImage(profile: bot.id, raw: bot.head, side: side, scale: scale, dark: dark)
+        }
         headerModel.onPickStatus = { [weak self] chip in self?.pickStatus(chip) }
         headerModel.onPickAll = { [weak self] in self?.pickAll() }
         headerModel.onPickProject = { [weak self] key in self?.pickProject(key) }
