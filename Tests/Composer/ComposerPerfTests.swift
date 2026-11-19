@@ -24,6 +24,30 @@ struct ComposerPerfTests {
         #expect(!pill.dotsAnimating)
     }
 
+    @Test func closingRecorderRestoresModelWithoutKeyboard() async throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIViewController()
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let bar = ComposerView(frame: CGRect(x: 0, y: 80, width: 390, height: 100))
+        bar.showsCommands = true
+        bar.modelChipTitle = { .init(name: "Example", effort: nil) }
+        host.view.addSubview(bar)
+        bar.layoutIfNeeded()
+        try #require(!bar.modelChip.isHidden && !bar.modelChip.frame.isEmpty)
+        bar.recorderContent = UIView()
+        bar.layoutIfNeeded()
+        #expect(bar.modelChip.isHidden)
+        bar.recorderContent = nil
+        bar.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(!bar.commandsButton.isHidden)
+        #expect(!bar.modelChip.isHidden)
+        #expect(!bar.textView.isFirstResponder)
+    }
+
     // MARK: #34 The dark glow re-snapshots only when the text changed
 
     @Test func darkShimmerSnapshotsOnlyWhenTheTokenChanges() {

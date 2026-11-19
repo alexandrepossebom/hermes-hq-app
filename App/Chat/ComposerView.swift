@@ -251,7 +251,12 @@ final class ComposerView: UIView, UITextViewDelegate, HoldsOwnGlass, KeepsKeyboa
     /// The recorder shows: it has the whole row (☰ and + hidden).
     private var recorderTakesRow: Bool { recorderContent != nil }
     /// ☰ and + wait hidden while the field narrows back after the recorder closed.
-    private var leadingHeld = false
+    private var leadingHeld = false {
+        didSet {
+            // Layout restores the model selector too; it isn't one of the buttons faded in by revealLeading.
+            if leadingHeld != oldValue { setNeedsLayout() }
+        }
+    }
     private var leadingRevealToken = 0
 
     private func revealLeading(after delay: TimeInterval, token: Int) {
