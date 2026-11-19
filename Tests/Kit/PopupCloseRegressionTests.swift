@@ -81,4 +81,31 @@ import UIKit
         let glyph = try #require(close.imageView)
         #expect(abs(glyph.bounds.width - bar.width) < 0.5 && abs(glyph.bounds.height - bar.height) < 0.5)
     }
+
+    /// Owner 2026-11-19: "The + has a solid background and the others are transparent." On the glass the Add context
+    /// sheet's page lets the glass show, as the other sheets': clear in Light (Commands' `sheetPage`), the model sheet's
+    /// see-through veil of the page colour in Dark; off the glass, the same grouped page as theirs.
+    @Test func addContextIsClearOnTheGlassAsTheOtherSheets() throws {
+        let sheet = ComposerContextSheet(tiles: [], rows: [UIAction(title: "Link…") { _ in }], canAttach: false) { _ in }
+        sheet.loadViewIfNeeded()
+        let page = try #require(sheet.view.backgroundColor, "the sheet's page colour")
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            for glass in [true, false] {
+                let traits = UITraitCollection { t in
+                    t.userInterfaceStyle = style
+                    t[GlassSheetTrait.self] = glass
+                }
+                let mine = page.resolvedColor(with: traits)
+                let name = "\(style == .dark ? "Dark" : "Light"), glass \(glass)"
+                if !glass {
+                    #expect(mine == HQPalette.sheetPage.resolvedColor(with: traits), "\(name): Commands' page")
+                } else if style == .light {
+                    #expect(mine.cgColor.alpha == 0, "\(name): clear, as Commands' (was \(mine))")
+                } else {
+                    let veil = ChatPalette.page.resolvedColor(with: traits).withAlphaComponent(ChatBarGlass.alpha)
+                    #expect(mine == veil && mine.cgColor.alpha < 1, "\(name): the model sheet's veil, not a solid sheet (was \(mine))")
+                }
+            }
+        }
+    }
 }

@@ -106,12 +106,28 @@ import UniformTypeIdentifiers
 
     @objc required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// [sheet-over-picture] On the app's glass, tinted with the page colour in Dark (the sheet's own traits are known
-    /// by now; a Light/Dark switch with it open applies it again).
+    /// [popup-consistency] Owner 2026-11-19: "The + has a solid background and the others are transparent." A hosting
+    /// controller's view is the system background (white, or black in Dark) unless told otherwise, so this sheet stood
+    /// opaque over its own glass. The sheets' page colour (`sheetPage`, as Commands, Models and New Job have): clear on
+    /// the glass, the look's grouped page where there is none (the Desktop Look). In Dark on the glass, the page colour
+    /// at the bar's strength over the system's plain glass, as the model sheet has it (`ModelCardSheet.veil`): the
+    /// glass tinted with that colour (`hqGlassOverChat`) drew nothing once the opaque page was gone, and the chat's
+    /// words showed through sharp.
+    static let page = UIColor { traits in
+        guard traits[GlassSheetTrait.self], traits.userInterfaceStyle == .dark else { return HQPalette.sheetPage.resolvedColor(with: traits) }
+        return ChatPalette.page.resolvedColor(with: traits).withAlphaComponent(ChatBarGlass.alpha)
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = Self.page
+    }
+
+    /// [sheet-over-picture] On the app's glass (the sheet's own traits are known by now; a Light/Dark switch with it
+    /// open applies it again). Dark's page colour is the view's own (`page`), as on the model sheet.
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         guard let sheet = sheetPresentationController else { return }
-        sheet.hqGlassOverChat()
         sheet.hqGlassPage()
         if !watchesStyle {
             watchesStyle = true
