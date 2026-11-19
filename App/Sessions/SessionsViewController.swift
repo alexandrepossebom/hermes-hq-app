@@ -581,7 +581,11 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                     guard let self else { return }
                     let guide = ProjectIconGuide(coding: self.store?.isCodingProject(key) ?? false)
                     self.present(ChatSheet.wrap(UIHostingController(rootView: guide), title: "Project Icons", detents: [.large()]), animated: true)
-                })
+                }, onRepository: self.store?.prManage == true ? { [weak self] in
+                    guard let self, let store = self.store else { return }
+                    let page = ProjectRepositoryPage(project: key, store: store)
+                    self.present(ChatSheet.wrap(UIHostingController(rootView: page), title: "Repository", detents: [.large()]), animated: true)
+                } : nil)
             cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
             cell.accessibilityIdentifier = "sessions.projectPage"
             cell.backgroundConfiguration = .clear()
@@ -1577,7 +1581,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             } ?? ""
             let prSign = page.pageKey.map { key in
                 let counts = projectPRCounts(key)
-                return "\(store?.isCodingProject(key) ?? false):\(store?.projectPRFilter?.key == key ? store?.projectPRFilter?.state.rawValue ?? "" : ""):" +
+                return "\(store?.isCodingProject(key) ?? false):\(store?.prManage ?? false):\(store?.projectPRFilter?.key == key ? store?.projectPRFilter?.state.rawValue ?? "" : ""):" +
                     [SessionPRStatus.State.none, .draft, .open, .merged, .closed].map { "\(counts[$0, default: 0])" }.joined(separator: ",")
             } ?? ""
             let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","), usual,

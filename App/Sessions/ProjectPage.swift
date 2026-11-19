@@ -43,6 +43,9 @@ struct ProjectPageHeader: View {
     var onPRPick: (SessionPRStatus.State) -> Void = { _ in }
     var onCodingChange: (Bool) -> Void = { _ in }
     var onInfo: () -> Void = {}
+    /// [pr-manage] The ⋯'s Repository… (the project's repository on the computer running Hermes); nil on a gateway
+    /// that takes no links, and it shows only while Coding Project is on.
+    var onRepository: (() -> Void)? = nil
 
     /// [project-default-bot] Owner 2026-11-17: "a project should be able to have a default bot". The bar's Compose
     /// starts the chat with it at once; this menu says which bot that is, changes it, and starts a chat with another.
@@ -344,6 +347,10 @@ struct ProjectPageHeader: View {
             }
             .accessibilityHint("Shows pull request status instead of timestamps in this project")
             .accessibilityIdentifier("sessions.projectPage.coding")
+            if coding, let onRepository {
+                Button(action: onRepository) { Label("Repository…", systemImage: "arrow.triangle.branch") }
+                    .accessibilityIdentifier("sessions.projectPage.repository")
+            }
             if let menu {
                 Button(action: menu.onNewChatWith) { Label("New Chat With…", systemImage: "square.and.pencil") }
                 Picker(selection: Binding(get: { menu.usual ?? ProjectDefaultBot.ask }, set: { menu.onPick($0) })) {

@@ -241,6 +241,7 @@ nonisolated struct SessionPRStatus: Hashable, Sendable {
     var branch: String? = nil
     var number: Int? = nil
     var url: URL? = nil
+    var manual = false
 
     var label: String {
         let name: String

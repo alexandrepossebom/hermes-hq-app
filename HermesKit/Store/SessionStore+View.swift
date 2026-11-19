@@ -149,6 +149,7 @@ extension SessionStore {
         device.codingProjects[key] = enabled
         persistState()
         codingProjectsChanged()
+        if enabled { linkOwnFolderIfUnlinked(key) }   // [pr-manage]
         onChange?()
     }
 

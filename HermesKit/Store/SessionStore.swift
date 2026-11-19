@@ -309,6 +309,9 @@ final class SessionStore {
     /// The gateway answered 404 for PR status (an add-on without the route). Not forever: the add-on can be
     /// updated while the app runs, so the route is tried again after `prRouteRetry`.
     @ObservationIgnored private var prRouteMissingSince: ContinuousClock.Instant?
+    /// [pr-manage] The repositories chats' branches are looked for in; nil until a gateway that takes links said
+    /// (SessionStore+PRManage.swift).
+    @ObservationIgnored var prRepos: [SessionPRRepo]?
     @ObservationIgnored var prRouteRetry: Duration = .seconds(600)
     private var prRouteMissing: Bool {
         guard let since = prRouteMissingSince else { return false }
@@ -1427,7 +1430,8 @@ final class SessionStore {
                     guard keys.contains(key) else { continue }
                     let state = item["state"]?.string.flatMap(SessionPRStatus.State.init(rawValue:)) ?? .unknown
                     answers[key] = SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
-                                                   number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL))
+                                                   number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
+                                                   manual: item["manual"]?.bool ?? false)
                 }
                 succeeded = true
             } catch {
@@ -1499,6 +1503,8 @@ final class SessionStore {
         prPollTask = nil
         guard started, !stopped, appActive, listVisible || chatFocused, !prRouteMissing,
               device.codingProjects.values.contains(true) else { return }
+        // [pr-manage] With a coding project on screen: whether this gateway takes links and marks (until it says so).
+        if prRepos == nil { Task { [weak self] in await self?.loadPRRepos() } }
         schedulePRDiscovery()
         prPollTask = Task { [weak self] in
             while !Task.isCancelled {

@@ -32,6 +32,11 @@ import Testing
         client.restCalls.filter { $0.method == "GET" && $0.query.contains(URLQueryItem(name: "recents_limit", value: "20")) }.count
     }
 
+    /// Pull request status reads (a first answer also asks once for the linked repositories: not counted here).
+    private func prChecks(_ client: BotsFakeGatewayClient) -> Int {
+        client.restCalls.filter { $0.path.hasSuffix("/sessions/pr-status") }.count
+    }
+
     private func probes(_ client: BotsFakeGatewayClient) -> Int {
         client.restCalls.filter { $0.method == "GET" && $0.query.contains(URLQueryItem(name: "recents_limit", value: "1")) }.count
     }
@@ -48,7 +53,8 @@ import Testing
             let result: JSONValue = ["sessions": .array(sessions.map { row in
                 ["profile": row["profile"] ?? .null, "id": row["id"] ?? .null,
                  "state": row["profile"]?.string == "other" ? "none" : "open",
-                 "number": 42, "url": "https://github.com/example/repo/pull/42"]
+                 "number": 42, "url": "https://github.com/example/repo/pull/42",
+                 "manual": row["profile"]?.string == "other" ? .null : true]
             })]
             return try result.encoded()
         }
@@ -57,11 +63,13 @@ import Testing
                                                  lastActive: nil, source: nil, unread: false, isRunning: false) }
         var other = rows[0]; other.profile = "other"
         await store.refreshPullRequests(for: rows + [other, rows[0]])
-        #expect(client.restCalls.count == 3)
+        #expect(prChecks(client) == 3)
         #expect(store.pullRequest(profile: "ivy", id: "0")?.state == .open)
         #expect(store.pullRequest(profile: "other", id: "0")?.state == SessionPRStatus.State.none)
         #expect(store.pullRequest(profile: "ivy", id: "0")?.label == "Open #42")
         #expect(store.pullRequest(profile: "ivy", id: "0")?.url?.host == "github.com")
+        #expect(store.pullRequest(profile: "ivy", id: "0")?.manual == true)
+        #expect(store.pullRequest(profile: "other", id: "0")?.manual == false)
         let second = makeStore(BotsFakeGatewayClient(), autoStart: false)
         #expect(second.pullRequest(profile: "ivy", id: "0") == nil)
     }
@@ -99,14 +107,14 @@ import Testing
         let oldStore = makeStore(old, autoStart: false)
         await oldStore.refreshPullRequests(for: rows)
         await oldStore.refreshPullRequests(for: [missing], force: true)
-        #expect(old.restCalls.count == 1)
+        #expect(prChecks(old) == 1)
         #expect(oldStore.pullRequest(profile: "ivy", id: "same")?.state == .unknown)
         // The add-on can be updated while the app runs: after the wait the route is asked again.
         oldStore.prRouteRetry = .milliseconds(50)
         try await Task.sleep(for: .milliseconds(120))
         old.onREST { _, _, _, _ in Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"same\",\"state\":\"draft\",\"number\":7}]}".utf8) }
         await oldStore.refreshPullRequests(for: rows, force: true)
-        #expect(old.restCalls.count == 2)
+        #expect(prChecks(old) == 2)
         #expect(oldStore.pullRequest(profile: "ivy", id: "same")?.state == .draft)
         oldStore.stop()
     }
@@ -134,6 +142,77 @@ import Testing
         #expect(store.sessions.first { $0.id == "omitted" }?.pullRequest?.state == .unknown)
         store.stop()
     }
+
+    /// [pr-manage] The owner's links and marks: hidden until the gateway's list of repositories is read (and for good
+    /// without the routes), a link replaces the project's own, a 422 names why, and a mark reads the chat's status again.
+    @Test func repositoriesAreLinkedAndChatsMarkedClosed() async throws {
+        let client = BotsFakeGatewayClient()
+        let sidebar = Self.sidebar([Self.srow("a")])
+        let repos = Self.prReposPath, mark = Self.prMarkPath
+        client.onREST { method, path, _, body in
+            if method == "GET", path == repos { return Data("{\"repos\":[{\"project\":null,\"path\":\"/by/hand\",\"main\":\"main\",\"public_repo\":null,\"mirror\":false}]}".utf8) }
+            if method == "PUT", path == repos {
+                let sent = try JSONValue.parse(body ?? Data())
+                if sent["path"]?.string?.contains("nope") == true { throw HTTPError(status: 422, body: "{\"detail\":\"not_a_repository\"}") }
+                if sent["public_repo"]?.string == "bad" { throw HTTPError(status: 422, body: "{\"detail\":\"invalid_public_repo\"}") }
+                let answer: JSONValue = ["repo": ["project": sent["project"] ?? .null, "path": sent["path"] ?? .null, "main": "main",
+                                                  "public_repo": sent["public_repo"] ?? .null, "mirror": .bool(sent["public_repo"]?.string != nil)]]
+                return try answer.encoded()
+            }
+            if method == "DELETE", path == repos { return Data("{\"ok\":true}".utf8) }
+            if method == "PUT", path == mark { return Data("{\"ok\":true,\"closed\":true}".utf8) }
+            if method == "POST" { return Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"a\",\"state\":\"closed\",\"manual\":true}]}".utf8) }
+            return sidebar
+        }
+        let store = makeStore(client)
+        #expect(await BotsTest.waitUntil { store.sessions.count == 1 })
+        #expect(!store.prManage && store.prRepos == nil)
+        #expect(!client.restCalls.contains { $0.path == repos })          // not asked with no coding project on screen
+        await store.loadPRRepos()
+        #expect(store.prManage)
+        #expect(store.prRepos?.map(\.path) == ["/by/hand"] && store.prRepo(forProject: "/code/app") == nil)
+
+        let linked = try await store.linkPRRepo(project: "/code/app", path: " /code/app ", publicRepo: "  ")
+        #expect(linked.path == "/code/app" && linked.publicRepo == nil && !linked.mirror)
+        let put = try #require(client.restCalls.last { $0.method == "PUT" && $0.path == repos })
+        let sent = try JSONValue.parse(put.body ?? Data())
+        #expect(sent["project"]?.string == "/code/app" && sent["path"]?.string == "/code/app" && sent["public_repo"] == .null)
+        #expect(store.prRepo(forProject: "/code/app")?.path == "/code/app" && store.prRepos?.count == 2)
+        let again = try await store.linkPRRepo(project: "/code/app", path: "/code/other", publicRepo: "owner/public")
+        #expect(again.mirror && again.publicRepo == "owner/public" && store.prRepos?.count == 2)   // replaced, not added
+        await #expect(throws: SessionPRRepoError.notARepository) { try await store.linkPRRepo(project: "/code/app", path: "/nope", publicRepo: nil) }
+        await #expect(throws: SessionPRRepoError.invalidPublicRepo) { try await store.linkPRRepo(project: "/code/app", path: "/x", publicRepo: "bad") }
+        #expect(store.prRepo(forProject: "/code/app")?.path == "/code/other")                      // a refused link changes nothing
+        try await store.unlinkPRRepo(project: "/code/app")
+        let deleted = try #require(client.restCalls.last { $0.method == "DELETE" })
+        #expect(deleted.query == [URLQueryItem(name: "project", value: "/code/app")] && store.prRepo(forProject: "/code/app") == nil)
+
+        let before = client.restCalls.filter { $0.path.hasSuffix("pr-status") }.count
+        try await store.setPRClosed(store.sessions[0], true)
+        let marked = try JSONValue.parse(try #require(client.restCalls.last { $0.path == mark }).body ?? Data())
+        #expect(marked["profile"]?.string == "ivy" && marked["id"]?.string == "a" && marked["closed"] == .bool(true))
+        #expect(client.restCalls.filter { $0.path.hasSuffix("pr-status") }.count == before + 1)      // read again at once
+        #expect(store.pullRequest(profile: "ivy", id: "a")?.manual == true)
+        store.stop()
+
+        // A gateway without the routes: the list is never known, so nothing of this shows and nothing links itself.
+        let old = BotsFakeGatewayClient()
+        old.onREST { method, path, _, _ in
+            if path == repos { throw HTTPError(status: 404, body: nil) }
+            return sidebar
+        }
+        let oldStore = makeStore(old)
+        #expect(await BotsTest.waitUntil { oldStore.sessions.count == 1 })
+        await oldStore.loadPRRepos()
+        #expect(old.restCalls.contains { $0.path == repos })
+        oldStore.linkOwnFolderIfUnlinked("/code/app")
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(!oldStore.prManage && !old.restCalls.contains { $0.method == "PUT" })
+        oldStore.stop()
+    }
+
+    nonisolated private static let prReposPath = "/api/plugins/hermes-hq-push/sessions/pr-repos"
+    nonisolated private static let prMarkPath = "/api/plugins/hermes-hq-push/sessions/pr-mark"
 
     @Test func pullRequestDiscoveryIsScopedAndCached() async throws {
         let client = BotsFakeGatewayClient()
@@ -193,10 +272,10 @@ import Testing
         let row = SessionSummary(id: "a", profile: "ivy", title: "", preview: nil, lastActive: nil,
                                  source: nil, unread: false, isRunning: false)
         let first = Task { await store.refreshPullRequests(for: [row]) }
-        #expect(await BotsTest.waitUntil { client.restCalls.count == 1 })
+        #expect(await BotsTest.waitUntil { prChecks(client) == 1 })
         await store.refreshPullRequests(for: [row])
         await first.value
-        #expect(client.restCalls.count == 1)
+        #expect(prChecks(client) == 1)
         #expect(store.pullRequest(profile: "ivy", id: "a")?.state == .open)
     }
 
@@ -213,7 +292,7 @@ import Testing
                                  source: nil, unread: false, isRunning: false)
         row.cwd = "/code/work"
         let request = Task { await store.refreshCodingPullRequest(for: row) }
-        #expect(await BotsTest.waitUntil { client.restCalls.count == 1 })
+        #expect(await BotsTest.waitUntil { prChecks(client) == 1 })
         store.setCodingProject("/code", false)
         await request.value
         #expect(store.pullRequest(profile: "ivy", id: "a") == nil)

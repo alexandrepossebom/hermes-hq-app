@@ -62,6 +62,73 @@ extension SessionsTests {
         XCTAssertTrue(merged.waitForExistence(timeout: 10))
         XCTAssertFalse(merged.isSelected)
     }
+    /// [pr-manage] A coding project's chat is marked closed and reopened from its row menu, and the project is linked
+    /// to a repository from its ⋯ (a folder that isn't one says so).
+    @MainActor func testProjectPRMarksAndRepository() throws {
+        fixture("/__fixture/mode", ["prManage": true, "prStatus": [
+            "default/s-garden": ["state": "draft", "repo": "example/app", "branch": "garden"],
+            "deploys/s-release": ["state": "merged", "repo": "example/app", "branch": "release", "number": 42]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-garden")).contains("Draft") }, labelOf(row(app, "s-garden")))
+
+        // Mark as Closed, then Reopen. A merged chat offers neither.
+        openMenu(app, row(app, "s-garden"), until: "Mark as Closed")
+        shot(app, "project-row-menu-close")
+        app.buttons["Mark as Closed"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(15) { self.labelOf(self.row(app, "s-garden")).contains("Closed") }, labelOf(row(app, "s-garden")))
+        shot(app, "project-row-closed")
+        openMenu(app, row(app, "s-garden"), until: "Reopen")
+        XCTAssertFalse(app.buttons["Mark as Closed"].exists)
+        app.buttons["Reopen"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(15) { self.labelOf(self.row(app, "s-garden")).contains("Draft") }, labelOf(row(app, "s-garden")))
+        openMenu(app, row(app, "s-release"), until: "Rename…")
+        XCTAssertFalse(app.buttons["Mark as Closed"].exists || app.buttons["Reopen"].exists, "a merged chat takes no mark")
+        for _ in 0..<3 where app.buttons["Rename…"].firstMatch.exists {     // tap beside the menu to close it
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)).tap()
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        XCTAssertTrue(waitUntil(4) { !app.buttons["Rename…"].firstMatch.exists }, "the row menu closes")
+
+        // ⋯ › Repository…
+        let repository = app.buttons["Repository…"].firstMatch
+        for _ in 0..<3 where !repository.exists {
+            app.buttons["sessions.projectPage.more"].tap()
+            _ = repository.waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(repository.exists, "the ⋯ offers Repository…")
+        shot(app, "project-menu-repository")
+        repository.tap()
+        XCTAssertTrue(app.navigationBars["Repository"].waitForExistence(timeout: 5))
+        let folder = app.textFields["project.repository.folder"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 5))
+        shot(app, "project-repository-empty")
+        XCTAssertFalse(app.buttons["project.repository.unlink"].exists)
+        folder.tap()
+        folder.typeText("/nope")
+        app.buttons["project.repository.link"].tap()
+        let problem = app.staticTexts["project.repository.error"]
+        XCTAssertTrue(problem.waitForExistence(timeout: 8))
+        XCTAssertTrue(problem.label.contains("isn’t a git repository"), problem.label)
+        shot(app, "project-repository-error")
+        folder.tap()
+        folder.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
+        app.buttons["project.repository.link"].tap()
+        XCTAssertTrue(app.buttons["project.repository.unlink"].waitForExistence(timeout: 8))
+        XCTAssertFalse(problem.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["project.repository.main"].firstMatch.exists)
+        shot(app, "project-repository-linked")
+        app.buttons["project.repository.unlink"].tap()
+        XCTAssertTrue(waitUntil(8) { !app.buttons["project.repository.unlink"].exists })
+        app.buttons["sheet.close"].firstMatch.tap()
+    }
     /// The general list keeps its timestamps; PR details appear only after opting a project in.
     @MainActor func testPRTrackingEndToEnd() throws {
         fixture("/__fixture/mode", ["prStatus": [

@@ -15,7 +15,7 @@ struct ProjectIconGuide: View {
                                 .foregroundStyle(Color(uiColor: SessionPRGlyph.color(state)))
                         }.accessibilityIdentifier("project.legend.\(state.rawValue)")
                     }
-                } header: { HQSectionLabel { Text("Pull requests") } }
+                } header: { HQSectionLabel { Text("Code changes") } }
                   footer: { HQSectionFooter { Text("Counts include only available PR statuses.") } }
             }
             Section {
@@ -38,12 +38,12 @@ struct ProjectIconGuide: View {
 
     private func explanation(_ state: SessionPRStatus.State) -> String {
         switch state {
-        case .none: "No pull request was found for this chat."
-        case .draft: "A draft pull request exists. It isn’t ready for review yet."
-        case .open: "The pull request is open for review."
-        case .merged: "The changes were merged into the target branch."
-        case .closed: "The pull request was closed without merging."
-        case .unknown: "The status couldn’t be verified. A pull request may still exist."
+        case .none: "No branch or pull request from this chat yet."
+        case .draft: "On a branch that isn’t merged yet, or a draft pull request."
+        case .open: "A pull request is open for review."
+        case .merged: "The changes are merged into main."
+        case .closed: "Closed without merging, or marked closed by you."
+        case .unknown: "Couldn’t be checked. The chat made a branch that isn’t in a linked repository."
         }
     }
 }
