@@ -201,8 +201,8 @@ import UniformTypeIdentifiers
                     if !rest.isEmpty { card(rest) }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
+            .padding(.horizontal, SheetCloseDisc.inset)
+            .padding(.top, SheetCloseDisc.inset)
             .padding(.bottom, 20)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bridge.fit($0) }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -251,22 +251,19 @@ import UniformTypeIdentifiers
             }
         }
 
+        /// [popup-consistency] The sheets' one ✕ (`SheetCloseDisc`, the bar's glyph, 44 pt, 16 pt in from the top and
+        /// leading edges; ‹ Back inside a submenu) and the bar's title: the glass button style drew a 56 pt disc with a
+        /// smaller glyph, 6 pt lower and further in than every other sheet's, and an outlined box in the Desktop Look.
         private var header: some View {
             ZStack {
                 Text(submenu.map { $0.title.isEmpty ? "Add context" : $0.title } ?? "Add context")
-                    .font(Font(HQFont.style(.headline)))
+                    .font(Font(SheetCloseDisc.titleFont))
+                    .accessibilityAddTraits(.isHeader)
                 HStack {
-                    Button {
+                    SheetCloseDiscView(glyph: submenu == nil ? .close : .back) {
                         if submenu != nil { withAnimation(HQMotion.reduced ? nil : .snappy) { submenu = nil } } else { bridge.close() }
-                    } label: {
-                        Image(systemName: submenu == nil ? "xmark" : "chevron.left")
-                            .font(Font(HQFont.scaled(17, weight: .semibold, like: .body, cap: 24)))
-                            .frame(width: 44, height: 44)
                     }
-                    .hqGlassButtonStyle()
-                    .buttonBorderShape(.circle)
-                    .tint(Color.hqLabel)
-                    .accessibilityLabel(submenu == nil ? "Close" : "Back")
+                    .frame(width: SheetCloseDisc.side, height: SheetCloseDisc.side)
                     Spacer()
                     if submenu == nil, let photos {
                         Button("Photos") { bridge.perform(photos) }

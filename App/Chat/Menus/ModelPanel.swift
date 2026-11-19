@@ -77,7 +77,8 @@ final class ModelPanelView: UIView {
     var onHeight: ((CGFloat) -> Void)?
     private var toldHeight: CGFloat = 0
     private var toldNoSky = false
-    private let closeButton = UIButton(type: .system)
+    /// [popup-consistency] The sheets' one ✕ (`SheetCloseDisc`): the bar's glyph and place, as Add context has it.
+    private let closeButton = SheetCloseButton(.close, action: nil)
     /// Thinking's own card on the sheet, with its stars.
     private let thinkingCard = ThinkingCard()
 
@@ -317,9 +318,8 @@ final class ModelPanelView: UIView {
             makerLabel.textAlignment = .center
             factStrip.tiles = true
             settings.onSheet()
-            closeButton.accessibilityLabel = "Close"
             closeButton.accessibilityIdentifier = "model.panel.close"
-            closeButton.addAction(UIAction { [weak self] _ in self?.close() }, for: .touchUpInside)
+            closeButton.addAction(UIAction { [weak self] _ in self?.close() }, for: .primaryActionTriggered)
             content.addSubview(closeButton)
             content.addSubview(thinkingCard)
         }
@@ -335,14 +335,7 @@ final class ModelPanelView: UIView {
         nameLabel.textColor = ChatPalette.label
         makerLabel.font = Self.font(style == .sheet ? .footnote : .subheadline, .medium)
         makerLabel.textColor = style == .sheet ? ChatPalette.label2 : ChatPalette.label
-        if style == .sheet {
-            // The Add context sheet's close disc: glass, or a plain grey disc where the look has no glass.
-            var disc = Theme.isDesktop || Theme.solidChrome ? UIButton.Configuration.gray() : UIButton.Configuration.glass()   // glass-ok: a disc on the sheet's glass, as the Add context sheet's
-            disc.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(font: HQFont.scaled(15, weight: .semibold, like: .body, cap: 22)))
-            disc.cornerStyle = .capsule
-            disc.baseForegroundColor = ChatPalette.label
-            closeButton.configuration = disc
-        }
+        if style == .sheet { closeButton.restyle() }   // [popup-consistency] glass, or the look's bare ✕
         switchChevrons.tintColor = ChatPalette.label2
         switchChevrons.preferredSymbolConfiguration = UIImage.SymbolConfiguration(font: Self.font(.subheadline, .semibold))
         switchSpinner.color = ChatPalette.label
@@ -650,9 +643,11 @@ final class ModelPanelView: UIView {
     private func layoutSheet(width: CGFloat) -> CGFloat {
         let pad = Self.pad
         let inner = width - 2 * pad
-        var y: CGFloat = 18   // under the sheet's grabber
         let side = PanelFace.side
-        closeButton.frame = CGRect(x: pad, y: y + (side - 44) / 2, width: 44, height: 44)
+        // [popup-consistency] The ✕ where every sheet's is, 16 pt in from the top and leading edges (it sat 4 pt
+        // lower); the name and the face share its line, clear of the grabber.
+        var y: CGFloat = SheetCloseDisc.inset - (side - SheetCloseDisc.side) / 2
+        closeButton.frame = SheetCloseDisc.frame(width: width)
         face.frame = CGRect(x: width - pad - side, y: y, width: side, height: side)
         // The name sits in the middle, between the disc and the face, ending in the Switch Model chevrons; its tag
         // follows it in lighter words (no room for a pill there). Two lines before it shrinks.
@@ -1095,7 +1090,8 @@ extension ModelPanelView {
     var debugSheetPieces: (close: CGRect, thinkingCard: CGRect, thinking: CGRect, switchButton: CGRect) {
         (closeButton.frame, thinkingCard.frame, thinking.frame, switchButton.frame)
     }
-    func debugTapClose() { closeButton.sendActions(for: .touchUpInside) }
+    func debugTapClose() { closeButton.sendActions(for: .primaryActionTriggered) }
+    var debugCloseButton: UIButton { closeButton }
 
     /// Tests: the pieces stacked down the panel, in order (each a frame in the content's space).
     var debugPieces: [(name: String, view: UIView)] {

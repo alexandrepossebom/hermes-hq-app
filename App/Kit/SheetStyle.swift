@@ -413,7 +413,11 @@ extension UIBarButtonItem {
         close.title = word
         return close
         #else
-        return UIBarButtonItem(systemItem: item, primaryAction: action)
+        let close = UIBarButtonItem(systemItem: item, primaryAction: action)
+        // [popup-consistency] The ✕ says "Close" to VoiceOver, as the sheets that draw their own ✕ do
+        // (`SheetCloseDisc`); the system item alone said "close".
+        if item == .close { close.accessibilityLabel = SheetCloseDisc.Glyph.close.label }
+        return close
         #endif
     }
 
