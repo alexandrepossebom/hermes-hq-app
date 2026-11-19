@@ -465,12 +465,18 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         !searching && section >= 0 && section < groups.count && SessionListPipeline.isProject(groups[section].id) && !groups[section].collapsed
     }
 
+    private var codingProjectPage: Bool {
+        guard !searching, let key = groups.first(where: { $0.id == SessionListPipeline.pageId })?.pageKey else { return false }
+        return store?.isCodingProject(key) == true
+    }
+
     private func configureDataSource() {
         let rowRegistration = UICollectionView.CellRegistration<SessionListCell, String> { [weak self] cell, _, id in
             guard let self, let session = self.sessionsByID[id] else { return }
             let owner = self.owner(of: session)
             let busy = self.busy.contains(Self.realKey(id))
-            let detail = self.rowDetail          // [sessions-m9] Row Detail
+            let coding = self.codingProjectPage
+            let detail = coding ? self.rowDetail.subtracting([.time, .tokens, .cost]) : self.rowDetail
             let muted = BotMuteCenter.shared.isMuted(session.profile)   // UX study #248
             let origin = session.origin          // where it came from: the platform's mark before the title
             let compact = self.compactKeys.contains(id)   // [sessions-layout] Pinned: one line
@@ -499,7 +505,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 SessionRowView(session: session, ownerName: owner.name, ownerHead: owner.head,
                                time: time, busy: busy, detail: detail, muted: muted,
                                origin: origin, compact: compact, shortPreview: short, card: card, fresh: fresh, faces: faces,
-                               recentLayout: self.freshLayout || self.projectLayout, hover: hover)
+                               recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, hover: hover)
             }
             .margins(.all, 0)
             // [sessions-layout] A one-line row is as tall as it draws itself (44 pt), not the list's taller least row.
@@ -553,12 +559,25 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                     self?.reload(animated: false)
                 },
                 onNewChatWith: { [weak self] in self?.organizer?.newChat(inProject: key, profile: nil, asks: true) })
+            let prCounts = self.projectPRCounts(key)
             let header = ProjectPageHeader(
                 name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
                 onJump: { [weak self] count in self?.pickPageCount(count) },
                 lit: self.store?.statusChip.map { $0 == .working ? ["working"] : ["needs", "ready"] } ?? [],
-                onSoftCard: BackdropCards.on(self), menu: menu)
+                onSoftCard: BackdropCards.on(self), menu: menu,
+                coding: self.store?.isCodingProject(key) ?? false, prCounts: prCounts,
+                selectedPR: self.store?.projectPRFilter.flatMap { $0.key == key ? $0.state : nil },
+                onPRPick: { [weak self] state in
+                    guard let self, let store = self.store else { return }
+                    Haptics.play(.selection)
+                    store.projectPRFilter = store.projectPRFilter?.key == key && store.projectPRFilter?.state == state ? nil : (key, state)
+                    self.reload(animated: false)
+                },
+                onCodingChange: { [weak self] enabled in
+                    self?.store?.setCodingProject(key, enabled)
+                    self?.reload(animated: false)
+                })
             cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
             cell.accessibilityIdentifier = "sessions.projectPage"
             cell.backgroundConfiguration = .clear()
@@ -1551,8 +1570,13 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             let usual = page.pageKey.map { key in
                 (organizer?.projectDefaultBot(key: key) ?? "?") + (organizer?.projectBotChoices(key: key).map(\.name).joined(separator: ",") ?? "")
             } ?? ""
+            let prSign = page.pageKey.map { key in
+                let counts = projectPRCounts(key)
+                return "\(store?.isCodingProject(key) ?? false):\(store?.projectPRFilter?.key == key ? store?.projectPRFilter?.state.rawValue ?? "" : ""):" +
+                    [SessionPRStatus.State.none, .draft, .open, .merged, .closed].map { "\(counts[$0, default: 0])" }.joined(separator: ",")
+            } ?? ""
             let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","), usual,
-                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")"].joined(separator: "|")
+                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")", prSign].joined(separator: "|")
             if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
             pageSign = sign
         }
@@ -1562,6 +1586,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             if sign != otherAppsSign, snapshot.itemIdentifiers.contains(Self.otherAppsKey) { snapshot.reconfigureItems([Self.otherAppsKey]) }
             otherAppsSign = sign
         }
+        let coding = codingProjectPage
         var next: [String: Int] = [:]
         for id in snapshot.itemIdentifiers {
             guard let session = sessionsByID[id] else { continue }
@@ -1574,6 +1599,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             hasher.combine(busy.contains(Self.realKey(id)))
             hasher.combine(cardKeys[id])                                    // [project-cards] in a card, and whose
             hasher.combine(rowDetail)             // [sessions-m9]
+            hasher.combine(coding)
             hasher.combine(BotMuteCenter.shared.isMuted(session.profile))   // UX study #248
             hasher.combine(compactKeys.contains(id))                        // [sessions-layout] Pinned's one line
             hasher.combine(shortKeys.contains(id))                          // [sessions-layout] New for You's one line

@@ -512,6 +512,9 @@ final class AppModel: AppServices {
         // [/sessions-m9]
         sessions.onChange = { [weak self] in
             self?.onSessionsChange?()
+            for entry in self?.openChatScreens ?? [] {
+                if let screen = entry.screen.value { self?.updatePRTitle(screen) }
+            }
             NotificationCenter.default.post(name: SessionStrip.listChanged, object: nil)   // [session-strip]
             self?.onLaunchListsChange?()              // [restore]
             self?.refreshNotificationDirectory()      // [notifications]
@@ -756,6 +759,15 @@ final class AppModel: AppServices {
             }
             if changed { screen.botIdentityChanged() }
         }
+    }
+
+    private func updatePRTitle(_ screen: ChatViewController) {
+        guard let live = screen.session as? LiveChatSession, let id = live.storedSessionId,
+              let store = sessionStore, store.isCodingSession(profile: live.profile, id: id, fallbackCwd: live.menus.cwd) else {
+            screen.sessionPR = nil
+            return
+        }
+        screen.sessionPR = store.pullRequest(profile: live.profile, id: id)
     }
 
     private static func displayNames(_ bots: [Bot]) -> [String: String] {
@@ -1197,6 +1209,7 @@ final class AppModel: AppServices {
     func makeChatScreen(_ model: any ChatSessionModel) -> UIViewController {
         AppLog.note("screen", "open chat (\(model.messages.count) messages)")
         let screen = ChatViewController(session: model)
+        updatePRTitle(screen)
         screen.promptSheets = promptSheets   // [questions]
         let head = HeadView(side: 34)
         head.configure(raw: model.head, profile: model.profile, follows: true)   // [moods] the face acts out its turn

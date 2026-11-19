@@ -9,6 +9,9 @@ import UIKit
 final class ChatViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
     UITableViewDataSourcePrefetching, ChatCellDelegate {
 
+    var sessionPR: SessionPRStatus? {
+        didSet { if isViewLoaded, sessionPR != oldValue { updateSessionTitle() } }
+    }
     let session: any ChatSessionModel
 
     /// A view drawn left of the name in the title (the bot's head, added at integration). 34 pt.
@@ -2590,6 +2593,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         wasLinkReady = linkReady
         loadOlderIfNear()
         activity.stateChanged()          // [activity] In Header's tap, Previous tasks once idle
+        roomChrome?.stateChanged()
+        updateSessionTitle()
+        if wasRunning && !session.isRunning { runningEndedAt = CACurrentMediaTime() }
+    }
+
+    private func updateSessionTitle() {
         // A session that isn't the bot's own chat names its bot under the title (spec 06 §4.1).
         let owner = botName.trimmingCharacters(in: .whitespaces)
         var subtitle = owner.isEmpty || owner == shownTitle.trimmingCharacters(in: .whitespaces) ? nil : owner
@@ -2608,7 +2617,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
         #endif
         if titleOverride != nil { subtitle = nil }   // [tasks-first] the page's own words stand alone (a task's list)
-        roomChrome?.stateChanged()                                                     // [groups]
+        titleView.pullRequest = titleOverride == nil ? sessionPR : nil
         if titleView.title != shownTitle || titleView.subtitle != subtitle {
             let renamed = titleView.title != shownTitle
             titleView.title = shownTitle
@@ -2616,7 +2625,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             sizeTitle()
             if renamed { updatePlaceholder(animated: false) }   // a named chat drops the intro's Name Chat
         }
-        if wasRunning && !session.isRunning { runningEndedAt = CACurrentMediaTime() }
     }
 
     /// UX study #248: a bell.slash after the name while this chat's bot is muted (a group room has its own mute).

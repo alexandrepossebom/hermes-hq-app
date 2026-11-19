@@ -4,6 +4,91 @@
 import XCTest
 
 extension SessionsTests {
+    @MainActor private func toggleProjectCoding(_ app: XCUIApplication, captureMenu: Bool = false) {
+        app.buttons["sessions.projectPage.more"].tap()
+        let item = app.buttons["Coding Project"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        if captureMenu { shot(app, "project-card-coding-menu") }
+        item.tap()
+    }
+    /// Project summary filters intersect the page's piles, and the coding switch clears the selection.
+    @MainActor func testProjectPRCountFilter() throws {
+        fixture("/__fixture/mode", ["prStatus": [
+            "default/s-garden": ["state": "none", "repo": "example/app", "branch": "garden"],
+            "deploys/s-release": ["state": "merged", "repo": "example/app", "branch": "release", "number": 42],
+            "deploys/s-old": ["state": "merged", "repo": "example/app", "branch": "old", "number": 41]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.switches["sessions.projectPage.coding"].exists)
+        if app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        shot(app, "project-card-coding-off")
+        toggleProjectCoding(app, captureMenu: true)
+        let merged = app.buttons["sessions.projectPage.pr.merged"]
+        XCTAssertTrue(merged.waitForExistence(timeout: 10))
+        shot(app, "project-card-coding-on")
+        XCTAssertTrue(waitUntil(20) { merged.label.contains("2 loaded") }, merged.label)
+        shot(app, "project-card-coding-on-loaded")
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { merged.isSelected && self.row(app, "s-release").exists && self.row(app, "s-old").exists && !self.row(app, "s-garden").exists })
+        shot(app, "project-pr-summary-selected")
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { !merged.isSelected && self.row(app, "s-garden").exists })
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { merged.isSelected })
+        toggleProjectCoding(app)
+        XCTAssertTrue(waitUntil(10) { !merged.exists && self.row(app, "s-garden").exists })
+        toggleProjectCoding(app)
+        XCTAssertTrue(merged.waitForExistence(timeout: 10))
+        XCTAssertFalse(merged.isSelected)
+    }
+    /// The general list keeps its timestamps; PR details appear only after opting a project in.
+    @MainActor func testPRTrackingEndToEnd() throws {
+        fixture("/__fixture/mode", ["prStatus": [
+            "default/s-garden": ["state": "none", "repo": "example/garden", "branch": "feature/garden"],
+            "research/s-trip": ["state": "unknown", "repo": "example/travel", "branch": "feature/travel"],
+            "deploys/s-release": ["state": "merged", "repo": "example/app", "branch": "feature/release", "number": 42,
+                                  "url": "https://github.com/example/app/pull/42"]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        for id in ["s-garden", "s-trip", "s-release", "s-budget"] {
+            let chat = row(app, id)
+            XCTAssertTrue(chat.waitForExistence(timeout: 10), id)
+            let label = labelOf(chat)
+            for prWords in ["Pull request", "PR status", "No PR yet", "Merged #42"] {
+                XCTAssertFalse(label.contains(prWords), label)
+            }
+            XCTAssertNotNil(label.range(of: #"\b([0-9]{1,2}:[0-9]{2} (AM|PM)|Yesterday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b"#, options: .regularExpression), "normal timestamp: \(label)")
+        }
+        shot(app, "pr-tracking-general-list")
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-release")).contains("Merged #42") }, labelOf(row(app, "s-release")))
+        openChat(app, "s-release")
+        openSessionInfo(app)
+        let pr = app.cells["info.pull-request"]
+        for _ in 0..<5 where !pr.isHittable { app.tables["info.list"].swipeUp() }
+        XCTAssertTrue(pr.waitForExistence(timeout: 8), "Chat Info offers Pull Request")
+        XCTAssertTrue(pr.label.contains("Merged #42"), pr.label)
+        shot(app, "pr-tracking-info")
+        pr.tap()
+        let alert = app.alerts["Merged #42"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "example/app")).firstMatch.exists)
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "feature/release")).firstMatch.exists)
+        XCTAssertTrue(alert.buttons["Open Pull Request"].exists)
+        shot(app, "pr-tracking-details")
+    }
     /// The gateway as the sheet names it: host and port.
     var gatewayHost: String {
         guard let url = URL(string: account.url), let host = url.host else { return account.url }

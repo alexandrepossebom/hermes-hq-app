@@ -234,6 +234,28 @@ nonisolated struct Bot: Identifiable, Hashable, Sendable {
     var step: String? = nil
 }
 
+nonisolated struct SessionPRStatus: Hashable, Sendable {
+    enum State: String, Hashable, Sendable { case none, draft, open, merged, closed, unknown }
+    var state: State
+    var repo: String? = nil
+    var branch: String? = nil
+    var number: Int? = nil
+    var url: URL? = nil
+
+    var label: String {
+        let name: String
+        switch state {
+        case .none: return "No PR yet"
+        case .draft: name = "Draft"
+        case .open: name = "Open"
+        case .merged: name = "Merged"
+        case .closed: name = "Closed"
+        case .unknown: return "PR status unknown"
+        }
+        return number.map { "\(name) #\($0)" } ?? name
+    }
+}
+
 nonisolated struct SessionSummary: Identifiable, Hashable, Sendable {
     var id: String                   // stored session id
     var profile: String
@@ -272,6 +294,8 @@ nonisolated struct SessionSummary: Identifiable, Hashable, Sendable {
     var step: String? = nil
     /// The sign-in Hermes stamped on it (`SidebarSessionRow.userId`), for a refused edit's words.
     var owner: String? = nil
+    /// nil means not coding, not yet known, or unavailable; `.none` is a confirmed absence.
+    var pullRequest: SessionPRStatus? = nil
 }
 
 // MARK: - Chat (owner: Data/Chat)

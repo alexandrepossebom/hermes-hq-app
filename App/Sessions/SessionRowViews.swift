@@ -35,6 +35,7 @@ struct SessionRowView: View {
     var faces = true
     /// Group By Recent is on: a card chat follows its Preview (`previewLine`); the other groupings' cards keep one line.
     var recentLayout = false
+    var codingProject = false
     enum Fresh { case pinned, recent }
     /// [mac-pane] The Mac: the pointer over a row swaps its time for Pin, Archive and More (`SessionRowHover`). nil
     /// elsewhere (a finger has the swipes and the hold).
@@ -392,6 +393,13 @@ struct SessionRowView: View {
             SessionRowHoverButtons(hover: hover, pinned: session.pinned, archived: session.archived)   // [mac-pane]
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
+                if codingProject, let pr = session.pullRequest {
+                    Image(uiImage: SessionPRGlyph.image(pr.state))
+                        .renderingMode(.template)
+                        .foregroundStyle(Color(uiColor: SessionPRGlyph.color(pr.state)))
+                        .help(pr.label)
+                        .accessibilityHidden(true)
+                }
                 if showsWorkingDots { workingDots }   // [working-ring]
                 if session.pinned && !compact && fresh != .pinned {   // [sessions-layout] Pinned's own rows need no pin
                     Image(systemName: "pin.fill")
@@ -492,7 +500,7 @@ struct SessionRowView: View {
     private var accessibilityText: String {
         let label = SessionRowWords.accessibilityLabel(title: Self.title(session), session: session, ownerName: ownerName, detail: detail, time: time,
                                            snippet: session.searchSnippet.map(SessionSearch.plain), colorName: SessionColors.name(session.color),
-                                           busy: busy, muted: muted)
+                                           busy: busy, muted: muted, showPR: codingProject)
         return origin.map { "\(label). From \(ChatSource.label($0))" } ?? label
     }
 }

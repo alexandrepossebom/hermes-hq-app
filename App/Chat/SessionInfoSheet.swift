@@ -39,6 +39,13 @@ import Foundation
             ?? store.archivedRow(id: storedId, profile: model.profile)
     }
 
+    var pullRequest: SessionPRStatus? {
+        guard let model, let storedId, let store,
+              store.isCodingSession(profile: model.profile, id: storedId,
+                                    fallbackCwd: (listedRow ?? fetched)?.cwd ?? live?.menus.cwd) else { return nil }
+        return store.pullRequest(profile: model.profile, id: storedId) ?? SessionPRStatus(state: .unknown)
+    }
+
     /// The sheet opened: one `session.usage` ask (errors swallowed), and the stored row by id when no list holds it.
     /// `changed` runs when either answers.
     func opened(_ changed: @escaping () -> Void) {
@@ -55,6 +62,13 @@ import Foundation
             Task { [weak self] in
                 guard let row = await store.fetchRow(id: storedId, profile: profile) else { return }
                 self?.fetched = row
+                if store.projectsByProfile[profile] == nil {
+                    _ = try? await store.projects(for: profile, refresh: false)
+                }
+                var summary = SessionSummary(id: storedId, profile: profile, title: model.title,
+                                             preview: nil, lastActive: nil, source: nil, unread: false, isRunning: false)
+                summary.cwd = row.cwd
+                await store.refreshCodingPullRequest(for: summary)
                 changed()
             }
         }

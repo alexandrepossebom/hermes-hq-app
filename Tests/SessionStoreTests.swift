@@ -38,6 +38,181 @@ import Testing
 
     // MARK: Decoding and the list
 
+    @Test func pullRequestsAreChunkedAndKeyedByProfile() async throws {
+        let client = BotsFakeGatewayClient()
+        client.onREST { method, path, _, body in
+            #expect(method == "POST" && path == "/api/plugins/hermes-hq-push/sessions/pr-status")
+            let request = try JSONValue.parse(#require(body))
+            let sessions = try #require(request["sessions"]?.array)
+            #expect(sessions.count <= 32)
+            let result: JSONValue = ["sessions": .array(sessions.map { row in
+                ["profile": row["profile"] ?? .null, "id": row["id"] ?? .null,
+                 "state": row["profile"]?.string == "other" ? "none" : "open",
+                 "number": 42, "url": "https://github.com/example/repo/pull/42"]
+            })]
+            return try result.encoded()
+        }
+        let store = makeStore(client, autoStart: false)
+        let rows = (0..<65).map { SessionSummary(id: "\($0)", profile: "ivy", title: "", preview: nil,
+                                                 lastActive: nil, source: nil, unread: false, isRunning: false) }
+        var other = rows[0]; other.profile = "other"
+        await store.refreshPullRequests(for: rows + [other, rows[0]])
+        #expect(client.restCalls.count == 3)
+        #expect(store.pullRequest(profile: "ivy", id: "0")?.state == .open)
+        #expect(store.pullRequest(profile: "other", id: "0")?.state == SessionPRStatus.State.none)
+        #expect(store.pullRequest(profile: "ivy", id: "0")?.label == "Open #42")
+        #expect(store.pullRequest(profile: "ivy", id: "0")?.url?.host == "github.com")
+        let second = makeStore(BotsFakeGatewayClient(), autoStart: false)
+        #expect(second.pullRequest(profile: "ivy", id: "0") == nil)
+    }
+
+    @Test func pullRequestsHandleOmissionsFailuresAndUnsupportedGateways() async throws {
+        let sidebar = Self.sidebar([Self.srow("same", profile: "ivy"), Self.srow("same", profile: "other")])
+        let client = BotsFakeGatewayClient()
+        client.onREST { method, _, _, _ in
+            if method == "GET" { return sidebar }
+            return Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"same\",\"state\":\"none\",\"repo\":\"owner/repo\",\"url\":\"https://github.com/owner/repo/pull/42\"},{\"profile\":\"other\",\"id\":\"same\",\"state\":\"unknown\"}]}".utf8)
+        }
+        let store = makeStore(client)
+        #expect(await BotsTest.waitUntil { store.sessions.count == 2 })
+        #expect(!client.restCalls.contains { $0.path.hasSuffix("pr-status") })
+        store.setListVisible(true)
+        let rows = store.sessions
+        await store.refreshPullRequests(for: rows)
+        #expect(store.pullRequest(profile: "other", id: "same")?.label == "PR status unknown")
+        client.onREST { _, _, _, _ in throw HTTPError(status: 503, body: nil) }
+        await store.refreshPullRequests(for: rows, force: true)
+        let failed = try #require(store.pullRequest(profile: "ivy", id: "same"))
+        #expect(failed.state == .unknown && failed.repo == nil && failed.url == nil)
+        let missing = SessionSummary(id: "missing", profile: "ivy", title: "", preview: nil, lastActive: nil,
+                                     source: nil, unread: false, isRunning: false)
+        await store.refreshPullRequests(for: [missing], force: true)
+        #expect(store.pullRequest(profile: "ivy", id: "missing")?.state == .unknown)
+        client.onREST { _, _, _, _ in Data("{\"sessions\":[]}".utf8) }
+        await store.refreshPullRequests(for: rows, force: true)
+        #expect(store.pullRequest(profile: "ivy", id: "same") == nil)
+        #expect(store.sessions.allSatisfy { $0.pullRequest == nil })
+        store.stop()
+
+        let old = BotsFakeGatewayClient()
+        old.onREST { _, _, _, _ in throw HTTPError(status: 404, body: nil) }
+        let oldStore = makeStore(old, autoStart: false)
+        await oldStore.refreshPullRequests(for: rows)
+        await oldStore.refreshPullRequests(for: [missing], force: true)
+        #expect(old.restCalls.count == 1)
+        #expect(oldStore.pullRequest(profile: "ivy", id: "same")?.state == .unknown)
+    }
+
+    @Test func pullRequestDiscoveryIsScopedAndCached() async throws {
+        let client = BotsFakeGatewayClient()
+        func row(_ id: String, _ cwd: String) -> JSONValue {
+            var value = Self.srow(id).object!
+            value["cwd"] = .string(cwd)
+            return .object(value)
+        }
+        let sidebar = Self.sidebar([row("a", "/code/repo"), row("b", "/lanes/work"), row("c", "/code/repo/nested")])
+        client.on("projects.tree") { _ in
+            ["projects": [["id": "p", "path": "/code/repo", "repos": [["path": "/lanes"]]],
+                          ["id": "nested", "path": "/code/repo/nested"]]]
+        }
+        client.onREST { method, _, _, body in
+            if method == "GET" { return sidebar }
+            let data = try #require(body)
+            let rows = try #require(JSONValue.parse(data)["sessions"]?.array)
+            return try JSONValue.object(["sessions": .array(rows.map { ["profile": $0["profile"] ?? .null,
+                "id": $0["id"] ?? .null, "state": "open"] })]).encoded()
+        }
+        let store = makeStore(client)
+        #expect(await BotsTest.waitUntil { store.sessions.count == 3 })
+        let project = SessionProject(id: "p", label: "Code", root: "/code/repo", paths: ["/code/repo", "/lanes"])
+        let nested = SessionProject(id: "nested", label: "Nested", root: "/code/repo/nested", paths: ["/code/repo/nested"])
+        store.projectsByProfile["ivy"] = [project, nested]
+        store.setFocusedSession("a")
+        store.setChatFocused(true)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!client.restCalls.contains { $0.path.hasSuffix("pr-status") })
+        store.setCodingProject("/code/repo", true)
+        #expect(await BotsTest.waitUntil { store.pullRequest(profile: "ivy", id: "a") != nil })
+        #expect(store.pullRequest(profile: "ivy", id: "b") == nil)
+        store.setChatFocused(false)
+        store.setListVisible(true)
+        #expect(await BotsTest.waitUntil { store.pullRequest(profile: "ivy", id: "b") != nil })
+        #expect(store.pullRequest(profile: "ivy", id: "c") == nil)
+        let calls = client.restCalls.filter { $0.path.hasSuffix("pr-status") }.count
+        await store.refreshPullRequests(for: store.sessions)
+        #expect(client.restCalls.filter { $0.path.hasSuffix("pr-status") }.count == calls + 1) // explicit API includes c
+        store.setCodingProject("/code/repo", false)
+        #expect(store.pullRequest(profile: "ivy", id: "a") == nil)
+        #expect(store.sessions.allSatisfy { $0.pullRequest == nil })
+        let stoppedCalls = client.restCalls.filter { $0.path.hasSuffix("pr-status") }.count
+        store.setListVisible(false); store.setListVisible(true)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(client.restCalls.filter { $0.path.hasSuffix("pr-status") }.count == stoppedCalls)
+        store.stop()
+    }
+
+    @Test func overlappingPullRequestChecksCoalesce() async throws {
+        let client = BotsFakeGatewayClient()
+        client.onREST { _, _, _, _ in
+            try await Task.sleep(for: .milliseconds(100))
+            return Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"a\",\"state\":\"open\"}]}".utf8)
+        }
+        let store = makeStore(client, autoStart: false)
+        let row = SessionSummary(id: "a", profile: "ivy", title: "", preview: nil, lastActive: nil,
+                                 source: nil, unread: false, isRunning: false)
+        let first = Task { await store.refreshPullRequests(for: [row]) }
+        #expect(await BotsTest.waitUntil { client.restCalls.count == 1 })
+        await store.refreshPullRequests(for: [row])
+        await first.value
+        #expect(client.restCalls.count == 1)
+        #expect(store.pullRequest(profile: "ivy", id: "a")?.state == .open)
+    }
+
+    @Test func disablingCodingProjectDiscardsInFlightDiscovery() async throws {
+        let client = BotsFakeGatewayClient()
+        client.onREST { _, _, _, _ in
+            try await Task.sleep(for: .milliseconds(150))
+            return Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"a\",\"state\":\"open\"}]}".utf8)
+        }
+        let store = makeStore(client, autoStart: false)
+        store.projectsByProfile["ivy"] = [SessionProject(id: "p", label: "Code", root: "/code", paths: ["/code"])]
+        store.setCodingProject("/code", true)
+        var row = SessionSummary(id: "a", profile: "ivy", title: "", preview: nil, lastActive: nil,
+                                 source: nil, unread: false, isRunning: false)
+        row.cwd = "/code/work"
+        let request = Task { await store.refreshCodingPullRequest(for: row) }
+        #expect(await BotsTest.waitUntil { client.restCalls.count == 1 })
+        store.setCodingProject("/code", false)
+        await request.value
+        #expect(store.pullRequest(profile: "ivy", id: "a") == nil)
+        #expect(!store.isCodingSession(profile: "ivy", cwd: row.cwd))
+    }
+
+    @Test func pullRequestLinksRequireExactGitHubPullPath() async throws {
+        let urls = ["https://github.com/owner/repo/pull/42", "http://github.com/owner/repo/pull/42",
+                    "https://github.com.evil.test/owner/repo/pull/42", "https://github.com/owner/repo/issues/42",
+                    "https://github.com/owner/repo/pull/0", "https://github.com/owner/repo/pull/42/extra",
+                    "https://user@github.com/owner/repo/pull/42", "https://github.com/owner/repo/pull/42?x=1"]
+        let client = BotsFakeGatewayClient()
+        client.onREST { _, _, _, body in
+            let data = try #require(body)
+            let rows = try #require(JSONValue.parse(data)["sessions"]?.array)
+            let results: [JSONValue] = rows.map { row in
+                let id = row["id"]?.string ?? "0"
+                return ["profile": "ivy", "id": .string(id), "state": "open", "url": .string(urls[Int(id)!])]
+            }
+            return try JSONValue.object(["sessions": .array(results)]).encoded()
+        }
+        let store = makeStore(client, autoStart: false)
+        let rows = urls.indices.map { SessionSummary(id: "\($0)", profile: "ivy", title: "", preview: nil,
+                                                      lastActive: nil, source: nil, unread: false, isRunning: false) }
+        await store.refreshPullRequests(for: rows)
+        #expect(store.pullRequest(profile: "ivy", id: "0")?.url != nil)
+        for index in urls.indices.dropFirst() { #expect(store.pullRequest(profile: "ivy", id: "\(index)")?.url == nil) }
+        #expect(SessionPRStatus(state: .none).label == "No PR yet")
+        #expect(SessionPRStatus(state: .unknown).label == "PR status unknown")
+    }
+
     @Test func demoSidebarDecodes() throws {
         let payload = try SidebarPayload.decode(BotsFixture.json("demo-sidebar"))
         #expect(payload.recents.rows?.count == 7)

@@ -35,8 +35,13 @@ struct ProjectPageHeader: View {
     /// [project-header-card] The section stands on a soft card already (Soft Cards, the page's picture showing): no card
     /// of its own.
     var onSoftCard = false
-    /// [project-default-bot] The header's ⋯: New Chat With… and Default Bot. Nil (one bot): no ⋯.
+    /// [project-default-bot] Optional bot actions in the header's ⋯; coding settings are always available.
     var menu: BotMenu? = nil
+    var coding = false
+    var prCounts: [SessionPRStatus.State: Int] = [:]
+    var selectedPR: SessionPRStatus.State? = nil
+    var onPRPick: (SessionPRStatus.State) -> Void = { _ in }
+    var onCodingChange: (Bool) -> Void = { _ in }
 
     /// [project-default-bot] Owner 2026-11-17: "a project should be able to have a default bot". The bar's Compose
     /// starts the chat with it at once; this menu says which bot that is, changes it, and starts a chat with another.
@@ -63,6 +68,20 @@ struct ProjectPageHeader: View {
     static func meta(folder: String, branch: String?, bots: [String]) -> String {
         let who = bots.count > 3 ? bots.prefix(2).joined(separator: ", ") + " and \(bots.count - 2) more" : bots.joined(separator: ", ")
         return [shortFolder(folder), branch ?? "", who].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// Count verified answers once per project chat, including archived chats.
+    static func pullRequestCounts(_ rows: [SessionSummary], project: String,
+                                  projects: [String: [SessionProject]]) -> [SessionPRStatus.State: Int] {
+        var seen = Set<String>()
+        var counts: [SessionPRStatus.State: Int] = [:]
+        for row in rows {
+            guard SessionProjects.key(cwd: row.cwd, profile: row.profile, projectsByProfile: projects) == project,
+                  let state = row.pullRequest?.state, state != .unknown,
+                  seen.insert(SessionListPipeline.key(row)).inserted else { continue }
+            counts[state, default: 0] += 1
+        }
+        return counts
     }
 
     private var lead: CGFloat { Theme.isDesktop ? DesktopRows.gutter : 20 }
@@ -210,7 +229,7 @@ struct ProjectPageHeader: View {
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                if let menu { moreButton(menu) }
+                moreButton(menu)
             }
             .frame(height: HQFont.scaled(carded ? 26 : 30))
             if !meta.isEmpty {
@@ -229,6 +248,12 @@ struct ProjectPageHeader: View {
                 counts(words: false)
             }
             .padding(.top, carded ? 1 : 2)
+            if coding {
+                pullRequestCounts
+                Text("Counts include only available PR statuses.")
+                    .font(Font.hq(.caption))
+                    .foregroundStyle(Color.hqLabel2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // [project-header-card] On the card the words keep their column and the header its height (measured: the first
@@ -244,21 +269,58 @@ struct ProjectPageHeader: View {
     }
 
     /// [project-default-bot] The ⋯ at the name's end: its glyph stands on the card's inner edge, its touch 44 pt across.
-    private func moreButton(_ menu: BotMenu) -> some View {
+    private func moreButton(_ menu: BotMenu?) -> some View {
         HeaderMoreButton(label: "Actions for \(name)", identifier: "sessions.projectPage.more", glyph: Theme.isDesktop ? 14 : 17,
                          cap: 22, height: HQFont.scaled(carded ? 26 : 30), above: 8) {
-            Button(action: menu.onNewChatWith) { Label("New Chat With…", systemImage: "square.and.pencil") }
-            Picker(selection: Binding(get: { menu.usual ?? ProjectDefaultBot.ask }, set: { menu.onPick($0) })) {
-                ForEach(menu.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
-                Divider()
-                Text("Ask Every Time").tag(ProjectDefaultBot.ask)
-            } label: {
-                Label("Default Bot", systemImage: "person.crop.circle.badge.checkmark")
+            Toggle(isOn: Binding(get: { coding }, set: onCodingChange)) {
+                Label("Coding Project", systemImage: "chevron.left.forwardslash.chevron.right")
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("sessions.projectPage.defaultBot")
+            .accessibilityHint("Shows pull request status instead of timestamps in this project")
+            .accessibilityIdentifier("sessions.projectPage.coding")
+            if let menu {
+                Button(action: menu.onNewChatWith) { Label("New Chat With…", systemImage: "square.and.pencil") }
+                Picker(selection: Binding(get: { menu.usual ?? ProjectDefaultBot.ask }, set: { menu.onPick($0) })) {
+                    ForEach(menu.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
+                    Divider()
+                    Text("Ask Every Time").tag(ProjectDefaultBot.ask)
+                } label: {
+                    Label("Default Bot", systemImage: "person.crop.circle.badge.checkmark")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("sessions.projectPage.defaultBot")
+            }
         }
         .padding(.trailing, -13)
+    }
+
+    private var pullRequestCounts: some View {
+        HStack(spacing: 12) {
+            ForEach([SessionPRStatus.State.none, .draft, .open, .merged, .closed], id: \.self) { state in
+                let count = prCounts[state, default: 0]
+                let status = state == .none ? "No PR yet" : "\(SessionPRStatus(state: state).label) PR"
+                let label = "\(status), \(count) loaded \(count == 1 ? "chat" : "chats")"
+                Button { onPRPick(state) } label: {
+                HStack(spacing: 3) {
+                    Image(uiImage: SessionPRGlyph.image(state))
+                        .renderingMode(.template)
+                        .resizable().frame(width: 14, height: 14)
+                        .foregroundStyle(Color(uiColor: SessionPRGlyph.color(state)))
+                    Text("\(count)").font(Font.hq(.caption).weight(.medium)).monospacedDigit()
+                }
+                .padding(.horizontal, 4).frame(minHeight: 32)
+                .overlay { if selectedPR == state { Capsule().strokeBorder(Color.hqTint, lineWidth: 1.5) } }
+                .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(count == 0 && selectedPR != state)
+                .opacity(count == 0 && selectedPR != state ? 0.45 : 1)
+                .accessibilityLabel(label)
+                .accessibilityHint(selectedPR == state ? "Clear pull request filter" : "Filter chats by pull request state")
+                .accessibilityAddTraits(selectedPR == state ? .isSelected : [])
+                .accessibilityIdentifier("sessions.projectPage.pr.\(state.rawValue)")
+                .help(label)
+            }
+        }
     }
 
     private func counts(words: Bool) -> some View {
@@ -305,6 +367,19 @@ struct ProjectPageHeader: View {
         .accessibilityLabel("\(word), \(count) \(count == 1 ? "chat" : "chats")")
         .accessibilityAddTraits(isLit(id, count) ? .isSelected : [])
         .accessibilityIdentifier("sessions.projectPage.\(id)")
+    }
+}
+
+extension SessionsViewController {
+    /// Count the entire loaded project, not just the visible, folded, or filtered piles.
+    func projectPRCounts(_ key: String) -> [SessionPRStatus.State: Int] {
+        guard let store else { return [:] }
+        let rows = (store.sessions + store.archivedSessions).map { row in
+            var row = row
+            row.pullRequest = store.pullRequest(profile: row.profile, id: row.id) ?? row.pullRequest
+            return row
+        }
+        return ProjectPageHeader.pullRequestCounts(rows, project: key, projects: store.projectsByProfile)
     }
 }
 

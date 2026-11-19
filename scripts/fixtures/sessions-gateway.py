@@ -37,6 +37,9 @@ Filter & Sort, chips, Session Info and the reconnect probe (docs/spec/3x-session
                           {"projects":"empty"|"odd"|"null"|"many"|"long"|"found"} (projects.tree answers), {"usage":{…}} (every session.usage),
                           {"down":8} (as a stopped gateway for that many seconds: sockets close, every request is
                           cut off unanswered; the test hooks still answer)
+                          {"prStatus":{"default/s-garden":{"state":"none","repo":"example/garden","branch":"work"}}}
+                          enables synthetic PR-status answers, keyed by profile/id; noncoding chats are omitted.
+                          Reset returns to the legacy 404 behavior.
                           {"working":["s-trip"]} (the add-on's sessions/working names those chats: a turn another
                           process runs; serve/working answers 503 as outside the serving process)
                           {"live":{"s-trip":"waiting"}} (session.active_list names those chats with that status,
@@ -782,6 +785,17 @@ def handler(gateway):
         def route(self, method, body):
             url = urlparse(self.path); path, query = url.path, parse_qs(url.query)
             one = lambda key: (query.get(key) or [''])[0]
+            if path == '/api/plugins/hermes-hq-push/sessions/pr-status' and method == 'POST' and 'prStatus' in MODE:
+                # Opt-in synthetic statuses; ordinary chats have no repo or branch and are not a "no PR" match.
+                statuses = MODE['prStatus']
+                results = []
+                for item in body.get('sessions', []):
+                    if not isinstance(item, dict): continue
+                    profile, sid = item.get('profile'), item.get('id')
+                    details = statuses.get(profile + '/' + sid, {}) if isinstance(profile, str) and isinstance(sid, str) else {}
+                    if details:
+                        results.append({'profile': profile, 'id': sid, **details})
+                return 200, {'sessions': results}
             if path == '/api/files/mkdir' and method == 'POST':     # New Project with no folder typed: ~ is HOME
                 made = str((body or {}).get('path') or '')
                 if not made: return 400, {'detail': 'path is required'}

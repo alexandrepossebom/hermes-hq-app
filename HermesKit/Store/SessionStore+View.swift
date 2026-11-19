@@ -130,6 +130,17 @@ extension SessionStore {
     /// [project-default-bot] What was chosen for a project's New Chat: a bot's profile, `ProjectDefaultBot.ask`, or nil.
     func projectBotChoice(_ key: String) -> String? { device.projectBots[key] }
 
+    func isCodingProject(_ key: String) -> Bool { device.codingProjects[key] ?? false }
+
+    func setCodingProject(_ key: String, _ enabled: Bool) {
+        guard device.codingProjects[key] != enabled else { return }
+        if !enabled, projectPRFilter?.key == key { projectPRFilter = nil }
+        device.codingProjects[key] = enabled
+        persistState()
+        codingProjectsChanged()
+        onChange?()
+    }
+
     /// [project-default-bot] Default Bot: `choice` is a bot's profile or `ProjectDefaultBot.ask`. Kept with the other
     /// hand-picked parts (synced).
     func setProjectBotChoice(_ key: String, _ choice: String) {
@@ -181,6 +192,7 @@ extension SessionStore {
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
                                                     archivedProjects: archivedProjects,
                                                     botNames: botNames, statusChip: statusChip,
+                                                    projectPRState: projectPRFilter.flatMap { view.projectFilter == [$0.key] && isCodingProject($0.key) ? $0.state : nil },
                                                     liveUnderProjects: projectRowsOpenPages, now: now, calendar: calendar))
     }
 
@@ -446,6 +458,7 @@ extension SessionStore {
         guard device.projects != projectsByProfile else { return }
         device.projects = projectsByProfile
         persistState()
+        codingProjectsChanged()
         onChange?()
     }
 
