@@ -286,6 +286,32 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   Theme for shots with argument-domain keys only (`-hqn.theme.skin`, `-hqn.appearance`); the `-HQDebug*` theme hooks
   save to the stored theme.
 
+## Sessions pane (Nov 18, branch feat/mac-sessions-pane)
+
+Owner: the Mac's Sessions pane "feels like I am using something designed for iOS". His rule: "the way they're organized
+and structured should at least match, like the hierarchy should match. But the design doesn't necessarily have to
+match." So the order of sections, a row's words and the text size are the iPhone's, and the controls and spacing are
+the Mac's. (A first try that put New for You and Working above Pinned on the Mac alone was taken out for that rule; a
+search field always showing was turned down: "behind a click".)
+
+- **The row under the bar** (`SessionsHeaderView.macRow`): the Bots | Projects switch, the view's "All Bots" / "All
+  Projects" menu (`pages.scope`), and New and Working as counts at its end ("5 new"; a click narrows the list, another
+  clears it). No pills that scroll sideways. This reverses the owner's 2026-11-17 pick of the iPhone's pill row.
+- **Rows** (`SessionRowView.macTight`, `ProjectCard.rowPad`): in the iOS look at Standard density a one-line chat row
+  and a project's row are 36 pt (about 32 on the screen; they were 44 and 39). Compact and the Desktop Look keep theirs.
+- **Captions** are a size under the rows' titles (`SessionDateHeaderView.captionStyle`, footnote) in the iOS look.
+- **A project's header** (`ProjectPageHeader.macBody`): no card and no count capsules. The name, then one grey line:
+  folder, bots, "7 chats", and each count that isn't zero as words that narrow the page with a click.
+- **Under the pointer** (`SessionRowHover`): a row's time gives way to Pin, Archive and More (the row's menu). The right
+  click and the swipes stay. `-HQDebugRowHover "<title>"` draws it on one row for a picture.
+- **Yesterday's rows say the hour** ("5:31 PM"), not "Yesterday" again under the Yesterday heading.
+- **No pencil in the list's bar**: New Chat is the sidebar's (⌘N, ⇧⌘N). On a project's page the pencil stays, as that
+  project's New Chat.
+- Checked: `-HQDebugMacShotsSessions YES` on the sessions fixture (everyday seed) at two window widths, iOS look dark
+  and light and the Desktop Look dark; the iPhone build and `SessionListPipelineTests`. NOT checked: the menu opened
+  (the tour can't open a system menu), the hover buttons under a real pointer and clicks on them, the counts' clicks,
+  Mac UI tests, the full suites, more bots or a longer project name than the fixture's.
+
 ## Polish pass (Nov 7, branch fix/mac-polish)
 
 A 145-item audit of the Mac app (report and pictures: `~/Projects/hermes-hq-share/2026-11-06-mac-polish/`), all

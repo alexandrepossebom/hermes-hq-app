@@ -77,7 +77,7 @@ enum ProjectCardSlice {
     static var pageTrailing: CGFloat { soft ? 20 + BackdropCards.side : 20 }
     /// A chat's face, and the space above and below it in its row (a one-line row is 44 pt, as Pinned's).
     static var face: CGFloat { Theme.isDesktop ? HQFont.scaled(22) : Density.ios(28, 22) }
-    static var rowPad: CGFloat { Theme.isDesktop ? 7 : Density.ios(8, 5) }
+    static var rowPad: CGFloat { Theme.isDesktop ? 7 : SessionRowView.macTight(8, 5, mac: 4) }   // [mac-pane] 36 pt rows on the Mac, as a chat's
     /// Where a row's face (and its node on the line) is centred, from the row's top.
     static var nodeY: CGFloat { rowPad + face / 2 }
     /// An open card's header and New Chat stand this much further in from the card's rounded ends.

@@ -136,6 +136,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// the bot works or waits on you), and Group By Recent's Pinned (`freshPinnedKeys`: never a second line).
     private var freshKeys: Set<String> = []
     private var freshPinnedKeys: Set<String> = []
+    /// [mac-pane] The rows under the "Yesterday" heading: on the Mac they say the hour, not "Yesterday" again.
+    private var yesterdayKeys: Set<String> = []
     private var backgroundObserver: NSObjectProtocol?
     private var headerLaidOut = false
     // [/sessions-m9]
@@ -478,11 +480,26 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             // Group By Recent offers; the cards follow it there too).
             let fresh: SessionRowView.Fresh? = self.freshPinnedKeys.contains(id) ? .pinned : self.freshKeys.contains(id) ? .recent : nil
             let faces = !(self.freshLayout || self.projectLayout) || (self.store?.view.botFaces ?? true)   // [projects-switch]
+            // [mac-pane] The Mac: under the "Yesterday" heading a row says when ("5:31 PM"), not "Yesterday" again down
+            // every row; and the pointer over a row swaps its time for Pin, Archive and More.
+            var time = ListTime.string(session.lastActive)
+            var hover: SessionRowHover?
+            if DeviceWord.isMac {
+                if self.yesterdayKeys.contains(id), let date = session.lastActive, time == "Yesterday" {
+                    time = ListTime.formatter("h:mm a", calendar: .current).string(from: date)
+                }
+                if let organizer = self.organizer {
+                    let key = Self.realKey(id)
+                    hover = SessionRowHover(onPin: { [weak organizer] in organizer?.pin(session) },
+                                            onArchive: { [weak organizer] in organizer?.archive(session) },
+                                            onMore: { [weak organizer] in organizer?.openMenu(key: key) })
+                }
+            }
             let row = UIHostingConfiguration {
                 SessionRowView(session: session, ownerName: owner.name, ownerHead: owner.head,
-                               time: ListTime.string(session.lastActive), busy: busy, detail: detail, muted: muted,
+                               time: time, busy: busy, detail: detail, muted: muted,
                                origin: origin, compact: compact, shortPreview: short, card: card, fresh: fresh, faces: faces,
-                               recentLayout: self.freshLayout || self.projectLayout)
+                               recentLayout: self.freshLayout || self.projectLayout, hover: hover)
             }
             .margins(.all, 0)
             // [sessions-layout] A one-line row is as tall as it draws itself (44 pt), not the list's taller least row.
@@ -1472,6 +1489,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             groups = (pinned.isEmpty ? [] : [SessionGroup(id: "pinned", title: "Pinned", sessions: pinned)])
                 + SessionGrouping.groups(sessions.filter { !$0.pinned })
         }
+        if DeviceWord.isMac { barCapsule?.composeItem?.isHidden = !isProjectPage }   // [mac-pane] as `refreshChrome`, once the groups are read
         // [sessions-m9] A section gains or loses its header: the layout is read again.
         let flags = groups.map { !searching && !$0.title.isEmpty }
         let openCards = groups.indices.map(isOpenCard)
@@ -1492,6 +1510,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         compactKeys = fresh ? [] : pinnedKeys
         freshPinnedKeys = fresh ? pinnedKeys : []
         freshKeys = []
+        yesterdayKeys = []
         shortKeys = searching ? [] : Set(groups.first { $0.id == SessionListPipeline.newId }?.sessions.map(Self.key) ?? [])
         cardKeys = [:]
         var snapshot = NSDiffableDataSourceSnapshot<String, String>()
@@ -1517,6 +1536,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             }
             if card { for item in items { cardKeys[item] = group.title } }
             if !searching && ((fresh && recent) || group.id == SessionListPipeline.chipId || (projectLayout && !card)) { freshKeys.formUnion(items) }
+            if !searching, DeviceWord.isMac, group.id == SessionListPipeline.recentId + "-yesterday" { yesterdayKeys.formUnion(items) }   // [mac-pane]
             snapshot.appendItems(items, toSection: section)
             if group.id == SessionListPipeline.otherAppsId { snapshot.appendItems([Self.otherAppsKey], toSection: section) }
             if group.id == SessionListPipeline.pageId { snapshot.appendItems([Self.pageKey], toSection: section) }
@@ -1559,6 +1579,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             hasher.combine(shortKeys.contains(id))                          // [sessions-layout] New for You's one line
             hasher.combine(freshKeys.contains(id))                          // [sessions-fresh] Fresh's rows
             hasher.combine(freshPinnedKeys.contains(id))
+            hasher.combine(yesterdayKeys.contains(id))                      // [mac-pane] the hour under Yesterday
             hasher.combine(store?.view.botFaces)                            // [sessions-fresh] Show › Bot Faces
             next[id] = hasher.finalize()
         }
@@ -2389,6 +2410,10 @@ extension SessionsViewController {
         // [project-default-bot] And with which bot, when the project has a default one (no bot's pill picked).
         let composeBot = composeIn == nil || state.botFilter != nil ? nil
             : pickedProjects.first.flatMap { organizer?.projectDefaultBot(key: $0) }.flatMap { id in bots.first { $0.id == id }?.name }
+        // [mac-pane] The Mac has New Chat at the sidebar's top (⌘N; ⇧⌘N asks which bot and project): a second pencil
+        // beside it in this pane was a second path to the same thing. On a project's page it stays: there it is that
+        // project's New Chat, which the sidebar's is not.
+        if DeviceWord.isMac { barCapsule?.composeItem?.isHidden = !isProjectPage }
         barCapsule?.composeItem?.accessibilityLabel = composeIn.map { "New Chat in \($0)" + (composeBot.map { " with \($0)" } ?? "") } ?? "New Chat"
         if headerChanged { view.setNeedsLayout() }
     }
