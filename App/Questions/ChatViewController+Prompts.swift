@@ -55,6 +55,20 @@ extension ChatViewController {
         }.map(\.id)
     }
 
+    /// The newest settled clarify card asking these questions (`ClarifyLate.key`): its message, and whether a question
+    /// on it went unanswered.
+    func settledClarify(key: String) -> (messageId: String, hasBlank: Bool)? {
+        for message in session.messages.reversed() where message.role == .assistant {
+            for part in message.parts {
+                guard case .tool(let call) = part, call.name == "clarify",
+                      let rows = ClarifySettled.rows(fromSummary: call.summary), !rows.isEmpty,
+                      ClarifyLate.key(rows.map(\.question)) == key else { continue }
+                return (message.id, rows.contains { $0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            }
+        }
+        return nil
+    }
+
     /// Answer Now's Send: the answers go into the chat as a message of yours (its bubble reads as the answers alone);
     /// the card then shows them.
     func sendLateAnswer(_ text: String, messageId: String) {

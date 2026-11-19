@@ -294,10 +294,38 @@ import UIKit
             prompting.saveClarifyDraft(clarify.id, draft)
             dock = view
             showQuestionDock(view, animated: animated)
-        } else if dock != nil {
+        } else if let gone = dock {
             dock = nil
+            // The bot stopped waiting (its clarify timeout, a Stop, a reconnect's prune) while answers were being typed:
+            // they stay in the dock, now as Answer Now's, and Send puts them in the chat (a tester lost a whole
+            // interview's answers to the 90 s default).
+            if keepAnswering(gone) { return }
             chat.setDock(nil, for: .question, animated: true)
         }
+    }
+
+    /// A live dock that went unsent with something typed or picked comes back as a later dock holding the same draft.
+    /// Its card is the settled one for the same questions (looked up again at Send, when it has arrived).
+    private func keepAnswering(_ gone: QuestionDockView) -> Bool {
+        guard let chat, !gone.later, gone.sending == .none, Self.hasAnswers(gone.draft) else { return false }
+        let questions = gone.prompt.questions
+        let rows = questions.map { ClarifyQA(question: $0.question, answer: "", unanswered: true, choices: $0.choices) }
+        let key = ClarifyLate.key(questions.map(\.question))
+        let multi = Set(questions.filter(\.multiSelect).map { ClarifyLate.flat($0.question) })
+        late = SettledClarifyCard(rows: rows, key: key, messageId: "", multi: multi, answerable: true, answeredLater: false)
+        let typing = gone.isEditingText
+        let view = QuestionDockView(prompt: ClarifyPrompt(id: "late|\(key)", questions: questions), draft: gone.draft, later: true)
+        view.delegate = self
+        dock = view
+        AppLog.trace("questions", "clarify \(AppLog.tag(gone.prompt.id)) ended unsent with answers typed: kept as Answer Now")
+        // Mid-typing, the keyboard stays up on the same question.
+        showQuestionDock(view, animated: false)
+        if typing, !gone.draft.minimized { view.focusShownField() }
+        return true
+    }
+
+    static func hasAnswers(_ draft: ClarifyDraft) -> Bool {
+        draft.stages.values.contains { !$0.choices.isEmpty || !$0.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     /// Swap only the presentation. Keep the same dock (fields, scroll and picks) and save its minimized state by
@@ -422,7 +450,17 @@ import UIKit
         guard !answers.isEmpty else { return }
         dock.endEditing(true)
         closeLater()
-        chat.sendLateAnswer(ClarifyLate.message(key: card.key, answers: answers), messageId: card.messageId)
+        // A dock kept from a live question has no card yet: its settled card, by the same questions. One whose
+        // questions all got answers was answered on the live request (another device): nothing more to send.
+        var messageId = card.messageId
+        if messageId.isEmpty, let found = chat.settledClarify(key: card.key) {
+            messageId = found.messageId
+            if !found.hasBlank {
+                AppLog.trace("questions", "kept answers for \(card.key) not sent: the question was answered on its request")
+                return
+            }
+        }
+        chat.sendLateAnswer(ClarifyLate.message(key: card.key, answers: answers), messageId: messageId)
     }
 
     private func closeLater() {
