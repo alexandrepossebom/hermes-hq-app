@@ -90,7 +90,7 @@ import Testing
         #expect(store.pullRequest(profile: "ivy", id: "missing")?.state == .unknown)
         client.onREST { _, _, _, _ in Data("{\"sessions\":[]}".utf8) }
         await store.refreshPullRequests(for: rows, force: true)
-        #expect(store.pullRequest(profile: "ivy", id: "same") == nil)
+        #expect(store.pullRequest(profile: "ivy", id: "same")?.state == .unknown)
         #expect(store.sessions.allSatisfy { $0.pullRequest == nil })
         store.stop()
 
@@ -101,6 +101,38 @@ import Testing
         await oldStore.refreshPullRequests(for: [missing], force: true)
         #expect(old.restCalls.count == 1)
         #expect(oldStore.pullRequest(profile: "ivy", id: "same")?.state == .unknown)
+        // The add-on can be updated while the app runs: after the wait the route is asked again.
+        oldStore.prRouteRetry = .milliseconds(50)
+        try await Task.sleep(for: .milliseconds(120))
+        old.onREST { _, _, _, _ in Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"same\",\"state\":\"draft\",\"number\":7}]}".utf8) }
+        await oldStore.refreshPullRequests(for: rows, force: true)
+        #expect(old.restCalls.count == 2)
+        #expect(oldStore.pullRequest(profile: "ivy", id: "same")?.state == .draft)
+        oldStore.stop()
+    }
+
+    @Test func codingRowsStartUnknownAndUseOnlyFetchedStates() async throws {
+        let client = BotsFakeGatewayClient()
+        func row(_ id: String) -> JSONValue {
+            var value = Self.srow(id).object!
+            value["cwd"] = "/code/repo"
+            return .object(value)
+        }
+        let sidebar = Self.sidebar([row("new"), row("draft"), row("omitted")])
+        client.onREST { method, _, _, _ in
+            if method == "GET" { return sidebar }
+            return Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"new\",\"state\":\"none\"},{\"profile\":\"ivy\",\"id\":\"draft\",\"state\":\"draft\",\"number\":7}]}".utf8)
+        }
+        let store = makeStore(client)
+        #expect(await BotsTest.waitUntil { store.sessions.count == 3 })
+        store.projectsByProfile["ivy"] = [SessionProject(id: "p", label: "Code", root: "/code/repo", paths: ["/code/repo"])]
+        store.setCodingProject("/code/repo", true)
+        #expect(store.sessions.allSatisfy { $0.pullRequest?.state == .unknown })
+        await store.refreshPullRequests(for: store.sessions)
+        #expect(store.sessions.first { $0.id == "new" }?.pullRequest?.state == SessionPRStatus.State.none)
+        #expect(store.sessions.first { $0.id == "draft" }?.pullRequest?.state == .draft)
+        #expect(store.sessions.first { $0.id == "omitted" }?.pullRequest?.state == .unknown)
+        store.stop()
     }
 
     @Test func pullRequestDiscoveryIsScopedAndCached() async throws {

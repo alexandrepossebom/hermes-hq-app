@@ -577,6 +577,10 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 onCodingChange: { [weak self] enabled in
                     self?.store?.setCodingProject(key, enabled)
                     self?.reload(animated: false)
+                }, onInfo: { [weak self] in
+                    guard let self else { return }
+                    let guide = ProjectIconGuide(coding: self.store?.isCodingProject(key) ?? false)
+                    self.present(ChatSheet.wrap(UIHostingController(rootView: guide), title: "Project Icons", detents: [.large()]), animated: true)
                 })
             cell.contentConfiguration = UIHostingConfiguration { header }.margins(.all, 0).minSize(height: 0)
             cell.accessibilityIdentifier = "sessions.projectPage"

@@ -42,6 +42,7 @@ struct ProjectPageHeader: View {
     var selectedPR: SessionPRStatus.State? = nil
     var onPRPick: (SessionPRStatus.State) -> Void = { _ in }
     var onCodingChange: (Bool) -> Void = { _ in }
+    var onInfo: () -> Void = {}
 
     /// [project-default-bot] Owner 2026-11-17: "a project should be able to have a default bot". The bar's Compose
     /// starts the chat with it at once; this menu says which bot that is, changes it, and starts a chat with another.
@@ -174,6 +175,7 @@ struct ProjectPageHeader: View {
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
+                infoButton
                 if let menu { moreButton(menu) }
             }
             .frame(height: HQFont.scaled(24))
@@ -229,6 +231,7 @@ struct ProjectPageHeader: View {
                     .lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
+                infoButton
                 moreButton(menu)
             }
             .frame(height: HQFont.scaled(carded ? 26 : 30))
@@ -250,9 +253,6 @@ struct ProjectPageHeader: View {
             .padding(.top, carded ? 1 : 2)
             if coding {
                 pullRequestCounts
-                Text("Counts include only available PR statuses.")
-                    .font(Font.hq(.caption))
-                    .foregroundStyle(Color.hqLabel2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -266,6 +266,19 @@ struct ProjectPageHeader: View {
         .padding(.horizontal, carded ? lead - Self.cardPad : 0)
         .padding(.top, carded ? 2 : 8)   // [sessions-ux] the name stood 7 pt under the pills, closer than any heading under it
         .padding(.bottom, carded ? 0 : 6)
+    }
+
+    private var infoButton: some View {
+        Button(action: onInfo) {
+            Image(systemName: "info.circle")
+                .font(Font.hq(.body)).foregroundStyle(Color.hqLabel2)
+                .frame(width: DeviceWord.isMac ? 28 : 44, height: DeviceWord.isMac ? 24 : 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Project icon guide")
+        .accessibilityIdentifier("sessions.projectPage.info")
+        .help("Project icon guide")
     }
 
     /// [project-default-bot] The ⋯ at the name's end: its glyph stands on the card's inner edge, its touch 44 pt across.

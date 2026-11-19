@@ -306,7 +306,15 @@ final class SessionStore {
     @ObservationIgnored private var prInFlight: Set<String> = []
     @ObservationIgnored private var prCheckedAt: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var prGeneration = 0
-    @ObservationIgnored private var prRouteMissing = false
+    /// The gateway answered 404 for PR status (an add-on without the route). Not forever: the add-on can be
+    /// updated while the app runs, so the route is tried again after `prRouteRetry`.
+    @ObservationIgnored private var prRouteMissingSince: ContinuousClock.Instant?
+    @ObservationIgnored var prRouteRetry: Duration = .seconds(600)
+    private var prRouteMissing: Bool {
+        guard let since = prRouteMissingSince else { return false }
+        if ContinuousClock.now - since >= prRouteRetry { prRouteMissingSince = nil; return false }
+        return true
+    }
     @ObservationIgnored private var prPollTask: Task<Void, Never>?
     @ObservationIgnored private var prFocusedRow: SessionSummary?
     @ObservationIgnored let timing: SessionStoreTiming
@@ -329,6 +337,8 @@ final class SessionStore {
     /// Archived rows as read (the Archived view), and rows whose Archive or Delete is in the air (left out of the
     /// list until the gateway answers; a failure brings them back).
     @ObservationIgnored var archivedRows: [SidebarSessionRow] = []
+    /// [read-sync] The archived read a list page asked for (`refreshArchivedIfMoved`), one at a time.
+    @ObservationIgnored private var archivedRefresh: Task<Void, Never>?
     @ObservationIgnored var leaving: Set<String> = []
     /// Projects opened with Show More, by the chip's bot ("*" for All); not kept across launches.
     @ObservationIgnored var expandedGroups: [String: Set<String>] = [:]
@@ -473,8 +483,8 @@ final class SessionStore {
         prFocusedRow = nil
         started = false
         throttle?.cancel()
-        for task in [eventsTask, readInFlight, pollTask] { task?.cancel() }
-        eventsTask = nil; readInFlight = nil; pollTask = nil
+        for task in [eventsTask, readInFlight, pollTask, archivedRefresh] { task?.cancel() }
+        eventsTask = nil; readInFlight = nil; pollTask = nil; archivedRefresh = nil
         readInFlightProbes = false
         readToken &+= 1
         isRefreshing = false
@@ -1230,6 +1240,7 @@ final class SessionStore {
         if let rows = placed(payload.recents.rows, into: recents, limit: topLimits?.0) { recents = rows }
         if let rows = placed(payload.cron.rows, into: cron, limit: topLimits?.1) { cron = rows }
         if let rows = placed(payload.messaging.rows, into: messaging, limit: topLimits?.2) { messaging = rows }
+        refreshArchivedIfMoved(from: prior.recents)
         // [sessions-m9] The page's fingerprint is kept even while our own read marks are in the air (§11.2).
         // [perf-returns] A top page's fingerprint compares with a probe's as a full read's does: the same newest rows,
         // every pinned row and the usage totals.
@@ -1282,6 +1293,26 @@ final class SessionStore {
         // [sessions-m9] Group By Project or a project filter kept from the last launch needs the projects without the
         // Filter menu ever being opened (§3.4); asked at most once a minute per bot.
         if view.groupBy == .project || !view.projectFilter.isEmpty { loadProjects() }
+    }
+
+    /// [read-sync] The archived chats were read once (Show › Archived, or a project's Done pile) and nothing reads them
+    /// again but a pull. A chat another device archived left the list with this page (it did not age off the bottom),
+    /// or one it unarchived is back on it: the archived chats are read again, so Done gains or loses the chat now.
+    /// This device's own Archive and Delete move their rows themselves and never pass here.
+    private func refreshArchivedIfMoved(from before: [SidebarSessionRow]) {
+        guard archivedLoadState == .ready, archivedRefresh == nil, !before.isEmpty else { return }
+        let now = Set(recents.map { Self.writeKey(id: $0.id, profile: $0.profile) })
+        // The page's oldest row that is there by age (a pin comes with every page, however old).
+        let floor = recents.filter { $0.pinned != true }.map(\.recency).min() ?? 0
+        let left = before.contains { !now.contains(Self.writeKey(id: $0.id, profile: $0.profile)) && $0.recency >= floor }
+        // (Only a row that says archived: the archived read also answers with the pinned chats that are not.)
+        let back = !left && archivedRows.contains { $0.archived == true && now.contains(Self.writeKey(id: $0.id, profile: $0.profile)) }
+        guard left || back else { return }
+        AppLog.trace("sessions", "archived list: read again, a chat \(left ? "left" : "came back to") the list")
+        archivedRefresh = Task { [weak self] in
+            await self?.loadArchived()
+            self?.archivedRefresh = nil
+        }
     }
 
     /// The selected chat is on screen or was just read: what it holds is seen.
@@ -1400,15 +1431,16 @@ final class SessionStore {
                 }
                 succeeded = true
             } catch {
-                if let http = error as? HTTPError, http.status == 404 { prRouteMissing = true }
+                if let http = error as? HTTPError, http.status == 404 { prRouteMissingSince = .now }
             }
             guard !Task.isCancelled, !stopped, generation == prGeneration else { break }
             for key in keys {
                 let previous = pullRequests[key]
                 let next: SessionPRStatus?
                 if succeeded {
-                    // Omitted rows are noncoding, not unknown.
-                    next = answers[key]
+                    // Omission cannot establish absence of a PR. The client may know
+                    // a row belongs to a coding project even when the gateway doesn't.
+                    next = answers[key] ?? SessionPRStatus(state: .unknown)
                 } else {
                     // A failed or unsupported endpoint is not evidence of absence. Do not
                     // keep a stale URL or number as if it were verified now.
@@ -1521,7 +1553,8 @@ final class SessionStore {
         summary.cost = row.costUsd
         summary.cwd = row.cwd
         summary.owner = row.userId
-        summary.pullRequest = isCodingSession(profile: row.profile, cwd: row.cwd) ? pullRequests[key] : nil
+        summary.pullRequest = isCodingSession(profile: row.profile, cwd: row.cwd)
+            ? (pullRequests[key] ?? SessionPRStatus(state: .unknown)) : nil
         summary.branch = row.gitBranch.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         summary.metadata = SessionRowWords.metadata(branch: row.gitBranch, model: row.model, messages: row.messageCount,
                                                     toolCalls: row.toolCallCount)

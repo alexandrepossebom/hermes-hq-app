@@ -28,12 +28,27 @@ extension SessionsTests {
         XCTAssertFalse(app.switches["sessions.projectPage.coding"].exists)
         if app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
         shot(app, "project-card-coding-off")
+        let info = app.buttons["sessions.projectPage.info"]
+        let note = app.staticTexts["Counts include only available PR statuses."]
+        info.tap()
+        XCTAssertTrue(app.navigationBars["Project Icons"].waitForExistence(timeout: 5))
+        XCTAssertFalse(note.exists)
+        app.buttons["sheet.close"].firstMatch.tap()
         toggleProjectCoding(app, captureMenu: true)
         let merged = app.buttons["sessions.projectPage.pr.merged"]
         XCTAssertTrue(merged.waitForExistence(timeout: 10))
         shot(app, "project-card-coding-on")
         XCTAssertTrue(waitUntil(20) { merged.label.contains("2 loaded") }, merged.label)
         shot(app, "project-card-coding-on-loaded")
+        XCTAssertFalse(note.exists)
+        info.tap()
+        XCTAssertTrue(app.navigationBars["Project Icons"].waitForExistence(timeout: 5))
+        for state in ["none", "draft", "open", "merged", "closed", "unknown"] {
+            XCTAssertTrue(app.descendants(matching: .any)["project.legend.\(state)"].firstMatch.exists, state)
+        }
+        XCTAssertTrue(note.exists)
+        shot(app, "project-icon-guide")
+        app.buttons["sheet.close"].firstMatch.tap()
         merged.tap()
         XCTAssertTrue(waitUntil(10) { merged.isSelected && self.row(app, "s-release").exists && self.row(app, "s-old").exists && !self.row(app, "s-garden").exists })
         shot(app, "project-pr-summary-selected")
@@ -52,7 +67,7 @@ extension SessionsTests {
         fixture("/__fixture/mode", ["prStatus": [
             "default/s-garden": ["state": "none", "repo": "example/garden", "branch": "feature/garden"],
             "research/s-trip": ["state": "unknown", "repo": "example/travel", "branch": "feature/travel"],
-            "deploys/s-release": ["state": "merged", "repo": "example/app", "branch": "feature/release", "number": 42,
+            "deploys/s-release": ["state": "draft", "repo": "example/app", "branch": "feature/release", "number": 42,
                                   "url": "https://github.com/example/app/pull/42"]
         ]])
         let app = launch(projectPages: true)
@@ -73,16 +88,17 @@ extension SessionsTests {
         project.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
         if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
-        XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-release")).contains("Merged #42") }, labelOf(row(app, "s-release")))
+        XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-release")).contains("Draft #42") }, labelOf(row(app, "s-release")))
+        XCTAssertTrue(waitUntil(10) { self.labelOf(self.row(app, "s-garden")).contains("No PR yet") }, labelOf(row(app, "s-garden")))
         openChat(app, "s-release")
         openSessionInfo(app)
         let pr = app.cells["info.pull-request"]
         for _ in 0..<5 where !pr.isHittable { app.tables["info.list"].swipeUp() }
         XCTAssertTrue(pr.waitForExistence(timeout: 8), "Chat Info offers Pull Request")
-        XCTAssertTrue(pr.label.contains("Merged #42"), pr.label)
+        XCTAssertTrue(pr.label.contains("Draft #42"), pr.label)
         shot(app, "pr-tracking-info")
         pr.tap()
-        let alert = app.alerts["Merged #42"]
+        let alert = app.alerts["Draft #42"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "example/app")).firstMatch.exists)
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "feature/release")).firstMatch.exists)

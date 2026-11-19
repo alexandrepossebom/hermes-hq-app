@@ -303,7 +303,14 @@ extension SessionStore {
         do {
             let data = try await client.rest("GET", Self.legacyPath, query: query, body: nil)
             let json = try JSONValue.parse(data)
+            let earlier = Dictionary((archivedRows + recents + cron + messaging).map { (Self.writeKey(id: $0.id, profile: $0.profile), $0) },
+                                     uniquingKeysWith: { first, _ in first })
             archivedRows = (json["sessions"]?.array ?? []).compactMap(SidebarSessionRow.init(json:))
+            // [read-sync] Owner 2026-11-19: a chat read and then archived on another device reaches this one only here
+            // (the list's pages leave archived chats out), so this read takes the gateway's read marks as a list page
+            // does. Without it the chat's count stayed past what this device had seen: unread, and an unread archived
+            // chat sits in its project's Active pile, with Unarchive as its only offer.
+            if device.unread.absorbGatewayReads(archivedRows, previous: earlier) { persistState() }
             archivedLoadState = .ready
             AppLog.trace("sessions", "archived list: \(archivedRows.count) rows")
             rebuild(force: true)
