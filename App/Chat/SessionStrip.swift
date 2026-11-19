@@ -209,6 +209,7 @@ extension SessionStripRules {
         let next = app.makeChatScreen(model)
         next.hidesBottomBarWhenPushed = true
         next.navigationItem.largeTitleDisplayMode = .never
+        if !entry.isBotChat { carryBack(from: screen, to: next, app: app) }
         var stack = navigation.viewControllers
         if let index = stack.firstIndex(where: { $0 === screen }) { stack.remove(at: index) }
         stack.append(next)
@@ -223,6 +224,22 @@ extension SessionStripRules {
         // In two panes the lists' marks and the Mac's inspector follow the chat now beside them.
         AppModel.markPane(navigation)
         AppLog.note("chat", "strip: opened \(entry.isBotChat ? "the bot's chat" : "chat \(AppLog.tag(entry.id))")")
+    }
+
+    /// [bot-chat-back] The Mac: a chat opened from a bot's own chat (or from a chat that was) gets a Back to that bot's
+    /// chat at the start of its bar. Nothing for a chat opened from a list.
+    static func carryBack(from screen: UIViewController, to next: UIViewController, app: AppModel) {
+        #if targetEnvironment(macCatalyst)
+        guard let from = screen as? ChatViewController, let next = next as? ChatViewController,
+              let live = from.session as? LiveChatSession, live.isBotChat || from.backToBotChat != nil else { return }
+        let profile = live.profile.isEmpty ? "default" : live.profile
+        next.backToBotChat = { [weak next, weak app] in
+            guard let next, let app, let bot = app.botStore?.bot(named: profile) else { return }
+            AppLog.note("chat", "back to the bot's chat")
+            open(SessionStripEntry(id: bot.canonicalSessionId ?? "", title: bot.name, isBotChat: true, working: false, unread: false,
+                                   current: false), from: next, app: app)
+        }
+        #endif
     }
 
     static let workingColor = UIColor.systemGreen
