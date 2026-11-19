@@ -601,8 +601,8 @@ final class SessionStore {
     /// turn stores sets the flag again, the open chat's too. Not while its turn runs (one write when it ends, not one
     /// per page), nor for activity a write was already refused for.
     private func shareOnScreenRead() {
-        guard let id = seenSessionId, !stopped, !running.contains(id),
-              let row = (recents + cron + messaging).first(where: { $0.id == id }), row.unread == true,
+        guard let id = seenSessionId, !stopped,
+              let row = (recents + cron + messaging).first(where: { $0.id == id }), row.unread == true, !isRunning(row),
               (row.lastReadAt ?? 0) > 0, !markedUnread(row), sharesRead(row) else { return }
         let key = Self.writeKey(id: row.id, profile: row.profile)
         if let refused = readRefused[key], refused >= row.recency { return }
@@ -894,7 +894,7 @@ final class SessionStore {
 
     /// [sessions-m9] Either unread source says this listed chat is unread (the row's own rule, §5.6 `anyUnread`).
     func isUnreadNow(_ row: SidebarSessionRow) -> Bool {
-        device.unread.isUnread(row, messaging: false, selected: row.id == selectedSessionId, running: running.contains(row.id),
+        device.unread.isUnread(row, messaging: false, selected: row.id == selectedSessionId, running: isRunning(row),
                                onScreen: row.id == seenSessionId)
     }
 
@@ -1298,6 +1298,8 @@ final class SessionStore {
     /// The key More › Color keeps a chat's colour under: its lineage root, else its id (`sessionPinId`).
     static func durableId(_ row: SidebarSessionRow) -> String { row.lineageRootId ?? row.id }
 
+    private func isRunning(_ row: SidebarSessionRow) -> Bool { row.liveId(where: running.contains) != nil }
+
     private func baseSummary(_ row: SidebarSessionRow, messaging: Bool, words: inout [String: RowWords]) -> SessionSummary {
         let key = Self.writeKey(id: row.id, profile: row.profile)
         let shown: RowWords
@@ -1313,13 +1315,14 @@ final class SessionStore {
         }
         words[key] = shown
         let selected = row.id == selectedSessionId
+        let busy = isRunning(row)
         var summary = SessionSummary(id: row.id, profile: row.profile, title: shown.title, preview: shown.preview,
                                      lastActive: row.recency > 0 ? Date(timeIntervalSince1970: row.recency) : nil,
                                      source: row.source,
                                      unread: device.unread.isUnread(row, messaging: messaging, selected: selected,
-                                                                    running: running.contains(row.id),
+                                                                    running: busy,
                                                                     onScreen: row.id == seenSessionId),
-                                     isRunning: running.contains(row.id))
+                                     isRunning: busy)
         // [sessions-m9] Sort By, Row Detail, the status and the pending line (docs/spec/3x-sessions.md §3.1, §3.3, §9).
         summary.startedAt = (row.startedAt ?? 0) > 0 ? Date(timeIntervalSince1970: row.startedAt ?? 0) : nil
         summary.tokens = row.totalTokens
@@ -1330,9 +1333,9 @@ final class SessionStore {
         summary.metadata = SessionRowWords.metadata(branch: row.gitBranch, model: row.model, messages: row.messageCount,
                                                     toolCalls: row.toolCallCount)
         summary.pending = pendingLine?(row.profile, row.id)
-        summary.status = needsInput.contains(row.id) ? .needsInput : summary.isRunning ? .working : summary.unread ? .unread
+        summary.status = row.liveId(where: needsInput.contains) != nil ? .needsInput : summary.isRunning ? .working : summary.unread ? .unread
             : summary.pending.map { !$0.failed } == true ? .draft : .idle
-        if summary.isRunning { summary.step = steps[row.id] }   // [toolnow]
+        if busy, let stepId = row.liveId(where: { steps[$0] != nil }) { summary.step = steps[stepId] }
         // [/sessions-m9]
         return summary
     }

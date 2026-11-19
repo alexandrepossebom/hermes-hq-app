@@ -73,7 +73,6 @@ import UIKit
             // Its height before it rises, so it comes up at its own size.
             let width = view.bounds.width > 0 ? view.bounds.width : (presentingViewController?.view.bounds.width ?? 390)
             fit(panel.sheetHeight(width: width))
-            placeSky()
             panel.sheetAppearing()
         }
         // On the app's glass. In Dark the Add context sheet tints the glass itself with the page colour
@@ -81,21 +80,6 @@ import UIKit
         // the same colour at the same strength lies over the system's plain glass instead (`veil`).
         sheet.hqGlassPage()
         paintVeil()
-    }
-
-    /// The drive's sky goes in the sheet's own container: over the dimmed chat, right behind the sheet, as it sat right
-    /// behind the card. (In the chat's view, under the system's dim, it was the arrangement build 1124 shipped with.)
-    private func placeSky() {
-        guard let sky = panel.sheetBackdrop, let container = sheetPresentationController?.containerView else { return }
-        var top: UIView = view
-        while let above = top.superview, above !== container { top = above }
-        guard top.superview === container else {
-            AppLog.trace("thinking", "sky: the sheet is not in its container yet, not placed")
-            return
-        }
-        sky.frame = container.bounds
-        sky.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        container.insertSubview(sky, belowSubview: top)
     }
 
     /// The page colour over the glass in Dark (plain glass there is a mid grey over a plain chat and a pale wash over a

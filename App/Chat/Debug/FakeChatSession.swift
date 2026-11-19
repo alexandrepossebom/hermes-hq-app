@@ -55,7 +55,6 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         if ChatDemo.flag("-HQDemoDrafts") { messages += FakeChatSession.draftMessages }
         if ChatDemo.flag("-HQDemoSkippedQuestion") { messages += FakeChatSession.skippedQuestionMessages }
         if ChatDemo.flag("-HQDemoShopping") { messages += FakeChatSession.shoppingMessages }   // [shopping]
-        if ChatDemo.flag("-HQDemoAskCard") { messages += FakeChatSession.askMessages }         // [asks]
     }
 
     /// `-HQDemoSkippedQuestion` [questions]: a question that went unanswered while you were away (its card offers Answer
@@ -164,10 +163,6 @@ class FakeChatSession: ChatSessionModel, ChatSessionDetails {
         // [shopping] An answer to a product or order card: one short line back, as the bot would start its work.
         let shopping = ShoppingCards.orderAnswer(in: text).map { $0.answer == .pay ? "Placing the order now." : "Okay, nothing was ordered." }
             ?? ShoppingCards.productAnswer(in: text).map { $0.ask == .buy ? "On it: taking it to checkout." : "I’ll keep an eye on it." }
-            ?? AskCards.answer(in: text).map { found in   // [asks]
-                if case .sent = found.answer { return "Sent it." }   // [asks v2] a ready reply approved
-                return "Got it. Drafting the reply now."
-            }
         if let found = DraftCards.answer(in: text).map({ $0.answer == .skip ? "Okay, I won’t send it." : "Sent." }) ?? shopping {
             // [drafts] An answer to a draft card: one short line back, as a bot that sent it (or left it) says.
             schedule(1.2) { [weak self] in

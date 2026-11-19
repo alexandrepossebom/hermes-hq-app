@@ -23,12 +23,6 @@ import UIKit
     func shoppingAsk(_ card: ProductsCardRow, index: Int, ask: ShoppingCards.Ask)
     func shoppingFollowUp(_ card: ProductsCardRow, text: String)
     func orderCard(_ card: OrderCardRow, tapped answer: ShoppingCards.OrderAnswer)
-    /// [asks] An ask card's choice, its "Something else…" and its link (App/Asks/ChatViewController+Asks.swift).
-    func askCard(_ card: AskCardRow, chose index: Int)
-    func askCardOther(_ card: AskCardRow)
-    func askCardOpen(_ card: AskCardRow)
-    /// [asks v2] A picked choice's ready reply: Send or Edit.
-    func askCardReply(_ card: AskCardRow, tapped button: DraftButton)
 }
 
 final class ChatPromptCell: ChatBaseCell {
@@ -53,8 +47,6 @@ final class ChatPromptCell: ChatBaseCell {
     private var ticker: Timer?
     /// [shopping] The product cards' view and the order card's buttons, made on first use (ChatPromptCell+Shopping.swift).
     var shoppingViews = ShoppingCellViews()
-    /// [asks] The ask card's view, made on first use (App/Asks/ChatPromptCell+Asks.swift).
-    var askViews = AskCellViews()
     private var baseAccessibility = ""
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -124,7 +116,6 @@ final class ChatPromptCell: ChatBaseCell {
         settled = nil
         stopTicking()
         resetShopping()   // [shopping]
-        resetAsk()        // [asks]
     }
 
     override func configure(_ row: ChatRow, layout: RowLayout) {
@@ -151,7 +142,7 @@ final class ChatPromptCell: ChatBaseCell {
             card.isHidden = false
             card.frame = frame
             card.backgroundColor = ChatPalette.promptCard   // a reply bubble's fill; [paper-cards] its own card in Paper
-            let panel = l.draft?.paper ?? l.approval?.paper ?? l.ask?.paper   // [asks v2] an ask card's ready reply
+            let panel = l.draft?.paper ?? l.approval?.paper
             paper.isHidden = panel == nil
             if let p = panel {
                 paper.frame = p.offsetBy(dx: -frame.minX, dy: -frame.minY)
@@ -170,7 +161,6 @@ final class ChatPromptCell: ChatBaseCell {
         baseAccessibility = l.accessibility
         configureAnswerNow(spec, l)
         configureShopping(spec, l)   // [shopping]
-        configureAsk(spec, l)        // [asks]
 
         guard case .approval(let a) = spec.kind, let al = l.approval else {
             approval = nil
@@ -189,7 +179,6 @@ final class ChatPromptCell: ChatBaseCell {
                 draftButtons.values.forEach { $0.isHidden = true }
                 card.accessibilityIdentifier = "clarify.note"
                 contentView.accessibilityElements = shoppingAccessibility(card: card)   // [shopping]
-                    ?? askAccessibility(card: card)                                    // [asks]
                     ?? ([card] + (answerNow.isHidden ? [] : [answerNow]))
             }
             return

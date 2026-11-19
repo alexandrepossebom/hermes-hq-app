@@ -22,6 +22,7 @@ import Foundation
     var changeGap: Duration = .seconds(3)
     var busyGap: Duration = .seconds(10)
     var idleGap: Duration = .seconds(30)
+    var listGap: Duration = .seconds(5)
     /// How soon a first "waiting" is checked again.
     var confirmGap: Duration = .seconds(2)
     /// A gateway without the call is asked again after this long.
@@ -35,6 +36,7 @@ import Foundation
     private(set) var waiting: Set<String> = []
 
     private var wanted = false
+    private var listVisible = false
     private var loop: Task<Void, Never>?
     private var reading = false
     private var dirty = false
@@ -67,6 +69,14 @@ import Foundation
         arm()
     }
 
+    /// A visible list keeps checking for turns that start elsewhere without a change event here.
+    func setListVisible(_ visible: Bool) {
+        guard listVisible != visible else { return }
+        listVisible = visible
+        if visible { dirty = true }
+        arm()
+    }
+
     /// A turn of this app's ended in this chat: its rows stop saying so now, and a read already in the air doesn't
     /// bring it back.
     func turnEnded(_ storedId: String) {
@@ -93,8 +103,9 @@ import Foundation
     private func arm() {
         loop?.cancel()
         loop = nil
-        guard wanted else { return }
-        let pace = !waitingOnce.subtracting(waiting).isEmpty ? confirmGap : dirty ? changeGap : (working.isEmpty ? idleGap : busyGap)
+        guard wanted, !reading else { return }  // the in-flight read arms its successor
+        let usual = working.isEmpty ? idleGap : busyGap
+        let pace = !waitingOnce.subtracting(waiting).isEmpty ? confirmGap : dirty ? changeGap : (listVisible ? min(listGap, usual) : usual)
         let since = lastRead.map { ContinuousClock.now - $0 } ?? pace
         let wait = max(.zero, pace - since)
         loop = Task { [weak self] in

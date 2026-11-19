@@ -12,26 +12,6 @@ extension ComposerUITests {
         calls(account, "config.set").filter { $0["key"] as? String == "reasoning" }.compactMap { $0["value"] as? String }
     }
 
-    /// Don't use start(): it taps the field, which masks a selector that only appears on keyboard layout.
-    @MainActor func testModelSelectorReturnsFromBotInfoWithoutOpeningKeyboard() throws {
-        let account = try FixtureAccount.load()
-        let app = IPad.launch(account, arguments: ["-HQDebugModelPanelSample", "YES"])
-        IPad.openBot(app)
-        let chip = app.buttons["composer.model"]
-        for _ in 0..<2 {
-            XCTAssertTrue(chip.waitForExistence(timeout: 8) && chip.isHittable)
-            XCTAssertFalse(app.keyboards.firstMatch.exists)
-            chip.tap()
-            let face = app.buttons["model.panel.face"]
-            XCTAssertTrue(face.waitForExistence(timeout: 8))
-            face.tap()
-            let close = app.buttons["bot-info.close"]
-            XCTAssertTrue(close.waitForExistence(timeout: 8))
-            close.tap()
-            XCTAssertTrue(IPad.waitUntil(timeout: 8) { !close.exists && chip.isHittable })
-        }
-    }
-
     /// A drag along the thinking bar sets the level (right harder, left softer) and the page stays put.
     @MainActor func test29_ADragAlongTheThinkingBarKeepsThePage() throws {
         let (account, app) = try start(arguments: ["-HQDebugModelPanelSample", "YES"])

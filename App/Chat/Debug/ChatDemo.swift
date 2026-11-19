@@ -37,9 +37,6 @@ import UIKit
 ///   row near the top (shop-a1|shop the one product, shop-a2|shop the pair, shop-a5|order the order card),
 ///   `-HQDemoShoppingShowTop <points>` puts its top there instead of 110 pt down (negative: above the screen),
 ///   `-HQDemoShoppingExpand` opens the twelve's "7 more"
-/// - `-HQDemoAskCard` [asks] a reply that ends with an ask-to-act card; `-HQDemoAskState waiting|answered|other|sent`
-///   adds your answer after it; `-HQDemoAskOther` taps its "Something else…" (`-HQDemoAskOtherText <words>` types them);
-///   `-HQDemoAskPick <n>` picks choice n (1-based), showing its ready reply
 /// - `-HQDemoLinks` [mac-audit] short plain replies and two bare links (one page without a title)
 /// - `-HQDemoVoiceRecord` [voice record] a chat that ends with a live voice chat's line (`-HQDemoVoiceRecordOpen` opens it)
 /// - `-HQDemoPhotos <folder>` [photo-grid] messages made from the pictures in <folder> on this Mac: `<set>-<n>.png`
@@ -288,12 +285,6 @@ final class ChatDemoListViewController: UITableViewController {
         }
         if let n = ChatDemo.argument("-HQDemoShoppingBuy").flatMap(Int.init) {   // [shopping] the n-th product's Buy, as tapped
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { chat.debugOpenProduct(n, buy: true) }
-        }
-        if ChatDemo.flag("-HQDemoAskOther") {   // [asks] the card's "Something else…", as tapped
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { chat.debugAskOther(typing: ChatDemo.argument("-HQDemoAskOtherText")) }
-        }
-        if let n = ChatDemo.argument("-HQDemoAskPick").flatMap(Int.init) {   // [asks v2] choice n picked (its ready reply shows)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { chat.debugAskPick(n) }
         }
         if ChatDemo.flag("-HQDemoOpenGroups") {   // [updates]
             chat.debugOpenGroups(group: ChatDemo.argument("-HQDemoOpenGroup").flatMap(Int.init),

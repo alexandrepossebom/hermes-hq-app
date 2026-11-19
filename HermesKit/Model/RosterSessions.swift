@@ -30,6 +30,7 @@ nonisolated struct SidebarSessionRow: Codable, Sendable, Hashable, Identifiable 
     var lastReadAt: Double?
     var hidden: Bool?
     var lineageRootId: String?
+    var lineageIds: [String]?
     var parentSessionId: String?
     // [sessions-m9] Row Detail, Sort By and Session Info (docs/spec/3x-sessions.md §3.1). Optional: an older cache
     // file without these keys still loads; a missing, null, non-numeric, negative or non-finite value reads as absent.
@@ -75,6 +76,7 @@ nonisolated struct SidebarSessionRow: Codable, Sendable, Hashable, Identifiable 
         lastReadAt = RosterText.number(o["last_read_at"]).flatMap { $0 >= 0 ? $0 : nil }
         hidden = o["hidden"]?.bool
         lineageRootId = RosterText.trimmed(o["_lineage_root_id"])
+        lineageIds = o["_lineage_ids"]?.array?.compactMap { RosterText.trimmed($0) }
         parentSessionId = RosterText.trimmed(o["parent_session_id"])
         // [sessions-m9]
         func amount(_ key: String) -> Double? { RosterText.number(o[key]).flatMap { $0 >= 0 ? $0 : nil } }
@@ -87,6 +89,14 @@ nonisolated struct SidebarSessionRow: Codable, Sendable, Hashable, Identifiable 
         handoffState = RosterText.trimmed(o["handoff_state"])
         // [/sessions-m9]
         userId = RosterText.trimmed(o["user_id"])
+    }
+
+    /// Live work can still be keyed by a previous segment after compaction. An ordinary fork's parent is not an alias.
+    func liveId(where matches: (String) -> Bool) -> String? {
+        if matches(id) { return id }
+        if let segment = lineageIds?.reversed().first(where: matches) { return segment }
+        if let lineageRootId, matches(lineageRootId) { return lineageRootId }
+        return nil
     }
 
     // [sessions-m9] Sort By Tokens / Cost (`V/store/sidebar-sort.ts`).

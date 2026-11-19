@@ -105,6 +105,7 @@ final class AppModel: AppServices {
         guard chatListsOnShow.contains(id) != shown else { return }
         if shown { chatListsOnShow.insert(id) } else { chatListsOnShow.remove(id) }
         if focusedChat != nil { showListsBesideChat() }
+        updateLedgerWanted()
     }
     /// [m9/ipad] Two panes: the lists stay on screen beside the chat on show.
     private var listsBesideChat = false
@@ -278,7 +279,9 @@ final class AppModel: AppServices {
     /// [working-ledger] The gateway's word on which chats run is read while the Sessions list can be seen: its tab is
     /// showing, no chat covers it (or the list stays beside the chat), and the app is in front.
     private func updateLedgerWanted() {
-        workingLedger?.setWanted(ledgerAppActive && sessionsListShown && (focusedChat == nil || listsBesideChat))
+        let visible = (sessionsListShown && (focusedChat == nil || listsBesideChat)) || !chatListsOnShow.isEmpty
+        workingLedger?.setWanted(ledgerAppActive && visible)
+        liveStatus?.setListVisible(visible)
     }
 
     /// The Sessions rows' Working…: turns this app heard, chats holding a live child (§8.4), and what the gateway says.
@@ -526,10 +529,10 @@ final class AppModel: AppServices {
         let ledger = WorkingLedgerWatch(client: client)       // [working-ledger]
         ledger.onChange = { [weak self] in self?.pushRunning() }
         workingLedger = ledger
-        updateLedgerWanted()
         let live = LiveStatusWatch(client: client)            // [live-status]
         live.onChange = { [weak self] in self?.liveStatusChanged() }
         liveStatus = live
+        updateLedgerWanted()
         live.setWanted(ledgerAppActive)
         let warmer = ChatWarmer(client: client, account: account)
         warmer.isOpen = { [weak self] profile in self?.focusedChat?.profile == profile }

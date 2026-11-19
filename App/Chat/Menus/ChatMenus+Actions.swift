@@ -554,9 +554,7 @@ final class ComposerEditBanner: UIView, ComposerFieldWatching {
                            cancelLabel: "Cancel Reply", identifier: "composer.replying")
     }
 
-    /// [asks] `cancelInWords`: Cancel in words without Save (an ask card's "Something else…": the send circle sends).
-    init(title: String, symbol: String, note: String?, noteLines: Int = 0, cancelLabel: String, identifier: String, saves: Bool = false,
-         cancelInWords: Bool = false) {
+    init(title: String, symbol: String, note: String?, noteLines: Int = 0, cancelLabel: String, identifier: String, saves: Bool = false) {
         super.init(frame: .zero)
         accessibilityIdentifier = identifier
         if DeviceWord.isMac {
@@ -595,7 +593,7 @@ final class ComposerEditBanner: UIView, ComposerFieldWatching {
             words.addArrangedSubview(line)
         }
         var config = UIButton.Configuration.plain()
-        if saves || cancelInWords {
+        if saves {
             config.title = cancelLabel
             // One line: a configuration's title may wrap, and the row then squeezed the word to 44 pt, a letter or two
             // a line ("Ca / nc / el", tester 2026-11-08). The strip's own words wrap instead.

@@ -136,70 +136,8 @@ struct ProjectPageHeader: View {
     private var chipFill: Color { Color(uiColor: carded ? ProjectCard.box : HQPalette.fill3) }
 
     var body: some View {
-        if DeviceWord.isMac { macBody } else { phoneBody }
-    }
-
-    /// [mac-pane] Owner 2026-11-18, of this header on the Mac: "I don't think it's sized properly. I don't think it's
-    /// designed right … doesn't feel like it belongs on a Mac application, like it does on my iPhone." The Mac draws
-    /// the same parts without the phone's card and capsules: the name, then one grey line with the folder, the bots,
-    /// how many chats, and each count that isn't zero as words that narrow the page with a click (a zero is left out;
-    /// a lit one stays, as the way back).
-    private var macBody: some View {
         let meta = Self.meta(folder: folder, branch: branch, bots: bots)
-        let line = ([meta] + [total > 0 ? "\(total) \(total == 1 ? "chat" : "chats")" : ""]).filter { !$0.isEmpty }.joined(separator: " · ")
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Text(name)
-                    .font(Font.hq(.headline))
-                    .foregroundStyle(Color.hqLabel)
-                    .lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                if let menu { moreButton(menu) }
-            }
-            .frame(height: HQFont.scaled(24))
-            HStack(spacing: 0) {
-                Text(line)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityIdentifier("sessions.projectPage.place")
-                macCount(needs, "needs you", spoken: "Needs You", id: "needs", ink: .hqOrange)
-                macCount(ready, "new", spoken: "New", id: "ready", ink: .hqTintText)
-                macCount(working, "working", spoken: "Working", id: "working", ink: .hqLabel2)
-                Spacer(minLength: 0)
-            }
-            .font(Font.hq(.footnote))
-            .foregroundStyle(Color.hqLabel2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, lead)
-        .padding(.trailing, lead - 4)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
-    }
-
-    @ViewBuilder private func macCount(_ count: Int, _ word: String, spoken: String, id: String, ink: Color) -> some View {
-        if count > 0 || isLit(id, count) {
-            Text(" · ")
-            Button { onJump(id) } label: {
-                Text("\(count) \(word)")
-                    .fontWeight(isLit(id, count) ? .semibold : .regular)
-                    .underline(isLit(id, count))
-                    .foregroundStyle(ink)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(spoken), \(count) \(count == 1 ? "chat" : "chats")")
-            .accessibilityAddTraits(isLit(id, count) ? .isSelected : [])
-            .accessibilityIdentifier("sessions.projectPage.\(id)")
-        }
-    }
-
-    private var phoneBody: some View {
-        let meta = Self.meta(folder: folder, branch: branch, bots: bots)
-        return VStack(alignment: .leading, spacing: carded ? 5 : 6) {
+        VStack(alignment: .leading, spacing: carded ? 5 : 6) {
             // [sessions-ux] Owner 2026-11-10 ("There should be one go-to"): no New Chat here. The bar's Compose, a thumb
             // away, starts the chat in this project (and says so: "New Chat in <project>"); the capsule beside the
             // name was a second button for the same thing.

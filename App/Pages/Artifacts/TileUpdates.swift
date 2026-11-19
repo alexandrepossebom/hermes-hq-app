@@ -68,24 +68,15 @@ final class TileUpdates {
     /// Reads the tiles' jobs again (one read per bot). Returns the tiles whose mark changed, and those whose job ran
     /// since the last read (or ended a run): their pictures are drawn again (owner 2026-11-03: "redraw the moment the
     /// job finishes").
-    /// [tile-models] Each job then gets the model Settings › Tile Model and its tile ask for (one write, not retried while
-    /// the settings stay as they are); `modelFailed` is the reason one couldn't be written.
-    func refresh(_ pins: [ArtifactPin], accountId: String, client: (any GatewayClient)?) async
-        -> (marks: [String], ran: [String], modelFailed: String?) {
+    func refresh(_ pins: [ArtifactPin], accountId: String, client: (any GatewayClient)?) async -> (marks: [String], ran: [String]) {
         var marks: [String] = []
         var ran: [String] = []
-        var modelFailed: String?
-        var reconciled: Set<String> = []
         let pages = pins.filter(\.isPage)
         for profile in Set(pages.map(\.profile)) { lists[accountId + "|" + profile] = nil }
         for pin in pages {
             let (job, known) = await lookup(pin, accountId: accountId, client: client, fresh: 5)
             // Unread (offline): the mark stays as it was, never dropped for a guess.
             guard known else { continue }
-            if let job, reconciled.insert(job.key).inserted,
-               case .failed(let why) = await TileModelSync.shared.reconcile(job, accountId: accountId, force: false) {
-                modelFailed = why
-            }
             let health = TileJobs.health(job)
             if healths[pin.id] != health { marks.append(pin.id) }
             healths[pin.id] = health
@@ -96,7 +87,7 @@ final class TileUpdates {
             lastRuns[pin.id] = last
         }
         for id in ran { NotificationCenter.default.post(name: Self.ran, object: id) }   // an open tile reads its page again
-        return (marks, ran, modelFailed)
+        return (marks, ran)
     }
 
     private func forget(_ pin: ArtifactPin, accountId: String) { lists[accountId + "|" + pin.profile] = nil }
@@ -112,34 +103,14 @@ final class TileUpdates {
             Task { @MainActor in
                 guard let self else { completion([]); return }
                 let (job, known) = await self.lookup(pin, accountId: accountId, client: client)
-                // [tile-models] The model by name, read from the gateway when the roster doesn't have it; and the short
-                // list of models the tile offers.
-                var models = TileModelMenu(botModel: botModel)
-                if let job, !TileModels.isScriptOnly(job) {
-                    let sync = TileModelSync.shared
-                    let settings = TileModelSettings(accountId: accountId)
-                    models.botModel = await sync.botModel(pin.profile, known: botModel, accountId: accountId, client: client)
-                    models.override = settings.override(job.key)
-                    models.defaultModel = settings.defaultModel
-                    models.list = await sync.shortList(accountId: accountId, profile: pin.profile, client: client, keep: models.override)
-                }
-                completion([self.updates(pin, job: job, known: known, accountId: accountId, client: client, host: host, inline: inline,
-                                         botName: botName, models: models, redraw: redraw)])
+                completion([self.updates(pin, job: job, known: known, accountId: accountId, host: host, inline: inline, botName: botName,
+                                         botModel: botModel, redraw: redraw)])
             }
         }
     }
 
-    /// [tile-models] What the Model submenu shows.
-    struct TileModelMenu {
-        var botModel: String?
-        var override: TileModelPick?
-        var defaultModel: TileModelPick?
-        var list: [TileModelPick] = []
-    }
-
-    private func updates(_ pin: ArtifactPin, job: CronJob?, known: Bool = true, accountId: String, client: (any GatewayClient)?,
-                         host: UIViewController?, inline: Bool, botName: String, models: TileModelMenu,
-                         redraw: @escaping () -> Void) -> UIMenuElement {
+    private func updates(_ pin: ArtifactPin, job: CronJob?, known: Bool = true, accountId: String, host: UIViewController?, inline: Bool,
+                         botName: String, botModel: String?, redraw: @escaping () -> Void) -> UIMenuElement {
         guard known else {
             let unread = UIAction(title: "Couldn’t Read Updates", subtitle: "Can’t reach your gateway", image: UIImage(systemName: "clock"),
                                   attributes: .disabled) { _ in }
@@ -179,17 +150,12 @@ final class TileUpdates {
         }
         pause.accessibilityIdentifier = "tile.updates.pause"
         if !writable { now.attributes = .disabled; pause.attributes = .disabled }
-        // What runs it (a choice, [tile-models]) and, after a failed run, why it failed (a line to read).
+        // What runs it and, after a failed run, why it failed: lines to read, not choices.
         var about: [UIMenuElement] = []
-        if TileModels.isScriptOnly(job) {
-            let model = UIAction(title: TileJobs.modelWords(job, botName: botName, botModel: models.botModel), subtitle: "Updates this tile",
-                                 image: UIImage(systemName: "terminal"), attributes: .disabled) { _ in }
-            model.accessibilityIdentifier = "tile.updates.model"
-            about.append(model)
-        } else {
-            about.append(modelMenu(pin, job: job, accountId: accountId, client: client, host: host, botName: botName, models: models,
-                                   writable: writable))
-        }
+        let model = UIAction(title: TileJobs.modelWords(job, botName: botName, botModel: botModel), subtitle: "Updates this tile",
+                             image: UIImage(systemName: job.noAgent ? "terminal" : "cpu"), attributes: .disabled) { _ in }
+        model.accessibilityIdentifier = "tile.updates.model"
+        about.append(model)
         if case .failed(let why) = TileJobs.health(job) {
             let failed = UIAction(title: "Last Update Failed", subtitle: why.map { String($0.prefix(120)) },
                                   image: UIImage(systemName: "exclamationmark.triangle"), attributes: .disabled) { _ in }
@@ -198,71 +164,11 @@ final class TileUpdates {
         }
         let children: [UIMenuElement] = [UIMenu(options: .displayInline, children: about), often,
                                           UIMenu(options: .displayInline, children: [now, pause])]
-        // [tile-models] The model by name beside how often ("Updated 5 min ago · hourly · GPT-6.2 Astra").
-        let subtitle = TileModels.updatesSubtitle(job, botModel: models.botModel)
-        if inline { return UIMenu(title: subtitle, options: .displayInline, children: children) }
-        let menu = UIMenu(title: "Updates", subtitle: subtitle, image: UIImage(systemName: "clock.arrow.circlepath"),
+        if inline { return UIMenu(title: TileJobs.status(job), options: .displayInline, children: children) }
+        let menu = UIMenu(title: "Updates", subtitle: TileJobs.status(job), image: UIImage(systemName: "clock.arrow.circlepath"),
                           children: children)
         menu.accessibilityIdentifier = "tile.updates"
         return menu
-    }
-
-    /// [tile-models] Updates › Model: the tile default (ticked unless the tile has its own), a short list of the account's
-    /// models, and Other Model… (the app's chooser). Its line says what runs it now.
-    private func modelMenu(_ pin: ArtifactPin, job: CronJob, accountId: String, client: (any GatewayClient)?, host: UIViewController?,
-                           botName: String, models: TileModelMenu, writable: Bool) -> UIMenuElement {
-        let useDefault = UIAction(title: TileModels.useDefaultTitle(default: models.defaultModel, botName: botName, botModel: models.botModel),
-                                  state: models.override == nil ? .on : .off) { [weak self, weak host] _ in
-            self?.setModel(nil, job: job, pin: pin, accountId: accountId, host: host)
-        }
-        useDefault.accessibilityIdentifier = "tile.model.default"
-        let picks: [UIMenuElement] = models.list.map { pick in
-            let chosen = models.override.map { $0.model == pick.model && $0.provider.lowercased() == pick.provider.lowercased() } ?? false
-            let action = UIAction(title: TileModels.name(pick), subtitle: pick.provider.isEmpty ? nil : ModelNames.providerDisplayName(pick.provider),
-                                  state: chosen ? .on : .off) { [weak self, weak host] _ in
-                self?.setModel(pick, job: job, pin: pin, accountId: accountId, host: host)
-            }
-            action.accessibilityIdentifier = "tile.model.option.\(pick.model)"
-            return action
-        }
-        let other = UIAction(title: "Other Model…", image: UIImage(systemName: "ellipsis.circle")) { [weak self, weak host] _ in
-            guard let host, let client else { return }
-            TileModelSync.openChooser(profile: pin.profile, botName: botName, current: models.override, client: client, from: host) {
-                [weak self, weak host] pick in
-                self?.setModel(pick, job: job, pin: pin, accountId: accountId, host: host)
-            }
-        }
-        other.accessibilityIdentifier = "tile.model.other"
-        var children: [UIMenuElement] = [UIMenu(options: .displayInline, children: [useDefault])]
-        if !picks.isEmpty { children.append(UIMenu(options: .displayInline, children: picks)) }
-        children.append(UIMenu(options: .displayInline, children: [other]))
-        if !writable {
-            for case let action as UIAction in [useDefault, other] + picks { action.attributes = .disabled }
-        }
-        let menu = UIMenu(title: "Model", subtitle: TileModels.modelSubtitle(job, botName: botName, botModel: models.botModel),
-                          image: UIImage(systemName: "cpu"), children: children)
-        menu.accessibilityIdentifier = "tile.updates.model"
-        return menu
-    }
-
-    /// [tile-models] The tile's own model (nil: the tile default), kept and put on its job at once.
-    private func setModel(_ pick: TileModelPick?, job: CronJob, pin: ArtifactPin, accountId: String, host: UIViewController?) {
-        PagesHaptics.selection()
-        TileModelSettings(accountId: accountId).setOverride(pick, for: job.key)
-        Task { [weak self, weak host] in
-            let outcome = await TileModelSync.shared.reconcile(job, accountId: accountId, force: true)
-            self?.forget(pin, accountId: accountId)
-            NotificationCenter.default.post(name: Self.changed, object: pin.id)
-            guard let host else { return }
-            switch outcome {
-            case .failed:
-                PagesHaptics.error()
-                PagesHUD.show("Couldn’t Change the Model", symbol: "exclamationmark.triangle", from: host)
-            case .changed, .unchanged:
-                AppLog.trace("pages", "tile model \(pick == nil ? "follows the default" : "set for this tile")")
-                PagesHUD.show(pick.map { TileModels.name($0) } ?? "Tile Default", symbol: "cpu", from: host)
-            }
-        }
     }
 
     private func setFrequency(_ frequency: TileJobs.Frequency, job: CronJob, pin: ArtifactPin, accountId: String, host: UIViewController?) {

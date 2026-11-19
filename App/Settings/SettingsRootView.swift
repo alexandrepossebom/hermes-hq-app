@@ -61,8 +61,6 @@ final class SettingsRootModel {
     /// [kanban-tab-one] The Kanban Tab picker is there to find (it lives on Appearance › Tabs).
     var kanbanTabShown = false
     var toolCallsSummary: String?
-    /// [tile-models] Tile Model's value ("Each Bot’s Own Model", or the picked model); nil when signed out.
-    var tileModelSummary: String?
     /// The search field's text (the list shows results while it isn't empty).
     var query = ""
     var inAppTips = InAppTips.isOn
@@ -282,7 +280,6 @@ final class SettingsRootModel {
         defaultBotName = services.bots.first { $0.id == "default" }?.name
         version = settings?.gatewayVersion
         toolCallsSummary = SettingsHooks.toolCallsSummary?()
-        tileModelSummary = services.account.map { TileModels.defaultValue(TileModelSettings(accountId: $0.id).defaultModel) }
         soundName = CompletionSoundVariant.preset(CompletionCue.variant).name
         attachmentLimit = AttachmentLimit.megabytes   // [settings] the page that changes it pops back here
         appIconTitle = AppIcons.wornTitle          // [app-icons]
@@ -1166,7 +1163,7 @@ struct SettingsRootView: View {
                     : " ⌘N starts a new chat with the ⌘N bot, in its project, at once; ⌥⌘N starts one with the bot and project of the chat"
                       + " you’re in; ⇧⌘N asks for both.") : "")
                  + (DeviceWord.isMac
-                    ? " Other Chats at the Top shows a bot’s chats that are working, unread or pinned as tabs under the title of the bot’s own chat; All opens the full list beside the chat."
+                    ? " Other Chats at the Top shows a bot’s chats that are working, unread or pinned as buttons under a chat’s title; All opens the full list beside the chat."
                     : " Other Chats at the Top shows a bot’s other recent chats as buttons under a chat’s title, so one tap moves between them.")
                  + " Message Reactions adds Tapbacks to a message’s menu, and lets the bot react to yours."
                  + (model.configStore != nil ? " Reopen Last Chat on Launch is saved on \(HostWord.phrase)." : ""))
@@ -1316,13 +1313,6 @@ struct SettingsRootView: View {
             }
             .accessibilityValue(issue?.spoken ?? "")
             .accessibilityIdentifier("settings.capabilities")
-            // [tile-models] Owner 2026-11-18: the model the tiles' jobs run, and their fallback (each tile can have its own).
-            if let summary = model.tileModelSummary {
-                NavRow(title: "Tile Model", systemImage: "rectangle.3.group", value: summary) {
-                    SettingsNavigator.openRoot("tile-model", router: router)
-                }
-                .accessibilityIdentifier("settings.tile-model")
-            }
             #if targetEnvironment(macCatalyst)
             // [mac-layout] Owner 2026-11-03 (the layout study): More dissolves on the Mac. Its setup pages (the bots'
             // profiles, messaging apps, webhooks, imports) are here in the Settings window; its working pages are the

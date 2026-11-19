@@ -84,6 +84,26 @@ import Testing
         #expect(watch.working == ["chat-a"], "what was read is kept for the way back")
     }
 
+    @Test func aVisibleListFindsAnotherDevicesTurnWithoutAChangeEvent() async throws {
+        let hermes = ReadSyncGateway()
+        let watch = LiveStatusWatch(client: hermes.device())
+        defer { watch.stop() }
+        watch.idleGap = .seconds(3600); watch.busyGap = .seconds(3600)
+        watch.changeGap = .milliseconds(20); watch.listGap = .milliseconds(40)
+        watch.setWanted(true)
+        #expect(await BotsTest.waitUntil { hermes.liveReads == 1 })
+        watch.setListVisible(true)
+        #expect(await BotsTest.waitUntil { hermes.liveReads >= 2 })
+        hermes.live = ["unopened": "working"]
+        #expect(await BotsTest.waitUntil { watch.working == ["unopened"] })
+        hermes.live = [:]
+        #expect(await BotsTest.waitUntil { watch.working.isEmpty })
+        watch.setListVisible(false)
+        let before = hermes.liveReads
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(hermes.liveReads == before)
+    }
+
     @Test func aGatewayWithoutTheCallIsLeftAlone() async throws {
         let client = BotsFakeGatewayClient()           // answers -32601 to everything
         let watch = LiveStatusWatch(client: client)

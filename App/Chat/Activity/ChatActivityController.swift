@@ -1202,13 +1202,6 @@ import UIKit
     /// The topmost dock piece (for the transcript's inset and the placeholder).
     func dockTop(base: CGFloat) -> CGFloat {
         guard (shelfHeight?.constant ?? 0) > 0 else { return base }
-        // [pill-card-floats] Owner 2026-11-18 (Mac, the card open: "a bar of black all the way, full width behind them.
-        // That bar of black needs to go away"): the opened card lifted the transcript by its whole height, leaving an
-        // empty band across the chat under the newest message. On the Mac the card floats over the rows as the folded
-        // pill does when they scroll; only the folded pill's room is kept, so the newest message never sits under it.
-        if DeviceWord.isMac, shelf.expanded {
-            return min(base, shelf.frame.maxY - shelf.foldedHeight)
-        }
         return min(base, shelf.frame.minY)
     }
 

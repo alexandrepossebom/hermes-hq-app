@@ -9,7 +9,6 @@ extension ChatViewController: ChatPromptCellHandling {
     func draftCard(_ draft: DraftCardRow, tapped button: DraftButton) { draftCardTapped(draft, button) }   // [drafts]
     func draftCardToggle(rowId: String) { chatCellToggle(rowId: rowId) }
     func clarifyCardAnswer(_ card: SettledClarifyCard) { promptsUI?.answerLater(card) }   // [questions]
-    // [asks] askCard(_:chose:), askCardOther, askCardOpen: App/Asks/ChatViewController+Asks.swift.
     /// The conversation a draft answers, in a sheet (the step sheet's blocks, on the app's glass): every message the
     /// bot attached, whole, each under who wrote it and when; a long press copies one. A conversation opens at its
     /// newest message (scroll up to read back); one message opens at its top.

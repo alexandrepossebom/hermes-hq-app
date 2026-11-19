@@ -195,9 +195,6 @@ nonisolated struct CronJob: Codable, Sendable, Hashable, Identifiable {
     var origin: CronOrigin?
     var model: String?
     var provider: String?
-    /// [tile-models] The job's own fallback (`fallback_providers`); nil when the job doesn't carry one. A Hermes that
-    /// doesn't run per-job fallbacks yet still keeps and lists the field.
-    var fallbackProviders: [TileModelPick]?
     var profile: String?
     var profileName: String?
     var hermesHome: String?
@@ -231,7 +228,6 @@ nonisolated struct CronJob: Codable, Sendable, Hashable, Identifiable {
         origin = CronOrigin(json: json["origin"])
         model = json["model"]?.string
         provider = json["provider"]?.string
-        fallbackProviders = TileModelPick.list(json["fallback_providers"])
         profile = json["profile"]?.string
         profileName = json["profile_name"]?.string
         hermesHome = json["hermes_home"]?.string

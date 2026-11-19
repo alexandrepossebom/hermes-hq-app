@@ -76,7 +76,6 @@ final class ModelPanelView: UIView {
     /// The page's height once laid out, and each time it changes (a longer name, the offline line): the sheet fits it.
     var onHeight: ((CGFloat) -> Void)?
     private var toldHeight: CGFloat = 0
-    private var toldNoSky = false
     private let closeButton = UIButton(type: .system)
     /// Thinking's own card on the sheet, with its stars.
     private let thinkingCard = ThinkingCard()
@@ -152,6 +151,11 @@ final class ModelPanelView: UIView {
         let sheet = ModelCardSheet(panel: panel)
         panel.sheetHost = sheet
         chip.isSelected = true
+        if let sky = panel.sheetBackdrop, let host = screen.viewIfLoaded {
+            sky.frame = host.bounds
+            sky.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            host.addSubview(sky)
+        }
         screen.present(sheet, animated: true)
         return panel
     }
@@ -204,15 +208,7 @@ final class ModelPanelView: UIView {
             // [model-sheet] The sheet is the card: its glass, its dim, its swipe down. The drive's sky goes behind it,
             // over the chat (`ModelCardSheet` puts it there).
             accessibilityIdentifier = "model.panel"
-            if thinking.drive != .calm, !Theme.isDesktop {
-                let sky = ThinkingBackdrop(drive: thinking.drive)
-                // Owner 2026-11-18, on build 1124's sheet on his iPhone: "When I drag the bar, the bot face on the
-                // pop-up is flashing on and off", and no sky to be seen. It could not be made to happen in the
-                // simulator; the one difference his phone's log showed was the sky drawn brighter than white (headroom
-                // 8.0 there, 1.0 in the simulator). Under a sheet the sky keeps to the screen's ordinary range.
-                sky.extendedRange = false
-                backdrop = sky
-            }
+            if thinking.drive != .calm, !Theme.isDesktop { backdrop = ThinkingBackdrop(drive: thinking.drive) }
             addSubview(clip)
             clip.addSubview(scroll)
             scroll.addSubview(content)
@@ -1014,11 +1010,7 @@ final class ModelPanelView: UIView {
 
     /// [thinking-drive] The backdrop follows the bar's drive: its frames, and its beats.
     private func driveMoved(_ frame: ThinkingFrame, _ beat: ThinkingBeat?) {
-        guard let backdrop, !closing else { return }
-        guard backdrop.window != nil else {
-            if !toldNoSky { toldNoSky = true; AppLog.trace("thinking", "sky: not on screen, nothing drawn") }
-            return
-        }
+        guard let backdrop, !closing, backdrop.window != nil else { return }
         if let beat { return backdrop.beat(beat, frame) }
         backdrop.render(frame, knob: thinking.convert(frame.knob, to: backdrop),
                         card: style == .sheet ? convert(bounds, to: backdrop) : card.convert(card.bounds, to: backdrop),
@@ -1290,12 +1282,7 @@ final class PanelFace: UIControl {
         guard layer.speed != speed else { return }
         let now = CACurrentMediaTime()
         let local = layer.convertTime(now, from: nil)
-        // [model-sheet] In the clock of the layer above, which is the wall clock only while nothing above it has been
-        // paused or shifted (a sheet's layers can be): begun at the wall clock under a shifted parent, the face's
-        // animations jumped at each level and the face blinked off and on.
-        let parentNow = layer.superlayer?.convertTime(now, from: nil) ?? now
-        if abs(parentNow - now) > 0.05 { AppLog.trace("thinking", "face clock: the layer above runs \(Int((parentNow - now) * 1000)) ms off the wall clock") }
-        layer.beginTime = parentNow
+        layer.beginTime = now
         layer.timeOffset = local
         layer.speed = speed
     }
@@ -1646,7 +1633,6 @@ final class ThinkingBar: UIControl {
         lastTouch = p
         travel = .zero
         velocity = 0
-        AppLog.trace("thinking", "bar: touch down at level \(stop), drive \(drive.rawValue), draws \(drawsDrive)")
         engage()
         if p.y >= shape.barY - Self.knobSide / 2 - 6 {
             grip = .bar
@@ -1679,14 +1665,12 @@ final class ThinkingBar: UIControl {
     }
 
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        AppLog.trace("thinking", "bar: let go at level \(stop) (from \(startStop))")
         settle()
         sendActions(for: .primaryActionTriggered)
     }
 
     /// The list or the page took the touch: the level goes back to where it was.
     override func cancelTracking(with event: UIEvent?) {
-        AppLog.trace("thinking", "bar: touch taken away at level \(stop) (back to \(startStop))")
         if stop != startStop {
             stop = startStop
             relabel(animated: true)

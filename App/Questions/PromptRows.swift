@@ -66,8 +66,6 @@ nonisolated struct PromptRow: Sendable {
         /// [shopping] A bot's product cards and its order card (HermesKit/Shopping/ShoppingCards.swift, App/Shopping).
         case products(ProductsCardRow)
         case order(OrderCardRow)
-        /// [asks] A bot asks before it acts for you: the question, its choices, Something else (App/Asks).
-        case ask(AskCardRow)
     }
     var kind: Kind
 }
@@ -147,7 +145,6 @@ nonisolated enum PromptRows {
         case .draft(let d): h.combine(3); h.combine(d)
         case .products(let p): h.combine(4); h.combine(p)   // [shopping]
         case .order(let o): h.combine(5); h.combine(o)
-        case .ask(let a): h.combine(6); h.combine(a)   // [asks]
         }
         return ChatRow(id: id, messageId: messageId, scope: scope, fingerprint: h.finalize(), kind: .prompt(PromptRow(kind: kind)),
                        gapAbove: ChatMetrics.turnGap, variant: 0)
@@ -199,8 +196,6 @@ nonisolated struct PromptRowLayout: @unchecked Sendable {
     var draft: DraftCardLayout? = nil
     /// [shopping] The product cards' or the order card's own drawing (App/Shopping).
     var shopping: ShoppingRowLayout? = nil
-    /// [asks] The ask card's buttons, links, bar and chips (App/Asks/AskCardView.swift).
-    var ask: AskCardGeometry? = nil
     /// VoiceOver's reading of the whole card.
     var accessibility: String
     /// A settled question card's Answer Now button (a question went without an answer), in row coordinates.
@@ -251,7 +246,6 @@ nonisolated enum PromptLayout {
         case .draft(let d): return draft(d, gap: row.gapAbove, width: width, category: style.category)
         case .products(let p): return ProductCardsLayout.make(p, gap: row.gapAbove, width: width, category: style.category)   // [shopping]
         case .order(let o): return OrderCardLayout.make(o, gap: row.gapAbove, width: width, category: style.category)
-        case .ask(let a): return AskCardLayout.make(a, gap: row.gapAbove, width: width, category: style.category)   // [asks]
         }
     }
 

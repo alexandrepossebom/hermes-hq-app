@@ -307,6 +307,33 @@ import Testing
         store.stop()
     }
 
+    @Test func unopenedCompactedChatFollowsTheRunningTurn() async throws {
+        var tip = try #require(Self.srow("tip", unread: true).object)
+        tip["_lineage_root_id"] = "root"
+        tip["_lineage_ids"] = ["root", "middle", "tip"]
+        var fork = try #require(Self.srow("fork").object)
+        fork["parent_session_id"] = "root"
+        let data = Self.sidebar([.object(tip), .object(fork)])
+        let client = BotsFakeGatewayClient()
+        client.onREST { _, _, _, _ in data }
+        let store = makeStore(client)
+        defer { store.stop() }
+        #expect(await BotsTest.waitUntil { store.loadState == .ready })
+        for id in ["root", "middle", "tip"] {
+            store.setRunning([id])
+            store.setSteps([id: "Reading files"])
+            let row = try #require(store.sessions.first { $0.id == "tip" })
+            #expect(row.isRunning && row.status == .working && !row.unread)
+            #expect(row.step == "Reading files")
+            store.setNeedsInput([id])
+            #expect(store.sessions.first { $0.id == "tip" }?.status == .needsInput)
+            #expect(store.sessions.first { $0.id == "fork" }?.status == .idle)
+            store.setNeedsInput([])
+        }
+        store.setRunning([])
+        #expect(store.sessions.first { $0.id == "tip" }?.status == .unread)
+    }
+
     /// [unread-working] The gateway lists a chat it compacted under its newest part's id, with that part's short count.
     /// The chat on screen stays the selected one through that, so its next stored row is seen, not a dot.
     @Test func theSelectedChatStaysReadThroughACompaction() async throws {
