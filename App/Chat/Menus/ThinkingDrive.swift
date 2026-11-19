@@ -513,6 +513,8 @@ final class ThinkingBackdrop: UIView {
     private var stars: [Star] = []
     private var boost: CGFloat = 0
     private var flare: CGFloat = 0
+    /// Brighter than white on screens that can (the card). Off under the iPhone's sheet ([model-sheet]).
+    var extendedRange = true
 
     init(drive: ThinkingDrive) {
         self.drive = drive
@@ -600,6 +602,7 @@ final class ThinkingBackdrop: UIView {
         if drive == .lightspeed, !LightspeedSky.unavailable, let s = f.lightspeed {
             if sky == nil, s.presence >= 0.01 {
                 if let made = LightspeedSky() {
+                    made.layer.wantsExtendedDynamicRangeContent = extendedRange
                     layer.insertSublayer(made.layer, above: veil)
                     made.layout(bounds: bounds)
                     sky = made
@@ -609,7 +612,7 @@ final class ThinkingBackdrop: UIView {
             }
             sky?.render(s, knob: knob, card: card, cardRadius: cardRadius, tint: f.tint,
                         dark: traitCollection.userInterfaceStyle == .dark,
-                        headroom: window?.windowScene?.screen.currentEDRHeadroom ?? 1)
+                        headroom: extendedRange ? window?.windowScene?.screen.currentEDRHeadroom ?? 1 : 1)
             return
         }
         boost = max(0, boost - f.dt * 1.4)
