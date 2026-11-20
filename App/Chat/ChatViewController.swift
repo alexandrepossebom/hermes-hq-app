@@ -2798,9 +2798,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         #endif
         let oldCount = rows.count
         let targetCount = shown.count
+        // UIKit validates index paths against its own last snapshot, not the data source. After a
+        // reconnect those differed in build 1169 (38 vs 13). No indexed update is safe in that case.
+        let tableCount = tableView.numberOfSections == 1 ? tableView.numberOfRows(inSection: 0) : nil
+        let staleTable = tableCount != oldCount
 
         // Rows that changed in place and kept their heights need no table update at all: only their cells.
-        if d.inserts.isEmpty && d.deletes.isEmpty && oldCount == targetCount && d.front + d.back >= oldCount {
+        if !staleTable && d.inserts.isEmpty && d.deletes.isEmpty && oldCount == targetCount && d.front + d.back >= oldCount {
             var fresh: [(Int, RowLayout)] = []
             var keepsHeights = true
             for i in d.changed {
@@ -2818,8 +2822,17 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
 
         activity.willApply()             // [activity] the fold's slide: where rows were
-        // Where to hold the view still.
-        let anchor = captureAnchor()
+        // On a stale table its indices can't identify a message. Use the visible cell itself to keep the
+        // reader's place across the reload; at the live end just stay pinned.
+        let anchor: Anchor
+        if !staleTable {
+            anchor = captureAnchor()
+        } else if !following, let top = tableView.indexPathsForVisibleRows?.max(by: { $0.row < $1.row }),
+                  let cell = tableView.cellForRow(at: top) as? ChatBaseCell {
+            anchor = .row(id: cell.rowId, index: top.row, top: tableView.rectForRow(at: top).maxY - tableView.contentOffset.y)
+        } else {
+            anchor = .bottom(refs: [])
+        }
         // A lift that still carries the rows above (its offset share) hands what is left of it to the stream glide;
         // its stand-in keeps flying to wherever the bubble now rests.
         let liftCarry = lift?.drivesOffset == true ? max(0, tableView.contentOffset.y - minOffset) : 0
@@ -2860,11 +2873,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
 
         let bigChange = d.inserts.count + d.deletes.count > 400 && !d.deletes.isEmpty
-        let reloadReason = bigChange ? "big change" : oldCount == 0 ? "table was empty" : tableView.window == nil ? "off screen" : nil
+        let reloadReason: String?
+        if staleTable { reloadReason = "row counts differ: table \(tableCount ?? 0), transcript \(oldCount)" }
+        else if bigChange { reloadReason = "big change" }
+        else if oldCount == 0 { reloadReason = "table was empty" }
+        else if tableView.window == nil { reloadReason = "off screen" }
+        else { reloadReason = nil }
         var growth: CGFloat = 0
         var arrived: [Int] = []
         UIView.performWithoutAnimation {
-            if bigChange || oldCount == 0 || tableView.window == nil {
+            if reloadReason != nil {
                 commitRows()
                 tableView.reloadData()
                 // Commit the reload now: a batch update queued on top of an uncommitted reload leaves ghost cells.
