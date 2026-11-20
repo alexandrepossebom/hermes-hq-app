@@ -175,17 +175,21 @@ extension PagesTests {
     /// so its reply's alert opens the task (it opened the chat bare: the gateway's `chat: null` hid the link).
     @MainActor func testTasksStress_10_ChatLinkSaveFailed() throws {
         try account.control("/__fixture/fail", ["method": "PATCH", "path": "/api/plugins/hermes-hq-push/tasks/t_passport", "status": 500, "count": 5])
-        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenTask", "Renew passport"])
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenTask", "Renew passport",
+                                          "-HQDebugResetTaskChats", "YES"])   // a run before left its unsaved link
         let message = app.buttons["task.message"].firstMatch
         XCTAssertTrue(message.waitForExistence(timeout: 20), "the task opens with its message box")
         message.tap()
         let field = app.textViews["composer.text"].firstMatch
         if !field.waitForExistence(timeout: 5), message.exists { message.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the chat's box")
-        field.typeText("Which photo size do they want?")
+        let words = "Which photo size do they want?"
+        field.typeText(words)
         let send = app.buttons["composer.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5))
         send.tap()
+        // A tap while the button was still turning from Talk into Send does nothing: once more (as openContractAndSend).
+        if !waitUntil(3, { (field.value as? String) != words }), send.exists { send.tap() }
         let created: () -> String? = {
             let state = (try? self.account.control("/__fixture/state")) ?? [:]
             return ((state["rpc"] as? [[String: Any]]) ?? []).filter { ($0["method"] as? String) == "session.create" }

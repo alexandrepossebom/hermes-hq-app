@@ -261,7 +261,22 @@ enum TasksHub {
 /// add-on drops the field), else none yet.
 @MainActor
 enum TaskChatLinks {
-    private static func key(_ account: GatewayAccount) -> String { "tasks.chats.\(account.id)" }
+    private static func key(_ account: GatewayAccount) -> String {
+        #if DEBUG
+        _ = debugReset
+        #endif
+        return "tasks.chats.\(account.id)"
+    }
+
+    #if DEBUG
+    /// `-HQDebugResetTaskChats YES`: this device's task-chat links go at launch (a UI test's task starts with none).
+    private static let debugReset: Void = {
+        guard UserDefaults.standard.bool(forKey: "HQDebugResetTaskChats") else { return }
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("tasks.chats.") {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }()
+    #endif
 
     /// [notify] A chat this device made whose link the gateway hasn't taken yet (audit 2026-11-19: the save failed, and
     /// the task's `chat: null` then hid the chat it had: the task opened with no conversation, its alert found no task)
