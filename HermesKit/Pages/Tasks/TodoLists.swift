@@ -88,52 +88,6 @@ nonisolated struct TodoOfferTask: Codable, Hashable, Sendable {
     var due: String?
     var notes: String?
     var source: TodoFrom?
-    /// [goals step 3] On a goal's offer (0.9.66): "me" (yours) or "bot"; `bot` is the bot it goes to.
-    var who: String?
-    var bot: String?
-    /// The goal's milestone id, or (on a goal or plan offer) one of the offer's own milestone titles.
-    var milestone: String?
-
-    init(title: String, due: String? = nil, notes: String? = nil, source: TodoFrom? = nil, who: String? = nil, bot: String? = nil,
-         milestone: String? = nil) {
-        self.title = title; self.due = due; self.notes = notes; self.source = source; self.who = who; self.bot = bot
-        self.milestone = milestone
-    }
-
-    enum CodingKeys: String, CodingKey { case title, due, notes, source, who, bot, milestone }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        title = try c.decode(String.self, forKey: .title)
-        func text(_ key: CodingKeys) -> String? { (try? c.decodeIfPresent(String.self, forKey: key)).flatMap { $0?.isEmpty == true ? nil : $0 } }
-        due = text(.due); notes = text(.notes); who = text(.who); bot = text(.bot); milestone = text(.milestone)
-        source = (try? c.decodeIfPresent(TodoFrom.self, forKey: .source)).flatMap { $0 }
-    }
-
-    /// The bot it goes to, for a bot's task: its own `bot`, else the offering bot.
-    func botFor(_ offer: TodoOffer) -> String? { who == "bot" ? (bot ?? offer.bot) : nil }
-}
-
-/// [goals step 3] A milestone a goal or plan offer would add.
-nonisolated struct GoalOfferMilestone: Codable, Hashable, Sendable {
-    var title: String
-    var due: String?
-}
-
-/// [goals step 3] The number a goal offer would give the new goal.
-nonisolated struct GoalOfferMeasure: Codable, Hashable, Sendable {
-    var unit: String
-    var start: Double
-    var target: Double
-
-    init(unit: String = "", start: Double = 0, target: Double) { self.unit = unit; self.start = start; self.target = target }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        unit = (try? c.decodeIfPresent(String.self, forKey: .unit)).flatMap { $0 } ?? ""
-        start = (try? c.decodeIfPresent(Double.self, forKey: .start)).flatMap { $0 } ?? 0
-        target = try c.decode(Double.self, forKey: .target)
-    }
 }
 
 /// A task already on your page that an offer would move into the list.
@@ -168,38 +122,10 @@ nonisolated struct TodoOffer: Codable, Hashable, Sendable, Identifiable {
     var listed: Bool?
     /// The tasks accepting made.
     var added: [String]
-    // [goals step 3] A goal's offer (hermes-hq-push 0.9.66). A list offer has no `kind` (read as "list").
-    /// "list" | "goal" | "plan" | "checkin" | "tasks".
-    var kind = "list"
-    /// The goal it is for (nil for kind "goal", which makes one).
-    var goal: String?
-    /// The goal's name (always filled in on a goal offer).
-    var title = ""
-    /// A check-in's two sentences: what moved.
-    var summary = ""
-    /// A new goal's date (a day).
-    var due: String?
-    var measure: GoalOfferMeasure?
-    /// The milestones a goal or plan offer would add.
-    var milestones: [GoalOfferMilestone] = []
-    var answeredAt: String?
-    /// Accepting made this goal (kind "goal").
-    var madeGoal: String?
-    var madeMilestones: [String] = []
-    /// Accepted with its plan (false: "Keep the Goal, No Plan").
-    var plan: Bool?
-    /// Accepted under the goal (false: "Just Tasks").
-    var inGoal: Bool?
-    /// What undo left in place because you had changed it.
-    var kept: [String] = []
-    /// Held for the lead's check-in (never sent as a card; kept for an app that is sent one anyway).
-    var held = false
 
     enum CodingKeys: String, CodingKey {
         case id, bot, sessionId = "session_id", at, list, section, isNew = "new", why, tasks, move, state
         case moveState = "move_state", listed, added
-        case kind, goal, title, summary, due, measure, milestones, held, kept, plan
-        case answeredAt = "answered_at", madeGoal = "made_goal", madeMilestones = "made_milestones", inGoal = "in_goal"
     }
 
     init(id: String, bot: String, sessionId: String? = nil, at: String? = nil, list: String, section: String? = nil,
@@ -226,26 +152,7 @@ nonisolated struct TodoOffer: Codable, Hashable, Sendable, Identifiable {
         moveState = (try? c.decodeIfPresent(String.self, forKey: .moveState)).flatMap { $0 }
         listed = (try? c.decodeIfPresent(Bool.self, forKey: .listed)).flatMap { $0 }
         added = (try? c.decodeIfPresent([String].self, forKey: .added)) ?? []
-        func text(_ key: CodingKeys) -> String? { (try? c.decodeIfPresent(String.self, forKey: key)).flatMap { $0?.isEmpty == true ? nil : $0 } }
-        kind = text(.kind) ?? "list"
-        goal = text(.goal)
-        title = text(.title) ?? (kind == "list" ? "" : list)
-        if list.isEmpty { list = title }
-        summary = text(.summary) ?? ""
-        due = text(.due)
-        measure = (try? c.decodeIfPresent(GoalOfferMeasure.self, forKey: .measure)).flatMap { $0 }
-        milestones = (try? c.decodeIfPresent([GoalOfferMilestone].self, forKey: .milestones)).flatMap { $0 } ?? []
-        answeredAt = text(.answeredAt)
-        madeGoal = text(.madeGoal)
-        madeMilestones = (try? c.decodeIfPresent([String].self, forKey: .madeMilestones)).flatMap { $0 } ?? []
-        plan = (try? c.decodeIfPresent(Bool.self, forKey: .plan)).flatMap { $0 }
-        inGoal = (try? c.decodeIfPresent(Bool.self, forKey: .inGoal)).flatMap { $0 }
-        kept = (try? c.decodeIfPresent([String].self, forKey: .kept)).flatMap { $0 } ?? []
-        held = ((try? c.decodeIfPresent(Bool.self, forKey: .held)) ?? nil) ?? false
     }
-
-    /// [goals step 3] A goal's offer (a goal to make, a plan, a check-in, tasks for a goal), not a list's.
-    var isGoal: Bool { kind != "list" }
 
     /// A chat's card keeps this many of its tasks (the gateway takes up to 20).
     static let cardTasks = 20
@@ -356,9 +263,8 @@ nonisolated enum TodoLists {
         return all.filter { $0.sessionId == session && $0.state != "undone" && $0.state != "declined" }
     }
 
-    /// The offers the Tasks page shows above its rows: every list offer that still waits for an answer. [goals step 3] A
-    /// goal's offer has its own place (`GoalOffers.today`).
-    static func waiting(_ all: [TodoOffer]) -> [TodoOffer] { all.filter { !$0.isGoal && ($0.isWaiting || $0.asksMove) } }
+    /// The offers the Tasks page shows above its rows: every one that still waits for an answer.
+    static func waiting(_ all: [TodoOffer]) -> [TodoOffer] { all.filter { $0.isWaiting || $0.asksMove } }
 
     /// "3 tasks", "1 task".
     static func count(_ n: Int) -> String { n == 1 ? "1 task" : "\(n) tasks" }
@@ -458,17 +364,13 @@ nonisolated struct TodoOfferFoot: Hashable, Sendable {
 /// "offered") shows what became of it: answered on the Tasks page, on another device, or a day ago.
 nonisolated enum TodoOfferStates {
     static let changed = Notification.Name("hq.tasks.offers.changed")
-    private static let box = Mutex<(read: Bool, offers: [String: TodoOffer], latest: Set<String>)>((false, [:], []))
+    private static let box = Mutex<(read: Bool, offers: [String: TodoOffer])>((false, [:]))
 
     /// The gateway's list (`whole`: every offer it still shows), or the one saved on disk.
     static func note(_ offers: [TodoOffer], whole: Bool) -> Bool {
         box.withLock { box in
             var moved = whole && !box.read
-            if whole {
-                box.read = true
-                let ids = Set(offers.map(\.id))
-                if ids != box.latest { box.latest = ids; moved = true }
-            }
+            if whole { box.read = true }
             for offer in offers where box.offers[offer.id] != offer { box.offers[offer.id] = offer; moved = true }
             return moved
         }
@@ -482,35 +384,5 @@ nonisolated enum TodoOfferStates {
         }
     }
 
-    static func forget() {
-        box.withLock { $0 = (false, [:], []) }
-        goalBox.withLock { $0 = [:] }
-        asked.withLock { $0 = [] }
-    }
-
-    // MARK: [goals step 3] The goals the cards name, and offers a chat names before the app has read them
-
-    /// Posted when a chat names an offer the app hasn't read (the store reads the list again).
-    static let wanted = Notification.Name("hq.tasks.offers.wanted")
-    private static let goalBox = Mutex<[String: Goal]>([:])
-    private static let asked = Mutex<Set<String>>([])
-
-    /// The store's goals, for the chat's cards (their name, colour, lead and check-in day).
-    static func noteGoals(_ goals: [Goal]) {
-        goalBox.withLock { $0 = Dictionary(goals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
-    }
-
-    static func goal(_ id: String?) -> Goal? { id.flatMap { id in goalBox.withLock { $0[id] } } }
-
-    /// A chat's card names an offer the app hasn't read: asked once per offer.
-    static func want(_ id: String) {
-        guard asked.withLock({ $0.insert(id).inserted }) else { return }
-        DispatchQueue.main.async { NotificationCenter.default.post(name: wanted, object: id) }
-    }
-
-    /// [goals step 3] The offer by its id, as the app last saw it; nil before the gateway's list said it (a goal's offer
-    /// comes to the chat as its id alone, `goals_offer`'s answer).
-    static func live(_ id: String) -> (offer: TodoOffer?, past: Bool) {
-        box.withLock { box in (box.offers[id], box.read && !box.latest.contains(id)) }
-    }
+    static func forget() { box.withLock { $0 = (false, [:]) } }
 }

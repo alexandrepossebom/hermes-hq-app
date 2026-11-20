@@ -416,13 +416,8 @@ nonisolated struct TodoListAnswer: Decodable, Sendable {
     var offers: [TodoOffer] = []
     /// [goals] Every goal, any status, by position (hermes-hq-push 0.9.65); nil from an older add-on, which keeps none.
     var goals: [Goal]?
-    /// [goals step 3] The add-on puts bots on goals (hermes-hq-push 0.9.66): a lead, helpers, offers, the check-in.
-    var goalBots = false
 
-    enum CodingKeys: String, CodingKey {
-        case rev, tasks, settings, sections, unchanged, pages, ideas, fields, files, lists, offers, goals
-        case goalBots = "goal_bots"
-    }
+    enum CodingKeys: String, CodingKey { case rev, tasks, settings, sections, unchanged, pages, ideas, fields, files, lists, offers, goals }
 
     init(rev: Int, tasks: [TodoTask]?, settings: TodoSettings? = nil, sections: [TodoUserSection]? = nil, unchanged: Bool = false) {
         self.rev = rev; self.tasks = tasks; self.settings = settings; self.sections = sections; self.unchanged = unchanged
@@ -459,7 +454,6 @@ nonisolated struct TodoListAnswer: Decodable, Sendable {
         if let raw = try? c.decodeIfPresent([JSONValue].self, forKey: .goals) {
             goals = raw.compactMap { value in (try? value.encoded()).flatMap { try? JSONDecoder().decode(Goal.self, from: $0) } }
         }
-        goalBots = ((try? c.decodeIfPresent(Bool.self, forKey: .goalBots)) ?? nil) ?? false
     }
 }
 
@@ -651,15 +645,13 @@ nonisolated enum TodoSections {
     }
 
     /// The All Bots filter: one bot's tasks (its bot and together tasks); everything for All Bots.
-    /// [goals] Step 2: a search also finds a task by its goal's name and its milestone's name (`goals`).
-    static func filtered(_ tasks: [TodoTask], scope: String, query: String, goals: [Goal] = []) -> [TodoTask] {
+    static func filtered(_ tasks: [TodoTask], scope: String, query: String) -> [TodoTask] {
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return tasks.filter { task in
             // [bot-pills] "@me": your own tasks, with no bot helping.
             if scope == "@me" { if task.helper != nil { return false } } else if scope != "all", task.helper != scope { return false }
             guard !words.isEmpty else { return true }
             let fields = [task.title, task.notes, task.statusNote] + task.steps.map(\.title) + task.tags
-                + GoalViews.searchWords(task, goals: goals)
             // "#hiring" finds the tag alone.
             if words.hasPrefix("#") { return task.tags.contains { $0.lowercased().hasPrefix(String(words.dropFirst())) } }
             return fields.contains { $0.lowercased().contains(words) }

@@ -18,26 +18,10 @@ final class NewGoalModel {
     var measure: GoalMeasure?
     var saving = false
     var failure: String?
-    /// [goals step 3] Plan With <Bot>: off by default. With a bot, Add makes the goal led by it, and its chat plans.
-    var planWith: String?
     @ObservationIgnored var onCreated: ((Goal?) -> Void)?
-    /// [goals step 3] Added with Plan With: the goal, its bot and the line as you typed it (your bubble's words).
-    @ObservationIgnored var onPlan: ((Goal, String) -> Void)?
     @ObservationIgnored weak var controller: UIViewController?
-    let bots: [(id: String, name: String, head: JSONValue?)]
 
-    init(store: TasksStore, bots: [Bot] = MorePages.context?.bots ?? []) {
-        self.store = store
-        self.bots = bots.map { ($0.id, PagesNames.botName($0.id, bots: bots), $0.head) }
-    }
-
-    /// The Plan With row shows only with the add-on's bots and a bot to pick.
-    var offersPlan: Bool { store.goalBotsSupported && !bots.isEmpty }
-
-    func setPlanWith(_ bot: String?) {
-        PagesHaptics.selection()
-        planWith = bot
-    }
+    init(store: TasksStore) { self.store = store }
 
     var read: TodoQuickRead { TodoQuickParse.read(title, now: Date(), dates: !manualDue, goal: true) }
 
@@ -89,11 +73,8 @@ final class NewGoalModel {
         saving = true
         failure = nil
         controller?.isModalInPresentation = true
-        var body = GoalWire.newGoal(title: String(name.prefix(200)), why: String(why.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)),
+        let body = GoalWire.newGoal(title: String(name.prefix(200)), why: String(why.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)),
                                     due: dueNow.map { TodoViews.dayKey($0, calendar: .current) }, measure: measure)
-        let lead = offersPlan ? planWith : nil
-        if let lead { body["lead"] = .string(lead) }
-        let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             let made = await store.addGoal(body)
             saving = false
@@ -105,10 +86,6 @@ final class NewGoalModel {
             }
             PagesHaptics.success()
             HQAnnounce.say("Added “\(made.title)”")
-            if lead != nil, let plan = onPlan {
-                if let controller { controller.dismiss(animated: true) { plan(made, typed) } } else { plan(made, typed) }
-                return
-            }
             let done = onCreated
             if let controller { controller.dismiss(animated: true) { done?(made) } } else { done?(made) }
         }
@@ -116,10 +93,9 @@ final class NewGoalModel {
 }
 
 enum NewGoalSheet {
-    static func make(store: TasksStore, onCreated: @escaping (Goal?) -> Void, onPlan: ((Goal, String) -> Void)? = nil) -> UIViewController {
+    static func make(store: TasksStore, onCreated: @escaping (Goal?) -> Void) -> UIViewController {
         let model = NewGoalModel(store: store)
         model.onCreated = onCreated
-        model.onPlan = onPlan
         return NewGoalHost(model: model)
     }
 }
@@ -214,7 +190,6 @@ struct NewGoalView: View {
                     HStack(spacing: 8) {
                         dateChip
                         numberChip
-                        if model.offersPlan { planChip }
                     }
                     .padding(.vertical, 2)
                 }
@@ -252,36 +227,6 @@ struct NewGoalView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(words.map { "\($0). Change" } ?? "Date")
         .accessibilityIdentifier("goals.new.due")
-    }
-
-    /// [goals step 3] "Plan With Hermes": your bots and No One, off by default.
-    private var planChip: some View {
-        let name = model.planWith.flatMap { id in model.bots.first { $0.id == id }?.name }
-        return Menu {
-            Picker("Plan With", selection: Binding(get: { model.planWith ?? "" }, set: { model.setPlanWith($0.isEmpty ? nil : $0) })) {
-                Text("No One").tag("")
-                ForEach(model.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                if let id = model.planWith {
-                    HeadImage(raw: model.bots.first { $0.id == id }?.head, profile: id, size: 16).frame(width: 16, height: 16).accessibilityHidden(true)
-                } else {
-                    Image(systemName: "sparkles").imageScale(.small).foregroundStyle(Color.hqLabel2).accessibilityHidden(true)
-                }
-                Text(name.map { "Plan With \($0)" } ?? "Plan With a Bot").lineLimit(1)
-            }
-            .font(Font.hq(.footnote).weight(name != nil && !DeviceWord.isMac ? .semibold : .regular))
-            .foregroundStyle(name != nil ? Color.hqTintText : Color.hqLabel2)
-            .padding(.horizontal, 10)
-            .frame(minHeight: 32)
-            .background(Capsule().fill(name != nil ? Color.hqTint.opacity(0.12) : Color.hqFill3))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(name.map { "Plan With \($0). Change" } ?? "Plan With a Bot")
-        .accessibilityHint("The bot leads the goal and offers a plan in its chat")
-        .accessibilityIdentifier("goals.new.plan")
     }
 
     @ViewBuilder private var numberChip: some View {

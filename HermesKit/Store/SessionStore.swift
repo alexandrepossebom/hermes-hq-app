@@ -129,22 +129,6 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     }
 }
 
-/// [pr-instant] The last answer the gateway gave for each chat's code changes, kept so a coding project's marks are
-/// there the moment the app opens (owner 2026-11-19: "It took probably thirty seconds or more before they all loaded.
-/// That needs to just be instantly correct."). Answers only: a chat whose status wasn't known isn't kept.
-nonisolated struct SessionMarksCacheFile: Codable, Sendable {
-    struct Mark: Codable, Sendable {
-        var state: String
-        var repo: String?
-        var branch: String?
-        var number: Int?
-        var url: String?
-        var manual: Bool?
-    }
-    var at: Double                   // ms since the epoch
-    var marks: [String: Mark]
-}
-
 nonisolated struct SessionsCacheFile: Codable, Sendable {
     var at: Double                   // ms since the epoch
     var recents: [SidebarSessionRow]
@@ -339,7 +323,6 @@ final class SessionStore {
     @ObservationIgnored let timing: SessionStoreTiming
     @ObservationIgnored private let routingProfile: String
     @ObservationIgnored private let cacheURL: URL
-    @ObservationIgnored private let marksURL: URL
     @ObservationIgnored private let stateURL: URL
     /// [sync] No device state on disk at launch (signed out and back in, or never saved): `GatewaySync` takes the
     /// gateway's orders instead of sending this empty copy.
@@ -457,19 +440,12 @@ final class SessionStore {
         self.timing = timing
         self.routingProfile = routingProfile
         cacheURL = RosterDisk.url(cacheDirectory, RosterDisk.sessionsKind, account)
-        marksURL = RosterDisk.url(cacheDirectory, RosterDisk.sessionMarksKind, account)
         stateURL = RosterDisk.url(cacheDirectory, RosterDisk.sessionStateKind, account)
         if let state = RosterDisk.read(SessionsDeviceState.self, from: stateURL) { device = state } else { syncStartedEmpty = true }
         showBackgroundRuns = device.showBackgroundRuns
         showOutsideChats = device.showOutsideChats
         view = device.view                              // [sessions-m9]
         projectsByProfile = device.projects             // [sessions-m9]
-        // [pr-instant] The marks as last known, drawn at once; each is asked for again as its row shows.
-        for (key, mark) in RosterDisk.read(SessionMarksCacheFile.self, from: marksURL)?.marks ?? [:] {
-            guard let state = SessionPRStatus.State(rawValue: mark.state), state != .unknown else { continue }
-            pullRequests[key] = SessionPRStatus(state: state, repo: mark.repo, branch: mark.branch, number: mark.number,
-                                                url: mark.url.flatMap(Self.validPRURL), manual: mark.manual ?? false)
-        }
         if let cached = RosterDisk.read(SessionsCacheFile.self, from: cacheURL) {
             recents = cached.recents; cron = cached.cron; messaging = cached.messaging
             lastUpdated = Date(timeIntervalSince1970: cached.at / 1000)
@@ -1436,43 +1412,49 @@ final class SessionStore {
         prInFlight.formUnion(reserved)
         let generation = prGeneration
         defer { if generation == prGeneration { prInFlight.subtract(reserved) } }
-        // [pr-instant] The chunks are asked for together (three at a time) and each is drawn as it answers: a
-        // project of 80 chats took three answers one after another (owner's phone 2026-11-19: 6.6 s, 5.7 s, 1.8 s).
         var changed = false
-        let chunks = stride(from: 0, to: unique.count, by: 32).map { Array(unique[$0..<min($0 + 32, unique.count)]) }
-        await withChildTasks(of: PRChunkAnswer.self) { group in
-            var waiting = chunks.makeIterator()
-            for _ in 0..<3 {
-                guard let chunk = waiting.next() else { break }
-                group.addTask { [weak self] in await self?.askPullRequests(chunk) ?? PRChunkAnswer(keys: [], answers: nil, missing: false) }
+        for start in stride(from: 0, to: unique.count, by: 32) {
+            guard !Task.isCancelled, !stopped, generation == prGeneration, !prRouteMissing else { break }
+            let chunk = Array(unique[start..<min(start + 32, unique.count)])
+            let keys = Set(chunk.map { Self.writeKey(id: $0.id, profile: $0.profile) })
+            let body: JSONValue = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
+            var answers: [String: SessionPRStatus] = [:]
+            var succeeded = false
+            do {
+                let data = try await client.rest("POST", "/api/plugins/hermes-hq-push/sessions/pr-status", query: [], body: body.encoded())
+                let payload = try JSONValue.parse(data)
+                guard let results = payload["sessions"]?.array else { throw PRPayloadError.invalid }
+                for item in results {
+                    guard let profile = item["profile"]?.string, let id = item["id"]?.string else { continue }
+                    let key = Self.writeKey(id: id, profile: profile)
+                    guard keys.contains(key) else { continue }
+                    let state = item["state"]?.string.flatMap(SessionPRStatus.State.init(rawValue:)) ?? .unknown
+                    answers[key] = SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
+                                                   number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
+                                                   manual: item["manual"]?.bool ?? false)
+                }
+                succeeded = true
+            } catch {
+                if let http = error as? HTTPError, http.status == 404 { prRouteMissingSince = .now }
             }
-            while let answer = await group.next() {
-                if answer.missing { prRouteMissingSince = .now }
-                guard !Task.isCancelled, !stopped, generation == prGeneration else { continue }
-                for key in answer.keys {
-                    let previous = pullRequests[key]
-                    let now: SessionPRStatus?
-                    if let answers = answer.answers {
-                        // Omission cannot establish absence of a PR. The client may know
-                        // a row belongs to a coding project even when the gateway doesn't.
-                        now = answers[key] ?? SessionPRStatus(state: .unknown)
-                    } else if answer.missing {
-                        now = SessionPRStatus(state: .unknown)   // a gateway that can't say: not evidence of absence
-                    } else {
-                        // [pr-instant] No answer this time (offline, Hermes restarting): what it last said stays,
-                        // rather than every mark turning to ? and back. Never known: unknown.
-                        now = previous ?? SessionPRStatus(state: .unknown)
-                    }
-                    if now != previous {
-                        pullRequests[key] = now
-                        changed = true
-                    }
-                    prCheckedAt[key] = .now
+            guard !Task.isCancelled, !stopped, generation == prGeneration else { break }
+            for key in keys {
+                let previous = pullRequests[key]
+                let next: SessionPRStatus?
+                if succeeded {
+                    // Omission cannot establish absence of a PR. The client may know
+                    // a row belongs to a coding project even when the gateway doesn't.
+                    next = answers[key] ?? SessionPRStatus(state: .unknown)
+                } else {
+                    // A failed or unsupported endpoint is not evidence of absence. Do not
+                    // keep a stale URL or number as if it were verified now.
+                    next = SessionPRStatus(state: .unknown)
                 }
-                if changed { rebuild() }
-                if !answer.missing, !prRouteMissing, let chunk = waiting.next() {
-                    group.addTask { [weak self] in await self?.askPullRequests(chunk) ?? PRChunkAnswer(keys: [], answers: nil, missing: false) }
+                if next != previous {
+                    pullRequests[key] = next
+                    changed = true
                 }
+                prCheckedAt[key] = .now
             }
         }
         // Bound both positive and negative entries, including unlisted chats.
@@ -1482,59 +1464,7 @@ final class SessionStore {
                 if pullRequests[key] != nil { pullRequests[key] = nil; changed = true }
             }
         }
-        if changed {
-            rebuild()
-            saveMarks()
-        }
-    }
-
-    private struct PRChunkAnswer: Sendable {
-        var keys: Set<String>
-        /// nil: no answer (the request failed).
-        var answers: [String: SessionPRStatus]?
-        /// The gateway has no such route (404).
-        var missing: Bool
-    }
-
-    private func askPullRequests(_ chunk: [SessionSummary]) async -> PRChunkAnswer {
-        let keys = Set(chunk.map { Self.writeKey(id: $0.id, profile: $0.profile) })
-        let body: JSONValue = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
-        // The outcome is bound first and the answer built from it after (ChildTasks.swift: a value returned from
-        // inside a `do` around `try await` can be lost in an optimized build).
-        let client = self.client
-        let read: Result<[JSONValue], any Error> = await .of {
-            let data = try await client.rest("POST", "/api/plugins/hermes-hq-push/sessions/pr-status", query: [], body: body.encoded())
-            guard let results = try JSONValue.parse(data)["sessions"]?.array else { throw PRPayloadError.invalid }
-            return results
-        }
-        var answer = PRChunkAnswer(keys: keys, answers: nil, missing: false)
-        switch read {
-        case .failure(let error):
-            answer.missing = (error as? HTTPError)?.status == 404
-        case .success(let results):
-            var answers: [String: SessionPRStatus] = [:]
-            for item in results {
-                guard let profile = item["profile"]?.string, let id = item["id"]?.string else { continue }
-                let key = Self.writeKey(id: id, profile: profile)
-                guard keys.contains(key) else { continue }
-                let state = item["state"]?.string.flatMap(SessionPRStatus.State.init(rawValue:)) ?? .unknown
-                answers[key] = SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
-                                               number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
-                                               manual: item["manual"]?.bool ?? false)
-            }
-            answer.answers = answers
-        }
-        return answer
-    }
-
-    /// [pr-instant] The answers as they stand, for the next launch.
-    private func saveMarks() {
-        let marks = pullRequests.filter { $0.value.state != .unknown }.mapValues {
-            SessionMarksCacheFile.Mark(state: $0.state.rawValue, repo: $0.repo, branch: $0.branch, number: $0.number,
-                                       url: $0.url?.absoluteString, manual: $0.manual ? true : nil)
-        }
-        RosterDisk.write(SessionMarksCacheFile(at: Date().timeIntervalSince1970 * 1000, marks: marks), to: marksURL,
-                         keepNewest: (RosterDisk.sessionMarksKind, 3))
+        if changed { rebuild() }
     }
 
     private enum PRPayloadError: Error { case invalid }

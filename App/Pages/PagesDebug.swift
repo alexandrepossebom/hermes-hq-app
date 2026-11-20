@@ -15,12 +15,8 @@
 // - `-HQPagesEditList <name>`     …and open Edit List for that list (on Tasks)
 // - `-HQPagesOpenGoal <title>`   [goals] …and show the Goals view (`-HQPagesTasksView goals` alone shows it), then open
 //                                that goal's page (on Tasks)
-// - `-HQPagesGoalSheet <which>`  [goals] …and, over that goal's page, open `update` (Update Number) or `edit` (Edit Goal);
-//                                [goals steps 3-5] `page` (the Goal Page sheet), `chat` (the goal's chat takes the
-//                                screen), `ask` (Ask for an Update), `team` (Edit Goal, scrolled to its bots)
-// - `-HQPagesGoalPush <title>`   [goals step 4] …and open that goal as a tapped check-in push does (`request` "goal:<id>")
+// - `-HQPagesGoalSheet <which>`  [goals] …and, over that goal's page, open `update` (Update Number) or `edit` (Edit Goal)
 // - `-HQPagesNewGoal YES`        [goals] …and open New Goal (on Tasks)
-// - `-HQPagesForgetGoalKeeps YES` [goals step 4] forget this device's Keep Going answers (`GoalKeptHere`) at launch
 // - `-HQPagesImportReminders N`  …and add N reminders to Reminders (0 adds none), then tap Import from Reminders (on Tasks)
 // - `-HQPagesChip <status>`      …and pick that Kanban chip
 // - `-HQPagesFilter <kind>`      …and pick that Artifacts segment (image, file, link)
@@ -43,7 +39,6 @@ enum PagesDebug {
     private static var defaults: UserDefaults { .standard }
 
     static func apply(_ pages: PagesTabs, host: UITabBarController) {
-        if defaults.bool(forKey: "HQPagesForgetGoalKeeps") { GoalKeptHere.forget() }
         if let stored = defaults.string(forKey: "HQPagesOpenSession") {
             Task { @MainActor in
                 // Once signed in and on screen (a sign-in from the launch's environment comes late on the Mac).
@@ -97,16 +92,13 @@ enum PagesDebug {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { follow(nav) }
     }
 
-    /// `opened`: the page `-HQPagesMore` opened. [goals step 2] With two panes (an iPad) More stays the left pane's top
-    /// and the page opens in the right one: follow that page, or this re-opened the row every 1.5 s (a new page each
-    /// time, back on its first view) and no page hook below ever ran on an iPad.
-    private static func follow(_ nav: UINavigationController, opened: UIViewController? = nil) {
-        if opened == nil, let id = defaults.string(forKey: "HQPagesMore"), let more = nav.topViewController as? MoreViewController {
-            let page = more.open(rowId: id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { follow(nav, opened: page) }
+    private static func follow(_ nav: UINavigationController) {
+        if let id = defaults.string(forKey: "HQPagesMore"), let more = nav.topViewController as? MoreViewController {
+            more.open(rowId: id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { follow(nav) }
             return
         }
-        let top = opened?.navigationController?.topViewController ?? nav.topViewController
+        let top = nav.topViewController
         if let jobs = top as? JobsViewController, let id = defaults.string(forKey: "HQPagesOpenJob"),
            let job = jobs.store.jobs.first(where: { $0.id == id }) {
             jobs.openDetail(job.key)
@@ -149,10 +141,6 @@ enum PagesDebug {
                     if let sheet = defaults.string(forKey: "HQPagesGoalSheet") {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { GoalPageModel.debugLast?.debugOpen(sheet) }
                     }
-                }
-                if let title = defaults.string(forKey: "HQPagesGoalPush"),
-                   let goal = tasks.store.goals.first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
-                    NotificationHub.shared.openTask?("goal:" + goal.id, nil)
                 }
                 if defaults.bool(forKey: "HQPagesNewGoal") { tasks.show(.goals); tasks.newGoal() }
                 if let name = defaults.string(forKey: "HQPagesEditList"), let list = tasks.store.sections.first(where: { $0.name == name }) {

@@ -69,10 +69,6 @@ enum TasksHub {
         center.addObserver(forName: NotificationHub.taskPushed, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { _ = Task { await current?.refresh(force: true) } }
         }
-        // [goals step 3] A chat names a goal's card the app hasn't read: the list is read again (once per card).
-        center.addObserver(forName: TodoOfferStates.wanted, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { _ = Task { await current?.refresh(force: true) } }
-        }
     }
 
     /// Back in front: the list is read (cheap: `?since=` answers `unchanged` when nothing moved). An add-on without
@@ -86,6 +82,7 @@ enum TasksHub {
     static func signedOut() {
         store?.forget()
         store = nil
+        tapRead = nil
         TodoOfferStates.forget()
         TaskReminders.removeAll()
     }
@@ -111,17 +108,10 @@ enum TasksHub {
         if let presented = stack.presentedViewController { presented.dismiss(animated: false) }
         root.selectedIndex = index
         if let page = stack.topViewController as? TasksViewController { return page }
-        // [goals step 4] Two panes (an iPad): Tasks shows in the right pane, beside More, not on More's own stack. A
-        // check-in's push (and a task's alert) found no page there and did nothing.
-        if let page = more.openedPageOnScreen as? TasksViewController {
-            if let stack = page.navigationController, stack.topViewController !== page { stack.popToViewController(page, animated: false) }
-            if let presented = page.presentedViewController { presented.dismiss(animated: false) }
-            return page
-        }
         stack.popToRootViewController(animated: false)
         more.loadViewIfNeeded()
-        let opened = more.open(rowId: "tasks")
-        return stack.topViewController as? TasksViewController ?? opened as? TasksViewController
+        more.open(rowId: "tasks")
+        return stack.topViewController as? TasksViewController
     }
 
     /// A task's alert or a chat card's row: the page, then that task's sheet (`atReply`: at its chat's newest end, for a
@@ -131,23 +121,28 @@ enum TasksHub {
         guard let page = showPage() else { return false }
         guard let taskID else { return true }
         page.loadViewIfNeeded()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { page.openTask(taskID, atReply: atReply) }
+        // [notify] Only the newest way in opens (audit 2026-11-19: two alerts tapped quickly, or a chat opened in the
+        // meantime, and the older task came up over it).
+        openToken += 1
+        let token = openToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            guard token == openToken else { return }
+            page.openTask(taskID, atReply: atReply)
+        }
         return true
     }
 
-    /// [goals step 3/4] A goal from outside (a check-in's push, a chat card's Change): the Tasks page, then the goal's
-    /// page (`chat`: at its chat, the goal as its bar). False when there is no Tasks page to show.
-    @discardableResult
-    static func openGoal(_ id: String, chat: Bool = false) -> Bool {
-        guard let page = showPage() else { return false }
-        page.loadViewIfNeeded()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { page.openGoal(id, chat: chat) }
-        return true
-    }
+    private static var openToken = 0
+
+    /// Another place was opened (a chat's alert for a bot's or a Sessions chat): a task still to open after the page's
+    /// turn doesn't come up over it.
+    static func cancelPendingOpen() { openToken += 1 }
 
     // MARK: A task's chat named from outside
 
-    private static var askedForList = false
+    /// [notify] The read a tap asked for (audit 2026-11-19): per store and per chat, so a failed read, another
+    /// gateway's store or a later tap asks again (one flag for the app's life stopped every read after the first).
+    private static var tapRead: (store: ObjectIdentifier, stored: String, at: Date, done: Bool)?
 
     /// The task whose own chat `stored` is (the list on disk at a cold launch), so an alert or a link from that chat
     /// opens the task with its chat, not the chat bare (owner 2026-11-05: the alert "did not open back up in the task.
@@ -158,15 +153,21 @@ enum TasksHub {
         return store.tasks.first { TaskChatLinks.link($0, account: store.account)?.sessionId == stored }
     }
 
-    /// No list yet (none on disk): it is read once, and a waiting tap waits for it rather than guess.
-    static func listPending() -> Bool {
-        guard let store = current, !isOff(store.account) else { return false }
+    /// A chat no task in hand names (no list yet, or one read before the task's chat was made, on another device or
+    /// while this phone was away): the list is read once for this tap, and the tap waits for it rather than guess the
+    /// chat is a bot's or open it bare (audit 2026-11-19: a task's reply opened in its bot's own chat).
+    static func listPending(for stored: String) -> Bool {
+        guard let store = current, !isOff(store.account), !store.needsAddOn else { return false }
         store.prepare()
-        if store.hasList { return false }
-        if store.loading { return true }
-        guard !askedForList else { return false }
-        askedForList = true
-        Task { await store.refresh() }
+        let id = ObjectIdentifier(store)
+        if let read = tapRead, read.store == id, read.stored == stored, Date().timeIntervalSince(read.at) < 30 {
+            return !read.done
+        }
+        tapRead = (id, stored, Date(), false)
+        Task {
+            await store.refresh(force: true)
+            if let read = tapRead, read.store == id, read.stored == stored { tapRead?.done = true }
+        }
         return true
     }
 
@@ -189,17 +190,15 @@ enum TasksHub {
 
     /// [task-lists] A chat card's answer to a bot's offer. Through the page's store when the chat is on its gateway (the
     /// Tasks page shows the same at once), else straight to that gateway.
-    static func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool, plan: Bool = true, inGoal: Bool = true,
-                            client: (any GatewayClient)?) async -> Bool {
+    static func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool, client: (any GatewayClient)?) async -> Bool {
         if let context = MorePages.context, client == nil || client === context.client {
             let store = store(context)
             if !store.offers.contains(where: { $0.id == id }) { await store.refresh(force: true) }
-            if store.offers.contains(where: { $0.id == id }) { return await store.answerOffer(id, action, list: list, plan: plan, inGoal: inGoal) }
+            if store.offers.contains(where: { $0.id == id }) { return await store.answerOffer(id, action, list: list) }
         }
         guard let client = client ?? MorePages.context?.client else { return false }
-        let isGoal = TodoOfferStates.live(id).offer?.isGoal == true
         do {
-            let answer = try await TasksAPI(client: client).answerOffer(id, action: action, list: list, goal: isGoal ? (plan, inGoal) : nil)
+            let answer = try await TasksAPI(client: client).answerOffer(id, action: action, list: list)
             if TodoOfferStates.note([answer.offer], whole: false) {
                 NotificationCenter.default.post(name: TodoOfferStates.changed, object: nil)
             }
@@ -236,17 +235,48 @@ enum TasksHub {
 enum TaskChatLinks {
     private static func key(_ account: GatewayAccount) -> String { "tasks.chats.\(account.id)" }
 
+    /// [notify] A chat this device made whose link the gateway hasn't taken yet (audit 2026-11-19: the save failed, and
+    /// the task's `chat: null` then hid the chat it had: the task opened with no conversation, its alert found no task)
+    /// counts until a save lands (`unsaved`, saved again on each open: `TaskPage.chatModel`).
     static func link(_ task: TodoTask, account: GatewayAccount) -> TodoChat? {
         if let chat = task.chat { return chat }
-        guard !task.chatKnown, let saved = UserDefaults.standard.dictionary(forKey: key(account))?[task.id] as? [String: String],
+        guard let saved = UserDefaults.standard.dictionary(forKey: key(account))?[task.id] as? [String: String],
+              !task.chatKnown || saved["unsaved"] == "1",
               let profile = saved["profile"], let session = saved["session_id"], !profile.isEmpty, !session.isEmpty else { return nil }
         return TodoChat(profile: profile, sessionId: session)
     }
 
-    static func remember(_ chat: TodoChat, task: String, account: GatewayAccount) {
+    /// Whether the task's link is this device's alone, its save to the gateway still owed.
+    static func unsaved(_ task: TodoTask, account: GatewayAccount) -> Bool {
+        task.chat == nil && (UserDefaults.standard.dictionary(forKey: key(account))?[task.id] as? [String: String])?["unsaved"] == "1"
+    }
+
+    static func remember(_ chat: TodoChat, task: String, account: GatewayAccount, unsaved: Bool = false) {
         var all = UserDefaults.standard.dictionary(forKey: key(account)) ?? [:]
-        all[task] = ["profile": chat.profile, "session_id": chat.sessionId]
+        var entry = ["profile": chat.profile, "session_id": chat.sessionId]
+        if unsaved { entry["unsaved"] = "1" }
+        all[task] = entry
         UserDefaults.standard.set(all, forKey: key(account))
+    }
+
+    /// The gateway took the link: it is the task's own now (a later `chat: null` from the gateway is believed again).
+    static func saved(task: String, account: GatewayAccount) {
+        var all = UserDefaults.standard.dictionary(forKey: key(account)) ?? [:]
+        guard var entry = all[task] as? [String: String], entry["unsaved"] != nil else { return }
+        entry["unsaved"] = nil
+        all[task] = entry
+        UserDefaults.standard.set(all, forKey: key(account))
+    }
+
+    /// The link saved to the task on the gateway; on failure it stays this device's (`unsaved`) and is tried again.
+    static func save(_ chat: TodoChat, task: String, store: TasksStore, account: GatewayAccount) {
+        Task { @MainActor in
+            if await store.patch(task, ["chat": chat.json]) {
+                saved(task: task, account: account)
+            } else {
+                AppLog.note("tasks", "task chat link not saved yet")
+            }
+        }
     }
 
     /// The bot with the task's context: its helper, else the bot whose chat it came from or that added it, else Hermes.

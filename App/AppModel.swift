@@ -123,6 +123,8 @@ final class AppModel: AppServices {
     /// [notifications] A tapped alert's chat whose tabs weren't on screen within ~6 s (a slow first launch with nothing
     /// cached): it opens when they show (`openChatAwaitingTabs`), instead of being dropped.
     var chatAwaitingTabs: (stored: String, profile: String?, at: Date)?
+    /// [tasks] The same for a tapped task's alert.
+    var taskAwaitingTabs: (id: String, at: Date)?
     private var signingOut = false
     // [m2/pages] PagesServices (App/Pages/PagesServices.swift): the pages' stores let go before their caches are deleted.
     var onSignOutPages: (() -> Void)?
@@ -383,6 +385,7 @@ final class AppModel: AppServices {
         }
         intentsSignedOut()                            // [intents]
         chatAwaitingTabs = nil                        // [notifications] a tapped alert's chat never opens under the next account
+        taskAwaitingTabs = nil
         if signIn.store.accounts.isEmpty {
             offlineHub.signedOutOfLast()              // [offline] §3.5: nothing left to name
             PromptLibrary.shared.removeAll()          // ⋯ › Prompts: shared by every account, so kept until the last goes

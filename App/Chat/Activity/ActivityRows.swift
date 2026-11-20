@@ -53,45 +53,6 @@ nonisolated enum ActivityRowKind {
     case tasksAdded(TasksAddedRow)
     /// [task-lists] A bot's offer of a list or a batch of tasks, with its buttons (board 4).
     case tasksOffer(TasksOfferRow)
-    /// [goals step 3] A bot's goal, plan, check-in or tasks for a goal, with its buttons (boards 3 to 5).
-    case goalOffer(GoalOfferRow)
-}
-
-/// [goals step 3] What a reply's `goals_offer` offered, read from the store by its id (the tool's answer is the id
-/// alone). Its words are settled when the row is built; what became of it (accepted, undone) is the cell's to show, so
-/// the card is the same height in every state.
-nonisolated struct GoalOfferRow {
-    nonisolated struct Line: Hashable {
-        var title: String
-        /// "Nov 24", "Thu", or "" (milestones and tasks alike).
-        var due: String
-        /// The bot it is for (its face and name at the row's end); nil: you.
-        var bot: String?
-        var botName: String?
-        var head: JSONValue?
-        var milestone = false
-    }
-    var messageId: String
-    var offer: TodoOffer
-    /// "Hermes · Monday check-in" (the check-in only).
-    var kicker: String?
-    var kickerBot: String?
-    var kickerHead: JSONValue?
-    var title: String
-    /// "plan", "new goal", "add 2 tasks?".
-    var tag: String
-    var summary: String?
-    var milestonesHeader: String?
-    var milestones: [Line]
-    var milestonesMore: Int
-    var tasksHeader: String?
-    var tasks: [Line]
-    var tasksMore: Int
-    /// The quiet line under the buttons: "Keep the Goal, No Plan" (a button), or the lead's note (words).
-    var quiet: String?
-    var quietIsButton: Bool
-    var color: TodoListColor
-    var spoken: String
 }
 
 /// [task-lists] What a reply's `tasks_offer` offered. What became of it (accepted, undone) is the cell's to show:
@@ -470,75 +431,6 @@ nonisolated enum ActivityRows {
         }
     }
 
-    // MARK: A goal's offer ([goals step 3], boards 3 to 5)
-
-    /// Under a settled reply whose bot called `goals_offer`: one card per offer the app has read. One it hasn't read
-    /// yet asks the store for it, and the row comes once it has (`TodoOfferStates.changed` rebuilds the chat).
-    static func goalOfferRows(_ m: ChatMessage, calls: [ToolCall], input: ChatRowBuilder.Input) -> [ChatRow] {
-        guard !m.isStreaming else { return [] }
-        var seen: Set<String> = []
-        return calls.compactMap { call -> ChatRow? in
-            guard call.state == .done, case .goalOffer(let id, _)? = call.card, seen.insert(id).inserted else { return nil }
-            guard let offer = TodoOfferStates.live(id).offer else { TodoOfferStates.want(id); return nil }
-            guard !offer.held else { return nil }   // a helper's tasks wait for the lead's check-in, not for you
-            let row = goalOfferRow(m, offer: offer, input: input)
-            var h = Hasher()
-            h.combine(row.title); h.combine(row.kicker); h.combine(row.tag); h.combine(row.summary)
-            h.combine(row.milestones); h.combine(row.tasks); h.combine(row.quiet); h.combine(row.milestonesMore); h.combine(row.tasksMore)
-            h.combine(row.color); h.combine(offer.id)
-            return ChatRow(id: "\(m.id)|goal-offer|\(id)", messageId: m.id, scope: input.scope, fingerprint: h.finalize(),
-                           kind: .activity(.goalOffer(row)), gapAbove: 8, variant: 0)
-        }
-    }
-
-    /// The card's words, read once: names from the chat's roster (the reply's own bot by its name).
-    static func goalOfferRow(_ m: ChatMessage, offer: TodoOffer, input: ChatRowBuilder.Input) -> GoalOfferRow {
-        let goal = TodoOfferStates.goal(offer.goal)
-        func name(_ id: String?) -> String {
-            guard let id, !id.isEmpty else { return input.botName }
-            if let seat = input.bots.first(where: { $0.profile == id }) { return seat.name }
-            if id == "default" { return "Hermes" }
-            return id.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ").capitalized
-        }
-        func head(_ id: String?) -> JSONValue? { id.flatMap { id in input.bots.first { $0.profile == id }?.head } }
-        func day(_ due: String?) -> String { TodoDates.due(due).map { TodoWords.day($0.date, now: input.now) } ?? "" }
-        let milestones = offer.milestones.map { GoalOfferRow.Line(title: $0.title, due: day($0.due), milestone: true) }
-        let tasks = offer.tasks.map { task -> GoalOfferRow.Line in
-            let bot = task.botFor(offer)
-            return GoalOfferRow.Line(title: task.title, due: day(task.due), bot: bot, botName: bot.map { name($0) }, head: head(bot))
-        }
-        let shownMilestones = Array(milestones.prefix(GoalOffers.shown))
-        let shownTasks = Array(tasks.prefix(GoalOffers.shown))
-        var tasksHeader: String?
-        switch offer.kind {
-        case "checkin": tasksHeader = tasks.isEmpty ? nil : "This week"
-        case "tasks": tasksHeader = nil
-        default: tasksHeader = tasks.isEmpty ? nil : "This week · \(TodoLists.count(tasks.count))"
-        }
-        var quiet: String?
-        var quietIsButton = false
-        switch offer.kind {
-        case "goal" where !offer.milestones.isEmpty || !offer.tasks.isEmpty, "plan":
-            quiet = "Keep the Goal, No Plan"; quietIsButton = true
-        case "tasks":
-            quiet = GoalOffers.leadNote(offer, goal: goal, botName: { name($0) })
-        default: break
-        }
-        let title = offer.title.isEmpty ? (goal?.title ?? "A goal") : offer.title
-        let summary = offer.kind == "checkin" ? offer.summary : (offer.kind == "goal" ? offer.why : "")
-        return GoalOfferRow(
-            messageId: m.id, offer: offer,
-            kicker: offer.kind == "checkin" ? GoalOffers.checkinHead(offer, goal: goal, botName: { name($0) }) : nil,
-            kickerBot: offer.kind == "checkin" ? offer.bot : nil, kickerHead: offer.kind == "checkin" ? head(offer.bot) : nil,
-            title: title, tag: offer.kind == "checkin" ? "" : GoalOffers.tag(offer),
-            summary: summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : summary.trimmingCharacters(in: .whitespacesAndNewlines),
-            milestonesHeader: milestones.isEmpty ? nil : GoalOffers.milestoneCount(milestones.count),
-            milestones: shownMilestones, milestonesMore: milestones.count - shownMilestones.count,
-            tasksHeader: tasksHeader, tasks: shownTasks, tasksMore: tasks.count - shownTasks.count,
-            quiet: quiet, quietIsButton: quietIsButton, color: goal?.tint ?? .blue,
-            spoken: GoalOffers.spoken(offer, goal: goal, botName: { name($0) }))
-    }
-
     // MARK: Runs (tool bubbles join the bot bubbles around them)
 
     /// After the bubbles' own pass: tool bubbles join adjacent bot bubbles of the same run (square corners where they
@@ -741,38 +633,6 @@ nonisolated struct TasksAddedLayout: @unchecked Sendable {
     var helpFrame: CGRect?
 }
 
-/// [goals step 3] A goal's offer: a kicker (the check-in's "Hermes · Monday check-in"), the goal's mark, name and tag,
-/// the bot's summary, the milestones and the tasks (each with who), then the foot: a row of buttons, or one line of
-/// words with Undo, and the quiet line. The same frames in every state.
-nonisolated struct GoalOfferLayout: @unchecked Sendable {
-    nonisolated struct Line: @unchecked Sendable {
-        var frame: CGRect
-        var markFrame: CGRect
-        var titleFrame: CGRect
-        var trailFrame: CGRect
-        var line: GoalOfferRow.Line
-    }
-    nonisolated struct Header: @unchecked Sendable {
-        var frame: CGRect
-        var text: String
-    }
-    var cardFrame: CGRect
-    var kickerFrame: CGRect?
-    var markFrame: CGRect
-    var titleFrame: CGRect
-    var summaryFrame: CGRect?
-    var headers: [Header]
-    var lines: [Line]
-    /// "2 more ›" under a section (its frame and the words).
-    var mores: [Header]
-    var buttonsFrame: CGRect
-    var quietFrame: CGRect?
-    var font: UIFont
-    var detailFont: UIFont
-    var smallFont: UIFont
-    var row: GoalOfferRow
-}
-
 /// [task-lists] A bot's offer: the title, why, a row per task, "+4 more", then the foot (a filled button or one line
 /// of words, and a row of quiet buttons), the same in every state.
 nonisolated struct TasksOfferLayout: @unchecked Sendable {
@@ -807,7 +667,6 @@ nonisolated enum ActivityLayout: @unchecked Sendable {
     case diffPreview(DiffPreviewLayout)
     case tasksAdded(TasksAddedLayout)
     case tasksOffer(TasksOfferLayout)
-    case goalOffer(GoalOfferLayout)
 }
 
 nonisolated enum ActivityLayouts {
@@ -820,7 +679,6 @@ nonisolated enum ActivityLayouts {
         case .diffPreview(let d): return diffPreview(d, row: row, width: width, style: style)
         case .tasksAdded(let t): return tasksAdded(t, row: row, width: width, style: style)
         case .tasksOffer(let t): return tasksOffer(t, row: row, width: width, style: style)
-        case .goalOffer(let g): return goalOffer(g, row: row, width: width, style: style)
         }
     }
 
@@ -885,86 +743,6 @@ nonisolated enum ActivityLayouts {
             cardFrame: CGRect(x: left, y: top, width: columnW, height: y - top), badgeFrame: badgeFrame, titleFrame: titleFrame,
             title: t.title, whyFrame: whyFrame, lines: lines, moreFrame: moreFrame, more: t.more, mainFrame: mainFrame,
             footFrame: footFrame, font: font, detailFont: detailFont, offer: t.offer))))
-    }
-
-    // MARK: A goal's offer ([goals step 3])
-
-    private static func goalOffer(_ g: GoalOfferRow, row: ChatRow, width: CGFloat, style: ChatStyle) -> RowLayout {
-        let columnW = min(TextLayout.replyWidth(width), 380)
-        let font = HQFont.face(ofSize: (16 * style.chromeBody / 17).rounded())
-        let headFont = HQFont.face(ofSize: font.pointSize, weight: .semibold)
-        let detailFont = HQFont.face(ofSize: (14 * style.chromeBody / 17).rounded())
-        let smallFont = HQFont.face(ofSize: (12 * style.chromeBody / 17).rounded(), weight: .semibold)
-        let lineH = ceil(detailFont.lineHeight), smallH = ceil(smallFont.lineHeight)
-        let pad: CGFloat = 14
-        let left = ChatMetrics.sideInset
-        let top = max(0, row.gapAbove)
-        let innerW = columnW - 2 * pad
-        var y = top + 12
-        var kickerFrame: CGRect?
-        if g.kicker != nil {
-            kickerFrame = CGRect(x: left + pad, y: y, width: innerW, height: ceil(detailFont.lineHeight))
-            y += ceil(detailFont.lineHeight) + 4
-        }
-        let mark = ceil(headFont.pointSize * 1.05)
-        let titleW = max(40, innerW - mark - 7)
-        let titleText = g.tag.isEmpty ? g.title : g.title + "  " + g.tag
-        let titleH = height(titleText, font: headFont, width: titleW, lines: 2)
-        let markFrame = CGRect(x: left + pad, y: y + ((ceil(headFont.lineHeight) - mark) / 2).rounded(), width: mark, height: mark)
-        let titleFrame = CGRect(x: left + pad + mark + 7, y: y, width: titleW, height: titleH)
-        y += titleH
-        var summaryFrame: CGRect?
-        if let summary = g.summary {
-            let h = height(summary, font: detailFont, width: innerW, lines: 4)
-            summaryFrame = CGRect(x: left + pad, y: y + 4, width: innerW, height: h)
-            y += 4 + h
-        }
-        var headers: [GoalOfferLayout.Header] = []
-        var lines: [GoalOfferLayout.Line] = []
-        var mores: [GoalOfferLayout.Header] = []
-        let rowH = max(30, lineH + 12)
-        let box = ceil(detailFont.pointSize * 1.15)
-        let trailW = min(120, (innerW * 0.34).rounded())
-        func section(_ header: String?, _ items: [GoalOfferRow.Line], more: Int) {
-            guard !items.isEmpty else { return }
-            y += 8
-            if let header {
-                headers.append(.init(frame: CGRect(x: left + pad, y: y, width: innerW, height: smallH), text: header.uppercased()))
-                y += smallH + 2
-            }
-            for item in items {
-                let textX = left + pad + box + 10
-                let hasTrail = !item.due.isEmpty || item.bot != nil || !item.milestone
-                let textW = max(40, left + columnW - pad - textX - (hasTrail ? trailW + 8 : 0))
-                lines.append(.init(frame: CGRect(x: left, y: y, width: columnW, height: rowH),
-                                   markFrame: CGRect(x: left + pad, y: y + ((rowH - box) / 2).rounded(), width: box, height: box),
-                                   titleFrame: CGRect(x: textX, y: y + ((rowH - lineH) / 2).rounded(), width: textW, height: lineH),
-                                   trailFrame: CGRect(x: left + columnW - pad - trailW, y: y + ((rowH - lineH) / 2).rounded(), width: trailW, height: lineH),
-                                   line: item))
-                y += rowH
-            }
-            if more > 0 {
-                mores.append(.init(frame: CGRect(x: left + pad, y: y, width: innerW, height: max(28, lineH + 8)), text: "\(more) more ›"))
-                y += max(28, lineH + 8)
-            }
-        }
-        section(g.milestonesHeader, g.milestones, more: g.milestonesMore)
-        section(g.tasksHeader, g.tasks, more: g.tasksMore)
-        y += 12
-        let buttonsFrame = CGRect(x: left + pad, y: y, width: innerW, height: max(40, ceil(font.lineHeight) + 18))
-        y = buttonsFrame.maxY
-        var quietFrame: CGRect?
-        if let quiet = g.quiet {
-            let h = g.quietIsButton ? max(36, ceil(detailFont.lineHeight) + 16) : height(quiet, font: detailFont, width: innerW, lines: 3) + 14
-            quietFrame = CGRect(x: left + pad, y: y + 2, width: innerW, height: h)
-            y += 2 + h
-        } else {
-            y += 12
-        }
-        return RowLayout(height: ceil(y + 2), content: .activity(.goalOffer(GoalOfferLayout(
-            cardFrame: CGRect(x: left, y: top, width: columnW, height: y - top), kickerFrame: kickerFrame, markFrame: markFrame,
-            titleFrame: titleFrame, summaryFrame: summaryFrame, headers: headers, lines: lines, mores: mores,
-            buttonsFrame: buttonsFrame, quietFrame: quietFrame, font: font, detailFont: detailFont, smallFont: smallFont, row: g))))
     }
 
     // MARK: Added to Tasks ([tasks])

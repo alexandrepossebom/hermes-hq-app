@@ -40,23 +40,6 @@ final class GoalPageModel {
     @ObservationIgnored var rowFrames: [String: CGRect] = [:]
     @ObservationIgnored private var lastSeen: Goal?
 
-    // [goals step 3] A goal with a lead: its own chat under the page (GoalChatPage), or beside it on the Mac.
-    @ObservationIgnored var embedded = false
-    @ObservationIgnored weak var chat: ChatViewController?
-    /// The Mac's pane chat, kept by the page (`chat` is weak).
-    @ObservationIgnored var keptChat: ChatViewController?
-    var split = false
-    /// The goal rolled up to its bar (you took up the chat).
-    var tucked = false { didSet { if tucked != oldValue { syncComposer(); onTuckChange?() } } }
-    @ObservationIgnored var onTuckChange: (() -> Void)?
-    /// Keep Going on this device (an add-on before 0.9.66).
-    var keptHere = GoalKeptHere.all
-    /// Goal offers being answered here.
-    var answering: Set<String> = []
-    var pageLoading = false
-    @ObservationIgnored private weak var pageSheet: HTMLPageSheet?
-    @ObservationIgnored private var pageRev = 0
-
     #if DEBUG
     static weak var debugLast: GoalPageModel?
     #endif
@@ -323,23 +306,8 @@ final class GoalPageModel {
     // MARK: Sheets
 
     func updateNumber() {
-        guard let controller, let goal, let measure = goal.measure, !readOnly else { return }
+        guard let controller, let goal, goal.measure != nil, !readOnly else { return }
         PagesHaptics.selection()
-        // [goals step 3] A number a bot reads: setting it by hand makes the number yours, after asking.
-        if let bot = measure.source.bot, store.goalBotsSupported {
-            let alert = UIAlertController(title: "Set It Yourself?",
-                                          message: "\(botName(bot)) reads this number\(measure.source.what.isEmpty ? "" : " from \(measure.source.what)"). If you set it, the number is yours from now on and \(botName(bot)) stops reading it.",
-                                          preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-            alert.addAction(UIAlertAction(title: "Set It Myself", style: .default) { [weak self] _ in
-                guard let self, let controller = self.controller, let goal = self.goal else { return }
-                controller.present(GoalUpdateSheet.make(goal: goal) { [weak self] value in
-                    self?.patch(["measure": .object(["source": .string("you")]), "measure_now": .number(value)])
-                }, animated: true)
-            })
-            controller.present(alert, animated: true)
-            return
-        }
         controller.present(GoalUpdateSheet.make(goal: goal) { [weak self] value in
             self?.patch(["measure_now": .number(value)])
         }, animated: true)
@@ -371,223 +339,6 @@ final class GoalPageModel {
         GoalMenu.edit(goalID: goalID, store: store, from: controller)
     }
 
-    // MARK: [goals step 3] Bots on the goal
-
-    /// Bot names and faces by id, for the cards.
-    var botNames: [String: String] { Dictionary(context.bots.map { ($0.id, botName($0.id)) }, uniquingKeysWith: { a, _ in a }) }
-    var botHeads: [String: JSONValue] {
-        Dictionary(context.bots.compactMap { bot in bot.head.map { (bot.id, $0) } }, uniquingKeysWith: { a, _ in a })
-    }
-
-    /// The goal's lead, while the add-on says goals have bots and the bot is one of yours.
-    var lead: String? {
-        guard store.goalBotsSupported, let lead = goal?.lead else { return nil }
-        return lead
-    }
-
-    /// The goal's offers: what waits for it, and what you accepted (its card keeps Undo).
-    var offers: [TodoOffer] { store.goalBotsSupported ? GoalOffers.onGoal(store.offers, goal: goalID) : [] }
-
-    func offerCard(_ offer: TodoOffer) -> GoalOfferCardModel {
-        let live = TodoOfferStates.live(offer.id)
-        let shown = store.offers.first { $0.id == offer.id } ?? live.offer ?? offer
-        return GoalOfferCardModel(offer: shown, goal: goal,
-                                  kicker: shown.kind == "checkin" ? GoalOffers.checkinHead(shown, goal: goal, botName: botName) : nil,
-                                  botName: botName(shown.bot), head: head(shown.bot), busy: answering.contains(offer.id),
-                                  foot: GoalOffers.foot(shown, past: false), lead: goal?.lead, names: botNames, heads: botHeads)
-    }
-
-    func answerOffer(_ offer: TodoOffer, _ button: GoalOfferButton) {
-        guard let action = button.action else { changeOffer(); return }
-        answerOffer(offer.id, action, plan: button.plan, inGoal: button.inGoal)
-    }
-
-    func answerOffer(_ id: String, _ action: TodoOfferAction, plan: Bool = true, inGoal: Bool = true) {
-        guard !answering.contains(id) else { return }
-        PagesHaptics.selection()
-        answering.insert(id)
-        Task {
-            let ok = await store.answerOffer(id, action, plan: plan, inGoal: inGoal)
-            answering.remove(id)
-            if ok { PagesHaptics.success() } else { PagesHaptics.error() }
-        }
-    }
-
-    /// Change It / Change: the goal's chat takes the cursor.
-    func changeOffer() {
-        PagesHaptics.selection()
-        if let chat, embedded || split {
-            if embedded { tuck(.chat) }
-            chat.focusComposer()
-        }
-    }
-
-    func showWholeOffer(_ offer: TodoOffer) {
-        guard let top else { return }
-        PagesHaptics.selection()
-        top.present(GoalOfferAllSheet.make(offer, goal: goal, botName: botName), animated: true)
-    }
-
-    /// The lead's "this looks done": Mark Done (or Mark Achieved) / Not Yet.
-    func answerLooksDone(_ done: Bool) {
-        if done { PagesHaptics.success() } else { PagesHaptics.selection() }
-        Task { if await !store.answerLooksDone(goalID, done: done) { PagesHaptics.error() } }
-        if done { HQAnnounce.say("Done") }
-    }
-
-    // MARK: [goals step 4] The stall question
-
-    func stall(_ goal: Goal) -> GoalStall? {
-        GoalViews.stalled(goal, tasks: tasks, now: Date(), keptHere: keptHere[goalID])
-    }
-
-    /// Smaller Step: with a lead, the bot is asked for one in the goal's chat; else New Task under the goal.
-    func smallerStep(_ stall: GoalStall) {
-        guard let goal else { return }
-        PagesHaptics.selection()
-        if lead != nil, let chat, embedded || split {
-            if embedded { tuck(.send) }
-            sendHidden(GoalBots.smallerStepRequest(goal, stall: stall), display: "A smaller first step, please", in: chat)
-            return
-        }
-        // No bot: the goal's own "Add a task" opens where the next task stands (its milestone, or none).
-        let spot: GoalAddSpot = stall.task?.milestone.flatMap { id in goal.milestone(id).map { _ in .milestone(id) } } ?? .loose
-        if case .milestone(let id) = spot { opened[id] = true }
-        HQMotion.withAnimation(.snappy) { adding = spot }
-    }
-
-    /// Keep Going: `keep: true` on 0.9.66; on this device only before it.
-    func keepGoing() {
-        PagesHaptics.selection()
-        GoalKeptHere.remember(goalID)
-        HQMotion.withAnimation(.snappy) { keptHere = GoalKeptHere.all }
-        guard store.goalBotsSupported else { return }
-        Task { if await !store.keepGoing(goalID) { PagesHaptics.error() } }
-    }
-
-    // MARK: [goals step 5] The Goal Page
-
-    var offersGoalPage: Bool { store.goalPagesSupported && !TodoIDs.isLocal(goalID) }
-
-    /// ⋯ › Goal Page and the stands card's Page ›: the add-on's page in the page sheet, drawn again when the goal moves.
-    /// Its Ask for an Update asks the lead in the goal's chat (a hidden turn).
-    func openGoalPage() {
-        guard let goal, !pageLoading, offersGoalPage else { return }
-        Haptics.play(.selection)
-        pageLoading = true
-        let id = goal.id, api = store.api
-        let names = botNames
-        let read: @MainActor () async throws -> URL = { [weak self] in
-            let data = try await api.goalPage(id, names: names)
-            return try TodoSheetModel.pageFile(id: id, title: self?.goal?.title ?? "", data: data)
-        }
-        Task { [weak self] in
-            defer { self?.pageLoading = false }
-            do {
-                let url = try await read()
-                guard let self, let top = self.top, top.view.window != nil else { return }
-                let profile = self.goal?.lead ?? "default"
-                let chat = self.lead != nil ? self.chat : nil
-                let send: ((String) -> Void)? = chat.map { chat in { [weak self, weak chat] prompt in
-                    guard let chat else { return }
-                    self?.sendHidden(prompt, display: nil, in: chat)
-                } }
-                let context = chat?.mediaContext ?? MediaContext(accountId: self.context.account.id, profile: profile)
-                let source = HTMLPageSheet.Source(path: "goal-page:" + id, context: context, send: send,
-                                                  botName: self.botName(profile), read: read)
-                self.pageRev = self.goal?.rev ?? 0
-                self.pageSheet = HTMLPageSheet.present(url, source: source, title: "Goal Page", from: top)
-                AppLog.note("goals", "goal page opened (talk-back \(send == nil ? "off" : "on"))")
-            } catch {
-                guard let self else { return }
-                PagesHaptics.error()
-                self.show("Couldn’t open the Goal Page. \(PagesREST.reason(error))")
-                AppLog.note("goals", "goal page not read: \(PagesREST.reason(error))")
-            }
-        }
-    }
-
-    /// The goal moved while its page is open: the page is drawn again.
-    func goalChanged(_ rev: Int) {
-        guard let page = pageSheet, page.view.window != nil, rev != pageRev else { return }
-        pageRev = rev
-        page.readAgain(note: nil)
-    }
-
-    /// Ask for an Update from ⋯ (the Goal Page has its own): a hidden turn in the goal's chat.
-    func askForUpdate() {
-        guard let goal, let chat, lead != nil else { return }
-        PagesHaptics.selection()
-        sendHidden(GoalBots.updateRequest(goal), display: nil, in: chat)
-        show("Asked \(botName(goal.lead)) for an update.")
-    }
-
-    /// A turn the bot reads and you don't see as a bubble (or see as `display`).
-    func sendHidden(_ prompt: String, display: String?, in chat: ChatViewController) {
-        if let display {
-            // The stored turn holds the whole ask: the re-read at the reply's end keeps the bubble's words (as a titled
-            // request's, SentTitles). A Plan With ask also carries them, so they come back after a relaunch
-            // (`GoalBots.planBubble`).
-            LiveChatSession.sentTitles.note(text: prompt, title: display)
-            chat.sendFromCard(prompt, display: display)
-        } else if let provider = chat.session as? ChatActivityProviding {
-            provider.sendHidden(prompt, display: nil)
-        }
-    }
-
-    // MARK: [goals step 3] The goal's chat under the page (as a task's, TaskPage)
-
-    enum TuckReason { case drag, focus, send, find, chat }
-    @ObservationIgnored private(set) var tuckReason: TuckReason?
-
-    func syncComposer(animated: Bool = true) {
-        guard embedded, let composer = chat?.composer else { return }
-        let hidden = !tucked
-        composer.isUserInteractionEnabled = !hidden
-        composer.accessibilityElementsHidden = hidden
-        guard (composer.alpha < 0.5) != hidden else { return }
-        UIView.animate(withDuration: animated && !HQMotion.reduced ? 0.2 : 0) {   // motion-ok: a fade, none under Reduce Motion
-            composer.alpha = hidden ? 0 : 1
-        }
-    }
-
-    func tuck(_ reason: TuckReason) {
-        guard embedded else { return }
-        if tucked {
-            if reason == .send || reason == .drag { tuckReason = reason }
-            return
-        }
-        tuckReason = reason
-        HQMotion.withAnimation(.snappy) { tucked = true }
-    }
-
-    func untuck() {
-        guard tucked else { return }
-        tuckReason = nil
-        if let field = chat?.composer.textView, field.isFirstResponder { field.resignFirstResponder() }
-        PagesHaptics.selection()
-        HQMotion.withAnimation(.snappy) { tucked = false }
-    }
-
-    /// What waits in the chat's box, for the page's one line.
-    var draft: String? {
-        let words = chat?.composer.textView.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return words.isEmpty ? nil : words.split(whereSeparator: \.isNewline).joined(separator: " ")
-    }
-
-    /// The page's one-line message box, tapped: the chat takes the screen with its own box and the keys up.
-    func writeMessage() {
-        PagesHaptics.selection()
-        if split { chat?.focusComposer(); return }
-        chat?.focusComposer()   // the field taking the keys rolls the goal up to its bar (`GoalLeadHost.fieldBegan`)
-    }
-
-    var top: UIViewController? {
-        var shown = controller
-        while let next = shown?.presentedViewController, !next.isBeingDismissed { shown = next }
-        return shown
-    }
-
     #if DEBUG
     /// `-HQPagesGoalSheet update|edit|number`.
     func debugOpen(_ sheet: String) {
@@ -595,10 +346,6 @@ final class GoalPageModel {
         case "update": updateNumber()
         case "edit": editGoal()
         case "number": editNumber()
-        case "page": openGoalPage()
-        case "chat": tuck(.chat)
-        case "ask": askForUpdate()
-        case "team": editGoal()
         default: break
         }
     }
@@ -624,28 +371,12 @@ final class GoalPageModel {
 }
 
 enum GoalPage {
-    /// The goal's page as a sheet. [goals step 3] A goal with a lead is its own chat with the goal laid over it
-    /// (`GoalChatPage`); `chat`: opened at the chat (Change, a check-in's push), the goal as its bar.
-    static func make(goalID: String, store: TasksStore, context: MorePages.Context, chat: Bool = false) -> UINavigationController {
+    static func make(goalID: String, store: TasksStore, context: MorePages.Context) -> UINavigationController {
         let model = GoalPageModel(goalID: goalID, store: store, context: context)
-        let root: UIViewController = GoalChatPage.make(model: model) ?? GoalPageHost(model: model)
-        let nav = ChatSheet.wrap(root, title: "Goal", detents: [.large()])
+        let host = GoalPageHost(model: model)
+        let nav = ChatSheet.wrap(host, title: "Goal", detents: [.large()])
         nav.sheetPresentationController?.selectedDetentIdentifier = .large
-        if chat, model.embedded { model.tuck(.chat) }
         return nav
-    }
-
-    /// [goals step 5] The Mac's two panes: the goal's page in the centre, and with a lead its chat for the right pane
-    /// (`MacInspector`'s follow, as a task's).
-    static func page(goalID: String, store: TasksStore, context: MorePages.Context, beside: Bool) -> UIViewController {
-        let model = GoalPageModel(goalID: goalID, store: store, context: context)
-        if beside, GoalChatPage.makeBeside(model: model) != nil { return GoalPageHost(model: model) }
-        return GoalChatPage.make(model: model) ?? GoalPageHost(model: model)
-    }
-
-    static func model(of page: UIViewController?) -> GoalPageModel? {
-        if let host = page as? GoalPageHost { return host.model }
-        return ((page as? ChatViewController)?.topAccessory as? GoalLeadHost)?.model
     }
 }
 
@@ -673,26 +404,13 @@ final class GoalPageHost: UIHostingController<HQScaledRoot<GoalPlainView>> {
             UIDeferredMenuElement.uncached { [weak self] completion in
                 MainActor.assumeIsolated {
                     guard let self, !self.model.gone, !self.model.readOnly else { completion([]); return }
-                    completion(GoalMenu.leadItems(model: self.model) + GoalMenu.items(goalID: self.model.goalID, store: self.model.store, from: self, source: nil))
+                    completion(GoalMenu.items(goalID: self.model.goalID, store: self.model.store, from: self, source: nil))
                 }
             },
         ]))
         more.accessibilityLabel = "More"
         more.accessibilityIdentifier = "goal.more"
         navigationItem.rightBarButtonItem = more
-        #if targetEnvironment(macCatalyst)
-        // [goals step 5] A goal with a lead: its chat is the pane beside the goal; ◨ closes it and brings it back.
-        if model.split {
-            let pane = UIBarButtonItem(image: UIImage(systemName: "sidebar.trailing"), primaryAction: UIAction { [weak self] _ in
-                guard let self else { return }
-                PagesHaptics.selection()
-                MacInspector.beside(self)?.toggle()
-            })
-            pane.accessibilityLabel = "Conversation"
-            pane.accessibilityIdentifier = "goal.pane"
-            navigationItem.rightBarButtonItems = [pane, more]
-        }
-        #endif
     }
 
     @MainActor required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -751,20 +469,6 @@ enum GoalMenu {
                 confirmDelete(goalID: goalID, store: store, from: presenter, source: source)
             },
         ]
-    }
-
-    /// [goals step 3/5] With a lead (and the add-on's pages): Goal Page and Ask for an Update, first in ⋯.
-    static func leadItems(model: GoalPageModel) -> [UIMenuElement] {
-        var rows: [UIMenuElement] = []
-        if model.offersGoalPage {
-            rows.append(UIAction(title: "Goal Page", image: UIImage(systemName: "doc.richtext")) { [weak model] _ in model?.openGoalPage() })
-        }
-        if model.lead != nil, model.chat != nil {
-            rows.append(UIAction(title: "Ask for an Update", image: UIImage(systemName: "arrow.clockwise.circle")) { [weak model] _ in
-                model?.askForUpdate()
-            })
-        }
-        return rows.isEmpty ? [] : [UIMenu(options: .displayInline, children: rows)]
     }
 
     /// A status change, with its own cue: success for Mark Achieved, a tap for the rest.

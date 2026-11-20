@@ -305,10 +305,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private var unseen = 0
     private var glideLink: CADisplayLink?
     private var a11yToken: NSObjectProtocol?   // [a11y]
-    /// [goals step 3] A goal's card came in (its offer read after the reply named it): the rows are built again.
-    private var goalOffersWatch: NSObjectProtocol?
-    /// [goals step 3] This chat is that goal's own chat (Change It puts the cursor here).
-    var goalChatID: String?
     private var introWatch: NSObjectProtocol?   // [settings] Intro Splash
     private var glideStart: (clock: GlideClock, offset: CGFloat) = (GlideClock(), 0)
     private var lastMomentum: CFTimeInterval = 0
@@ -417,7 +413,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if let backdropWatch { NotificationCenter.default.removeObserver(backdropWatch) }   // [backdrop]
         if let muteWatch { BotMuteCenter.shared.stopObserving(muteWatch) }   // UX study #248
         if let a11yToken { NotificationCenter.default.removeObserver(a11yToken) }   // [a11y]
-        if let goalOffersWatch { NotificationCenter.default.removeObserver(goalOffersWatch) }   // [goals step 3]
         if let introWatch { NotificationCenter.default.removeObserver(introWatch) }   // [settings]
         filesWatch.forEach { NotificationCenter.default.removeObserver($0) }   // [settings]
         if attached {
@@ -1013,13 +1008,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [settings] Intro Splash switched while this chat is open: the empty chat follows at once.
         introWatch = NotificationCenter.default.addObserver(forName: IntroSplash.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updatePlaceholder(animated: false) }
-        }
-        // [goals step 3] A goal's card is drawn from the offer the store has read; one named before then comes in now.
-        goalOffersWatch = NotificationCenter.default.addObserver(forName: TodoOfferStates.changed, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.namesGoalOffer else { return }
-                self.activityRebuildAll()
-            }
         }
         // [a11y] Bold Text flipped while the chat is open: the drawn text is re-measured with the other weights.
         a11yToken = NotificationCenter.default.addObserver(forName: HQAccessibility.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -4453,13 +4441,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let rowsInput = input()
         for run in ChatRowModel.runs(of: indices) { model.rebuildMessages(rowsInput, run) }
         requestApply(urgent: true)
-    }
-
-    /// [goals step 3] A reply here called `goals_offer` (its card waits on the store's read).
-    var namesGoalOffer: Bool {
-        session.messages.contains { m in
-            m.role == .assistant && m.parts.contains { if case .tool(let call) = $0, call.name == "goals_offer" { return true } else { return false } }
-        }
     }
 
     /// Rebuilds every row, holding the first visible row in place (a Tool Calls setting, display flags).

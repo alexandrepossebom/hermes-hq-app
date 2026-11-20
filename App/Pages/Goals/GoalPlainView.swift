@@ -13,12 +13,6 @@ struct GoalPlainView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title3) private var textRing: CGFloat = 24
     private var ringSize: CGFloat { HQFont.scaled(textRing) }
-    /// [goals step 2] A row's words and what stands at its end ("48 days left", Update, a milestone's date): side by side,
-    /// and at the accessibility sizes one under the other, so neither is cut ("By W…") or squeezed to a letter a line.
-    private var rowLine: AnyLayout {
-        typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
-                                     : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
-    }
     enum Field: Hashable { case title, why, task, milestone }
 
     var body: some View {
@@ -63,17 +57,12 @@ struct GoalPlainView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     offer(goal)
-                    looksDone(goal)
-                    botOffers(goal)
                     titleRow(goal, tasks: tasks)
                     statusRow(goal)
                     numberRow(goal)
                     dateRow(goal)
-                    whoRow(goal)
                     whyRow(goal)
                     progress(goal, tasks: tasks)
-                    standsCard(goal)
-                    stallCard(goal)
                     quietWords(goal)
                     if model.gone {
                         TaskGridRow(last: true, topLine: true) { Image(systemName: "trash") } text: {
@@ -88,145 +77,6 @@ struct GoalPlainView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await model.store.refresh(force: true) }
-            .onChange(of: goal.rev) { _, rev in model.goalChanged(rev) }   // [goals step 5] an open Goal Page follows
-        }
-    }
-
-    // MARK: [goals step 3] Bots on the goal
-
-    /// The goal's offer cards: a plan, a check-in, tasks (what waits, and what you accepted with its Undo).
-    @ViewBuilder private func botOffers(_ goal: Goal) -> some View {
-        let offers = model.gone ? [] : model.offers
-        if !offers.isEmpty {
-            VStack(spacing: 8) {
-                ForEach(offers, id: \.id) { offer in
-                    GoalOfferCard(model: model.offerCard(offer), enabled: !model.readOnly,
-                                  tap: { model.answerOffer(offer, $0) },
-                                  undo: { model.answerOffer(offer.id, .undo) },
-                                  more: { model.showWholeOffer(offer) })
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .transition(.opacity)
-        }
-    }
-
-    /// The lead thinks a milestone (or the goal) is done: Mark Done / Not Yet. It never ticks it itself.
-    @ViewBuilder private func looksDone(_ goal: Goal) -> some View {
-        if !model.gone, model.store.goalBotsSupported, let offer = GoalBots.looksDone(goal) {
-            TaskCloseOfferCard(line: GoalBots.looksDoneText(offer, goal: goal, botName: model.botName), enabled: !model.readOnly,
-                               yes: GoalBots.looksDoneYes(offer), no: "Not Yet", identifier: "goal.looks-done",
-                               done: { model.answerLooksDone(true) }, keep: { model.answerLooksDone(false) })
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-                .transition(.opacity)
-        }
-    }
-
-    /// "Led by Hermes" with the faces of the lead and helpers; the check-in's slot at its end. A tap edits the goal.
-    @ViewBuilder private func whoRow(_ goal: Goal) -> some View {
-        if model.store.goalBotsSupported, let line = GoalBots.whoLine(goal, botName: model.botName) {
-            Button { model.editGoal() } label: {
-                TaskGridRow {
-                    Image(systemName: "person").foregroundStyle(Color.hqLabel2)
-                } text: {
-                    rowLine {
-                        HStack(spacing: 6) {
-                            if let lead = goal.lead {
-                                HeadImage(raw: model.head(lead), profile: lead, size: 20).frame(width: 20, height: 20).accessibilityHidden(true)
-                            }
-                            Text(line).foregroundStyle(Color.hqLabel).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                            ForEach(goal.lead == nil ? Array(goal.helpers.dropFirst()) : goal.helpers, id: \.self) { helper in
-                                HeadImage(raw: model.head(helper), profile: helper, size: 20).frame(width: 20, height: 20).accessibilityHidden(true)
-                            }
-                        }
-                        if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
-                        if goal.lead != nil, goal.review != nil {
-                            Text(GoalBots.reviewWords(goal.review)).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2).lineLimit(1)
-                        }
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(model.gone || model.readOnly)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel((GoalBots.whoSpoken(goal, botName: model.botName) ?? line)
-                                + (goal.lead != nil && goal.review != nil ? ", check-in \(GoalBots.reviewWords(goal.review))" : ""))
-            .accessibilityHint("Edits the goal")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("goal.who")
-        }
-    }
-
-    /// Where it stands, in the lead's own words: its face and name, since when, Page ›, the words, then Next.
-    @ViewBuilder private func standsCard(_ goal: Goal) -> some View {
-        if model.store.goalBotsSupported, let stands = goal.stands, !stands.text.isEmpty {
-            let by = stands.by ?? goal.lead
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    if let by {
-                        HeadImage(raw: model.head(by), profile: by, size: 16).frame(width: 16, height: 16).accessibilityHidden(true)
-                    }
-                    (Text(model.botName(by)).fontWeight(.semibold).foregroundStyle(Color.hqLabel)
-                     + Text(GoalBots.standsWhen(stands, now: Date()).map { " · \($0)" } ?? "").foregroundStyle(Color.hqLabel2))
-                        .font(Font.hq(.footnote))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    if model.offersGoalPage {
-                        Button { model.openGoalPage() } label: {
-                            HStack(spacing: 4) {
-                                if model.pageLoading { ProgressView().controlSize(.mini) }
-                                Text("Page ›")
-                            }
-                        }
-                        .font(Font.hq(.footnote).weight(.semibold))
-                        .foregroundStyle(Color.hqTintText)
-                        .buttonStyle(.plain)
-                        .frame(minHeight: 30)
-                        .contentShape(Rectangle().inset(by: -8))
-                        .accessibilityLabel("Goal Page")
-                        .accessibilityHint("Opens the goal's whole page")
-                        .accessibilityIdentifier("goal.stands.page")
-                    }
-                }
-                Text(stands.text)
-                    .font(Font.hq(.subheadline))
-                    .foregroundStyle(Color.hqLabel)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("goal.stands.text")
-                if !stands.next.isEmpty {
-                    (Text("Next: ").fontWeight(.semibold) + Text(stands.next))
-                        .font(Font.hq(.footnote))
-                        .foregroundStyle(Color.hqLabel)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(TaskCardBackground())
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("goal.stands")
-        }
-    }
-
-    /// [goals step 4] Nothing has moved in two weeks: one honest question. Smaller Step / Pause / Let It Go, and the
-    /// quiet Keep Going.
-    @ViewBuilder private func stallCard(_ goal: Goal) -> some View {
-        if !model.gone, !model.readOnly, let stall = model.stall(goal) {
-            GoalStallCard(stall: stall, question: GoalViews.stallQuestion(stall, now: Date()), enabled: !model.readOnly,
-                          smaller: { model.smallerStep(stall) }, pause: { model.setStatus(.paused) },
-                          letGo: { model.setStatus(.letGo) }, keep: { model.keepGoing() })
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .padding(.bottom, 4)
-                .transition(.opacity)
         }
     }
 
@@ -289,10 +139,10 @@ struct GoalPlainView: View {
             TaskGridRow {
                 Image(systemName: symbol).foregroundStyle(goal.state == .achieved ? Color(uiColor: TodoInk.ready) : Color.hqLabel2)
             } text: {
-                rowLine {
-                    Text(line).foregroundStyle(Color.hqLabel2).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                HStack(spacing: 8) {
+                    Text(line).foregroundStyle(Color.hqLabel2).lineLimit(1)
                         .accessibilityIdentifier("goal.status")
-                    if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                    Spacer(minLength: 8)
                     if goal.state == .paused, !model.gone {
                         Button("Resume") { model.setStatus(.active) }
                             .font(Font.hq(.footnote).weight(.medium))
@@ -315,14 +165,13 @@ struct GoalPlainView: View {
             TaskGridRow {
                 Image(systemName: "flag").foregroundStyle(Color.hqLabel2)
             } text: {
-                rowLine {
+                HStack(spacing: 8) {
                     Menu {
                         Button("Update…", systemImage: "arrow.up.circle") { model.updateNumber() }
                         Button("Edit Number…", systemImage: "slider.horizontal.3") { model.editNumber() }
                         Button("Remove Number", systemImage: "minus.circle", role: .destructive) { model.removeNumber() }
                     } label: {
-                        Text(words).foregroundStyle(Color.hqLabel).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                            .fixedSize(horizontal: false, vertical: typeSize.isAccessibilitySize)
+                        Text(words).foregroundStyle(Color.hqLabel).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                     }
@@ -330,20 +179,7 @@ struct GoalPlainView: View {
                     .disabled(model.gone || model.readOnly)
                     .accessibilityLabel("Number: \(words). Change")
                     .accessibilityIdentifier("goal.number")
-                    if model.store.goalBotsSupported, let source = GoalBots.sourceWords(measure, now: Date(), botName: model.botName) {
-                        // [goals step 3] A bot reads it: where from and when, in place of Update (a tap still sets it).
-                        Button(source) { model.updateNumber() }
-                            .font(Font.hq(.footnote))
-                            .foregroundStyle(Color.hqLabel2)
-                            .lineLimit(1)
-                            .buttonStyle(.plain)
-                            .frame(minHeight: 32)
-                            .contentShape(Rectangle().inset(by: -8))
-                            .disabled(model.gone || model.readOnly)
-                            .accessibilityLabel("Read by \(model.botName(measure.source.bot)): \(source)")
-                            .accessibilityHint("Sets the number yourself")
-                            .accessibilityIdentifier("goal.number.source")
-                    } else if goal.state == .active || goal.state == .paused {   // a finished goal's number is history
+                    if goal.state == .active || goal.state == .paused {   // a finished goal's number is history
                         Button("Update") { model.updateNumber() }
                             .font(Font.hq(.footnote))
                             .foregroundStyle(Color.hqLabel2)
@@ -371,16 +207,13 @@ struct GoalPlainView: View {
                 TaskGridRow {
                     Image(systemName: "calendar").foregroundStyle(late ? Color.hqRed : Color.hqLabel2)
                 } text: {
-                    rowLine {
-                        Text(words).foregroundStyle(Color.hqLabel).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                            .fixedSize(horizontal: false, vertical: typeSize.isAccessibilitySize)
-                        if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                    HStack(spacing: 8) {
+                        Text(words).foregroundStyle(Color.hqLabel).lineLimit(1)
+                        Spacer(minLength: 8)
                         if let left {
-                            Text(left).font(Font.hq(.footnote)).foregroundStyle(late ? Color.hqRed : Color.hqLabel2)
-                                .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                            Text(left).font(Font.hq(.footnote)).foregroundStyle(late ? Color.hqRed : Color.hqLabel2).lineLimit(1)
                         }
                     }
-                    .padding(.vertical, typeSize.isAccessibilitySize ? 6 : 0)
                 }
             }
             .buttonStyle(.plain)
@@ -578,8 +411,7 @@ struct GoalPlainView: View {
             .accessibilityLabel(milestone.done ? "Mark \(milestone.title) Not Done" : "Mark \(milestone.title) Done")
             .accessibilityIdentifier("goal.milestone.box.\(milestone.title)")
         } text: {
-            (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
-                                          : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(milestone.title)
                     .font(Font.hq(.callout).weight(milestone.done ? .regular : .semibold))
                     .foregroundStyle(milestone.done ? Color.hqLabel3 : Color.hqLabel)
@@ -588,9 +420,7 @@ struct GoalPlainView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !detail.isEmpty {
-                    Text(detail).font(Font.hq(.footnote)).monospacedDigit().foregroundStyle(Color.hqLabel2)
-                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                        .fixedSize(horizontal: !typeSize.isAccessibilitySize, vertical: true)
+                    Text(detail).font(Font.hq(.footnote)).monospacedDigit().foregroundStyle(Color.hqLabel2).lineLimit(1).fixedSize()
                 }
             }
             .padding(.vertical, 8)

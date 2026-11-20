@@ -319,6 +319,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
     private func open(_ url: URL) {
         #if DEBUG
         if IntentsDebugHooks.handle(url, model: model) { return }   // [intents] <scheme>://debug-intent/<word>
+        if AlertDebugHooks.handle(url) { return }                   // [notify] <scheme>://debug-alert/task|chat/<id>
         #endif
         // [live] <scheme>://job/<owner|id>: a job's Lock Screen progress opens its page in Jobs.
         // Signed out (no tabs): nothing to open, and it is not an unknown link, so no "isn't available" notice.

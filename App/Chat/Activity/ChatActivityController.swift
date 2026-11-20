@@ -1636,29 +1636,6 @@ extension ChatViewController: ActivityCellDelegate, ChatCellMenuExtending {
             done(ok)
         }
     }
-
-    /// [goals step 3] A tap on a goal's card: `POST /tasks/offers/{id}` with `plan` / `in_goal`.
-    func activityCellAnswerGoalOffer(id: String, action: TodoOfferAction, plan: Bool, inGoal: Bool, done: @escaping (Bool) -> Void) {
-        let client = (session as? LiveChatSession)?.client
-        Task {
-            let ok = await TasksHub.answerOffer(id, action, list: true, plan: plan, inGoal: inGoal, client: client)
-            AppLog.note("goals", "chat goal card \(action.rawValue) → \(ok ? "ok" : "failed")")
-            done(ok)
-        }
-    }
-
-    /// [goals step 3] Change It: in the goal's own chat the cursor goes to this composer; elsewhere the goal's chat opens.
-    func activityCellChangeGoalOffer(goal: String?) {
-        guard let goal, goalChatID != goal, TasksHub.openGoal(goal, chat: true) else { focusComposer(); return }
-    }
-
-    /// [goals step 3] "2 more ›": every milestone and task on the card, in a sheet.
-    func activityCellShowGoalOffer(id: String) {
-        guard let offer = TodoOfferStates.live(id).offer else { return }
-        let bots = MorePages.context?.bots ?? []
-        let sheet = GoalOfferAllSheet.make(offer, goal: TodoOfferStates.goal(offer.goal)) { PagesNames.botName($0 ?? "default", bots: bots) }
-        present(sheet, animated: true)
-    }
 }
 
 /// The reply menu's Show / Hide Steps for the menus stream (`1x-menus.md` §9): nil when the reply has none.

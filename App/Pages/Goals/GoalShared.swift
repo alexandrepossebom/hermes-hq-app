@@ -1,7 +1,7 @@
-// [goals] What every goal screen shares (docs/goals.md, the owner-approved boards): the ring (how far along, in the
-// goal's colour), the goal's mark (a target in its colour, where a list has its dot), the bar with its even-pace tick,
-// the pace's colour, the "Add to Goal" choices (a task's page, a task row's hold menu), and Not Yet remembered on this
-// device. The rules are HermesKit's `GoalViews`; this file only draws.
+// [goals] What every goal screen shares (docs/goals.md, boards 1 and 2 in hermes-hq-share/2026-11-18-goals): the ring
+// (how far along, in the goal's colour), the goal's mark (a target in its colour, where a list has its dot), the bar
+// with its even-pace tick, the pace's colour, the "Add to Goal" choices (a task's page, a task row's hold menu), and
+// Not Yet remembered on this device. The rules are HermesKit's `GoalViews`; this file only draws.
 
 import SwiftUI
 import UIKit
@@ -94,27 +94,6 @@ enum GoalNotYet {
     }
 }
 
-/// [goals step 4] The stall question's Keep Going, kept on this device (an add-on before 0.9.66 keeps no `kept_at`; on
-/// 0.9.66 the gateway's `kept_at` says the same for every device). By goal id, when it was tapped.
-enum GoalKeptHere {
-    private static let key = "HQGoalKeptHere"
-
-    static var all: [String: Date] {
-        (UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]).mapValues { Date(timeIntervalSince1970: $0) }
-    }
-
-    static func remember(_ goal: String, at now: Date = Date()) {
-        var stored = UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]
-        stored[goal] = now.timeIntervalSince1970
-        UserDefaults.standard.set(stored, forKey: key)
-    }
-
-    #if DEBUG
-    /// `-HQPagesForgetGoalKeeps` (PagesDebug): a test's device starts with no Keep Going.
-    static func forget() { UserDefaults.standard.removeObject(forKey: key) }
-    #endif
-}
-
 /// "Add to Goal": each active goal (then its milestones), No Goal, and Open Goal. One list of choices, drawn as a UIKit
 /// menu (a task row's hold menu) or a SwiftUI one (a task's page).
 @MainActor
@@ -191,63 +170,5 @@ struct GoalChoiceItems: View {
             Button("No Goal", systemImage: "minus.circle") { GoalChoices.set(task.id, goal: nil, milestone: nil, store: store) }
             Button("Open Goal", systemImage: "arrow.up.forward.square") { PagesHaptics.selection(); open(goal) }
         }
-    }
-}
-
-/// [goals step 3] Your bots' names and faces, for a goal card's faces and the words VoiceOver hears for them.
-struct GoalTeamLook: Hashable {
-    var names: [String: String] = [:]
-    var heads: [String: JSONValue] = [:]
-
-    @MainActor init(bots: [Bot]) {
-        names = Dictionary(bots.map { ($0.id, PagesNames.botName($0.id, bots: bots)) }, uniquingKeysWith: { a, _ in a })
-        heads = Dictionary(bots.compactMap { bot in bot.head.map { (bot.id, $0) } }, uniquingKeysWith: { a, _ in a })
-    }
-
-    init() {}
-
-    func name(_ profile: String?) -> String { profile.flatMap { names[$0] } ?? profile ?? "" }
-
-    func spoken(team: [String], led: Bool, waits: Bool) -> String {
-        GoalBots.cardSpoken(team: team, led: led, waits: waits, botName: name)
-    }
-}
-
-/// [goals step 3] The bots on a goal at its card's end: the lead first, then its helpers (three at most), each a little
-/// over the next; the lead's dot orange while an offer for the goal waits for you (`GoalBots.waitsForYou`). A face
-/// means the bot is on the goal; nothing else draws one. The card says it in words for VoiceOver.
-struct GoalTeamFaces: View {
-    var team: [String]
-    var look: GoalTeamLook
-    var waits: Bool
-    var size: CGFloat
-
-    var body: some View {
-        HStack(spacing: -size * 0.22) {
-            ForEach(Array(team.prefix(3).enumerated()), id: \.element) { index, bot in
-                HeadImage(raw: look.heads[bot], profile: bot, size: size)
-                    .frame(width: size, height: size)
-                    .background(Circle().fill(Color.hqGroupedCard).padding(-1.5))
-                    .overlay(alignment: .bottomTrailing) {
-                        if index == 0 && waits {
-                            Circle()
-                                .fill(Color.hqOrange)
-                                .frame(width: size * 0.4, height: size * 0.4)
-                                .background(Circle().fill(Color.hqGroupedCard).padding(-1.5))
-                                .offset(x: 2, y: 2)
-                                .accessibilityIdentifier("goal.card.waits")
-                        }
-                    }
-                    .zIndex(Double(3 - index))
-            }
-        }
-        .accessibilityHidden(true)
-    }
-}
-
-/// [goals steps 3 and 4] A goal card's VoiceOver label: its words, then the stall line and who is on it.
-enum GoalCardWords {
-    static func label(_ spoken: String, stall: String?, team: String) -> String {
-        [spoken, stall.map { $0 + "." } ?? "", team].filter { !$0.isEmpty }.joined(separator: " ")
     }
 }

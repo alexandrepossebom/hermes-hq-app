@@ -701,10 +701,9 @@ def seed_tasks():
          created=15 * 1440, steps=[step(1, 'Gather the recipes into one note', 'bot'), step(2, 'Pick two to try', 'me')])
     seed_ideas()
     if TASK_LISTS: seed_task_lists()
-    global GOALS_ON, GOAL_BOTS
+    global GOALS_ON
     GOALS.clear()
     GOALS_ON = TASK_GOALS
-    GOAL_BOTS = TASK_GOAL_BOTS   # [goals steps 3-5] a reset ends a test's goal-bots mode too
     if TASK_GOALS: seed_task_goals()
 
 def seed_task_goals():
@@ -713,8 +712,6 @@ def seed_task_goals():
     tasks; one paused; one achieved."""
     global GOAL_SEEDS
     GOALS.clear()
-    GOAL_PAGES.clear()
-    OFFERS[:] = [o for o in OFFERS if o.get('kind', 'list') == 'list']   # [goals steps 3-5] a goal's offers go with its goals
     # Each seeding's revs start above the last one's: the app keeps a task it holds at a higher rev than a read's (a
     # gateway's revs never go back), so a reset after a test ticked these tasks would otherwise keep them ticked.
     GOAL_SEEDS += 1
@@ -729,11 +726,11 @@ def seed_task_goals():
                 'done_at': ago_days(done_days) if done_days is not None else None}
     def goal(gid, title, why='', status='active', status_days=None, color='blue', due=None, created_days=30, measure=None,
              milestones=(), order=0):
-        GOALS[gid] = goal_bot_fields({'id': gid, 'rev': seed_rev, 'title': title, 'why': why, 'status': status,
+        GOALS[gid] = {'id': gid, 'rev': seed_rev, 'title': title, 'why': why, 'status': status,
                       'status_at': ago_days(status_days if status_days is not None else created_days), 'color': color, 'due': due,
                       'position': t0.timestamp() - 10_000 + order * 10, 'measure': measure,
                       'milestones': list(milestones), 'created_at': ago_days(created_days), 'updated_at': ago_days(1),
-                      'log': [{'at': ago_days(created_days), 'by': 'you', 'text': 'Added'}]})
+                      'log': [{'at': ago_days(created_days), 'by': 'you', 'text': 'Added'}]}
     def readings(values, days_back):
         return [{'at': ago_days(d), 'value': v} for v, d in zip(values, days_back)]
     def gtask(tid, title, goal_id, milestone_id=None, due=None, done_days=None, created=None, who='me', bot=None, status=None):
@@ -761,8 +758,7 @@ def seed_task_goals():
     gtask('t_g_demo', 'Record the 60 second demo', 'g_testers', 'ms_launch', due=day(3), created=3)
     # Milestones and no number: one of four done, on pace for a day 17 weeks away; two tasks under the open one, one loose.
     goal('g_10k', 'Run a 10K', why='I said I would. A friend is running it too.', color='orange', due=day(120), created_days=40, order=1,
-         # [goals step 4] the first milestone ticked 9 days ago, so the 10K hasn't stalled (the stall question waits 14)
-         milestones=[milestone('ms_2mi', 'Run 2 miles without stopping', day(-14), 9),
+         milestones=[milestone('ms_2mi', 'Run 2 miles without stopping', day(-14), 14),
                      milestone('ms_5k', 'Run a 5K', day(18)),
                      milestone('ms_5mi', 'Run 5 miles', day(60)),
                      milestone('ms_race', 'Race day', day(120))])
@@ -784,29 +780,10 @@ def seed_task_goals():
     goal('g_books', 'Read 12 books this year', status='achieved', status_days=3, color='teal', due=day(40), created_days=200, order=4,
          measure={'unit': 'books', 'start': 0, 'target': 12, 'now': 12, 'at': ago_days(3), 'source': 'you',
                   'history': readings([4, 8, 12], [120, 60, 3])})
-    # [goals] Step 2: with lists on too ({"lists": true, "goals": true}), a goal's task in a list (its row carries the
-    # goal's mark there and under Today's "Next in Home"), and an achieved goal's task in a list (its row shows the
-    # list's dot again, under Upcoming).
-    if any(s['id'] == 'sec_home' for s in TSTATE['sections']):
-        TASKS['t_g_signup']['section'] = 'sec_home'
-        TASKS['t_g_signup']['position'] = 0.5
-        gtask('t_g_library', 'Return the library books', 'g_books', due=day(2), created=7)
-        TASKS['t_g_library']['section'] = 'sec_home'
-        # A bot's own task in a goal (the paused one, whose ring follows its milestones): the mark under Bots. Seeded
-        # rather than set by a test, since a test's change raises the task's rev past what a reset seeds, and the app
-        # then keeps its changed copy into the next test (TasksStore.adopt keeps a task whose rev is newer).
-        gtask('t_g_podcasts', 'List three Spanish podcasts for beginners', 'g_spanish', created=5, who='bot', bot='research',
-              status='working')
-    if GOAL_BOTS: seed_goal_bots()   # [goals steps 3-5]
     TSTATE['rev'] += 1
 
 def goals_shown():
-    shown = [copy.deepcopy(g) for g in sorted(GOALS.values(), key=lambda g: (g['position'], g['id']))]
-    if not GOAL_BOTS:   # [goals steps 3-5] 0.9.65 knew none of a goal's bots
-        for g in shown:
-            for key in GOAL_BOT_KEYS: g.pop(key, None)
-            if g.get('measure'): g['measure'].pop('checked_at', None)
-    return shown
+    return [copy.deepcopy(g) for g in sorted(GOALS.values(), key=lambda g: (g['position'], g['id']))]
 
 def goal_milestones(raw, was):
     """A PATCH's or POST's milestone list: in order, 30 at most; a known id keeps its done_at (unless its tick changed),
@@ -825,7 +802,6 @@ def goal_milestones(raw, was):
     return out
 
 def goal_measure(raw, was):
-    if GOAL_BOTS: return clean_measure(raw, was, iso(local(now()))) if raw else None   # [goals steps 3-5] the add-on's own
     if raw is None: return None
     stamp = iso(local(now()))
     start = float(raw.get('start') or 0); target = float(raw.get('target') or 0)
@@ -836,24 +812,10 @@ def goal_measure(raw, was):
         measure['history'] = (measure['history'] + [{'at': stamp, 'value': measure['now']}])[-60:]
     return measure
 
-def goals_route(method, path, body, query=None):
-    try: return goals_route_inner(method, path, body or {}, query or {})
-    except GoalError as error: return error.code, {'detail': error.detail}
-
-def goals_route_inner(method, path, body, query):
+def goals_route(method, path, body):
     if NO_TASKS or TMODE['older_addon'] or not GOALS_ON: return 404, {'detail': 'Not Found'}
     rest = path[len(GOALS_ROUTE):].strip('/')
     stamp = iso(local(now()))
-    if GOAL_BOTS and rest.endswith('/page') and method == 'GET':   # [goals step 5] the Goal Page, drawn now
-        goal = GOALS.get(unquote(rest[:-len('/page')]))
-        if not goal: return 404, {'detail': 'No such goal.'}
-        try: names = json.loads((query.get('names') or ['{}'])[0] or '{}')
-        except ValueError: names = {}
-        names = {str(k)[:64]: str(v)[:60] for k, v in (names.items() if isinstance(names, dict) else []) if v}
-        return 200, ('text/html; charset=utf-8', goal_page_html(goal, names).encode())
-    if GOAL_BOTS and method == 'PATCH' and rest:
-        refused = goal_patch_refused(body)
-        if refused: return 422, {'detail': refused}
     if rest == '' and method == 'POST':
         title = (body.get('title') or '').strip()[:200]
         if not title: return 422, {'detail': 'title is required'}
@@ -864,22 +826,17 @@ def goals_route_inner(method, path, body, query):
                 'color': color, 'due': body.get('due') or None, 'position': now(), 'measure': None,
                 'milestones': goal_milestones(body.get('milestones'), []), 'created_at': stamp, 'updated_at': stamp,
                 'log': [{'at': stamp, 'by': 'you', 'text': 'Added'}]}
-        goal_bot_fields(goal)   # [goals steps 3-5] POST /goals takes none of them (GoalIn): set later with PATCH
-        if body.get('measure') and GOAL_BOTS:
-            goal['measure'] = clean_measure({k: v for k, v in body['measure'].items() if v is not None}, None, stamp)
-        elif body.get('measure'): goal['measure'] = goal_measure(dict(body['measure'], now=body['measure'].get('now', body['measure'].get('start'))), None)
+        if body.get('measure'): goal['measure'] = goal_measure(dict(body['measure'], now=body['measure'].get('now', body['measure'].get('start'))), None)
         GOALS[gid] = goal; TSTATE['rev'] += 1
         return 200, copy.deepcopy(goal)
     goal = GOALS.get(unquote(rest))
-    if not goal: return 404, {'detail': 'No such goal.'}
+    if not goal: return 404, {'detail': 'Goal not found'}
     if method == 'DELETE':
         GOALS.pop(goal['id'], None)
         for t in TASKS.values():
             if t.get('goal') == goal['id']: t['goal'] = None; t['milestone'] = None; t['rev'] += 1
         TSTATE['rev'] += 1
         return 200, {'ok': True}
-    if method == 'PATCH' and GOAL_BOTS:   # [goals steps 3-5] the add-on's update_goal, whole
-        return goal_patch(goal, body, stamp)
     if method == 'PATCH':
         if int(body.get('rev', -1)) != goal['rev']: return 409, {'detail': {'goal': copy.deepcopy(goal)}}
         for key in ('title', 'why', 'color', 'position', 'due'):
@@ -900,47 +857,6 @@ def goals_route_inner(method, path, body, query):
         return 200, copy.deepcopy(goal)
     return 405, {'detail': 'Method Not Allowed'}
 
-def goal_patch(goal, body, stamp):
-    """[goals steps 3-5] The add-on's Store.update_goal with its 0.9.66 part (goal_bots_patch); a stale rev is a 409
-    carrying the goal, and nothing is saved when a field is refused."""
-    if int(body['rev']) != goal['rev']: return 409, {'detail': {'goal': copy.deepcopy(goal)}}
-    updated, log = copy.deepcopy(goal), list(goal['log'])
-    if body.get('title') is not None:
-        title = gtext(body['title'], 200)
-        if not title: raise GoalError(400, 'A goal needs a name.')
-        updated['title'] = title
-    if body.get('why') is not None: updated['why'] = gtext(body['why'], 300)
-    if body.get('color') in LIST_COLORS: updated['color'] = body['color']
-    if 'due' in body: updated['due'] = body['due'] or None
-    if gnumber(body.get('position')) is not None: updated['position'] = float(body['position'])
-    if 'measure' in body:
-        given = {k: v for k, v in body['measure'].items() if v is not None} if isinstance(body['measure'], dict) else None
-        updated['measure'] = clean_measure(given, goal['measure'], stamp) if given is not None else None
-    if gnumber(body.get('measure_now')) is not None:
-        if not updated['measure']: raise GoalError(400, 'This goal has no number to update.')
-        updated['measure'] = clean_measure({'now': body['measure_now']}, updated['measure'], stamp)
-    if updated['measure'] and (updated['measure'] or {}).get('now') != (goal['measure'] or {}).get('now'):
-        unit = f" {updated['measure']['unit']}" if updated['measure']['unit'] else ''
-        log.append({'at': stamp, 'by': 'you', 'text': f"Now {updated['measure']['now']:g}{unit}"})
-    if body.get('milestones') is not None:
-        updated['milestones'] = goal_milestones(body['milestones'], goal['milestones'])
-        was_done = {m['id'] for m in goal['milestones'] if m['done']}
-        for m in updated['milestones']:
-            if m['done'] and m['id'] not in was_done: log.append({'at': stamp, 'by': 'you', 'text': f"Milestone done: {m['title']}"})
-    status = body.get('status')
-    if status and status != goal['status']:
-        updated['status'], updated['status_at'] = status, stamp
-        log.append({'at': stamp, 'by': 'you', 'text': GOAL_STATUS_LOG[status]})
-    goal_bots_patch(goal, updated, body, log, stamp)
-    if body.get('milestones') is not None:
-        kept = {m['id'] for m in updated['milestones']}
-        for t in TASKS.values():
-            if t.get('goal') == goal['id'] and t.get('milestone') and t['milestone'] not in kept: t['milestone'] = None; t['rev'] += 1
-    updated['log'] = log[-50:]
-    updated['rev'], updated['updated_at'] = goal['rev'] + 1, stamp
-    GOALS[goal['id']] = updated; TSTATE['rev'] += 1
-    return 200, copy.deepcopy(updated)
-
 def task_goal_fields(task, body):
     """[goals] A task's goal and milestone as the add-on keeps them: an unknown goal is a 400 (None), clearing the goal
     clears the milestone, and a milestone that isn't one of the goal's is cleared."""
@@ -953,609 +869,6 @@ def task_goal_fields(task, body):
     goal = GOALS.get(task.get('goal') or '')
     if not goal or task.get('milestone') not in {m['id'] for m in goal['milestones']}: task['milestone'] = None
     return True
-
-# ---- [goals steps 3-5] hermes-hq-push 0.9.66: bots on a goal ----------------------------------------------------
-# --task-goal-bots (or /__fixture/tasks-mode {"goal_bots": true}) turns on what 0.9.66 adds: a goal's lead and helpers,
-# its check-in, where it stands, its chat and Goal Page, Keep Going and the lead's looks-done (`offer`), the four goal
-# offer kinds beside the list offers (goals.py offer / answer_offer), `goal_bots` in GET /tasks and `goal_bots` /
-# `goal_pages` in /status. Off, goals answer as 0.9.65 did. Ported from the add-on's goals.py and tasks.py and checked
-# against it by scripts/fixture-support/goals_contract_check.py. Every name below is invented.
-GOAL_BOTS = False
-TASK_GOAL_BOTS = False   # --task-goal-bots: what /__fixture/reset puts GOAL_BOTS back to
-GOAL_BOT_KEYS = ('lead', 'helpers', 'adds', 'review', 'known_to_all', 'stands', 'checkin', 'chat', 'page_at', 'kept_at', 'offer')
-GOAL_KINDS = ('goal', 'plan', 'checkin', 'tasks')
-GOAL_DEFAULT_REVIEW = {'day': 0, 'time': '08:00'}
-PROFILE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$')
-HHMM_RE = re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
-GOAL_PAGES = {}   # what a goal's lead wrote for its Goal Page (goals_update page=…), by goal id
-GOAL_STATUS_LOG = {'active': 'Resumed', 'paused': 'Paused', 'achieved': 'Achieved', 'let_go': 'Let go'}
-
-class GoalError(Exception):
-    def __init__(self, code, detail):
-        super().__init__(detail); self.code, self.detail = code, detail
-
-def gtext(value, cap):
-    return ' '.join(str(value).split())[:cap] if isinstance(value, (str, int, float)) and not isinstance(value, bool) else ''
-
-def gnumber(value):
-    if isinstance(value, bool): return None
-    try: return float(value)
-    except (TypeError, ValueError): return None
-
-def goal_bot_fields(goal, lead=None):
-    goal.update(lead=lead, helpers=[], adds='ask', review=dict(GOAL_DEFAULT_REVIEW) if lead else None, known_to_all=True,
-                stands=None, checkin=None, chat={}, page_at='', kept_at=None, offer=None)
-    if goal.get('measure'):
-        goal['measure'].setdefault('source', 'you'); goal['measure'].setdefault('checked_at', None)
-    return goal
-
-def clean_source(value):
-    if value == 'you': return 'you'
-    if isinstance(value, dict):
-        bot = gtext(value.get('bot'), 64)
-        if bot and PROFILE_RE.match(bot): return {'bot': bot, 'what': gtext(value.get('what'), 80)}
-    return None
-
-def clean_helpers(value, lead):
-    out = []
-    for item in value if isinstance(value, list) else []:
-        if isinstance(item, str) and PROFILE_RE.match(item) and item != lead and item not in out: out.append(item)
-    return out[:5]
-
-def clean_review(value):
-    if not isinstance(value, dict): return None
-    day, at = value.get('day'), value.get('time')
-    if isinstance(day, bool) or not isinstance(day, int) or not 0 <= day <= 6 or not isinstance(at, str) or not HHMM_RE.match(at): return None
-    return {'day': day, 'time': at}
-
-def clean_chat(value):
-    if not isinstance(value, dict): return {}
-    profile, session = gtext(value.get('profile'), 64), gtext(value.get('session_id'), 200)
-    return {'profile': profile, 'session_id': session} if profile and session else {}
-
-def clean_measure(given, old, stamp):
-    """The add-on's tasks._clean_measure: a key left out keeps the old value; `now` moving stamps `at` and adds to the
-    history; `source` is "you" or {bot, what}, and a new source clears `checked_at`."""
-    if not isinstance(given, dict): return None
-    old = old if isinstance(old, dict) else {}
-    def pick(key, fallback):
-        number = gnumber(given.get(key)) if key in given else None
-        return number if number is not None else fallback
-    start = pick('start', old.get('start', 0))
-    target = pick('target', old.get('target'))
-    if target is None or target == start: raise GoalError(400, "A goal's number needs a target that differs from where it starts.")
-    current = pick('now', old.get('now', start))
-    unit = gtext(given['unit'], 20) if 'unit' in given else old.get('unit', '')
-    history = [h for h in old.get('history') or [] if isinstance(h, dict)]
-    at = old.get('at') or stamp
-    if not old or current != old.get('now'):
-        at = stamp; history.append({'at': stamp, 'value': current})
-    source, checked = old.get('source') or 'you', old.get('checked_at')
-    if 'source' in given and given['source'] is not None:
-        source = clean_source(given['source'])
-        if source is None: raise GoalError(400, 'A number\'s source is "you" or {bot, what}: the bot that reads it and what it reads.')
-        if source != (old.get('source') or 'you'): checked = None
-    return {'unit': unit, 'start': start, 'target': target, 'now': current, 'at': at, 'source': source, 'checked_at': checked,
-            'history': history[-60:]}
-
-def goal_patch_refused(body):
-    """What FastAPI's GoalPatchIn turns away with a 422 before the route runs, as pydantic words it: [] when it passes."""
-    out = []
-    def no(kind, loc, msg, value, ctx=None):
-        out.append({'type': kind, 'loc': ['body'] + loc, 'msg': msg, 'input': value, **({'ctx': ctx} if ctx else {})})
-    def pattern(key, rx, value, loc=None):
-        if not isinstance(value, str): no('string_type', loc or [key], 'Input should be a valid string', value)
-        elif not re.match(rx, value): no('string_pattern_mismatch', loc or [key], f"String should match pattern '{rx}'", value, {'pattern': rx})
-    if 'rev' not in body: no('missing', ['rev'], 'Field required', None)
-    elif isinstance(body['rev'], bool) or not isinstance(body['rev'], int): no('int_type', ['rev'], 'Input should be a valid integer', body['rev'])
-    if body.get('lead') is not None: pattern('lead', PROFILE_RE.pattern, body['lead'])
-    helpers = body.get('helpers')
-    if helpers is not None:
-        if not isinstance(helpers, list): no('list_type', ['helpers'], 'Input should be a valid list', helpers)
-        elif len(helpers) > 5: no('too_long', ['helpers'], f'List should have at most 5 items after validation, not {len(helpers)}', helpers,
-                                 {'field_type': 'List', 'max_length': 5, 'actual_length': len(helpers)})
-    if body.get('status') is not None: pattern('status', '^(active|paused|achieved|let_go)$', body['status'])
-    if body.get('adds') is not None: pattern('adds', '^(ask|auto)$', body['adds'])
-    review = body.get('review')
-    if review is not None:
-        if not isinstance(review, dict): no('model_attributes_type', ['review'], 'Input should be a valid dictionary or object to extract fields from', review)
-        else:
-            day = review.get('day')
-            if isinstance(day, bool) or not isinstance(day, int): no('int_type', ['review', 'day'], 'Input should be a valid integer', day)
-            elif day < 0: no('greater_than_equal', ['review', 'day'], 'Input should be greater than or equal to 0', day, {'ge': 0})
-            elif day > 6: no('less_than_equal', ['review', 'day'], 'Input should be less than or equal to 6', day, {'le': 6})
-            pattern('time', HHMM_RE.pattern, review.get('time'), ['review', 'time'])
-    if body.get('offer_answer') is not None: pattern('offer_answer', '^(done|keep)$', body['offer_answer'])
-    for key in ('keep', 'known_to_all'):
-        if body.get(key) is not None and not isinstance(body[key], bool): no('bool_type', [key], 'Input should be a valid boolean', body[key])
-    return out
-
-def goal_bots_patch(goal, updated, patch, log, stamp, by='you'):
-    """The add-on's Store._goal_bots_patch."""
-    if 'lead' in patch:
-        lead = patch['lead'] if isinstance(patch['lead'], str) and PROFILE_RE.match(patch['lead']) else None
-        if patch['lead'] not in (None, '') and lead is None: raise GoalError(400, "lead is a bot's profile name, or null for no one.")
-        if lead != goal['lead']:
-            if lead and not goal['lead'] and goal['review'] is None and 'review' not in patch: updated['review'] = dict(GOAL_DEFAULT_REVIEW)
-            updated['lead'] = lead
-            log.append({'at': stamp, 'by': by, 'text': 'Lead changed' if lead else 'No lead now'})
-    if patch.get('helpers') is not None: updated['helpers'] = clean_helpers(patch['helpers'], updated['lead'])
-    updated['helpers'] = [h for h in updated['helpers'] if h != updated['lead']]
-    if patch.get('adds') in ('ask', 'auto'): updated['adds'] = patch['adds']
-    if 'review' in patch: updated['review'] = clean_review(patch['review'])
-    if isinstance(patch.get('known_to_all'), bool): updated['known_to_all'] = patch['known_to_all']
-    if patch.get('chat') is not None: updated['chat'] = clean_chat(patch['chat'])
-    if patch.get('keep') is True:
-        updated['kept_at'] = stamp; log.append({'at': stamp, 'by': by, 'text': 'Kept going'})
-    offer, answer = updated.get('offer'), patch.get('offer_answer')
-    if answer and offer and not offer.get('kept'):
-        if answer == 'keep': updated['offer'] = dict(offer, kept=True, kept_at=stamp)
-        elif offer.get('what') == 'goal':
-            if updated['status'] != 'achieved':
-                updated['status'], updated['status_at'] = 'achieved', stamp
-                log.append({'at': stamp, 'by': by, 'text': 'Achieved'})
-            updated['offer'] = None
-        else:
-            ticked = []
-            for m in updated['milestones']:
-                if m['id'] == offer.get('what') and not m['done']:
-                    m = dict(m, done=True, done_at=stamp); log.append({'at': stamp, 'by': by, 'text': f"Milestone done: {m['title']}"})
-                ticked.append(m)
-            updated['milestones'], updated['offer'] = ticked, None
-    offer = updated.get('offer')
-    if offer and (updated['status'] != 'active' if offer.get('what') == 'goal' else
-                  not any(m['id'] == offer.get('what') and not m['done'] for m in updated['milestones'])):
-        updated['offer'] = None
-
-def goal_role(goal, bot):
-    if goal.get('lead') == bot: return 'lead'
-    return 'helper' if bot in (goal.get('helpers') or []) else None
-
-def goal_seen(goal, bot):
-    return goal_role(goal, bot) is not None or (goal.get('known_to_all') is not False and goal.get('status') == 'active')
-
-def find_goal(value, bot):
-    text = gtext(value, 200) if isinstance(value, str) else ''
-    if not text: return None
-    seen = [g for g in GOALS.values() if goal_seen(g, bot)]
-    return next((g for g in seen if g['id'] == text), None) or next((g for g in seen if g['title'].casefold() == text.casefold()), None)
-
-def goal_saved(goal, stamp):
-    goal['rev'] += 1; goal['updated_at'] = stamp; goal['log'] = goal['log'][-50:]
-
-def same_task(a, b): return ' '.join(a.casefold().split()) == ' '.join(b.casefold().split())
-
-def goal_offer(bot, session_id, kind, args, with_person=True):
-    """The add-on's goals.offer (the goals_offer tool): a goal to make, a plan or a check-in from a goal's lead, or
-    tasks for a goal. A tasks offer from a bot not on the goal (or a run with no person in the chat) is held for the
-    lead's next check-in and is no card. A new offer of the same kind, goal and bot replaces a waiting one."""
-    if kind not in GOAL_KINDS: raise GoalError(400, "kind is 'goal' (a new goal), 'plan' or 'checkin' (a goal you lead) or 'tasks'.")
-    args = args if isinstance(args, dict) else {}
-    stamp = iso(local(now()))
-    goal = role = None
-    if kind == 'goal':
-        title = gtext(args.get('title'), 200)
-        if not title: raise GoalError(400, "A goal offer needs the goal's name in title, a few words.")
-        if any(g['title'].casefold() == title.casefold() and g['status'] in ('active', 'paused') for g in GOALS.values()):
-            raise GoalError(400, f"“{title}” is one of their goals already: offer tasks for it (kind 'tasks', goal) instead.")
-        if any(o.get('kind') == 'goal' and o.get('state') == 'declined' and (o.get('title') or '').casefold() == title.casefold() for o in OFFERS):
-            raise GoalError(403, f"They said not now to “{title}” as a goal. Don't offer it again unless they ask; help with it in the chat instead.")
-    else:
-        goal = find_goal(args.get('goal'), bot)
-        if goal is None: raise GoalError(404, 'No goal by that id or name that you can see: goals_list names them.')
-        title, role = goal['title'], goal_role(goal, bot)
-        if kind in ('plan', 'checkin') and role != 'lead':
-            raise GoalError(403, f"Only the lead of “{title}” offers its {kind}, and that holds for every goal you don't lead: "
-                                 "offer tasks for it instead (kind 'tasks'), and its lead folds them in.")
-        if goal['status'] != 'active':
-            raise GoalError(400, f"“{title}” isn't active (it is {goal['status'].replace('_', ' ')}): ask them in the chat "
-                                 "whether to pick it back up instead.")
-        if kind == 'plan' and not args.get('asked') and any(o.get('kind') == 'plan' and o.get('goal') == goal['id'] and o.get('state') == 'declined' for o in OFFERS):
-            raise GoalError(403, f"They kept “{title}” without a plan. Offer one again only when they ask you to (then with "
-                                 "asked=true); help in the chat until then.")
-        if kind == 'checkin':
-            slot, last = goal_last_slot(goal, now()), goal.get('checkin') or {}
-            if slot is not None and last.get('state') == 'declined' and goal_seconds(last.get('at')) >= slot:
-                upcoming = goal_slot(goal['review'], now(), 1) if goal_slot(goal['review'], now()) <= now() else goal_slot(goal['review'], now())
-                moment = datetime.datetime.fromtimestamp(upcoming)
-                raise GoalError(403, f"They said not now to this week's check-in for “{title}”. The next one is "
-                                     f"{moment.strftime('%a %b')} {moment.day}; until then, say anything new in the chat instead.")
-    milestones = []
-    if kind in ('goal', 'plan'):
-        for item in (args.get('milestones') if isinstance(args.get('milestones'), list) else [])[:30]:
-            mt = gtext(item.get('title') if isinstance(item, dict) else item, 120)
-            if mt and mt.casefold() not in {m['title'].casefold() for m in milestones}:
-                due = item.get('due') if isinstance(item, dict) and item.get('due') else None
-                milestones.append({'title': mt, **({'due': due} if due else {})})
-    under = [t for t in TASKS.values() if goal and t.get('goal') == goal['id'] and t['status'] != 'done']
-    team = [b for b in (([goal['lead']] + goal['helpers']) if goal else [bot]) if b]
-    fresh, already = [], []
-    for item in (args.get('tasks') if isinstance(args.get('tasks'), list) else [])[:20]:
-        if not isinstance(item, dict): continue
-        tt = gtext(item.get('title'), 200)
-        if not tt: continue
-        twin = next((t for t in under if same_task(t['title'], tt)), None)
-        if twin: already.append({'id': twin['id'], 'title': twin['title'], 'status': twin['status']}); continue
-        if any(same_task(f['title'], tt) for f in fresh): continue
-        one = {'title': tt, 'who': 'bot' if item.get('who') == 'bot' else 'me'}
-        if one['who'] == 'bot':
-            wanted = gtext(item.get('bot'), 64) or bot
-            one['bot'] = wanted if wanted in team or not team else team[0]
-        if gtext(item.get('due'), 40): one['due'] = gtext(item.get('due'), 40)
-        if item.get('notes'): one['notes'] = str(item['notes'])[:2000]
-        wanted = gtext(item.get('milestone'), 120)
-        if wanted and goal:
-            found = next((m['id'] for m in goal['milestones'] if m['id'] == wanted), None) or next(
-                (m['id'] for m in goal['milestones'] if m['title'].casefold() == wanted.casefold()), None)
-            if found: one['milestone'] = found
-        if wanted and 'milestone' not in one and any(m['title'].casefold() == wanted.casefold() for m in milestones):
-            one['milestone'] = next(m['title'] for m in milestones if m['title'].casefold() == wanted.casefold())
-        fresh.append(one)
-    summary = ' '.join(str(args.get('summary') or '').split())[:300] if kind == 'checkin' else ''
-    if kind == 'checkin' and not summary: raise GoalError(400, 'A check-in needs its summary: two sentences on what moved since the last one.')
-    if kind == 'plan' and not milestones and not fresh:
-        raise GoalError(400, "A plan needs milestones or tasks (or both): the steps to the goal and the first week's tasks, each with who.")
-    if kind == 'tasks' and not fresh:
-        raise GoalError(400, 'Nothing to offer: every task is under the goal already, or none was given.'
-                        + (f' Already there: {json.dumps(already, ensure_ascii=False)}' if already else ''))
-    held = kind == 'tasks' and (role is None or not with_person)
-    OFFERS[:] = [o for o in OFFERS if not (
-        o.get('state') == 'new' and o.get('bot') == bot and o.get('kind') == kind
-        and (o.get('goal') == goal['id'] if goal else (o.get('title') or '').casefold() == title.casefold()))]
-    made = {'id': hashlib.sha256(f'{kind}{title}{now()}{len(OFFERS)}'.encode()).hexdigest()[:32], 'kind': kind, 'bot': bot,
-            'session_id': str(session_id or ''), 'at': stamp, 'goal': goal['id'] if goal else None, 'title': title, 'tasks': fresh,
-            'state': 'new'}
-    if kind == 'goal':
-        measure = args.get('measure')
-        if isinstance(measure, dict):
-            start, target = gnumber(measure.get('start', 0)), gnumber(measure.get('target'))
-            if start is None or target is None or start == target:
-                raise GoalError(400, "A goal's number needs a target that differs from where it starts: send measure {unit, start, target}, or leave measure out.")
-            measure = {'unit': gtext(measure.get('unit'), 20), 'start': start, 'target': target}
-        else: measure = None
-        made.update(why=gtext(args.get('why'), 300), due=args.get('due') or None, measure=measure)
-    if kind in ('goal', 'plan'): made['milestones'] = milestones
-    if kind == 'checkin':
-        made['summary'] = summary
-        for o in OFFERS:
-            if o.get('goal') == goal['id'] and o.get('held') and o.get('state') == 'new': o['state'], o['answered_at'] = 'folded', stamp
-        goal['checkin'] = {'at': stamp, 'offer': made['id'], 'state': 'offered'}; goal_saved(goal, stamp)
-    if held: made['held'] = True
-    OFFERS.append(made); TSTATE['rev'] += 1
-    shown = offer_shown(made)
-    if already: shown['already'] = already
-    return shown
-
-def goal_seconds(value):
-    try: return datetime.datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp()
-    except ValueError: return 0.0
-
-def goal_slot(review, at, weeks=0):
-    """The add-on's goals._slot: this week's (Monday-based) check-in moment, `weeks` on from it."""
-    today = datetime.datetime.fromtimestamp(at).date()
-    day = today - datetime.timedelta(days=today.weekday()) + datetime.timedelta(days=review['day'] + 7 * weeks)
-    hour, minute = (int(p) for p in review['time'].split(':'))
-    return datetime.datetime(day.year, day.month, day.day, hour, minute).timestamp()
-
-def goal_last_slot(goal, at):
-    if not goal.get('review'): return None
-    slot = goal_slot(goal['review'], at)
-    return slot if slot <= at else goal_slot(goal['review'], at, -1)
-
-def goal_ticked_since(goal, what, since):
-    """The add-on's goals._ticked_since: something under `what` ticked after `since`, so a Not Yet no longer holds."""
-    since_at = goal_seconds(since) if since else 0.0
-    for t in TASKS.values():
-        if t.get('goal') == goal['id'] and t['status'] == 'done' and goal_seconds(t.get('done_at') or '') > since_at and (what == 'goal' or t.get('milestone') == what):
-            return True
-    return what == 'goal' and any(goal_seconds(m.get('done_at') or '') > since_at for m in goal['milestones'])
-
-def goal_new_task(fields, created_by, source, stamp):
-    tid = 't_' + hashlib.sha256(f"{fields['title']}{now()}{len(TASKS)}".encode()).hexdigest()[:10]
-    who = fields.get('who') or 'me'
-    TASKS[tid] = {'id': tid, 'rev': 1, 'title': fields['title'], 'notes': fields.get('notes') or '', 'who': who,
-                  'bot': fields.get('bot') if who != 'me' else None, 'status': 'open', 'status_note': '', 'due': fields.get('due'),
-                  'repeat': None, 'prep': False, 'steps': [], 'made': [], 'source': source, 'created_at': stamp, 'updated_at': stamp,
-                  'done_at': None, 'created_by': created_by, 'log': [{'at': stamp, 'by': created_by, 'text': 'Added'}], 'section': None,
-                  'position': fields.get('position') or now(), 'watch': '', 'chat': {}, 'priority': 0, 'tags': [], 'alert': None,
-                  'starts': None, 'goal': fields.get('goal'), 'milestone': fields.get('milestone')}
-    return tid
-
-def answer_goal_offer(offer, body, stamp):
-    """The add-on's goals.answer_offer for a goal offer: accept (plan: false is "Keep the Goal, No Plan"; in_goal: false
-    is "Just Tasks"), decline, undo (what you changed since stays). {rev, offer, sections, goals}."""
-    action = body.get('action')
-    plan, in_goal = body.get('plan', True) is not False, body.get('in_goal', True) is not False
-    if action not in ('accept', 'decline', 'undo'): return 400, {'detail': "A goal's offer takes accept, decline or undo."}
-    kind, state = offer['kind'], offer.get('state')
-    if kind == 'plan' and action == 'accept' and not plan: action = 'decline'
-    goal = GOALS.get(offer.get('goal') or '')
-    def checkin_state(value):
-        if kind == 'checkin' and goal and (goal.get('checkin') or {}).get('offer') == offer['id']:
-            goal['checkin'] = dict(goal['checkin'], state=value); goal_saved(goal, stamp)
-    if action == 'decline':
-        if state != 'new': return 409, {'detail': 'That offer was already answered.'}
-        offer['state'], offer['answered_at'] = 'declined', stamp
-        checkin_state('declined')
-    elif action == 'accept':
-        if state != 'new': return 409, {'detail': 'That offer was already answered.'}
-        made = {'added': [], 'at': stamp}
-        if kind == 'goal':
-            if any(g['title'].casefold() == offer['title'].casefold() and g['status'] in ('active', 'paused') for g in GOALS.values()):
-                return 409, {'detail': 'They have a goal by that name already.'}
-            code, goal = goals_route('POST', GOALS_ROUTE, {'title': offer['title'], 'why': offer.get('why') or '', 'due': offer.get('due'),
-                                                           'measure': offer.get('measure'), 'milestones': offer.get('milestones') if plan else []})
-            if code != 200: return code, goal
-            goal = GOALS[goal['id']]
-            goal['lead'], goal['review'] = offer['bot'], dict(GOAL_DEFAULT_REVIEW)
-            made['goal'] = goal['id']; made['milestones'] = [m['id'] for m in goal['milestones']]
-            offer['plan'] = bool(plan)
-        elif kind == 'plan':
-            if goal is None: return 409, {'detail': 'That goal is gone.'}
-            have = {m['title'].casefold() for m in goal['milestones']}
-            adding = [m for m in offer.get('milestones') or [] if m['title'].casefold() not in have][:max(30 - len(goal['milestones']), 0)]
-            new = goal_milestones(adding, [])
-            if new:
-                goal['milestones'] = goal['milestones'] + new
-                goal['log'].append({'at': stamp, 'by': 'you', 'text': 'Plan added'}); goal_saved(goal, stamp)
-            made['milestones'] = [m['id'] for m in new]
-        in_it = goal is not None and (in_goal or kind in ('goal', 'plan'))
-        offer['in_goal'] = bool(in_it)
-        if kind != 'goal' or plan:
-            titles = {m['title'].casefold(): m['id'] for m in (goal or {}).get('milestones') or []}
-            ids = {m['id'] for m in (goal or {}).get('milestones') or []}
-            source = {'kind': 'chat', 'profile': offer['bot'], 'session_id': offer.get('session_id') or '', 'offer': offer['id']}
-            at = now()
-            for index, item in enumerate(offer.get('tasks') or []):
-                milestone = item.get('milestone')
-                milestone = milestone if milestone in ids else titles.get(str(milestone or '').casefold())
-                made['added'].append(goal_new_task({'title': item['title'], 'who': item.get('who', 'me'), 'bot': item.get('bot'),
-                                                    'due': item.get('due'), 'notes': item.get('notes'), 'position': at + index / 1000,
-                                                    'goal': goal['id'] if in_it else None, 'milestone': milestone if in_it else None},
-                                                   offer['bot'], source, stamp))
-        offer['made'], offer['state'], offer['answered_at'] = made, 'accepted', stamp
-        checkin_state('accepted')
-    else:
-        if state != 'accepted': return 409, {'detail': 'There is nothing to undo.'}
-        made, kept = offer.get('made') or {}, []
-        for tid in made.get('added') or []:
-            task = TASKS.get(tid)
-            if task is None: continue
-            if task.get('edited') or task['status'] == 'done': kept.append(tid); continue
-            TASKS.pop(tid, None); TPAGES.pop(tid, None)
-        target = GOALS.get(made.get('goal') or offer.get('goal') or '')
-        touched = target is not None and (target.get('updated_at') or '') > (made.get('at') or '')
-        if target is not None and made.get('milestones'):
-            busy = {t.get('milestone') for t in TASKS.values() if t.get('goal') == target['id'] and t.get('milestone')}
-            keep = [m for m in target['milestones'] if m['id'] not in set(made['milestones']) or m['done'] or m['id'] in busy]
-            if len(keep) != len(target['milestones']): target['milestones'] = keep; goal_saved(target, stamp)
-        if made.get('goal') and target is not None:
-            if not touched and not any(t.get('goal') == target['id'] for t in TASKS.values()) and not any(m['done'] for m in target['milestones']):
-                GOALS.pop(target['id'], None); GOAL_PAGES.pop(target['id'], None)
-            else: kept.append(target['id'])
-        offer['state'], offer['answered_at'], offer['made'] = 'undone', stamp, {}
-        if kept: offer['kept'] = kept
-        checkin_state('none')
-    TSTATE['rev'] += 1
-    return 200, {'rev': TSTATE['rev'], 'offer': offer_shown(offer), 'sections': copy.deepcopy(TSTATE['sections']), 'goals': goals_shown()}
-
-def goal_update(bot, goal_value, stands=None, measure_now=None, page=None, looks_done=None, why=None, checked=None):
-    """The add-on's goals.update (the goals_update tool), for the seeds and the contract check: where it stands, the
-    page and looks-done (the lead), the number (its source bot)."""
-    stamp = iso(local(now()))
-    leading = stands is not None or page is not None or looks_done is not None
-    number = measure_now is not None or checked is True
-    if not leading and not number: raise GoalError(400, 'Nothing to update: send stands, page, looks_done, measure_now or checked.')
-    goal = find_goal(goal_value, bot)
-    if goal is None and number and not leading:
-        goal = next((g for g in GOALS.values() if isinstance((g.get('measure') or {}).get('source'), dict)
-                     and g['measure']['source'].get('bot') == bot and goal_value in (g['id'], g['title'])), None)
-    if goal is None: raise GoalError(404, 'No goal by that id or name that you can see: goals_list names them.')
-    title = goal['title']
-    if leading and goal_role(goal, bot) != 'lead':
-        raise GoalError(403, f"Only the lead of “{title}” writes where it stands, its page or a looks-done, and that holds for every "
-                             "goal you don't lead: tell its lead what you found instead (message_agent), or offer tasks (goals_offer kind 'tasks').")
-    if number:
-        measure = goal.get('measure')
-        if not measure: raise GoalError(400, f"“{title}” has no number to check: leave it; they add one on the goal's page if they want one.")
-        source = measure.get('source') or 'you'
-        if not isinstance(source, dict) or source.get('bot') != bot:
-            whose = 'theirs to update' if source == 'you' else f"read by {source.get('bot')}"
-            raise GoalError(403, f"The number on “{title}” is {whose}, so you never set it: tell them the value you saw in the chat instead, and they tap Update.")
-        if measure_now is not None and gnumber(measure_now) is None:
-            raise GoalError(400, 'measure_now is the number you read, as a number (340, not "340 testers").')
-        if measure_now is not None:
-            measure = clean_measure({'now': measure_now}, measure, stamp)
-            if measure['now'] != goal['measure']['now']:
-                unit = f" {measure['unit']}" if measure['unit'] else ''
-                goal['log'].append({'at': stamp, 'by': bot, 'text': f"Now {measure['now']:g}{unit}"})
-        goal['measure'] = dict(measure, checked_at=stamp)
-    if stands is not None:
-        stands = stands if isinstance(stands, dict) else {'text': stands}
-        text = ' '.join(str(stands.get('text') or '').split())[:400]
-        if not text: raise GoalError(400, 'stands needs text: where the goal stands, in a sentence or two.')
-        goal['stands'] = {'by': bot, 'at': stamp, 'text': text, 'next': gtext(stands.get('next'), 200)}
-    if looks_done is not None:
-        what = 'goal' if looks_done == 'goal' else next((m['id'] for m in goal['milestones'] if looks_done == m['id']
-                                                         or (isinstance(looks_done, str) and m['title'].casefold() == looks_done.casefold())), None)
-        if what is None: raise GoalError(400, 'looks_done is one of the goal\'s milestone ids (goals_list), or "goal".')
-        if what != 'goal' and next(m for m in goal['milestones'] if m['id'] == what)['done']:
-            raise GoalError(400, 'That milestone is ticked already: nothing to offer.')
-        before = goal.get('offer') or {}
-        if before.get('what') == what and before.get('kept') and not goal_ticked_since(goal, what, before.get('kept_at') or ''):
-            raise GoalError(403, "They said not yet to that. Don't offer it again until something under it moves; say what changed in the chat instead.")
-        goal['offer'] = {'kind': 'done', 'what': what, 'by': bot, 'text': gtext(why, 160) or
-                         ('Every milestone looks done.' if what == 'goal' else 'Its tasks look done.'), 'at': stamp}
-    if page is not None:
-        GOAL_PAGES[goal['id']] = dict(GOAL_PAGES.get(goal['id']) or {}, **(page if isinstance(page, dict) else {}))
-        goal['page_at'] = stamp
-    goal_saved(goal, stamp); TSTATE['rev'] += 1
-    return {'goal': {'id': goal['id'], 'title': goal['title']}}
-
-def goal_page_html(goal, names):
-    """The Goal Page (GET /goals/{id}/page): the stand-in's own short drawing of the add-on's page (goals.render_page):
-    the goal, who leads it, where it stands, the number by week, the milestones and the tasks under it."""
-    from html import escape
-    name = lambda p: names.get(p) or BOT_NAMES.get(p) or p
-    page = GOAL_PAGES.get(goal['id']) or {}
-    under = [t for t in TASKS.values() if t.get('goal') == goal['id']]
-    rows = ''.join(f"<li class='{'done' if m['done'] else ''}'>{escape(m['title'])}</li>" for m in goal['milestones'])
-    tasks = ''.join(f"<li class='{'done' if t['status'] == 'done' else ''}'>{escape(t['title'])}</li>" for t in under)
-    stands = goal.get('stands') or {}
-    parts = [f"<h1>{escape(goal['title'])}</h1>"]
-    if goal.get('lead'): parts.append(f"<p class='who'>Led by {escape(name(goal['lead']))}</p>")
-    if goal.get('why'): parts.append(f"<p class='why'>{escape(goal['why'])}</p>")
-    if stands.get('text'): parts.append(f"<section><h2>Where it stands</h2><p>{escape(stands['text'])}</p>"
-                                        + (f"<p><b>Next:</b> {escape(stands['next'])}</p>" if stands.get('next') else '') + '</section>')
-    for key, head in (('worked', 'What worked'), ('didnt', "What didn't")):
-        if page.get(key): parts.append(f"<section><h2>{head}</h2><p>{escape(str(page[key]))}</p></section>")
-    if rows: parts.append(f'<section><h2>Milestones</h2><ul>{rows}</ul></section>')
-    if tasks: parts.append(f'<section><h2>Tasks</h2><ul>{tasks}</ul></section>')
-    return ("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
-            "<title>" + escape(goal['title']) + "</title><style>body{font:16px -apple-system,sans-serif;margin:20px;color:#1c1c1e}"
-            "@media(prefers-color-scheme:dark){body{background:#000;color:#f2f2f7}}.done{text-decoration:line-through;opacity:.6}"
-            "h2{font-size:15px;text-transform:uppercase;letter-spacing:.04em;opacity:.7}</style></head><body>"
-            + ''.join(parts) + '</body></html>')
-
-def seed_goal_guitar():
-    """[goals step 4] Stalled 16 days, no bot (board 4's right phone): a lesson done 16 days ago, three open since. Seeded
-    with the bots (seed_goal_bots) or alone on 0.9.65 (tasks-mode {"goals": true, "stall": true})."""
-    t0 = local(T0)
-    today = t0.date()
-    def ago_days(n): return iso(t0 - datetime.timedelta(days=n))
-    def day(n): return (today + datetime.timedelta(days=n)).isoformat()
-    rev = GOALS['g_testers']['rev'] if 'g_testers' in GOALS else 1
-    GOALS['g_guitar'] = goal_bot_fields({'id': 'g_guitar', 'rev': rev, 'title': 'Learn three songs on guitar',
-                                         'why': 'For the campfire in August.', 'status': 'active', 'status_at': ago_days(40), 'color': 'pink',
-                                         'due': day(70), 'position': t0.timestamp() - 10_000 + 70,
-                                         'measure': {'unit': 'lessons', 'start': 0, 'target': 10, 'now': 1, 'at': ago_days(16),
-                                                     'source': 'you', 'history': [{'at': ago_days(16), 'value': 1}]},
-                                         'milestones': [], 'created_at': ago_days(40), 'updated_at': ago_days(16),
-                                         'log': [{'at': ago_days(40), 'by': 'you', 'text': 'Added'}]})
-    for n, (tid, title, done) in enumerate((('t_gt_l1', 'Finish lesson 1', 16), ('t_gt_l2', 'Finish lesson 2', None),
-                                            ('t_gt_l3', 'Lesson 3', None), ('t_gt_l4', 'Lesson 4', None))):
-        stamp = ago_days(39 - n)
-        TASKS[tid] = {'id': tid, 'rev': rev, 'title': title, 'notes': '', 'who': 'me', 'bot': None,
-                      'status': 'done' if done else 'open', 'status_note': '', 'due': day(-21) if tid == 't_gt_l2' else None,
-                      'repeat': None, 'prep': False, 'steps': [], 'made': [], 'source': {'kind': 'app'}, 'created_at': stamp,
-                      'updated_at': stamp, 'done_at': ago_days(done) if done else None, 'created_by': 'you', 'log': [], 'section': None,
-                      'position': T0 - 40 * 86400 + n, 'watch': '', 'chat': {}, 'priority': 0, 'tags': [], 'alert': None, 'starts': None,
-                      'goal': 'g_guitar', 'milestone': None}
-    TSTATE['rev'] += 1
-
-def seed_goal_bots():
-    """[goals steps 3-5] Boards 3, 4 and 5 on top of the step 1 goals, every name invented: "1,000 public testers" led
-    by Hermes with Research helping, its number read by Hermes from TestFlight, where it stands, and a waiting check-in
-    in its own chat; a new goal Hermes leads with a plan waiting in its chat; a tasks offer from Finance (not on the goal)
-    in a chat of its own; the family trip led by Hermes, which says it looks done; and a goal stalled 16 days, no bot."""
-    t0 = local(T0)
-    today = t0.date()
-    def ago_days(n): return iso(t0 - datetime.timedelta(days=n))
-    def ago_min(n): return iso(t0 - datetime.timedelta(minutes=n))
-    def day(n): return (today + datetime.timedelta(days=n)).isoformat()
-    def at(n, hour, minute_=0): return iso(datetime.datetime.combine(today + datetime.timedelta(days=n), datetime.time(hour, minute_)).astimezone())
-    weekday = today.weekday()
-    testers = GOALS['g_testers']
-    testers.update(lead='default', helpers=['research'], review={'day': weekday, 'time': '08:00'}, page_at=ago_min(70),
-                   stands={'by': 'default', 'at': ago_min(70), 'text': 'Most new testers came from the forum post. The website sends '
-                           'almost none. A launch-day listing is the biggest thing not tried yet.',
-                           'next': 'your demo, then I finish the launch page draft.'},
-                   chat={'profile': 'default', 'session_id': 's-goal-testers'})
-    testers['measure'].update(source={'bot': 'default', 'what': 'TestFlight'}, checked_at=at(0, 8, 2))
-    GOAL_PAGES['g_testers'] = {'worked': 'The forum post brought 61 testers in two days.', 'didnt': 'The website banner brought 3.'}
-    checkin = {'id': 'of_checkin', 'kind': 'checkin', 'bot': 'default', 'session_id': 's-goal-testers', 'at': ago_min(45), 'goal': 'g_testers',
-               'title': testers['title'], 'state': 'new',
-               'summary': '340 testers, up 37 this week. 2 of your 3 tasks done, the demo slipped. About a week behind an even pace.',
-               'tasks': [{'title': 'Ask three testers for a quote', 'who': 'me', 'due': day(3)},
-                         {'title': 'Draft the launch page', 'who': 'bot', 'bot': 'default'},
-                         {'title': 'Find 10 newsletters on app testing', 'who': 'bot', 'bot': 'research'}]}
-    testers['checkin'] = {'at': checkin['at'], 'offer': checkin['id'], 'state': 'offered'}
-    # A goal Hermes was just asked to lead, with its plan waiting in its own chat (board 3).
-    GOALS['g_garden'] = goal_bot_fields({'id': 'g_garden', 'rev': testers['rev'], 'title': 'Grow our own tomatoes',
-                                         'why': 'Fresh ones all summer, and the kids want to help.', 'status': 'active',
-                                         'status_at': ago_min(20), 'color': 'red', 'due': day(110), 'position': t0.timestamp() - 10_000 + 60,
-                                         'measure': None, 'milestones': [], 'created_at': ago_min(20), 'updated_at': ago_min(20),
-                                         'log': [{'at': ago_min(20), 'by': 'you', 'text': 'Added'}]}, lead='default')
-    GOALS['g_garden']['chat'] = {'profile': 'default', 'session_id': 's-goal-plan'}
-    plan = {'id': 'of_plan', 'kind': 'plan', 'bot': 'default', 'session_id': 's-goal-plan', 'at': ago_min(15), 'goal': 'g_garden',
-            'title': 'Grow our own tomatoes', 'state': 'new',
-            'milestones': [{'title': 'Beds built and filled', 'due': day(20)}, {'title': 'Seedlings planted', 'due': day(35)},
-                           {'title': 'Stakes and watering set up', 'due': day(45)}, {'title': 'First flowers', 'due': day(70)},
-                           {'title': 'First ripe tomato', 'due': day(110)}],
-            'tasks': [{'title': 'Pick the sunniest spot in the yard', 'who': 'me'},
-                      {'title': 'List three seedling varieties for a short summer', 'who': 'bot', 'bot': 'default'},
-                      {'title': 'Find the nearest place that sells raised beds', 'who': 'bot', 'bot': 'research'},
-                      {'title': 'Buy soil and compost', 'who': 'me', 'due': day(6)}]}
-    # Finance, not on the goal, offers two tasks for it from its own chat (board 5). The add-on itself holds an offer
-    # like this for the lead's check-in; seeded as waiting, it is what the app draws when one does reach it.
-    other = {'id': 'of_other', 'kind': 'tasks', 'bot': 'finance', 'session_id': 's-goal-other', 'at': ago_min(10), 'goal': 'g_testers',
-             'title': testers['title'], 'state': 'new',
-             'tasks': [{'title': 'Reply to the podcast host with two January dates', 'who': 'me'},
-                       {'title': 'Draft talking points and a tester link', 'who': 'bot', 'bot': 'finance'}]}
-    OFFERS[:] = [o for o in OFFERS if o['id'] not in ('of_checkin', 'of_plan', 'of_other')] + [checkin, plan, other]
-    # The trip: Hermes leads it and says it looks done.
-    trip = GOALS['g_trip']
-    trip.update(lead='default', review={'day': (weekday + 3) % 7, 'time': '09:00'},
-                offer={'kind': 'done', 'what': 'goal', 'by': 'default', 'at': ago_min(30),
-                       'text': 'Everything for the trip is booked; only the packing list is left, and that is yours on the day.'})
-    seed_goal_guitar()
-    def call(cid, name, args, result):
-        return [{'role': 'assistant', 'content': '', 'tool_calls': [{'id': cid, 'type': 'function', 'function': {
-                    'name': name, 'arguments': json.dumps(args)}}]},
-                {'role': 'tool', 'tool_call_id': cid, 'tool_name': name, 'content': json.dumps(result)}]
-    waiting = lambda o: {'offer': 'waiting', 'id': o['id'], 'kind': o['kind'],
-                         'note': "The card is on their screen: that is the asking. End your reply with one short line."}
-    add_session('s-goal-testers', 'default', 'Goal: 1,000 public testers · g_testers', [
-        {'role': 'user', 'content': 'How are the testers coming along?'},
-        {'role': 'assistant', 'content': 'Up 37 this week. I will check in on Monday with what moved.'},
-        *call('call_g1', 'goals_offer', {'kind': 'checkin', 'goal': 'g_testers', 'summary': checkin['summary'], 'tasks': checkin['tasks']},
-              waiting(checkin)),
-        {'role': 'assistant', 'content': 'Here is this week. Nothing is added until you tap.'},
-    ], T0 - 2700, hidden=True, listed=False)
-    add_session('s-goal-plan', 'default', 'Goal: Grow our own tomatoes · g_garden', [
-        {'role': 'user', 'content': 'Help me plan this.'},
-        {'role': 'assistant', 'content': 'Two quick questions first: how much sun does the yard get, and is this the first year?'},
-        {'role': 'user', 'content': 'Full sun in the back. First year.'},
-        *call('call_g2', 'goals_offer', {'kind': 'plan', 'goal': 'g_garden', 'milestones': plan['milestones'], 'tasks': plan['tasks']},
-              waiting(plan)),
-        {'role': 'assistant', 'content': 'Here is a plan to the first ripe tomato. Nothing is added until you say so.'},
-    ], T0 - 900, hidden=True, listed=False)
-    add_session('s-goal-other', 'finance', 'Podcast invite', [
-        {'role': 'user', 'content': 'The host of a weekly founders podcast just asked me to come on in January.'},
-        {'role': 'assistant', 'content': 'Worth a yes. That audience is the people you want testing, and it lands three weeks before your date.'},
-        *call('call_g3', 'goals_offer', {'kind': 'tasks', 'goal': 'g_testers', 'tasks': other['tasks']}, waiting(other)),
-        {'role': 'assistant', 'content': 'Two tasks for the testers goal, if you want them there.'},
-    ], T0 - 600)
-    TSTATE['rev'] += 1
-
-def goal_plan_turn(session_id):
-    """[goals step 3] The scripted plan turn: the first turn of a goal's chat sent by Plan With <Bot> is answered with a
-    plan offer (goals_offer kind "plan") and a short line, as a lead's first answer is."""
-    time.sleep(1.5)
-    with lock:
-        sid = find_session(session_id)
-        if not sid: return
-        title = SESSIONS[sid]['title']
-        goal = next((g for g in GOALS.values() if title.startswith(f"Goal: {g['title']} · ")), None)
-        if goal is None or not goal.get('lead'): return
-        args = {'goal': goal['id'], 'milestones': [{'title': 'Pick the first step'}, {'title': 'Halfway there'}, {'title': 'Done'}],
-                'tasks': [{'title': 'Write down why this matters', 'who': 'me'},
-                          {'title': 'Find three ways others did this', 'who': 'bot', 'bot': goal['lead']}]}
-        try: made = goal_offer(goal['lead'], sid, 'plan', args)
-        except GoalError: return
-        messages = SESSIONS[sid]['messages']
-        for message in ({'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'call_plan', 'type': 'function', 'function': {
-                            'name': 'goals_offer', 'arguments': json.dumps(dict(args, kind='plan'))}}]},
-                        {'role': 'tool', 'tool_call_id': 'call_plan', 'tool_name': 'goals_offer',
-                         'content': json.dumps({'offer': 'waiting', 'id': made['id'], 'kind': 'plan', 'note': 'The card is on their screen.'})},
-                        {'role': 'assistant', 'content': 'Here is a first plan. Nothing is added until you say so.'}):
-            messages.append(dict(message, id=len(messages) + 1, timestamp=now()))
-        STREAMING.discard(session_id)
-    for send in list(sockets):
-        for kind, payload in (('message.delta', {'text': 'Here is a first plan. Nothing is added until you say so.'}),
-                              ('message.complete', {'text': 'Here is a first plan. Nothing is added until you say so.', 'status': 'complete'})):
-            try: send({'jsonrpc': '2.0', 'method': 'event', 'params': {'type': kind, 'session_id': session_id, 'payload': payload}})
-            except Exception: sockets.discard(send)
 
 def seed_task_lists():
     """[task-lists] hermes-hq-push 0.9.55, the six boards the owner agreed to (2026-11-14): a Work list Hermes keeps,
@@ -1606,13 +919,6 @@ def seed_task_lists():
     ], T0 - 360)
 
 def offer_shown(offer):
-    if offer.get('kind', 'list') != 'list':   # [goals steps 3-5] the add-on's _show_offer for a goal's offer
-        made = offer.get('made') or {}
-        out = {k: copy.deepcopy(v) for k, v in offer.items() if k != 'made'}
-        out.update(added=list(made.get('added') or []), list=offer.get('title') or '', section=None, new=False, move=[])
-        if made.get('goal'): out['made_goal'] = made['goal']
-        if made.get('milestones'): out['made_milestones'] = list(made['milestones'])
-        return out
     out = {k: copy.deepcopy(v) for k, v in offer.items() if k != 'made'}
     if out.get('move_state') is None: out.pop('move_state', None)
     if out.get('listed') is None: out.pop('listed', None)
@@ -1621,8 +927,7 @@ def offer_shown(offer):
 
 def offers_shown():
     since = iso(local(now() - 86400))
-    return [offer_shown(o) for o in OFFERS if not (o.get('held') and o['state'] in ('new', 'folded'))
-            and (o['state'] == 'new' or (o.get('answered_at') or '') >= since)]
+    return [offer_shown(o) for o in OFFERS if o['state'] == 'new' or (o.get('answered_at') or '') >= since]
 
 def answer_offer(oid, body, stamp):
     """POST /tasks/offers/{id} (hermes-hq-push 0.9.55): accept (the list is made, kept by the bot, and the tasks go on;
@@ -1631,7 +936,6 @@ def answer_offer(oid, body, stamp):
     if action not in ('accept', 'decline', 'move', 'leave', 'undo'): return 400, {'detail': 'action must be accept, decline, move, leave or undo.'}
     offer = next((o for o in OFFERS if o['id'] == oid), None)
     if offer is None: return 404, {'detail': 'No such offer.'}
-    if offer.get('kind', 'list') != 'list': return answer_goal_offer(offer, body, stamp)   # [goals steps 3-5]
     made = offer.setdefault('made', {})
     def home():
         wanted = offer.get('section') or made.get('section')
@@ -1687,9 +991,7 @@ def answer_offer(oid, body, stamp):
         offer.update(state='undone', answered_at=stamp, added=[], made={})
         if offer.get('move'): offer['move_state'] = None
     TSTATE['rev'] += 1
-    answer = {'rev': TSTATE['rev'], 'offer': offer_shown(offer), 'sections': copy.deepcopy(TSTATE['sections'])}
-    if GOAL_BOTS: answer['goals'] = goals_shown()   # [goals steps 3-5] 0.9.66 answers every offer with the goals beside it
-    return 200, answer
+    return 200, {'rev': TSTATE['rev'], 'offer': offer_shown(offer), 'sections': copy.deepcopy(TSTATE['sections'])}
 
 def idea_row(iid, title, why='', source='', who='me', bot='default', help='', created=None):
     return {'id': iid, 'created_at': created or iso(local(now())), 'bot': bot, 'title': title, 'why': why, 'source': source,
@@ -1792,7 +1094,6 @@ def tasks_list(since):
               'fields': True, 'files': True,   # [tasks-first] 0.9.53
               'lists': True, 'offers': offers_shown()}   # [task-lists] 0.9.55
     if GOALS_ON: answer['goals'] = goals_shown()   # [goals] 0.9.65
-    if GOALS_ON and GOAL_BOTS: answer['goal_bots'] = True   # [goals steps 3-5] 0.9.66
     if TMODE['older_addon']:
         answer.pop('ideas'); answer.pop('fields'); answer.pop('files'); answer.pop('lists'); answer.pop('offers'); answer.pop('goals', None)
         answer['sections'] = [{'id': x['id'], 'name': x['name']} for x in answer['sections']]
@@ -1926,7 +1227,6 @@ def addon_status():
     if not NO_TASKS: body.update(tasks=True, task_pages=True, task_ideas=not TMODE['older_addon'],
                                  task_fields=not TMODE['older_addon'], task_files=not TMODE['older_addon'],
                                  task_goals=GOALS_ON and not TMODE['older_addon'])   # [goals] 0.9.65
-    if GOAL_BOTS and not NO_TASKS and not TMODE['older_addon']: body.update(goal_bots=True, goal_pages=True)   # [goals steps 3-5]
     if TMODE['older_addon']: body['pluginVersion'] = '0.9.38'
     return 200, body
 
@@ -2194,7 +1494,7 @@ def rpc(method, params):
         with lock: return {'sessions': [{'session_id': rid, 'status': 'running'} for rid in sorted(STREAMING)]}
     # [tiles] New Tile's ask is taken and left running (a bot making a tile works for minutes): the Tiles page's
     # "making" row shows meanwhile.
-    if method == 'session.create' and str(params.get('title') or '').startswith(('Task: ', 'Goal: ')):   # [goals step 3] a goal's chat too
+    if method == 'session.create' and str(params.get('title') or '').startswith('Task: '):
         # [tasks] A task's own chat (2026-11-04): a titled create makes one hidden session per title (a taken title
         # reopens it, as Hermes's titled create does).
         title = params['title']
@@ -2212,16 +1512,6 @@ def rpc(method, params):
         return {'status': 'streaming', 'user_row_id': 1}
     if method == 'prompt.submit' and SESSIONS.get(find_session(params.get('session_id')) or '', {}).get('title', '').startswith('Task: '):
         return {'status': 'streaming', 'user_row_id': 1}   # [tasks] a task's own chat takes any words
-    if method == 'prompt.submit' and SESSIONS.get(find_session(params.get('session_id')) or '', {}).get('title', '').startswith('Goal: '):
-        # [goals step 3] a goal's own chat takes any words; Plan With <Bot>'s first turn is answered with a plan offer.
-        # The words are kept in the transcript, as Hermes keeps a turn (the reply's re-read then follows them).
-        with lock:
-            sid = find_session(params.get('session_id'))
-            messages = SESSIONS[sid]['messages']
-            messages.append({'role': 'user', 'content': params.get('text') or '', 'id': len(messages) + 1, 'timestamp': now()})
-        if 'I just made this goal and want you to lead it.' in json.dumps(params):
-            threading.Thread(target=goal_plan_turn, args=(params.get('session_id') or '',), daemon=True).start()
-        return {'status': 'streaming', 'user_row_id': 1}
     if method == 'prompt.submit': raise ValueError('The pages fixture does not run prompts')
     return _rpc(method, params)
 fx.rpc = rpc
@@ -2329,7 +1619,7 @@ def handler(gateway):
             if path == TASKS_ROUTE or path.startswith(TASKS_ROUTE + '/'):
                 with lock: return tasks_route(method, path, query, body)
             if path == GOALS_ROUTE or path.startswith(GOALS_ROUTE + '/'):   # [goals] 0.9.65
-                with lock: return goals_route(method, path, body, query)
+                with lock: return goals_route(method, path, body)
             if path == '/api/plugins/hermes-hq-push/status' and method == 'GET':
                 return addon_status()
             # [plugin-pages] Page plugins (HermesKit/Plugins/DashboardPages.swift): "notes" works and calls its own API,
@@ -2489,37 +1779,16 @@ def handler(gateway):
                 self.body_json()
                 reseed()
                 return self.reply(200, {'ok': True})
-            if path in ('/__fixture/goal-offer', '/__fixture/goal-update'):
-                # [goals steps 3-5] What a bot's goals_offer / goals_update does, for tests and the contract check:
-                # {"bot", "session_id", "kind", "args", "with_person"} / {"bot", "goal", "stands", "measure_now", "page",
-                # "looks_done", "why", "checked"}.
-                body = self.body_json() or {}
-                with lock:
-                    try:
-                        if path.endswith('offer'):
-                            out = goal_offer(body.get('bot') or 'default', body.get('session_id') or '', body.get('kind'),
-                                             body.get('args') or {}, with_person=body.get('with_person', True) is not False)
-                        else:
-                            out = goal_update(body.get('bot') or 'default', body.get('goal'), stands=body.get('stands'),
-                                              measure_now=body.get('measure_now'), page=body.get('page'),
-                                              looks_done=body.get('looks_done'), why=body.get('why'), checked=body.get('checked'))
-                    except GoalError as error:
-                        return self.reply(error.code, {'detail': error.detail})
-                return self.reply(200, out)
             if path == '/__fixture/tasks-mode':   # [task-ideas] {"older_addon": true} and/or {"empty": true} (no tasks); [goals] {"goals": true}
                 mode = self.body_json()
                 with lock:
                     TMODE['older_addon'] = bool(mode.get('older_addon'))
                     if mode.get('lists'): seed_task_lists()   # [task-lists] what --task-lists starts with
-                    global GOAL_BOTS
-                    GOAL_BOTS = bool(mode.get('goal_bots'))   # [goals steps 3-5] what --task-goal-bots starts with
-                    if GOAL_BOTS and not mode.get('goals'): mode['goals'] = True
                     if mode.get('goals'):   # [goals] what --task-goals starts with; "empty": goals kept, none yet
                         global GOALS_ON
                         GOALS_ON = True
                         if mode['goals'] == 'empty': GOALS.clear(); TSTATE['rev'] += 1
                         else: seed_task_goals()
-                        if mode.get('stall') and 'g_guitar' not in GOALS: seed_goal_guitar()   # [goals step 4] 0.9.65's stall
                     if mode.get('empty'): TASKS.clear()
                     # "keep_rev": as an add-on update does (before 0.9.40), the list's rev stays, so `?since=` says unchanged
                     if not mode.get('keep_rev'): TSTATE['rev'] += 1
@@ -2630,6 +1899,20 @@ def handler(gateway):
                                           'content': body.get('text') or '', 'timestamp': now()})
                     s['last_active'] = now()
                 return self.reply(200, {'ok': True, 'message_count': len(s['messages'])})
+            if path == '/__fixture/task-chat-move':
+                # [tasks] {"task", "session_id"}: the task's chat is now a new hidden session (a copy of its messages),
+                # as when the task's chat was made on another device: a list this phone read before doesn't name it.
+                body = self.body_json()
+                with lock:
+                    t = TASKS.get(body.get('task'))
+                    old = SESSIONS.get(((t or {}).get('chat') or {}).get('session_id'))
+                    if not t or not old: return self.reply(404, {'detail': 'Task or chat not found'})
+                    sid = body.get('session_id')
+                    add_session(sid, old['profile'], old['title'] + ' (moved)', copy.deepcopy(old['messages']), now(),
+                                hidden=True, listed=False)
+                    t['chat'] = {'profile': old['profile'], 'session_id': sid}
+                    t['rev'] += 1; TSTATE['rev'] += 1
+                return self.reply(200, {'ok': True})
             if path.startswith('/auth/') or path.startswith('/api/auth/') or path.startswith('/__fixture/'):
                 return super().do_POST()
             return self.handle_api('POST')
@@ -2655,7 +1938,7 @@ def ticker(seconds):
         broadcast()
 
 def main():
-    global NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS, FILES, NO_TASKS, TASKS_CHAT, TASKS_JSON, TASK_LISTS, TASK_GOALS, GOAL_BOTS, TASK_GOAL_BOTS
+    global NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS, FILES, NO_TASKS, TASKS_CHAT, TASKS_JSON, TASK_LISTS, TASK_GOALS
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, default=9735)
     parser.add_argument('--credentials', required=True)
@@ -2665,7 +1948,6 @@ def main():
     parser.add_argument('--tasks-chat', action='store_true')   # [tasks] Hermes's Bot Chat ends with the tasks_add exchange
     parser.add_argument('--task-lists', action='store_true')   # [task-lists] lists, a kept list, an offer and its chat
     parser.add_argument('--task-goals', action='store_true')   # [goals] five made-up goals with milestones and tasks
-    parser.add_argument('--task-goal-bots', action='store_true')   # [goals steps 3-5] 0.9.66: bots on goals, their offers, the seeds
     parser.add_argument('--tasks-json')   # [tasks] add tasks exported from a real tasks.db (a private file, never committed)
     parser.add_argument('--empty-kanban', action='store_true')
     parser.add_argument('--trigger-seconds', type=float, default=3)
@@ -2676,8 +1958,7 @@ def main():
     NO_KANBAN, EMPTY_KANBAN, TRIGGER_SECONDS = args.no_kanban, args.empty_kanban, args.trigger_seconds
     NO_TASKS, TASKS_CHAT, TASKS_JSON = args.no_tasks, args.tasks_chat, args.tasks_json
     TASK_LISTS = args.task_lists
-    TASK_GOALS = args.task_goals or args.task_goal_bots
-    GOAL_BOTS = TASK_GOAL_BOTS = args.task_goal_bots
+    TASK_GOALS = args.task_goals
     FILES = pathlib.Path(args.files)
     make_files(args.port)
     reseed()

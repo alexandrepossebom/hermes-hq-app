@@ -5,6 +5,7 @@
 // Every path here ends on the same promise: the reply the alert was for is on screen, its first line in sight, under
 // the task's bar, in the task it belongs to. Run with scripts/e2e-pages.sh (HQN_PAGES_ONLY=testTasksStress_…).
 
+import CryptoKit
 import XCTest
 
 extension PagesTests {
@@ -111,7 +112,122 @@ extension PagesTests {
         assertLandsOnReply(reply, asked: ask, name: "stress-6-cold", timeout: 30)
     }
 
+    // MARK: The audit's paths (2026-11-19): every one ends on the right task, with its chat, or asks first
+
+    /// A task's alert tapped while New Task holds typed words: it asks before the sheet goes (it closed it silently).
+    @MainActor func testTasksStress_7_TaskAlertAsksBeforeUnsavedEdits() throws {
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
+        let plus = app.buttons["tasks.new"].firstMatch
+        XCTAssertTrue(plus.waitForExistence(timeout: 20), "the Tasks page")
+        plus.tap()
+        let title = app.textViews["tasks.new.title"].firstMatch.exists ? app.textViews["tasks.new.title"].firstMatch
+            : app.textFields["tasks.new.title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "New Task opens")
+        // More than a title's worth (NewTodoHost.titleWorth, 60): a short one is thrown away freely, by design.
+        let words = "Book the dentist for both kids, and ask whether they take the new insurance card"
+        title.typeText(words)
+        debugAlert("task/t_contract")
+        // The sheet's own question (a Discard Changes pop-up; a tap anywhere else keeps the sheet).
+        let discard = app.buttons["Discard Changes"].firstMatch
+        let asked = waitUntil(8) { discard.exists }
+        shot("stress-7-asks-first")
+        XCTAssertTrue(asked, "the sheet asks before it goes")
+        XCTAssertTrue(title.exists && ((title.value as? String) ?? "").contains("ask whether they take"), "New Task is still there, with its words")
+        XCTAssertFalse(app.buttons["task.check"].firstMatch.exists, "the task hasn't opened over it")
+        discard.tap()
+        XCTAssertTrue(app.buttons["task.check"].firstMatch.waitForExistence(timeout: 15), "then the task opens")
+        shot("stress-7b-then-opens")
+    }
+
+    /// A task's alert on a fresh install whose task list is slow to come: the task opens with its chat once the list
+    /// is read (it opened a bare page, no conversation, and stayed one).
+    @MainActor func testTasksStress_8_TaskAlertBeforeTheListComes() throws {
+        for _ in 0..<3 { try account.control("/__fixture/fail", ["method": "GET", "path": "/api/plugins/hermes-hq-push/tasks", "delay": 5]) }
+        app = launchSignedIn(Self.look + ["-HQDebugResetAccounts", "YES"])
+        debugAlert("task/t_contract")
+        let chat = app.tables["chat.table"].firstMatch
+        let opened = waitUntil(30) { chat.exists && self.app.buttons["task.check"].firstMatch.exists }
+        shot("stress-8-list-late")
+        XCTAssertTrue(opened, "the task's page is its chat, the task on it")
+        let said = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "The draft is under")).firstMatch
+        XCTAssertTrue(said.waitForExistence(timeout: 10) || app.buttons["task.chat-line"].firstMatch.exists, "with its conversation")
+    }
+
+    /// A reply's alert, its bot named, for a task chat this phone's list doesn't know yet (made on another device after
+    /// the list was read): the task opens (it opened the chat bare in Sessions).
+    @MainActor func testTasksStress_9_ReplyAlertForAChatTheListDoesNotKnow() throws {
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
+        XCTAssertTrue(app.cells["task-row-Follow up with Ivy on the contract"].firstMatch.waitForExistence(timeout: 20), "the list is read")
+        tab("Bots")
+        let moved = "20261119_100000_tcsam02"
+        try account.control("/__fixture/task-chat-move", ["task": "t_contract", "session_id": moved])
+        for _ in 0..<2 { try account.control("/__fixture/fail", ["method": "GET", "path": "/api/plugins/hermes-hq-push/tasks", "delay": 2]) }
+        debugAlert("chat/\(moved)?profile=inbox")
+        let bar = app.descendants(matching: .any)["task.bar"].firstMatch
+        let opened = bar.waitForExistence(timeout: 20)
+        shot("stress-9-chat-new-to-the-list")
+        XCTAssertTrue(opened, "the alert opens the task, as its bar")
+        let title = app.descendants(matching: .any)["chat.title"].firstMatch
+        XCTAssertTrue(title.exists && title.label.hasPrefix("Follow up with Ivy on the contract"), "the task's name: \(title.exists ? title.label : "none")")
+    }
+
+    /// The task's first message made its chat, but saving the link to the task failed: the chat is still the task's,
+    /// so its reply's alert opens the task (it opened the chat bare: the gateway's `chat: null` hid the link).
+    @MainActor func testTasksStress_10_ChatLinkSaveFailed() throws {
+        try account.control("/__fixture/fail", ["method": "PATCH", "path": "/api/plugins/hermes-hq-push/tasks/t_passport", "status": 500, "count": 5])
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenTask", "Renew passport"])
+        let message = app.buttons["task.message"].firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 20), "the task opens with its message box")
+        message.tap()
+        let field = app.textViews["composer.text"].firstMatch
+        if !field.waitForExistence(timeout: 5), message.exists { message.tap() }
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the chat's box")
+        field.typeText("Which photo size do they want?")
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5))
+        send.tap()
+        let created: () -> String? = {
+            let state = (try? self.account.control("/__fixture/state")) ?? [:]
+            return ((state["rpc"] as? [[String: Any]]) ?? []).filter { ($0["method"] as? String) == "session.create" }
+                .compactMap { ($0["params"] as? [String: Any])?["title"] as? String }.first { $0.hasPrefix("Task: Renew passport") }
+        }
+        XCTAssertTrue(waitUntil(15) { created() != nil }, "the first message made the task's chat")
+        let patched: () -> Bool = {
+            let state = (try? self.account.control("/__fixture/state")) ?? [:]
+            return ((state["rest"] as? [[String: Any]]) ?? []).contains {
+                ($0["method"] as? String) == "PATCH" && ($0["path"] as? String) == "/api/plugins/hermes-hq-push/tasks/t_passport"
+            }
+        }
+        XCTAssertTrue(waitUntil(10) { patched() }, "the link's save was tried (and failed)")
+        let sid = "20261104_120000_tc" + Self.sha256Hex(created() ?? "").prefix(6)
+        app.buttons["sheet.close"].firstMatch.tap()
+        tab("Bots")
+        // The bot answers in that chat (the stand-in keeps no sent words; Hermes keeps both).
+        try account.control("/__fixture/append", ["session_id": sid, "role": "assistant", "text": "PASSPORT-REPLY: two by two inches."])
+        debugAlert("chat/\(sid)?profile=default")
+        let bar = app.descendants(matching: .any)["task.bar"].firstMatch
+        let opened = bar.waitForExistence(timeout: 20)
+        shot("stress-10-link-not-saved")
+        XCTAssertTrue(opened, "the alert opens the task")
+        let title = app.descendants(matching: .any)["chat.title"].firstMatch
+        XCTAssertTrue(title.exists && title.label.hasPrefix("Renew passport"), "the task's name: \(title.exists ? title.label : "none")")
+        let mine = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "PASSPORT-REPLY")).firstMatch
+        XCTAssertTrue(mine.waitForExistence(timeout: 10), "with the reply the alert was for")
+    }
+
     // MARK: Helpers
+
+    /// An alert's tap, as `NotificationHub` hands it on (App/Debug/AlertDebugHooks.swift; DEBUG builds only).
+    @MainActor private func debugAlert(_ path: String) {
+        let scheme = ProcessInfo.processInfo.environment["HQN_URL_SCHEME"].flatMap { $0.isEmpty ? nil : $0 } ?? "hermeshq-native"
+        XCUIDevice.shared.system.open(URL(string: "\(scheme)://debug-alert/\(path)")!)
+        let open = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"]
+        if open.waitForExistence(timeout: 3) { open.tap() }
+    }
+
+    private static func sha256Hex(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
 
     /// A long reply (taller than the screen) whose first line is the one to read.
     private func stressReply(_ tag: String) -> String {

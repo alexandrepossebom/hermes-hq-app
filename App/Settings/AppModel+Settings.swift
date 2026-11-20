@@ -216,8 +216,7 @@ import UIKit
         LogUploader.shared.forget(account: account.id)                   // [13-9] log lines that waited for it
         GatewayLaunchPrefs.forget(accountId: account.id)                  // [m7/settings] Reopen Last Chat on Launch
         let directory = AppModel.listsCacheDirectory
-        for kind in [RosterDisk.rosterKind, RosterDisk.botStateKind, RosterDisk.sessionsKind, RosterDisk.sessionStateKind,
-                     RosterDisk.sessionMarksKind] {
+        for kind in [RosterDisk.rosterKind, RosterDisk.botStateKind, RosterDisk.sessionsKind, RosterDisk.sessionStateKind] {
             RosterDiskWriter.shared.remove(RosterDisk.url(directory, kind, account))
         }
         SyncHub.forgetLists(accountId: account.id)                        // [sync] 13-1: with the lists' state just removed
