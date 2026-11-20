@@ -433,8 +433,9 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         NSLayoutConstraint.activate([
             backing.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             backing.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            backing.topAnchor.constraint(equalTo: view.topAnchor, constant: -6),
-            backing.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 16),
+            // The Mac's tab background ends at its divider. Only the mobile pills bleed into the chat.
+            backing.topAnchor.constraint(equalTo: view.topAnchor, constant: tabs ? 0 : -6),
+            backing.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: tabs ? 0 : 16),
             scroller.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollerToNew,
             allChats.trailingAnchor.constraint(equalTo: newChat.leadingAnchor, constant: -7),
