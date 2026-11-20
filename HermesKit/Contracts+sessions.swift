@@ -121,6 +121,90 @@ nonisolated struct SessionPending: Hashable, Sendable {
     var prefix: String { failed ? "Not Delivered:" : "Draft:" }
 }
 
+/// A coding row names the decision, current step or confirmed outcome. It isn't a transcript preview.
+nonisolated enum CodingSessionSubtitle {
+    static func line(_ row: SessionSummary) -> String {
+        if row.pending?.failed == true { return "Your message wasn’t delivered" }
+        if row.status == .needsInput { return row.inputDetail ?? "Waiting for you in chat" }
+        if row.pending != nil { return "Draft not sent" }
+        if row.isRunning || row.status == .working {
+            return live(row.step ?? "")
+        }
+        if let result = row.lastResult, result != replyFallback { return result }
+        if let pr = row.pullRequest, pr.state != .none, pr.state != .unknown {
+            let name = pr.number.map { "PR #\($0)" } ?? "Pull request"
+            switch pr.state {
+            case .draft: return "\(name) is still a draft"
+            case .open: return "\(name) is open"
+            case .merged: return "\(name) merged"
+            case .closed: return "\(name) closed"
+            default: break
+            }
+        }
+        return row.unread ? "Unread reply in chat" : row.lastResult ?? "No recent update"
+    }
+
+    private static let replyFallback = "Replied in chat"
+
+    private static func live(_ step: String) -> String {
+        let s = step.lowercased()
+        if s.hasPrefix("running ") {
+            if s.range(of: #"^running (?:npm (?:run )?test|pnpm test|yarn test|swift test|cargo test|go test|pytest|xctest|xcodebuild test)(?:\s|$)"#, options: .regularExpression) != nil { return "Running tests…" }
+            if s.range(of: #"^running (?:swift build|npm run build|cargo build|xcodebuild build)(?:\s|$)"#, options: .regularExpression) != nil { return "Building the project…" }
+            return "Running a command…"
+        }
+        for (verb, wording) in [("reading", "Reading a file…"), ("editing", "Editing a file…"), ("writing", "Writing a file…"), ("patching", "Editing a file…"), ("searching", "Searching…"), ("looking through", "Looking through files…")] where s == verb || s.hasPrefix(verb + " ") {
+            return wording
+        }
+        return "Working on your request…"
+    }
+
+    /// Only a whole, explicit report may become an outcome. Never put free text or commands on the row.
+    static func result(_ message: SessionLatestMessage) -> String? {
+        if message.role == "user" { return "No reply yet" }
+        guard message.role == "assistant" else { return nil }
+        let words = message.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".!"))
+        switch words {
+        case "all tests passed": return "All tests passed"
+        case "tests passed": return "Tests passed"
+        case "tests failed": return "Tests failed"
+        case "build passed", "build succeeded": return "Build passed"
+        case "build failed": return "Build failed"
+        case "tests passed but the build failed": return "Tests passed · build failed"
+        default: break
+        }
+        if let report = words.wholeMatch(of: #/([0-9]{1,5}) (unit |ui |integration |regression )?tests? (passed|failed)/#), let n = Int(report.1) {
+            let suite = report.2 == "ui " ? "UI " : String(report.2 ?? "")
+            return "\(n) \(suite)\(n == 1 ? "test" : "tests") \(report.3)"
+        }
+        return replyFallback
+    }
+
+    static func prompt(_ prompts: ChatPrompts) -> String? {
+        if prompts.approvals.contains(where: { !$0.leaving }) { return "Review the command before it runs" }
+        if let value = prompts.values.first(where: { !$0.late }) {
+            switch value.kind {
+            case .sudo: return "Administrator password needed"
+            case .vaultCode: return "Enter your sign-in code"
+            case .vaultUnlock: return "Unlock your password manager"
+            case .vaultSaveLogin: return "Save a login to continue"
+            default: return "Enter the requested credential"
+            }
+        }
+        guard let ask = prompts.clarify else { return nil }
+        guard let q = ask.questions.first(where: { !ask.lockedAnswers.keys.contains($0.qid) }), let choices = q.choices, choices.count > 1 else { return "Answer a question in chat" }
+        if !q.multiSelect {
+            let stem = q.question.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            for (prefix, action) in [("which branch", "Choose a branch"), ("which layout", "Choose a layout"), ("which header layout", "Choose a header layout"), ("which version", "Choose a version")] where stem.hasPrefix(prefix + " ") || stem == prefix + "?" {
+                return action
+            }
+        }
+        if !q.multiSelect, choices.count == 2 { return "Choose between two options" }
+        return q.multiSelect ? "Select the options you want" : "Choose from \(choices.count) options"
+    }
+}
+
 // MARK: - Mark All as Read (§5.6)
 
 /// One chat whose `unread:false` write failed.

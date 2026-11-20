@@ -131,7 +131,9 @@ struct SessionRowView: View {
                     trailingText
                 }
                 .frame(minHeight: face)
-                if let status = cardStatus {
+                if codingProject {
+                    codingSubtitle
+                } else if let status = cardStatus {
                     Text(status.words)
                         .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
                         .foregroundStyle(status.color)
@@ -196,7 +198,9 @@ struct SessionRowView: View {
                     }
                 }
                 .frame(minHeight: line)
-                if let status {
+                if codingProject {
+                    codingSubtitle
+                } else if let status {
                     HStack(spacing: 6) {
                         if session.status != .needsInput {
                             ProgressView().controlSize(.mini).tint(Color.hqLabel2)
@@ -244,6 +248,23 @@ struct SessionRowView: View {
             .padding(.bottom, 2)
     }
 
+    /// Coding project rows always use the same quiet, one-line status, independent of Preview.
+    @Environment(\.colorSchemeContrast) private var subtitleContrast
+    private var codingLine: String? { CodingSessionSubtitle.line(session) }
+
+    @ViewBuilder private var codingSubtitle: some View {
+        if let codingLine {
+            Text(codingLine)
+                .font(Font.hq(.footnote))
+                .foregroundStyle(Color.hqLabel2.opacity(subtitleContrast == .increased ? 1 : 0.78))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The platform mark precedes the title, not the title's text.
+                .padding(.leading, origin == nil ? 0 : (desk ? 14 : 16) + 6)
+        }
+    }
+
     /// [project-cards] The second line a chat in a card has only while it needs one: waiting on you, or its bot's step.
     private var cardStatus: (words: String, color: Color)? {
         if session.status == .needsInput { return ("Needs your input", Color.hqOrange) }
@@ -268,24 +289,13 @@ struct SessionRowView: View {
                     }
                 }
                 .frame(width: desk ? DesktopRows.face : ProjectCard.column)
-            SessionTitleLine(spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    if let origin {
-                        PlatformMark(source: origin, size: desk ? 14 : 16)
-                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                    }
-                    Text(Self.title(session))
-                        .font(desk ? Font.hq(.callout).weight(.semibold) : titleFont)
-                        .foregroundStyle(Color.hqLabel)
-                        .lineLimit(1)
-                    if let color = session.color {
-                        Circle().fill(Color(uiColor: SessionsOrganizer.uiColor(color)))
-                            .frame(width: 9, height: 9)
-                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
-                            .accessibilityHidden(true)
-                    }
+            if codingProject {
+                VStack(alignment: .leading, spacing: 1) {
+                    compactTitleLine
+                    codingSubtitle
                 }
-                trailingText
+            } else {
+                compactTitleLine
             }
         }
         .padding(.vertical, desk ? 4 : Density.ios(7, 4))
@@ -297,6 +307,28 @@ struct SessionRowView: View {
         .accessibilityAddTraits(.isButton)
         .rowArc(showsArc)
         .opacity(busy ? 0.45 : 1)
+    }
+
+    private var compactTitleLine: some View {
+        SessionTitleLine(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if let origin {
+                    PlatformMark(source: origin, size: desk ? 14 : 16)
+                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                }
+                Text(Self.title(session))
+                    .font(desk ? Font.hq(.callout).weight(.semibold) : titleFont)
+                    .foregroundStyle(Color.hqLabel)
+                    .lineLimit(1)
+                if let color = session.color {
+                    Circle().fill(Color(uiColor: SessionsOrganizer.uiColor(color)))
+                        .frame(width: 9, height: 9)
+                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
+                        .accessibilityHidden(true)
+                }
+            }
+            trailingText
+        }
     }
 
     private var fullBody: some View {
@@ -324,10 +356,10 @@ struct SessionRowView: View {
                                     .accessibilityHidden(true)
                             }
                         }
-                        if !large { trailingText }
+                        if !large || codingProject { trailingText }
                     }
-                    secondLine
-                    if large { trailingText }
+                    if codingProject { codingSubtitle } else { secondLine }
+                    if large && !codingProject { trailingText }
                 }
             }
             .padding(.vertical, desk ? (fixedDeskHeight ? 0 : 9) : Density.ios(13, 7))
@@ -346,7 +378,7 @@ struct SessionRowView: View {
     }
 
     /// The look's rows are 60 pt; a title allowed a second line lets the row grow to fit it.
-    private var fixedDeskHeight: Bool { titleLines <= 1 }
+    private var fixedDeskHeight: Bool { titleLines <= 1 && !codingProject }
 
     /// The working arc (V:store/session-dot-state.ts:75): running, not waiting on the person.
     /// [working-ring] The working state only: `rowArc`'s gate reads Working Ring, so the ring follows the switch live.
@@ -498,6 +530,24 @@ struct SessionRowView: View {
 
     /// [sessions-m9] One stop, the web's order (`SessionRowWords.accessibilityLabel`).
     private var accessibilityText: String {
+        if codingProject {
+            // Match the visible line rather than announcing the regular list's preview/status a second time.
+            var parts = [Self.title(session)]
+            if let codingLine, !codingLine.isEmpty { parts.append(codingLine) }
+            parts.append(ownerName)
+            if detail.contains(.tokens), let tokens = SessionRowWords.compactTokens(session.tokens) { parts.append("\(tokens) tokens") }
+            if detail.contains(.cost), let cost = SessionRowWords.cost(session.cost) { parts.append(cost) }
+            if detail.contains(.time), !time.isEmpty { parts.append(time) }
+            if session.unread { parts.append("Unread") }
+            if session.pinned { parts.append("Pinned") }
+            if session.archived { parts.append("Archived") }
+            if let pr = session.pullRequest { parts.append("Pull request: " + pr.label) }
+            if muted { parts.append("Muted") }
+            if let color = SessionColors.name(session.color), !color.isEmpty { parts.append("Color: " + color) }
+            if busy { parts.append("Deleting") }
+            if let origin { parts.append("From \(ChatSource.label(origin))") }
+            return parts.joined(separator: ". ")
+        }
         let label = SessionRowWords.accessibilityLabel(title: Self.title(session), session: session, ownerName: ownerName, detail: detail, time: time,
                                            snippet: session.searchSnippet.map(SessionSearch.plain), colorName: SessionColors.name(session.color),
                                            busy: busy, muted: muted, showPR: codingProject)
