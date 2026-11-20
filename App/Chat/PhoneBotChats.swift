@@ -44,7 +44,7 @@ private final class PhoneBotChatsController: UIViewController, UITableViewDataSo
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = HQPalette.groupedPage
+        view.backgroundColor = HQPalette.sheetPage
         table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
