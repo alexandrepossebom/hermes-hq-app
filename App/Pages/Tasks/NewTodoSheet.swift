@@ -370,11 +370,9 @@ struct NewTodoView: View {
             Section {
                 whoStrip
                 if let helper = model.helper {
-                    Picker("How to work", selection: Binding(get: { model.alone }, set: { model.setWho(helper, alone: $0) })) {
-                        Text("Work together").tag(false)
-                        Text("Give to \(model.botName(helper))").tag(true)
-                    }
-                    .pickerStyle(.segmented)
+                    // Through the looks' strip (ThemeLintTests): the Desktop Look draws its own segments. setWho plays the tick.
+                    HQSegmentedPicker("How to work", options: [("Work together", false), ("Give to \(model.botName(helper))", true)],
+                                      selection: Binding(get: { model.alone }, set: { model.setWho(helper, alone: $0) }), ticks: false)
                     .accessibilityIdentifier("tasks.new.mode")
                 }
             } header: { HQSectionLabel { Text("Who's involved") } }
