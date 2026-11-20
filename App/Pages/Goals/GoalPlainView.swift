@@ -80,6 +80,7 @@ struct GoalPlainView: View {
                             Text("This goal was deleted.").foregroundStyle(Color.hqLabel2)
                         }
                     }
+                    planAsk(goal)
                     milestones(goal, tasks: tasks, proxy: proxy)
                     loose(goal, tasks: tasks, proxy: proxy)
                 }
@@ -126,10 +127,34 @@ struct GoalPlainView: View {
         }
     }
 
-    /// "Led by Hermes" with the faces of the lead and helpers; the check-in's slot at its end. A tap edits the goal.
+    /// [goals step 6] The Bots row, always there with the add-on's bots, right under the date: "Just Me" with Add Bots
+    /// at its end in the accent colour, or "Led by Hermes" with the faces of the lead and helpers and the check-in's slot
+    /// at its end. A tap opens the team sheet.
     @ViewBuilder private func whoRow(_ goal: Goal) -> some View {
-        if model.store.goalBotsSupported, let line = GoalBots.whoLine(goal, botName: model.botName) {
-            Button { model.editGoal() } label: {
+        if model.store.goalBotsSupported, model.hasBots, GoalBots.whoLine(goal, botName: model.botName) == nil {
+            Button { model.openTeam() } label: {
+                TaskGridRow {
+                    Image(systemName: "person").foregroundStyle(Color.hqLabel2)
+                } text: {
+                    rowLine {
+                        Text(GoalBots.justMe).foregroundStyle(Color.hqLabel).lineLimit(1)
+                        if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                        Text("Add Bots").font(Font.hq(.subheadline).weight(.medium)).foregroundStyle(Color.hqTintText).lineLimit(1)
+                            .accessibilityIdentifier("goal.who.add")
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.gone || model.readOnly)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(GoalBots.justMe)
+            .accessibilityValue("Add Bots")
+            .accessibilityHint("Adds bots to this goal")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("goal.who")
+        } else if model.store.goalBotsSupported, let line = GoalBots.whoLine(goal, botName: model.botName) {
+            Button { model.openTeam() } label: {
                 TaskGridRow {
                     Image(systemName: "person").foregroundStyle(Color.hqLabel2)
                 } text: {
@@ -156,7 +181,7 @@ struct GoalPlainView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel((GoalBots.whoSpoken(goal, botName: model.botName) ?? line)
                                 + (goal.lead != nil && goal.review != nil ? ", check-in \(GoalBots.reviewWords(goal.review))" : ""))
-            .accessibilityHint("Edits the goal")
+            .accessibilityHint("Changes the bots on this goal")
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("goal.who")
         }
@@ -502,6 +527,47 @@ struct GoalPlainView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(String(words.dropFirst(2)))
         .accessibilityIdentifier(id)
+    }
+
+    // MARK: [goals step 6] No plan yet
+
+    /// A goal with a lead and no plan, where the milestones would be: "No plan yet" and Ask <Bot> for a Plan. Hidden while
+    /// a plan offer for the goal waits; gone once it has a milestone or a task. With no number the bar's line above
+    /// already says "No plan yet", so it is not said twice.
+    @ViewBuilder private func planAsk(_ goal: Goal) -> some View {
+        if model.showsPlanAsk, let lead = goal.lead, !model.addingMilestone {
+            let words = GoalPlanAsk.buttonWords(model.botName(lead))
+            TaskBand()
+            VStack(alignment: .leading, spacing: 10) {
+                if GoalViews.barLine(goal, tasks: model.tasks, now: Date()) != "No plan yet" {
+                    Text("No plan yet")
+                        .font(Font.hq(.subheadline).weight(.semibold))
+                        .foregroundStyle(Color.hqLabel2)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("goal.no-plan")
+                }
+                Button { model.askForPlan() } label: {
+                    HStack(spacing: 8) {
+                        HeadImage(raw: model.head(lead), profile: lead, size: 20).frame(width: 20, height: 20).accessibilityHidden(true)
+                        Text(words).font(Font.hq(.subheadline).weight(.semibold)).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                    }
+                    .foregroundStyle(Color.hqOnTint)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 40)
+                    .background(Capsule().fill(Color.hqTint))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.readOnly)
+                .accessibilityLabel(words)
+                .accessibilityHint("Opens the goal's chat and asks for milestones and a first week of tasks")
+                .accessibilityIdentifier("goal.ask-plan")
+            }
+            .padding(.horizontal, TaskGrid.edge)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .transition(.opacity)
+        }
     }
 
     // MARK: Milestones

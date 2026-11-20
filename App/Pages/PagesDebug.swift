@@ -17,10 +17,12 @@
 //                                that goal's page (on Tasks)
 // - `-HQPagesGoalSheet <which>`  [goals] …and, over that goal's page, open `update` (Update Number) or `edit` (Edit Goal);
 //                                [goals steps 3-5] `page` (the Goal Page sheet), `chat` (the goal's chat takes the
-//                                screen), `ask` (Ask for an Update), `team` (Edit Goal, scrolled to its bots)
+//                                screen), `ask` (Ask for an Update), `team` (Edit Goal, scrolled to its bots);
+//                                [goals step 6] `bots` (the team sheet)
 // - `-HQPagesGoalPush <title>`   [goals step 4] …and open that goal as a tapped check-in push does (`request` "goal:<id>")
 // - `-HQPagesNewGoal YES`        [goals] …and open New Goal (on Tasks)
 // - `-HQPagesForgetGoalKeeps YES` [goals step 4] forget this device's Keep Going answers (`GoalKeptHere`) at launch
+// - `-HQPagesForgetGoalPlanWith YES` [goals step 6] forget New Goal's last Who's helping? pick (`GoalPlanWithMemory`) at launch
 // - `-HQPagesImportReminders N`  …and add N reminders to Reminders (0 adds none), then tap Import from Reminders (on Tasks)
 // - `-HQPagesChip <status>`      …and pick that Kanban chip
 // - `-HQPagesFilter <kind>`      …and pick that Artifacts segment (image, file, link)
@@ -44,6 +46,7 @@ enum PagesDebug {
 
     static func apply(_ pages: PagesTabs, host: UITabBarController) {
         if defaults.bool(forKey: "HQPagesForgetGoalKeeps") { GoalKeptHere.forget() }
+        if defaults.bool(forKey: "HQPagesForgetGoalPlanWith") { GoalPlanWithMemory.forget() }
         if let stored = defaults.string(forKey: "HQPagesOpenSession") {
             Task { @MainActor in
                 // Once signed in and on screen (a sign-in from the launch's environment comes late on the Mac).
@@ -179,8 +182,6 @@ enum PagesDebug {
                 TileVersionsModel.debugAsk = defaults.bool(forKey: "HQPagesTileRollBack")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { artifacts.debugShowVersions() }
             }
-            // [tile-widgets] `-HQPagesPinPages YES`: every page artifact pinned as a tile (the widgets' pictures and tests).
-            if defaults.bool(forKey: "HQPagesPinPages") { artifacts.debugPinPages() }
             if defaults.bool(forKey: "HQPagesNewTile") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { artifacts.newTile() }
             }

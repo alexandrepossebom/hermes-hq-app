@@ -107,13 +107,6 @@ import WebKit
     /// The chat's page generation this run (0 until a turn of it ends).
     func generation(_ context: MediaContext) -> Int { generations[context] ?? 0 }
 
-    /// [tile-widgets] A new generation for `context` alone, told to nobody: the Home Screen widgets' own context
-    /// (`TileWidgetWriter`) reads its pages again without redrawing the chats' cards or the Tiles page.
-    func freshen(_ context: MediaContext) { generations[context, default: 0] += 1 }
-
-    /// [tile-widgets] A page is drawing or waiting to: the widgets' pictures wait their turn behind the screen's.
-    var isBusy: Bool { drawing || !queue.isEmpty }
-
     func cached(path: String, context: MediaContext, dark: Bool, shape: Shape = .phone) -> UIImage? {
         cache.object(forKey: key(path: path, context: context, dark: dark, shape: shape) as NSString)
     }
@@ -204,11 +197,7 @@ import WebKit
     }
 
     private func draw(_ url: URL, dark: Bool, shape: Shape) async -> UIImage? {
-        // [tile-widgets] In the background a scene may have no key window: its first window still paints a web view.
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ scene -> UIWindow? in
-            guard let scene = scene as? UIWindowScene else { return nil }
-            return scene.keyWindow ?? scene.windows.first
-        }).first else { return nil }
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return nil }
         let traits = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
         let web = HTMLPageSheet.makeWebView(traits: traits)
         web.navigationDelegate = self

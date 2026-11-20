@@ -1,7 +1,8 @@
 // [goals] New Goal (docs/goals.md "New Goal and Edit Goal"): the quick add's shape (`NewTodoSheet`, `QuickAddSheet`).
 // One line for the goal (`TodoQuickParse` in goal mode reads its date: "Run a 10K by may 3" is "Run a 10K" by May 3),
-// a line for why, and one row of buttons: the date, Number (unit, from, to) and Add. It closes on Add and the new
-// goal's page opens, where milestones and tasks go.
+// a line for why, [goals step 6] with the add-on's bots a Who's helping? row (a chip per bot and Just Me, a quiet line
+// under it), and one row of buttons: the date, Number (unit, from, to) and Add. It closes on Add and the new goal's page
+// opens, where milestones and tasks go (with a lead, at its chat, the lead asked for a plan).
 
 import SwiftUI
 import UIKit
@@ -18,10 +19,15 @@ final class NewGoalModel {
     var measure: GoalMeasure?
     var saving = false
     var failure: String?
-    /// [goals step 3] Plan With <Bot>: off by default. With a bot, Add makes the goal led by it, and its chat plans.
-    var planWith: String?
+    /// [goals step 3/6] Who's helping?: the bots on the new goal, lead first (empty: Just Me). It starts on (step 6): the
+    /// root bot leading the first time, then whatever was picked last on this device, Just Me included, so the question
+    /// is always answered on screen before Add. Step 3's Plan With was off by default, and the owner made a first real
+    /// goal with it left off and said nothing happened: they expected a bot to start planning it. With a bot, Add makes
+    /// the goal led by it (the rest help), and its chat plans.
+    var team: [String] = []
+    var planWith: String? { team.first }
     @ObservationIgnored var onCreated: ((Goal?) -> Void)?
-    /// [goals step 3] Added with Plan With: the goal, its bot and the line as you typed it (your bubble's words).
+    /// [goals step 3] Added with a lead: the goal, its bot and the line as you typed it (your bubble's words).
     @ObservationIgnored var onPlan: ((Goal, String) -> Void)?
     @ObservationIgnored weak var controller: UIViewController?
     let bots: [(id: String, name: String, head: JSONValue?)]
@@ -29,14 +35,43 @@ final class NewGoalModel {
     init(store: TasksStore, bots: [Bot] = MorePages.context?.bots ?? []) {
         self.store = store
         self.bots = bots.map { ($0.id, PagesNames.botName($0.id, bots: bots), $0.head) }
+        team = GoalPlanWith.start(remembered: GoalPlanWithMemory.remembered, bots: bots.map(\.id))
     }
 
-    /// The Plan With row shows only with the add-on's bots and a bot to pick.
+    /// The Who's helping? row shows only with the add-on's bots and a bot to pick.
     var offersPlan: Bool { store.goalBotsSupported && !bots.isEmpty }
 
-    func setPlanWith(_ bot: String?) {
+    func name(_ id: String) -> String { bots.first { $0.id == id }?.name ?? PagesNames.botName(id, bots: []) }
+
+    var pick: GoalTeamPick { GoalTeamPick(team: team) }
+
+    /// Just Me: a plain goal (remembered, so someone who wants plain goals says so once).
+    func justMe() {
         PagesHaptics.selection()
-        planWith = bot
+        HQMotion.withAnimation(.snappy) { team = [] }
+        GoalPlanWithMemory.remember(team)
+        HQAnnounce.say("Just you on this goal")
+    }
+
+    /// A chip: the first ticked leads, the others help; unticking the lead hands it on (`GoalTeamPick`).
+    func toggle(_ bot: String) {
+        PagesHaptics.selection()
+        var pick = pick
+        let had = pick.has(bot)
+        pick.toggle(bot)
+        HQMotion.withAnimation(.snappy) { team = pick.team }
+        GoalPlanWithMemory.remember(team)
+        HQAnnounce.say(had ? "\(name(bot)) is off this goal" : (pick.lead == bot ? "\(name(bot)) leads" : "\(name(bot)) helps"))
+    }
+
+    /// Make Lead on a helper's chip (held, or its small menu): the two swap.
+    func makeLead(_ bot: String) {
+        PagesHaptics.selection()
+        var pick = pick
+        pick.makeLead(bot)
+        HQMotion.withAnimation(.snappy) { team = pick.team }
+        GoalPlanWithMemory.remember(team)
+        HQAnnounce.say("\(name(bot)) leads")
     }
 
     var read: TodoQuickRead { TodoQuickParse.read(title, now: Date(), dates: !manualDue, goal: true) }
@@ -92,7 +127,11 @@ final class NewGoalModel {
         var body = GoalWire.newGoal(title: String(name.prefix(200)), why: String(why.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)),
                                     due: dueNow.map { TodoViews.dayKey($0, calendar: .current) }, measure: measure)
         let lead = offersPlan ? planWith : nil
-        if let lead { body["lead"] = .string(lead) }
+        if let lead {
+            body["lead"] = .string(lead)
+            let helpers = Array(team.dropFirst())
+            if !helpers.isEmpty { body["helpers"] = .array(helpers.map(JSONValue.string)) }
+        }
         let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             let made = await store.addGoal(body)
@@ -204,6 +243,7 @@ struct NewGoalView: View {
                 .focused($focus, equals: .why)
                 .accessibilityIdentifier("goals.new.why")
                 .padding(.top, 8)
+            if model.offersPlan { whoRow }
             if let failure = model.failure {
                 Text(failure).font(Font.hq(.footnote)).foregroundStyle(Color.hqRed)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
@@ -214,7 +254,6 @@ struct NewGoalView: View {
                     HStack(spacing: 8) {
                         dateChip
                         numberChip
-                        if model.offersPlan { planChip }
                     }
                     .padding(.vertical, 2)
                 }
@@ -254,34 +293,114 @@ struct NewGoalView: View {
         .accessibilityIdentifier("goals.new.due")
     }
 
-    /// [goals step 3] "Plan With Hermes": your bots and No One, off by default.
-    private var planChip: some View {
-        let name = model.planWith.flatMap { id in model.bots.first { $0.id == id }?.name }
-        return Menu {
-            Picker("Plan With", selection: Binding(get: { model.planWith ?? "" }, set: { model.setPlanWith($0.isEmpty ? nil : $0) })) {
-                Text("No One").tag("")
-                ForEach(model.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                if let id = model.planWith {
-                    HeadImage(raw: model.bots.first { $0.id == id }?.head, profile: id, size: 16).frame(width: 16, height: 16).accessibilityHidden(true)
-                } else {
-                    Image(systemName: "sparkles").imageScale(.small).foregroundStyle(Color.hqLabel2).accessibilityHidden(true)
+    // MARK: [goals step 6] Who's helping?
+
+    /// Under the why line: "Who's helping?", one chip per bot of yours (face and name; filled when ticked, "Leads" under
+    /// the lead's name), then Just Me; the row scrolls sideways when they don't fit. Under it, a quiet line says what Add
+    /// will do. The owner: you should be asked which bot to add when you make the goal.
+    private var whoRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Who's helping?")
+                .font(Font.hq(.footnote).weight(.semibold))
+                .foregroundStyle(Color.hqLabel2)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("goals.new.who")
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(model.bots, id: \.id) { bot in botChip(bot) }
+                    justMeChip
                 }
-                Text(name.map { "Plan With \($0)" } ?? "Plan With a Bot").lineLimit(1)
+                .padding(.vertical, 2)
             }
-            .font(Font.hq(.footnote).weight(name != nil && !DeviceWord.isMac ? .semibold : .regular))
-            .foregroundStyle(name != nil ? Color.hqTintText : Color.hqLabel2)
-            .padding(.horizontal, 10)
-            .frame(minHeight: 32)
-            .background(Capsule().fill(name != nil ? Color.hqTint.opacity(0.12) : Color.hqFill3))
+            .scrollIndicators(.hidden)
+            // Chips that don't fit run to the sheet's edge, not into the margin's cut.
+            .contentMargins(.horizontal, 18, for: .scrollContent)
+            .padding(.horizontal, -18)
+            Text(GoalPlanWith.note(model.team, botName: model.name))
+                .font(Font.hq(.footnote))
+                .foregroundStyle(Color.hqLabel2)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .accessibilityIdentifier("goals.new.who.note")
+        }
+        .padding(.top, 12)
+    }
+
+    private func botChip(_ bot: (id: String, name: String, head: JSONValue?)) -> some View {
+        let pick = model.pick
+        let on = pick.has(bot.id)
+        let leads = pick.lead == bot.id
+        return HStack(spacing: 4) {
+            Button { model.toggle(bot.id) } label: {
+                HStack(spacing: 6) {
+                    HeadImage(raw: bot.head, profile: bot.id, size: 22).frame(width: 22, height: 22).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(bot.name).font(Font.hq(.footnote).weight(on && !DeviceWord.isMac ? .semibold : .regular)).lineLimit(1)
+                        if leads {
+                            Text("Leads").font(Font.hq(.caption2)).lineLimit(1)
+                                .accessibilityIdentifier("goals.new.who.leads.\(bot.id)")
+                        }
+                    }
+                }
+                .padding(.leading, 6)
+                .padding(.trailing, on && !leads ? 0 : 12)
+                .frame(minHeight: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(pick.spoken(bot.id, name: bot.name))
+            .accessibilityHint(on ? "Takes it off this goal" : "Puts it on this goal")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(on ? .isSelected : [])
+            .accessibilityAction(named: "Make Lead") { if on && !leads { model.makeLead(bot.id) } }
+            .accessibilityIdentifier("goals.new.who.\(bot.id)")
+            if on && !leads {
+                // A helper's small menu: Make Lead (holding the chip does the same).
+                Menu {
+                    Button("Make Lead", systemImage: "star") { model.makeLead(bot.id) }
+                    Button("Take Off", systemImage: "minus.circle") { model.toggle(bot.id) }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(Font.hq(.caption2).weight(.semibold))
+                        .frame(width: 26, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(bot.name), More")
+                .accessibilityHint("Make Lead")
+                .accessibilityIdentifier("goals.new.who.menu.\(bot.id)")
+            }
+        }
+        .foregroundStyle(on ? Color.hqOnTint : Color.hqLabel)
+        .background(Capsule().fill(on ? Color.hqTint : Color.hqFill3))
+        .contentShape(Capsule())
+        .contextMenu {
+            if on && !leads {
+                Button("Make Lead", systemImage: "star") { model.makeLead(bot.id) }
+            }
+            Button(on ? "Take Off" : "Add to This Goal", systemImage: on ? "minus.circle" : "plus.circle") { model.toggle(bot.id) }
+        }
+    }
+
+    private var justMeChip: some View {
+        let on = model.team.isEmpty
+        return Button { model.justMe() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "person").font(Font.hq(.footnote)).accessibilityHidden(true)
+                Text(GoalBots.justMe).font(Font.hq(.footnote).weight(on && !DeviceWord.isMac ? .semibold : .regular)).lineLimit(1)
+            }
+            .foregroundStyle(on ? Color.hqOnTint : Color.hqLabel)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .background(Capsule().fill(on ? Color.hqTint : Color.hqFill3))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(name.map { "Plan With \($0). Change" } ?? "Plan With a Bot")
-        .accessibilityHint("The bot leads the goal and offers a plan in its chat")
-        .accessibilityIdentifier("goals.new.plan")
+        .accessibilityLabel(GoalBots.justMe)
+        .accessibilityHint("No bot on this goal. You can add one later")
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityIdentifier("goals.new.who.just-me")
     }
 
     @ViewBuilder private var numberChip: some View {

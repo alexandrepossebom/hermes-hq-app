@@ -865,40 +865,6 @@ struct TaskWorkspaceTests {
         #expect(TaskChatLinks.bot(for: task(["created_by": "you"]), bots: bots)?.id == "default")
     }
 
-    /// [notify] Audit 2026-11-19: a chat this device made whose link the gateway didn't take stays the task's (the
-    /// task's `chat: null` hid it: the task opened with no conversation, and its reply's alert found no task). Once the
-    /// save lands, the gateway's word counts again.
-    @Test func unsavedChatLinkStaysTheTasks() {
-        let account = PagesFakeClient().account
-        let id = "t_link_" + UUID().uuidString.prefix(8)
-        let t = task(["id": .string(id), "chat": .null])
-        #expect(t.chatKnown && t.chat == nil)
-        // Made here, saved by no one yet.
-        TaskChatLinks.remember(TodoChat(profile: "inbox", sessionId: "s_made"), task: id, account: account)
-        #expect(TaskChatLinks.link(t, account: account) == nil, "a link already settled: the gateway's null is believed")
-        TaskChatLinks.remember(TodoChat(profile: "inbox", sessionId: "s_made"), task: id, account: account, unsaved: true)
-        #expect(TaskChatLinks.link(t, account: account)?.sessionId == "s_made", "its save failed: still the task's chat")
-        #expect(TaskChatLinks.unsaved(t, account: account))
-        // The gateway's own link wins over this device's.
-        let linked = task(["id": .string(id), "chat": .object(["profile": "inbox", "session_id": "s_gateway"])])
-        #expect(TaskChatLinks.link(linked, account: account)?.sessionId == "s_gateway")
-        #expect(!TaskChatLinks.unsaved(linked, account: account))
-        // Saved: no longer owed.
-        TaskChatLinks.saved(task: id, account: account)
-        #expect(!TaskChatLinks.unsaved(t, account: account))
-        #expect(TaskChatLinks.link(t, account: account) == nil)
-    }
-
-    /// [notify] Audit 2026-11-19: a reply written after the task opened is new however soon it came (the first message
-    /// in 4 s counted as seen), and one written before is not new however late it was read.
-    @Test func newReplyIsByWhenItWasWritten() {
-        let opened = Date(timeIntervalSince1970: 1_000_000)
-        #expect(!TodoSheetModel.thereAtOpen(opened.addingTimeInterval(2), openedAt: opened, now: opened.addingTimeInterval(2)))
-        #expect(TodoSheetModel.thereAtOpen(opened.addingTimeInterval(-60), openedAt: opened, now: opened.addingTimeInterval(9)))
-        #expect(TodoSheetModel.thereAtOpen(nil, openedAt: opened, now: opened.addingTimeInterval(1)))
-        #expect(!TodoSheetModel.thereAtOpen(nil, openedAt: opened, now: opened.addingTimeInterval(5)))
-    }
-
     /// Unique per task and within Hermes's 100 characters.
     @Test func sessionTitle() {
         #expect(TaskChatLinks.sessionTitle(task([:])) == "Task: Follow up with Ivy · 012345")

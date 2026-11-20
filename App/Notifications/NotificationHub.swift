@@ -534,11 +534,6 @@ import UIKit
 
     /// A link or tap that arrived before the app was up.
     func queueOpen(_ stored: String, profile: String?) { open(stored, profile: profile) }
-
-    #if DEBUG
-    /// A task's alert tapped before the app was up (AlertDebugHooks): kept, as `respond` keeps one.
-    func queueTask(_ id: String, profile: String?) { pendingTask = (id, profile) }
-    #endif
 }
 
 /// Hands a value the system gave on its own thread to the main actor (UserNotifications types aren't Sendable).

@@ -148,17 +148,8 @@ final class TodoSheetModel {
     @ObservationIgnored let openedAt = Date()
 
     func isUnread(_ glimpse: Glimpse) -> Bool {
-        // There when it opened: said by when it was written (audit 2026-11-19: "the first in 4 s" took a reply that
-        // came 2 s after the task opened for one already seen, and an old one read late for new). With no time, as before.
-        if seenGlimpse == nil, Self.thereAtOpen(glimpse.at, openedAt: openedAt, now: Date()) { seenGlimpse = glimpse.id }
+        if seenGlimpse == nil, Date().timeIntervalSince(openedAt) < 4 { seenGlimpse = glimpse.id }   // there when it opened
         return !glimpse.mine && glimpse.id != seenGlimpse
-    }
-
-    /// Whether the chat's newest message was already there when the task opened (seen): written by then; with no time
-    /// on it, the first one in its first 4 s.
-    nonisolated static func thereAtOpen(_ at: Date?, openedAt: Date, now: Date) -> Bool {
-        guard let at else { return now.timeIntervalSince(openedAt) < 4 }
-        return at <= openedAt
     }
 
     /// The task view's line, tapped: the chat takes the screen (the task as its bar).

@@ -2243,10 +2243,6 @@ extension SessionsViewController {
         let picked: Set<String> = key.map { [$0] } ?? []
         guard state.prefs.projectFilter != picked else { return }
         Haptics.play(.selection)
-        // [project-edge-swipe] Owner 2026-11-19 (voice memo: the swipe went "all the way back to the bots page"): the
-        // way back to the Bots side belongs to the page it was opened with. Moved on within the Projects side (every
-        // project, another project's pill) the swipe goes back there, not to the Bots side.
-        projectPageReturn = nil
         state.prefs.projectFilter = picked
         // [sessions-ux] Into a project's page or back out the whole list changes, from its top, not rows flying
         // between sections under a list left scrolled where the tapped row was. [sessions-motion] Into a page it slides

@@ -235,10 +235,6 @@ final class PagesTabs {
         watchEvents(client)
         watchLifecycle()
         MorePages.attach(self, services: services, client: client, account: account, makeChat: makeChat)   // [morepages]
-        // [tile-widgets] The Tile widgets follow this account's tiles (a no-op on the Mac and in `native`).
-        TileWidgetWriter.shared.attach(account: account) { [weak self] in self?.services?.bots ?? [] }
-        // [tasks-widget] The Tasks widget follows the list the Tasks page shows (this gateway's).
-        TasksWidgetWriter.shared.attach(account: account) { [weak self] in self?.services?.bots ?? [] }
         // [customtabs] After the More pages know this account: a More page chosen as a tab is built from its row.
         tabs = buildTabs()
         built = true
@@ -752,8 +748,6 @@ final class PagesTabs {
         madeKanban?.reset()
         madeArtifacts?.reset()
         TasksHub.signedOut()   // [tasks]
-        TileWidgetWriter.shared.signedOut()   // [tile-widgets] the widgets say "Open Hermes HQ"; every picture goes
-        TasksWidgetWriter.shared.signedOut()   // [tasks-widget] and no task stays where the widget reads
         if let account { Self.forgetDefaults(account) }
     }
 

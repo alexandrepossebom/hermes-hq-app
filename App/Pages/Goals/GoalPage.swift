@@ -371,6 +371,38 @@ final class GoalPageModel {
         GoalMenu.edit(goalID: goalID, store: store, from: controller)
     }
 
+    // MARK: [goals step 6] The Bots row and the plan ask
+
+    /// Your bots (for the Bots row's Add Bots and the team sheet).
+    var hasBots: Bool { !context.bots.isEmpty }
+
+    /// The Bots row: the team sheet. It closes on a goal that just got its first lead and has no plan: the goal reopens
+    /// on its chat and the lead is asked for one.
+    func openTeam() {
+        guard let top else { return }
+        GoalTeamSheet.present(goalID: goalID, store: store, from: top)
+    }
+
+    /// "No plan yet" and "Ask <Bot> for a Plan" where the milestones would be: a lead, its chat here, and no plan.
+    var showsPlanAsk: Bool {
+        guard store.goalBotsSupported, let goal, !gone, chat != nil, embedded || split else { return false }
+        return GoalPlanAsk.showsAsk(goal, tasks: tasks, offers: store.offers)
+    }
+
+    /// Ask <Bot> for a Plan: the goal's chat takes the screen and the lead is sent the plan request (your bubble the
+    /// goal's name). Never twice in a minute (`GoalPlanAsks`).
+    func askForPlan() {
+        guard let goal, let chat, lead != nil else { return }
+        PagesHaptics.selection()
+        guard GoalPlanAsks.mayAsk(goalID) else {
+            show("Already asked \(botName(goal.lead)) for a plan.")
+            return
+        }
+        if embedded { tuck(.send) }
+        sendHidden(GoalBots.planRequest(goal, typed: goal.title, now: Date()), display: goal.title, in: chat)
+        AppLog.note("goals", "plan asked of the goal's lead from its page")
+    }
+
     // MARK: [goals step 3] Bots on the goal
 
     /// Bot names and faces by id, for the cards.
@@ -599,6 +631,7 @@ final class GoalPageModel {
         case "chat": tuck(.chat)
         case "ask": askForUpdate()
         case "team": editGoal()
+        case "bots": openTeam()   // [goals step 6] the team sheet
         default: break
         }
     }
@@ -715,12 +748,23 @@ final class GoalPageHost: UIHostingController<HQScaledRoot<GoalPlainView>> {
     }
 }
 
-/// The rows of a goal's ⋯ and of its card's hold menu: Edit Goal…, Pause or Resume, Mark Achieved, Let It Go, Delete
-/// Goal… (asks first; its tasks are kept). An achieved or let-go goal can be made active again.
+/// The rows of a goal's ⋯ and of its card's hold menu: [goals step 6] Add Bots… / Bots… (with the add-on's bots), Edit
+/// Goal…, Pause or Resume, Mark Achieved, Let It Go, Delete Goal… (asks first; its tasks are kept). An achieved or
+/// let-go goal can be made active again.
 @MainActor
 enum GoalMenu {
     static func items(goalID: String, store: TasksStore, from presenter: UIViewController, source: UIView?) -> [UIMenuElement] {
         guard let goal = store.goal(goalID) else { return [] }
+        // [goals step 6] First: the goal's bots, one tap (the team sheet). "Add Bots…" with none, "Bots…" with some.
+        var bots: [UIMenuElement] = []
+        if store.goalBotsSupported, !(MorePages.context?.bots ?? []).isEmpty {
+            bots.append(UIMenu(options: .displayInline, children: [
+                UIAction(title: goal.team.isEmpty ? "Add Bots…" : "Bots…", image: UIImage(systemName: "person.2")) { [weak presenter] _ in
+                    guard let presenter else { return }
+                    GoalTeamSheet.present(goalID: goalID, store: store, from: presenter)
+                },
+            ]))
+        }
         var states: [UIMenuElement] = []
         switch goal.state {
         case .active:
@@ -738,7 +782,7 @@ enum GoalMenu {
         if goal.state != .letGo {
             states.append(UIAction(title: "Let It Go", image: UIImage(systemName: "wind")) { _ in setStatus(.letGo, goalID: goalID, store: store) })
         }
-        return [
+        return bots + [
             UIMenu(options: .displayInline, children: [
                 UIAction(title: "Edit Goal…", image: UIImage(systemName: "pencil")) { [weak presenter] _ in
                     guard let presenter else { return }

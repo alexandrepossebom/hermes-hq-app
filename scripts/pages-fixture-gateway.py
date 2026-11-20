@@ -1443,6 +1443,23 @@ def seed_goal_guitar():
                       'goal': 'g_guitar', 'milestone': None}
     TSTATE['rev'] += 1
 
+def add_plain_goal(spec, n=0):
+    """[goals step 6] A goal with no plan: no milestones, no tasks, no offer, and a lead only when asked ({"title",
+    "lead", "number": a target, as the owner's first goal had}). Its id is new each time, so a chat this device remembers
+    for an older one never comes back."""
+    t0 = local(T0)
+    stamp = iso(t0 - datetime.timedelta(minutes=30 + n))
+    gid = f"g_p{int(time.time() * 1000) % 10**9}_{n}"
+    GOALS[gid] = goal_bot_fields({'id': gid, 'rev': 2 + GOAL_SEEDS * 100, 'title': gtext(spec.get('title'), 200) or 'A plain goal',
+                                  'why': '', 'status': 'active', 'status_at': stamp, 'color': 'purple', 'due': None,
+                                  'position': t0.timestamp() - 10_000 + 80 + n, 'milestones': [],
+                                  'measure': {'unit': 'posts', 'start': 0, 'target': spec['number'], 'now': 0, 'at': stamp, 'source': 'you',
+                                              'history': []} if spec.get('number') else None,
+                                  'created_at': stamp, 'updated_at': stamp, 'log': [{'at': stamp, 'by': 'you', 'text': 'Added'}]},
+                                 lead=spec.get('lead'))
+    TSTATE['rev'] += 1
+    return GOALS[gid]
+
 def seed_goal_bots():
     """[goals steps 3-5] Boards 3, 4 and 5 on top of the step 1 goals, every name invented: "1,000 public testers" led
     by Hermes with Research helping, its number read by Hermes from TestFlight, where it stands, and a waiting check-in
@@ -2520,6 +2537,8 @@ def handler(gateway):
                         if mode['goals'] == 'empty': GOALS.clear(); TSTATE['rev'] += 1
                         else: seed_task_goals()
                         if mode.get('stall') and 'g_guitar' not in GOALS: seed_goal_guitar()   # [goals step 4] 0.9.65's stall
+                        # [goals step 6] goals with no plan: [{"title": "Start a photo blog"}, {"title": "…", "lead": "default"}]
+                        for n, spec in enumerate(mode.get('plain_goals') or []): add_plain_goal(spec, n)
                     if mode.get('empty'): TASKS.clear()
                     # "keep_rev": as an add-on update does (before 0.9.40), the list's rev stays, so `?since=` says unchanged
                     if not mode.get('keep_rev'): TSTATE['rev'] += 1
@@ -2630,20 +2649,6 @@ def handler(gateway):
                                           'content': body.get('text') or '', 'timestamp': now()})
                     s['last_active'] = now()
                 return self.reply(200, {'ok': True, 'message_count': len(s['messages'])})
-            if path == '/__fixture/task-chat-move':
-                # [tasks] {"task", "session_id"}: the task's chat is now a new hidden session (a copy of its messages),
-                # as when the task's chat was made on another device: a list this phone read before doesn't name it.
-                body = self.body_json()
-                with lock:
-                    t = TASKS.get(body.get('task'))
-                    old = SESSIONS.get(((t or {}).get('chat') or {}).get('session_id'))
-                    if not t or not old: return self.reply(404, {'detail': 'Task or chat not found'})
-                    sid = body.get('session_id')
-                    add_session(sid, old['profile'], old['title'] + ' (moved)', copy.deepcopy(old['messages']), now(),
-                                hidden=True, listed=False)
-                    t['chat'] = {'profile': old['profile'], 'session_id': sid}
-                    t['rev'] += 1; TSTATE['rev'] += 1
-                return self.reply(200, {'ok': True})
             if path.startswith('/auth/') or path.startswith('/api/auth/') or path.startswith('/__fixture/'):
                 return super().do_POST()
             return self.handle_api('POST')

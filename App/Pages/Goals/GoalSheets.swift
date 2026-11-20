@@ -243,11 +243,28 @@ final class GoalEditModel {
     let bots: [(id: String, name: String, head: JSONValue?)]
     @ObservationIgnored weak var controller: UIViewController?
 
+    /// [goals step 6] The lead when Edit Goal opened: a first lead on a goal with no plan is asked for one when it closes.
+    @ObservationIgnored let leadAtOpen: String?
+
     init(store: TasksStore, goalID: String, bots: [Bot] = MorePages.context?.bots ?? []) {
         self.store = store
         self.goalID = goalID
         name = store.goal(goalID)?.title ?? ""
+        leadAtOpen = store.goal(goalID)?.lead
         self.bots = bots.map { ($0.id, PagesNames.botName($0.id, bots: bots), $0.head) }
+    }
+
+    /// [goals step 6] The Bots row: the team sheet over Edit Goal (Edit Goal's own close asks a new lead for a plan).
+    func openTeam() {
+        guard let controller else { return }
+        GoalTeamSheet.present(goalID: goalID, store: store, from: controller, asksOnClose: false)
+    }
+
+    /// [goals step 6] Edit Goal closed: a goal that just got its first lead and has no plan reopens on its chat, and the
+    /// lead is asked for a plan (as New Goal with a lead does).
+    func closed() {
+        commitName()
+        GoalPlanAsks.sheetClosed(goalID: goalID, before: leadAtOpen, store: store)
     }
 
     func botName(_ id: String?) -> String {
@@ -256,22 +273,6 @@ final class GoalEditModel {
     }
 
     // MARK: [goals step 3] The goal's bots (GoalTeamRows)
-
-    func setLead(_ id: String?) {
-        guard id != goal?.lead else { return }
-        PagesHaptics.selection()
-        var fields: [String: JSONValue] = ["lead": id.map(JSONValue.string) ?? .null]
-        if let id, let goal, goal.helpers.contains(id) { fields["helpers"] = .array(goal.helpers.filter { $0 != id }.map(JSONValue.string)) }
-        patch(fields)
-        HQAnnounce.say(id.map { "Led by \(botName($0))" } ?? "No lead")
-    }
-
-    func toggleHelper(_ id: String) {
-        guard let goal, id != goal.lead else { return }
-        PagesHaptics.selection()
-        let next = goal.helpers.contains(id) ? goal.helpers.filter { $0 != id } : goal.helpers + [id]
-        patch(["helpers": .array(next.map(JSONValue.string))])
-    }
 
     func setReview(_ review: GoalReview?) {
         PagesHaptics.selection()
@@ -344,12 +345,33 @@ enum GoalEditSheet {
     static func make(goalID: String, store: TasksStore, onDelete: @escaping () -> Void) -> UIViewController {
         let model = GoalEditModel(store: store, goalID: goalID)
         model.onDelete = onDelete
-        let host = UIHostingController(rootView: HQScaledRoot(GoalEditView(model: model)))
+        let host = GoalEditHost(model: model)
         model.controller = host
         host.view.accessibilityIdentifier = "goal.edit.sheet"
         let nav = ChatSheet.wrap(host, title: "Edit Goal")
         nav.sheetPresentationController?.selectedDetentIdentifier = .large
         return nav
+    }
+}
+
+/// [goals step 6] Edit Goal's page: on its close, a new first lead is asked for a plan (`GoalEditModel.closed`).
+final class GoalEditHost: UIHostingController<HQScaledRoot<GoalEditView>> {
+    let model: GoalEditModel
+    private var didClose = false
+
+    init(model: GoalEditModel) {
+        self.model = model
+        super.init(rootView: HQScaledRoot(GoalEditView(model: model)))
+    }
+
+    @MainActor required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard !didClose, isBeingDismissed || navigationController?.isBeingDismissed == true
+                || (navigationController ?? self).presentingViewController == nil else { return }
+        didClose = true
+        model.closed()
     }
 }
 
@@ -414,34 +436,33 @@ struct GoalEditView: View {
     }
 }
 
-/// [goals step 3] Edit Goal's bots (board 5's left phone), only with the add-on's `goal_bots`: Led By, Helpers,
-/// Check-in; New Tasks, Number From; Tell My Other Bots. Each change saves as you make it.
+/// [goals step 3] Edit Goal's bots (board 5's left phone), only with the add-on's `goal_bots`: [goals step 6] one Bots row
+/// (the team sheet, in place of Led By and Helpers), Check-in; New Tasks, Number From; Tell My Other Bots. Each change
+/// saves as you make it.
 struct GoalTeamRows: View {
     @Bindable var model: GoalEditModel
     var goal: Goal
 
     var body: some View {
         Section {
-            Menu {
-                Picker("Led By", selection: Binding(get: { goal.lead ?? "" }, set: { model.setLead($0.isEmpty ? nil : $0) })) {
-                    Text("No One").tag("")
-                    ForEach(model.bots, id: \.id) { bot in Text(bot.name).tag(bot.id) }
+            let who = GoalBots.whoLine(goal, botName: model.botName) ?? GoalBots.justMe
+            Button { model.openTeam() } label: {
+                HStack(spacing: 8) {
+                    Text("Bots").foregroundStyle(Color.hqLabel)
+                    Spacer(minLength: 8)
+                    ForEach(goal.team.prefix(3), id: \.self) { face in
+                        HeadImage(raw: model.bots.first { $0.id == face }?.head, profile: face, size: 20).frame(width: 20, height: 20).accessibilityHidden(true)
+                    }
+                    Text(goal.team.isEmpty ? "Add Bots" : who)
+                        .foregroundStyle(goal.team.isEmpty ? Color.hqTintText : Color.hqLabel2).lineLimit(1)
+                    Image(systemName: "chevron.right").font(Font.hq(.caption).weight(.semibold)).foregroundStyle(Color.hqLabel3).accessibilityHidden(true)
                 }
-            } label: {
-                row("Led By", value: model.botName(goal.lead), face: goal.lead)
+                .contentShape(Rectangle())
             }
-            .accessibilityLabel("Led By, \(model.botName(goal.lead))")
-            .accessibilityIdentifier("goal.edit.lead")
-            Menu {
-                ForEach(model.bots.filter { $0.id != goal.lead }, id: \.id) { bot in
-                    Toggle(bot.name, isOn: Binding(get: { goal.helpers.contains(bot.id) }, set: { _ in model.toggleHelper(bot.id) }))
-                }
-            } label: {
-                row("Helpers", value: goal.helpers.isEmpty ? "None" : goal.helpers.map { model.botName($0) }.joined(separator: ", "),
-                    face: goal.helpers.first)
-            }
-            .accessibilityLabel("Helpers, \(goal.helpers.isEmpty ? "None" : goal.helpers.map { model.botName($0) }.joined(separator: ", "))")
-            .accessibilityIdentifier("goal.edit.helpers")
+            .buttonStyle(.plain)
+            .accessibilityLabel("Bots, " + (GoalBots.whoSpoken(goal, botName: model.botName) ?? GoalBots.justMe))
+            .accessibilityHint("Picks the bots on this goal and which one leads")
+            .accessibilityIdentifier("goal.edit.bots")
             if goal.lead != nil {
                 Menu {
                     Button("Off") { model.setReview(nil) }

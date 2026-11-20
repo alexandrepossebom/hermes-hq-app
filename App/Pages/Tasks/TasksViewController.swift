@@ -68,8 +68,6 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     /// [task-check-off] Rows whose picture is in the air as dust: their cells stay empty until the list has moved them.
     private var dusted: Set<String> = []
     private var notices: PageNoticeHost!
-    /// [notify] How long a task opened from outside has waited for the list to name it (`openTask`, half-seconds).
-    private var listWait = 0
     /// Where a held task would land (section and index): a tick each time it moves to a new place.
     private var dropPlace: String?
     private let scopeItem = ScopeBarItem()
@@ -704,9 +702,13 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         var nextRows: [String: TodoRowModel] = [:]
         // A task ticked here stays where it was until it moves (a moment later), so the tick shows first.
         for group in made {
-            // [tasks-calm] No face at a row's end any more (it leads the bot's line), so the times stand in one column.
+            // [Mac AAA 2026-11-16] A group with a bot's face on any row keeps the face's room on every row, so the
+            // times stand in one column (a row without a face had its "5:00 PM" 36 pt right of the one over it).
+            let faceSlot = DeviceWord.isMac && group.tasks.contains { $0.helper != nil }
             for task in group.tasks {
-                nextRows[task.id] = rowModel(task, kind: group.kind, now: now, heads: heads)
+                var model = rowModel(task, kind: group.kind, now: now, heads: heads)
+                model.faceSlot = faceSlot
+                nextRows[task.id] = model
             }
         }
 
@@ -1198,18 +1200,6 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     /// `asking`: the question goes into the task's own chat at once (New Task with a bot). `atReply`: the page opens at
     /// its chat's newest end (a reply's alert), not the task's top.
     func openTask(_ id: String, asking question: String? = nil, atReply: Bool = false) {
-        // [notify] Audit 2026-11-19: a task's alert on a launch with no list yet chose the page before the task was
-        // read, and stayed the bare page (no chat) once it came. A task not in hand (no list yet, or one read before
-        // the task was added elsewhere) waits for a fresh read (≤ 10 s), then opens.
-        if store.task(id) == nil, listWait == 0 || ((store.loading || !store.hasList) && listWait < 20) {
-            listWait += 1
-            if listWait == 1 { Task { [store] in await store.refresh(force: true) } }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.openTask(id, asking: question, atReply: atReply)
-            }
-            return
-        }
-        listWait = 0
         guard store.task(id) != nil || store.hasList == false else {
             notices.show("That task isn’t on the list anymore.")
             return
@@ -1919,6 +1909,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         if let presented = presentedViewController { presented.dismiss(animated: false) }
         let ask: (GoalPageModel?) -> Void = { [weak self] model in
             guard let self, let plan, let model, let chat = model.chat, let goal = self.store.goal(id) else { return }
+            // [goals step 6] Never the same ask twice for one goal within a minute (a double tap, Edit Goal then the button).
+            guard GoalPlanAsks.mayAsk(id) else { AppLog.note("goals", "plan ask skipped: asked under a minute ago"); return }
             model.sendHidden(GoalBots.planRequest(goal, typed: plan, now: Date()), display: plan, in: chat)
             AppLog.note("goals", "plan asked of the goal's lead")
         }

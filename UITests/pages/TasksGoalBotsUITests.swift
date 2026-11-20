@@ -24,37 +24,35 @@ extension PagesTests {
         app = launchSignedIn(Self.look + ["-HQDebugHapticsProbe", "YES", "-HQPagesTab", "4", "-HQPagesMore", "tasks",
                                           "-HQPagesOpenGoal", "Run a 10K", "-HQPagesGoalSheet", "team"])
         let name = Self.lookName
-        let lead = app.buttons["goal.edit.lead"].firstMatch
-        XCTAssertTrue(lead.waitForExistence(timeout: 20), "Edit Goal shows its bots")
-        XCTAssertEqual(lead.label, "Led By, No One")
-        let helpers = app.buttons["goal.edit.helpers"].firstMatch
-        XCTAssertEqual(helpers.label, "Helpers, None")
+        // [goals step 6] One Bots row (the team sheet) in place of Led By and Helpers.
+        let bots = app.buttons["goal.edit.bots"].firstMatch
+        XCTAssertTrue(bots.waitForExistence(timeout: 20), "Edit Goal shows its bots")
+        XCTAssertEqual(bots.label, "Bots, Just Me")
+        XCTAssertFalse(app.buttons["goal.edit.lead"].exists || app.buttons["goal.edit.helpers"].exists, "no Led By or Helpers rows")
         XCTAssertFalse(app.buttons["goal.edit.review"].exists, "no check-in without a lead")
         XCTAssertTrue(app.buttons["goal.edit.adds"].exists && app.switches["goal.edit.known"].exists)
         shot("goals3-1-team-empty" + name)
 
-        // Led By: Research. The check-in comes with it (Mondays 8 AM), and it is saved at once.
+        // Research leads (the first ticked). The check-in comes with it (Mondays 8 AM), and it is saved at once.
         var cues = goalCues()
-        lead.tap()
-        let research = app.buttons["Research"].firstMatch
+        bots.tap()
+        let research = app.buttons["goal.team.row.research"].firstMatch
         XCTAssertTrue(research.waitForExistence(timeout: 5), "the bots to pick")
         research.tap()
-        XCTAssertTrue(waitUntil(8) { lead.label == "Led By, Research" }, lead.label)
+        XCTAssertTrue(waitUntil(8) { research.label == "Research, on this goal, leads" }, research.label)
         XCTAssertGreaterThan(goalCues(), cues, "picking a lead is felt")
         XCTAssertTrue(waitUntil(8) { self.goalPatches().contains { $0.body?["lead"] as? String == "research" } }, "PATCH lead")
+
+        // Finance helps (the second ticked; never the lead).
+        let finance = app.buttons["goal.team.row.finance"].firstMatch
+        finance.tap()
+        XCTAssertTrue(waitUntil(8) { finance.label == "Finance, on this goal" }, finance.label)
+        XCTAssertTrue(waitUntil(8) { self.goalPatches().contains { ($0.body?["helpers"] as? [String]) == ["finance"] } }, "PATCH helpers")
+        app.buttons["goal.team.done"].tap()
+        XCTAssertTrue(waitUntil(8) { bots.label == "Bots, Led by Research, with Finance" }, bots.label)
         let review = app.buttons["goal.edit.review"].firstMatch
         XCTAssertTrue(review.waitForExistence(timeout: 8), "the check-in row with a lead")
         XCTAssertTrue(waitUntil(8) { review.label == "Check-in, Mondays 8 AM" }, "the add-on's first slot: \(review.label)")
-
-        // Helpers: Finance (never the lead).
-        helpers.tap()
-        XCTAssertTrue(app.switches["Finance"].waitForExistence(timeout: 5) || app.buttons["Finance"].waitForExistence(timeout: 2), "the helpers menu")
-        XCTAssertFalse(app.switches["Research"].exists, "the lead isn't offered as a helper")
-        let finance = app.switches["Finance"].exists ? app.switches["Finance"].firstMatch : app.buttons["Finance"].firstMatch
-        XCTAssertTrue(finance.waitForExistence(timeout: 5), "Finance in the menu")
-        finance.tap()
-        XCTAssertTrue(waitUntil(8) { helpers.label == "Helpers, Finance" }, helpers.label)
-        XCTAssertTrue(waitUntil(8) { self.goalPatches().contains { ($0.body?["helpers"] as? [String]) == ["finance"] } }, "PATCH helpers")
 
         // The check-in's slot: Fridays 5 PM.
         review.tap()
@@ -94,16 +92,22 @@ extension PagesTests {
         XCTAssertTrue(card.waitForExistence(timeout: 10), "the goal's card")
         XCTAssertTrue(waitUntil(8) { card.label.contains("Led by Research, with Finance") }, card.label)
 
-        // Led By: No One takes the lead away; the helpers stay.
+        // [goals step 6] Unticking the lead hands it on (Finance leads); unticking Finance leaves no lead.
         app.terminate()
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenGoal", "Run a 10K", "-HQPagesGoalSheet", "team"])
-        let again = app.buttons["goal.edit.lead"].firstMatch
+        let again = app.buttons["goal.edit.bots"].firstMatch
         XCTAssertTrue(again.waitForExistence(timeout: 20))
         again.tap()
-        app.buttons["No One"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(8) { again.label == "Led By, No One" })
+        let lead = app.buttons["goal.team.row.research"].firstMatch
+        XCTAssertTrue(lead.waitForExistence(timeout: 8))
+        lead.tap()
+        let next = app.buttons["goal.team.row.finance"].firstMatch
+        XCTAssertTrue(waitUntil(8) { next.label == "Finance, on this goal, leads" }, next.label)
+        XCTAssertTrue(waitUntil(8) { self.goalPatches().contains { $0.body?["lead"] as? String == "finance" } }, "PATCH lead finance")
+        next.tap()
         XCTAssertTrue(waitUntil(8) { self.goalPatches().contains { $0.body?.keys.contains("lead") == true && $0.body?["lead"] is NSNull } }, "PATCH lead null")
-        XCTAssertEqual(app.buttons["goal.edit.helpers"].firstMatch.label, "Helpers, Finance", "the helpers stay")
+        app.buttons["goal.team.done"].tap()
+        XCTAssertTrue(waitUntil(8) { again.label == "Bots, Just Me" }, again.label)
         XCTAssertTrue(waitUntil(5) { !self.app.buttons["goal.edit.review"].exists }, "no lead, no check-in")
     }
 
@@ -111,17 +115,18 @@ extension PagesTests {
 
     @MainActor func testTasks_GoalPlanWithBot() throws {
         try goalMode(["goal_bots": true])
-        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesNewGoal", "YES"])
+        app = launchSignedIn(Self.look + ["-HQPagesForgetGoalPlanWith", "YES", "-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesNewGoal", "YES"])
         let name = Self.lookName
         let field = app.descendants(matching: .any)["goals.new.title"].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "New Goal")
-        let plan = app.buttons["goals.new.plan"].firstMatch
-        XCTAssertTrue(plan.waitForExistence(timeout: 5), "Plan With a Bot, with the add-on's bots")
-        XCTAssertEqual(plan.label, "Plan With a Bot", "off by default")
+        // [goals step 6] Plan With is now New Goal's Who's helping? row, and it starts on the root bot leading (it was off
+        // by default, and a first goal saved with no one planning it).
+        let hermes = app.buttons["goals.new.who.default"].firstMatch
+        XCTAssertTrue(hermes.waitForExistence(timeout: 5), "Who's helping?, with the add-on's bots")
+        XCTAssertEqual(hermes.label, "Hermes, on this goal, leads", "on the root bot without touching it")
+        XCTAssertEqual(app.staticTexts["goals.new.who.note"].firstMatch.label, "Hermes will offer a plan when you add this.")
+        XCTAssertFalse(app.buttons["goals.new.plan"].exists, "no Plan With button any more")
         field.typeText("Learn to bake bread")
-        plan.tap()
-        app.buttons["Hermes"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(5) { plan.label == "Plan With Hermes. Change" }, plan.label)
         shot("goals3-4-new-plan-with" + name)
         app.buttons["goals.new.add"].firstMatch.tap()
 
@@ -437,6 +442,7 @@ extension PagesTests {
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenGoal", "1,000 public testers", "-HQPagesGoalSheet", "edit"])
         XCTAssertTrue(app.descendants(matching: .any)["goal.edit.sheet"].firstMatch.waitForExistence(timeout: 20) || app.textFields["goal.edit.name"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["goal.edit.lead"].exists, "no Led By")
+        XCTAssertFalse(app.buttons["goal.edit.bots"].exists, "no Bots row")
         XCTAssertFalse(app.buttons["goal.edit.source"].exists, "no Number From")
         app.swipeDown(velocity: .fast)
         XCTAssertTrue(app.descendants(matching: .any)["goal.title"].firstMatch.waitForExistence(timeout: 10))
@@ -446,11 +452,12 @@ extension PagesTests {
         XCTAssertFalse(app.descendants(matching: .any)["goal.number.source"].exists)
         XCTAssertFalse(requests().contains { $0.method == "GET" && $0.path.hasSuffix("/page") && $0.path.hasPrefix(Self.goalRoute) }, "no Goal Page asked for")
 
-        // New Goal has no Plan With.
+        // New Goal has no Plan With, and no Who's helping? row.
         app.terminate()
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesNewGoal", "YES"])
         XCTAssertTrue(app.buttons["goals.new.add"].firstMatch.waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["goals.new.plan"].exists, "no Plan With on 0.9.65")
+        XCTAssertFalse(app.descendants(matching: .any)["goals.new.who"].exists, "no Who's helping? on 0.9.65")
         app.terminate()
 
         // No goals at all: exactly today's Tasks (no shelf, no goal card).

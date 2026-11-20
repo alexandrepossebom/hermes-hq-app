@@ -61,8 +61,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         DesktopBack.install()
         SkinListCards.install()                        // 2026-11-02: list rows take a coloured skin's card
         AppIcons.dropStaleLaunchPicture()              // 2026-11-02: no old Hermes head on the system launch screen
-        WidgetRefresh.register()                       // [tile-widgets] the widgets' background refresh, before launch ends
-        TasksWidgetWriter.install()                    // [tasks-widget] the Tasks widget's check circle runs in the app
         #if DEBUG
         DiagnosticsDebug.applyAtLaunch()
         #endif
@@ -132,14 +130,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             }
             return
         }
-        // [tile-widgets] Any other wake-up (the add-on's kind "widgets", none sent yet: docs/spec/1x-pages.md §5.8
-        // rule 10): the Home Screen widgets brought up to date, at most once every 10 minutes.
         guard let remote = opened["dispatch"] as? [String: Any], remote["settled"] as? Bool == true,
-              let request = remote["request"] as? String else {
-            let done = UnsafeTransfer(completionHandler)
-            Task { @MainActor in WidgetRefresh.pushed { done.value($0) } }
-            return
-        }
+              let request = remote["request"] as? String else { return completionHandler(.noData) }
         // Completed only once the saved answer is dropped (iOS may suspend a background launch right after), on main.
         let done = UnsafeTransfer(completionHandler)
         Task { @MainActor in
@@ -327,10 +319,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
     private func open(_ url: URL) {
         #if DEBUG
         if IntentsDebugHooks.handle(url, model: model) { return }   // [intents] <scheme>://debug-intent/<word>
-        if AlertDebugHooks.handle(url) { return }                   // [notify] <scheme>://debug-alert/task|chat/<id>
         #endif
-        // [tile-widgets] <scheme>://widget/…: a Home Screen widget's tap (a tile, Tiles, Tasks, a task, New Task).
-        if WidgetRouter.handle(url) { return }
         // [live] <scheme>://job/<owner|id>: a job's Lock Screen progress opens its page in Jobs.
         // Signed out (no tabs): nothing to open, and it is not an unknown link, so no "isn't available" notice.
         if case .other(kind: "job", let key, _)? = DeepLink.parse(url, scheme: AppIdentity.current.urlScheme), !key.isEmpty {
@@ -439,7 +428,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
         SystemLog.shared.stop()                         // [diagnostics] one last read of the system's errors
         #endif
         model?.appDidEnterBackground()
-        WidgetRefresh.schedule()                        // [tile-widgets] the widgets' next refresh, about 30 min away
         // [restore] The screen on show is what the next cold launch reopens; leaving cleanly clears the marker.
         MainTabController.current?.noteLaunchScreen()
         LaunchChatMemory.shared.wentToBackground()

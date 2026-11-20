@@ -1215,20 +1215,14 @@ DECISION D-14.1: nothing else is added. No `BGTaskScheduler`, no `fetch`, no `pr
 stream (the talk stream owns whether live voice needs `audio`; App Review rejects declared modes an app does not use).
 `BGTaskSchedulerPermittedIdentifiers` must stay absent.
 
-AMENDED (tile-widgets, 2026-11-19): the Home Screen widgets keep fresh with the app closed through one
-`BGAppRefreshTask`, `ai.hermes.hq.widgets.refresh` (App/Widgets/WidgetRefresh.swift), so Info.plist adds the `fetch`
-mode and that one permitted identifier. Nothing else: no `processing`, no other identifier. Its work runs under the
-task's own expiration handler and ends with `setTaskCompleted`; any extra background time it takes goes through
-`BackgroundTime`.
-
 Rules every background task in the app must meet (the builder audits the five that exist plus the new one and fixes
 any that do not): named; ended exactly once, by its owner or in the expiration handler; the expiration handler stops
 the work and ends the task itself; nothing started in the background outlives it; total wall time under 25 s.
 
 Acceptance: a unit test loads the built app's `Info.plist` (both identities: run it under `scripts/build.sh test` and
-`HQ_IDENTITY=original scripts/build.sh test`) and asserts `UIBackgroundModes == ["audio", "remote-notification", "fetch"]` (`audio` since 2026-10-27, for a live voice
-conversation: 3x-talk-background.md; `fetch` since 2026-11-19, the widgets' refresh) and
-`BGTaskSchedulerPermittedIdentifiers == ["ai.hermes.hq.widgets.refresh"]`; a UI test backgrounds the app with events pending and asserts the stand-in
+`HQ_IDENTITY=original scripts/build.sh test`) and asserts `UIBackgroundModes == ["audio", "remote-notification"]` (`audio` since 2026-10-27, for a live voice
+conversation: 3x-talk-background.md) and no
+`BGTaskSchedulerPermittedIdentifiers`; a UI test backgrounds the app with events pending and asserts the stand-in
 gateway received an upload with `reason == "background"` within 10 s; the app log shows no
 "Background Task … was created over 30 seconds ago" line after a 60 s background.
 
@@ -1544,7 +1538,7 @@ failure with the evidence (screenshot, log excerpt, sink file).
 | D-11.2 | (rev 2) No second power service: offline's `PowerState` / `PowerPolls` are extended, settings' names are reused; revision 1's `HermesKit/System/PowerState.swift` and `PowerTimer` are dropped. |
 | D-12.1 | (rev 2) The memory-warning test hooks are talk's `-HQDebugMemoryWarningAfter` plus one Darwin notification `hqn.memory.warn`; no new bundle-id-named notification. |
 | D-13.3 | (rev 2, resolved) Hardware Return = send came with the ipad stream and is kept; this stream adds only the UI check. |
-| D-14.1 | No new background mode, no BGTaskScheduler (amended 2026-11-19: `fetch` + one identifier for the widgets' refresh). |
+| D-14.1 | No new background mode, no BGTaskScheduler. |
 
 ## 18. Proposed row outcomes (for the Ship agent; this stream does not edit the parity doc)
 

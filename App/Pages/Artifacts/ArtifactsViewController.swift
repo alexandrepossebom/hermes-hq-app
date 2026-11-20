@@ -2675,7 +2675,6 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         var tile: [UIMenuElement] = []
         if pin.isPage { tile.append(tileUpdatesMenu(pin)); tile.append(changeTileAction(pin)); tile.append(versionsAction(pin)) }
         tile.append(TileUpdates.renameAction(pin, pins: pins, from: self))
-        if let home = addToHomeScreenAction(pin) { tile.append(home) }   // [tile-widgets]
         groups.append(UIMenu(options: .displayInline, children: tile))
         // [dashboard] Move to Page (on the Dashboard).
         if let move = movePageMenu(pin) { groups.append(UIMenu(options: .displayInline, children: [move])) }
@@ -2797,28 +2796,6 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         return true
     }
 
-    /// [tile-widgets] A Tile widget's tap (`WidgetRouter`): the tile whose widget key is `widgetKey` opens as a tap on
-    /// it here opens it. False when no pinned tile has that key (unpinned since): the page stays as it is.
-    @discardableResult
-    func openTile(widgetKey: String) -> Bool {
-        guard let pin = pins.pins.first(where: { TileWidgetIndex.key($0.id) == widgetKey }) else { return false }
-        if presentedViewController != nil { presentedViewController?.dismiss(animated: false) }
-        Haptics.play(.soft)
-        open(pin)
-        return true
-    }
-
-    /// [tile-widgets] Add to Home Screen…, from a tile's hold menu or the opened tile's (iPhone and iPad).
-    func addToHomeScreenAction(_ pin: ArtifactPin, from host: (() -> UIViewController?)? = nil) -> UIAction? {
-        guard TileWidgetWriter.enabled, pin.isPage, pin.gatewayPath != nil else { return nil }
-        let action = UIAction(title: "Add to Home Screen…", image: UIImage(systemName: "apps.iphone.badge.plus")) { [weak self] _ in
-            guard let self else { return }
-            AddToHomeScreenSheet.present(pin: pin, name: self.pins.name(pin), from: host?() ?? self)
-        }
-        action.accessibilityIdentifier = "tile.add-to-home-screen"
-        return action
-    }
-
     /// [pins] A pin opens as it is now: a page live (read again, its scripts running), a picture in the viewer,
     /// anything else as Artifacts opens it.
     private func open(_ pin: ArtifactPin) {
@@ -2847,10 +2824,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                     guard let host else { start(); return }
                     host.dismiss(animated: true, completion: start)
                 }
-                // [tile-widgets] Add to Home Screen… beside its other tile actions, the sheet over the opened tile.
-                var actions: [UIMenuElement] = [change, versions]
-                if let home = self.addToHomeScreenAction(pin, from: { [weak host] in host }) { actions.append(home) }
-                return UIMenu(children: [updates, UIMenu(options: .displayInline, children: actions)])
+                return UIMenu(children: [updates, UIMenu(options: .displayInline, children: [change, versions])])
             })
             // [live-tiles] Its buttons go to the tile's bot, as on the Tiles page (a page opened from Tiles has no chat).
             tile.botName = PagesNames.botName(pin.profile, bots: services?.bots ?? [])
@@ -3364,16 +3338,6 @@ extension ArtifactsViewController {
         }
         collectionView.selectItem(at: path, animated: false, scrollPosition: [])
         collectionView(collectionView, didSelectItemAt: path)
-    }
-
-    /// [tile-widgets] Every page artifact pinned, oldest first so the newest ends up first (once they have loaded).
-    func debugPinPages(tries: Int = 15) {
-        let pages = records.values.filter { ["html", "htm"].contains(ArtifactFiles.fileExtension($0.value)) }
-        guard !pages.isEmpty else {
-            if tries > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.debugPinPages(tries: tries - 1) } }
-            return
-        }
-        debugPin(pages.map(\.label).sorted().reversed())
     }
 
     /// Pins the artifacts named `labels` that aren't pinned yet (the Tiles page then has tiles to show).

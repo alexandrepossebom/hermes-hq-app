@@ -231,26 +231,6 @@ struct TodoViewsTests {
         #expect(stale.note == "Added by Hermes · Oct 20" && stale.tone == .plain)
     }
 
-    /// [tasks-calm] Quiet ink (owner 2026-11-19, pick A): the line beside the bot's face leaves its name off, and every
-    /// task a bot is on has one, so its face has one place.
-    @Test func theLineBesideTheFaceLeavesTheNameOff() {
-        #expect(row(task("a", who: "together", bot: "default", status: "ready", note: "Number and a Dec 9 slot"), .today).said
-                    == "Number and a Dec 9 slot")
-        #expect(row(task("a", who: "together", bot: "default", status: "ready"), .today).said == "Finished its part")
-        let asks = row(task("a", who: "bot", bot: "research", status: "needs_you", note: "What’s the budget?"), .waiting)
-        #expect(asks.said == "What’s the budget?" && asks.tone == .needsYou)
-        #expect(row(task("a", who: "bot", bot: "research", status: "needs_you"), .waiting).said == "Needs you")
-        let working = row(task("a", who: "together", bot: "default", status: "working", note: "Filling in the form"), .today)
-        #expect(working.said == "Working on it" && working.note == nil, "VoiceOver still hears the dot's words")
-        #expect(row(task("a", who: "together", bot: "default"), .open).said == "Not started yet")
-        #expect(row(task("a", who: "bot", bot: "finance", status: "working", note: "3 of 5 accounts"), .bot("finance")).said == "3 of 5 accounts")
-        // A task of yours alone has no line; Still Need These? keeps who added it, whole.
-        #expect(row(task("a"), .open).said == nil)
-        #expect(row(task("a", created: "2026-10-20T08:00:00-05:00", by: "default"), .stale).said == "Added by Hermes · Oct 20")
-        // Done: no line.
-        #expect(row(task("a", who: "together", bot: "default", status: "done", doneAt: "2026-11-04T08:00:00-06:00"), .done).said == nil)
-    }
-
     @Test func headingsAndEmptyWords() {
         #expect(TodoViews.heading(.overdue, now: Self.now, botName: name)?.title == "Overdue")
         #expect(TodoViews.heading(.waiting, now: Self.now, botName: name)?.title == "Waiting on You")

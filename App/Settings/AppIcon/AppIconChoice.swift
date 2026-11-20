@@ -51,11 +51,6 @@ nonisolated struct AppIconChoice: Identifiable, Hashable, Sendable {
         AppIconChoice(id: "AppIcon-Shapes", title: "Shapes", art: .shapes),
         AppIconChoice(id: "AppIcon-Matrix", title: "Matrix", art: .matrix),
         AppIconChoice(id: "AppIcon-Robot", title: "Robot", art: .robot),
-        AppIconChoice(id: "AppIcon-Flux", title: "Flux", art: .picture),
-        AppIconChoice(id: "AppIcon-Afterimage", title: "Afterimage", art: .picture),
-        AppIconChoice(id: "AppIcon-ReplyCut", title: "Reply Cut", art: .picture),
-        AppIconChoice(id: "AppIcon-Turntaking", title: "Turntaking", art: .picture),
-        AppIconChoice(id: "AppIcon-Swoop", title: "Swoop", art: .picture),
     ]
 
     /// The name iOS knows the icon by in `look`: "AppIcon-Feather-Dark" for the feather pinned dark.

@@ -103,7 +103,6 @@ targets:
       - ShareExtension/SharePictures.swift   # [share] only so the unit tests can exercise it
       - TalkActivityKit     # [talk-background] the Live Activity's state and buttons (the widget extension draws it)
       - LiveKit             # [live] a reply's or a job's Live Activity (the same widget extension draws it)
-      - HomeWidgetsKit      # [tile-widgets] the Home Screen widgets' store, links and settings (the same extension draws them)
     dependencies:
       - package: Markdown
       - package: WallpaperArt   # [backdrop]
@@ -201,9 +200,6 @@ targets:
       - LiveKit
       - path: Shared/PushSeal.swift
       - path: Shared/LiveStepsSeal.swift
-      # [tile-widgets] The Tile and Tasks widgets read what the app writes in its own Keychain group (the entitlement
-      # below already lists it): no App Group, no new App ID.
-      - HomeWidgetsKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HQ_APP_BUNDLE_ID).talk

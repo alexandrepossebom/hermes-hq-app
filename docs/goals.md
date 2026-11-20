@@ -289,7 +289,8 @@ Anything with a bot (steps 3 to 5).
 
 ## Step 3: a bot on a goal (boards 3 and 5; hermes-hq-push 0.9.66)
 ### Edit Goal (`GoalEditSheet`, `GoalTeamRows`)
-- **Edit Goal** gains, only with `goal_bots`: **Led By** (a bot, or No One), **Helpers** (bots, not the lead), **Check-in**
+- **Edit Goal** gains, only with `goal_bots`: **Led By** (a bot, or No One), **Helpers** (bots, not the lead; step 6 puts
+  one **Bots** row, the team sheet, in place of these two), **Check-in**
   (Off, or a weekday and time), **New Tasks** (Ask First / Add Without Asking), **Number From** (You, or a bot and what it
   reads; only with a number), **Tell My Other Bots**. Under Led By: "The lead plans, checks in and keeps the goal's page.
   Helpers take tasks." Under Tell My Other Bots: "Other bots know this goal's name and why, so they can point things to
@@ -297,10 +298,10 @@ Anything with a bot (steps 3 to 5).
 - Words: `GoalBots.reviewWords` ("Mondays 8 AM", "Off"), `GoalBots.numberFromWords` ("TestFlight · Hermes", "You").
 
 ### New Goal with a bot (`NewGoalSheet`, `GoalChats`)
-- **New Goal** gains a "Plan With <Bot>" button in its row: a menu of your bots and No One, off by default. With a
-  bot, Add makes the goal led by that bot, opens the goal's page with its chat, and sends the plan request as a hidden
-  first turn (the goal's details for the bot, `GoalBots.planRequest`; your bubble shows nothing you didn't type), as New
-  Task with a bot does.
+- **New Goal** gained a "Plan With <Bot>" button in its row: a menu of your bots and No One, off by default (step 6
+  puts a Who's helping? row in its place, below). With a bot, Add makes the goal led by that bot, opens the goal's
+  page with its chat, and sends the plan request as a hidden first turn (the goal's details for the bot,
+  `GoalBots.planRequest`; your bubble shows nothing you didn't type), as New Task with a bot does.
 
 ### A goal with a lead (`GoalPage`, `GoalChatPage`, `GoalTeamViews`)
 - **A goal with a lead is a goal's page with a teammate on it**, exactly as a task with a bot (docs/tasks.md step 2):
@@ -353,6 +354,49 @@ answered elsewhere says so, "Answered" after a day.
 - **The Mac's two panes**: a goal with a lead opens with the goal in the centre and its chat as the right-hand pane
   (`MacInspector.followTask`'s pattern, ◨ and ⌘I close it, its own open state `HQMacGoalChatShown`); a goal with no bot
   has no pane.
+
+## Step 6: a goal gets a bot planning it, and bots are one tap away (2026-11-19)
+Only with an add-on that says `goal_bots`; without it nothing here shows. The owner made a first real goal on the
+shipped build, a number and no date, and said nothing happened: they had expected a bot to start planning it. Plan With
+was off and easy to miss, and nothing else offered a plan. After that build: there was no easy way to add a bot, or a
+team of bots, to a goal (it was three levels down: hold the card › Edit Goal › Led By, then Helpers).
+- **New Goal asks who is helping, in the sheet itself** (`NewGoalView.whoRow`). The owner, next: you should also be
+  asked which bot you want when you make the goal. Under the why line, headed **Who's helping?**: one chip per bot of
+  yours with its face and name (the row scrolls sideways when they don't fit), and a last chip **Just Me**. A tap puts a
+  bot on the goal (a ticked chip is filled); the first ticked leads and its chip says "Leads" under the name; a
+  helper's chip has a small menu (and a hold) with **Make Lead**, and the two swap. Just Me unticks them all. Under the
+  row one quiet line says what Add will do (`GoalPlanWith.note`): "Hermes will offer a plan when you add this." /
+  "Hermes leads. Research helps." / "No bot. You can add one later." Add makes the goal with that lead and those
+  helpers (one PATCH after the POST) and, with a lead, opens its chat and asks for the plan. The old Plan With button
+  in the buttons row is gone (the date and Number stay there).
+- **It starts on** (`GoalPlanWith.start`): the root bot (profile `default`) leading the first time, else your first
+  bot; after that what was picked last on this device (`GoalPlanWithMemory`), the whole team, Just Me included, so
+  someone who wants plain goals says so once and the question is always answered on screen before Add. A remembered bot
+  that is gone drops out; with none left it is the first time again.
+- **The Bots row** on every goal's page, right under the date row, always there (with at least one bot of yours):
+  "Just Me" with **Add Bots** at its end in the accent colour; with bots, the "Led by Hermes" row with the faces and
+  the check-in's slot. A tap opens the team sheet. It is also the first row of the card's hold menu and of ⋯ ("Add
+  Bots…" / "Bots…"), and Edit Goal has one **Bots** row (the same sheet) in place of Led By and Helpers.
+- **The team sheet** (`GoalTeamSheet`, the quick add's shape): every bot of yours as a row with its face, name and a
+  tick. The first ticked leads ("Leads" at its row's end); any other ticked bot has **Make Lead** (the two swap);
+  unticking the lead makes the next ticked bot the lead (`GoalTeamPick`). Under the list: "The lead plans and checks in
+  each week. The others take tasks." Then the check-in's day and time (with a lead), and **Done**. Each change saves as
+  you make it (`lead`, `helpers`), one PATCH after another so quick ticks never meet a 409. VoiceOver: "Hermes, on
+  this goal, leads" / "Research, on this goal" / "Finance, not on this goal", with Make Lead as an action.
+- **A new first lead on a goal with no plan is asked for one** (`GoalPlanAsk.asksNewLead`): no milestones, no open task
+  under it, no plan offer waiting, active. When the team sheet or Edit Goal closes on such a goal that had no lead when
+  it opened, the goal reopens on its chat (`TasksHub.openGoal(_:chat:plan:)`) and the lead is sent the same hidden
+  `GoalBots.planRequest` as New Goal's, your bubble the goal's name. A goal that has a plan is not asked; the team
+  sheet opened over Edit Goal leaves the asking to Edit Goal's close.
+- **A goal with a lead and no plan says so** (`GoalPlanAsk.showsAsk`): where the milestones would be, "No plan yet" and
+  one button, **Ask <Bot> for a Plan**, which gives the chat the screen and sends the same request. Hidden while a plan
+  offer for the goal waits; gone once it has a milestone or a task.
+- **Never twice in a minute** (`GoalPlanGuard`, `GoalPlanAsks`): the same ask for one goal is not sent again within 60
+  seconds (a double tap, Edit Goal then the button); the button says "Already asked Hermes for a plan."
+- Guards: unit `GoalTeamTests`; UI (UITests/pages/TasksGoalTeamUITests.swift, the stand-in's `plain_goals`):
+  `testTasks_GoalBotsRow`, `testTasks_NewGoalWhosHelping`, `testTasks_GoalEditGivesALead`,
+  `testTasks_GoalAskForAPlan`; and `testTasks_GoalEditTeam` / `testTasks_GoalPlanWithBot` moved to the team sheet and
+  the Who's helping? row that starts on the root bot.
 
 ### Guards (steps 3 to 5)
 - Unit: `GoalBotsTests` (decoding every new field and a 0.9.65 goal, every offer kind, the stall rule from each side,
