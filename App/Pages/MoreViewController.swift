@@ -384,12 +384,13 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
         }
     }
 
-    /// Opens a row by its id (launch hooks, tests).
-    func open(rowId: String) {
+    /// Opens a row by its id (launch hooks, tests). Returns the page it opened (nil: no such row yet).
+    @discardableResult func open(rowId: String) -> UIViewController? {
         guard let section = current.first(where: { $0.rows.contains { $0.id == rowId } }),
-              let page = section.rows.first(where: { $0.id == rowId })?.make() else { return }
+              let page = section.rows.first(where: { $0.id == rowId })?.make() else { return nil }
         opened = (section.section.id + "/" + rowId, Weak(page: page))
         navigationController?.pushViewController(page, animated: true)
+        return page
     }
 
     #if targetEnvironment(macCatalyst)
@@ -421,6 +422,12 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
     /// The last page a row opened, with that row's item.
     private var opened: (item: String, page: Weak)?
     private struct Weak { weak var page: UIViewController? }
+    /// [goals step 4] The page a row opened, while it is still on screen. With two panes (an iPad) More stays the left
+    /// pane's top and its page shows in the right one, so an alert's open path finds Tasks here (`TasksHub.showPage`).
+    var openedPageOnScreen: UIViewController? {
+        guard let page = opened?.page.page, page.viewIfLoaded?.window != nil else { return nil }
+        return page
+    }
 
     /// Marks the row whose page is `page` (the right pane's root); nil, or a page More did not open, clears it.
     func markOnShow(_ page: UIViewController?, keepsSelection: Bool) {

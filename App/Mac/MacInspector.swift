@@ -55,10 +55,10 @@ final class MacInspector: UIViewController {
         get {
             // [tasks-first] Beside a task the pane is the bot's conversation: open unless it was closed there. Its
             // own switch, so closing the inspector beside a chat doesn't hide a task's teammate (and the other way).
-            if taskMode { return UserDefaults.standard.object(forKey: taskShownKey) as? Bool ?? true }
+            if taskMode { return UserDefaults.standard.object(forKey: paneKey) as? Bool ?? true }
             return UserDefaults.standard.bool(forKey: shownKey)
         }
-        set { UserDefaults.standard.set(newValue, forKey: taskMode ? taskShownKey : shownKey) }
+        set { UserDefaults.standard.set(newValue, forKey: taskMode ? paneKey : shownKey) }
     }
 
     private(set) var shownTab: Tab = Tab(rawValue: UserDefaults.standard.integer(forKey: tabKey)) ?? .info
@@ -68,16 +68,21 @@ final class MacInspector: UIViewController {
     /// bot's name, in place of the tabs.
     private var taskChat: ChatViewController?
     private static var taskMode = false
-    private static let taskShownKey = "HQMacTaskChatShown"
+    static let taskShownKey = "HQMacTaskChatShown"
+    /// [goals step 5] Beside a goal with a lead: its own open state, apart from a task's.
+    static let goalShownKey = "HQMacGoalChatShown"
+    private static var paneKey = taskShownKey
     private let taskTitle = UILabel()
 
-    /// The task on show has a bot (or none, or no task is on show): its chat fills the pane.
-    func followTask(_ next: ChatViewController?, name: String) {
+    /// The task on show has a bot (or none, or no task is on show): its chat fills the pane. [goals step 5] A goal with
+    /// a lead does the same, with `shownKey` its own.
+    func followTask(_ next: ChatViewController?, name: String, shownKey: String = MacInspector.taskShownKey) {
         guard next !== taskChat else { return }
         let was = Self.isShown
         clear()
         taskChat = next
         Self.taskMode = next != nil
+        if next != nil { Self.paneKey = shownKey }
         taskTitle.text = name
         if isViewLoaded {
             followLook()

@@ -36,7 +36,8 @@ extension AppModel {
             guard let host = FailureAlert.topmost(MainTabController.current) else { return }
             DraftsStore.open(id, from: host)
         }
-        hub.openTask = { [weak self] id, _ in self?.openNotifiedTask(id) }   // [tasks]
+        // [tasks] A task's alert; [goals step 4] a check-in's push opens its goal. Both through the guarded route.
+        hub.openTask = { [weak self] id, _ in self?.openNotifiedTask(id) }
         hub.answerLocal = { [weak self] request, approve in
             guard let center = self?.serverRequests else { return }
             Task {
@@ -527,7 +528,7 @@ extension AppModel {
             return
         }
         root.presentedViewController?.dismiss(animated: false)
-        TasksHub.open(taskID: id)
+        if let goal = GoalBots.pushedGoal(id) { TasksHub.openGoal(goal) } else { TasksHub.open(taskID: id) }
     }
 
     /// The tabs are on screen (AppDelegate.showApp): a tapped alert's chat that was waiting for them opens now, unless

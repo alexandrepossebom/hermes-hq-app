@@ -88,10 +88,11 @@ import Testing
         let rows = store.sessions
         await store.refreshPullRequests(for: rows)
         #expect(store.pullRequest(profile: "other", id: "same")?.label == "PR status unknown")
+        // [pr-instant] No answer this time (Hermes restarting, offline): what it last said stays.
         client.onREST { _, _, _, _ in throw HTTPError(status: 503, body: nil) }
         await store.refreshPullRequests(for: rows, force: true)
         let failed = try #require(store.pullRequest(profile: "ivy", id: "same"))
-        #expect(failed.state == .unknown && failed.repo == nil && failed.url == nil)
+        #expect(failed.state == SessionPRStatus.State.none && failed.repo == "owner/repo")
         let missing = SessionSummary(id: "missing", profile: "ivy", title: "", preview: nil, lastActive: nil,
                                      source: nil, unread: false, isRunning: false)
         await store.refreshPullRequests(for: [missing], force: true)
@@ -213,6 +214,53 @@ import Testing
 
     nonisolated private static let prReposPath = "/api/plugins/hermes-hq-push/sessions/pr-repos"
     nonisolated private static let prMarkPath = "/api/plugins/hermes-hq-push/sessions/pr-mark"
+
+    /// [pr-instant] The marks are there the moment the app opens: the last answers are kept on disk and drawn before
+    /// anything is asked; a chat whose status wasn't known isn't kept; chunks are asked for together.
+    @Test func marksAreDrawnAtLaunchFromTheLastAnswers() async throws {
+        let dir = BotsTest.tempDirectory()
+        func row(_ id: String) -> JSONValue {
+            var value = Self.srow(id).object!
+            value["cwd"] = "/code/repo"
+            return .object(value)
+        }
+        let sidebar = Self.sidebar([row("merged"), row("draft"), row("unknown")])
+        let client = BotsFakeGatewayClient()
+        client.onREST { method, _, _, _ in
+            if method == "GET" { return sidebar }
+            return Data("{\"sessions\":[{\"profile\":\"ivy\",\"id\":\"merged\",\"state\":\"merged\",\"number\":7,\"url\":\"https://github.com/o/r/pull/7\"},{\"profile\":\"ivy\",\"id\":\"draft\",\"state\":\"draft\",\"branch\":\"feat/x\",\"manual\":false},{\"profile\":\"ivy\",\"id\":\"unknown\",\"state\":\"unknown\"}]}".utf8)
+        }
+        let store = makeStore(client, dir: dir)
+        #expect(await BotsTest.waitUntil { store.sessions.count == 3 })
+        store.projectsByProfile["ivy"] = [SessionProject(id: "p", label: "Code", root: "/code/repo", paths: ["/code/repo"])]
+        store.setCodingProject("/code/repo", true)
+        await store.refreshPullRequests(for: store.sessions, force: true)
+        #expect(store.pullRequest(profile: "ivy", id: "merged")?.state == .merged)
+        store.stop()
+        RosterDiskWriter.shared.flush()
+
+        // The next launch, with a gateway that hasn't answered anything yet.
+        let quiet = BotsFakeGatewayClient()
+        quiet.onREST { _, _, _, _ in try await Task.sleep(for: .seconds(30)); return Data() }
+        let next = makeStore(quiet, dir: dir, autoStart: false)
+        let merged = try #require(next.pullRequest(profile: "ivy", id: "merged"))
+        #expect(merged.state == .merged && merged.number == 7 && merged.url?.host == "github.com")
+        #expect(next.pullRequest(profile: "ivy", id: "draft")?.branch == "feat/x")
+        #expect(next.pullRequest(profile: "ivy", id: "unknown") == nil)          // never a kept "?"
+        #expect(prChecks(quiet) == 0)
+        next.stop()
+
+        // 70 chats: three requests in flight together, not one after another.
+        let wide = BotsFakeGatewayClient()
+        wide.onREST { _, _, _, _ in try await Task.sleep(for: .milliseconds(300)); return Data("{\"sessions\":[]}".utf8) }
+        let wideStore = makeStore(wide, autoStart: false)
+        let rows = (0..<70).map { SessionSummary(id: "\($0)", profile: "ivy", title: "", preview: nil, lastActive: nil,
+                                                 source: nil, unread: false, isRunning: false) }
+        let asking = Task { await wideStore.refreshPullRequests(for: rows) }
+        #expect(await BotsTest.waitUntil(.milliseconds(250)) { prChecks(wide) == 3 })
+        await asking.value
+        wideStore.stop()
+    }
 
     @Test func pullRequestDiscoveryIsScopedAndCached() async throws {
         let client = BotsFakeGatewayClient()

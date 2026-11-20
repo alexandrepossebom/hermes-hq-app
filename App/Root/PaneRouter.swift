@@ -273,8 +273,13 @@ extension MainTabController {
         split?.inspector.follow(double ? root as? ChatViewController : nil)   // [mac-layout] the inspector shows the chat beside it
         // [tasks-first] Step 5: beside a task's page the pane is the bot's conversation.
         let taskModel = double ? (root as? TodoSheetHost)?.model : nil
-        split?.inspector.followTask(taskModel?.split == true ? taskModel?.keptChat : nil,
-                                    name: taskModel?.task.map { taskModel?.botName(taskModel?.chatBot($0)) ?? "" } ?? "")
+        let goalModel = double ? (root as? GoalPageHost)?.model : nil   // [goals step 5] beside a goal: its lead's chat
+        if let goalModel, goalModel.split {
+            split?.inspector.followTask(goalModel.keptChat, name: goalModel.botName(goalModel.goal?.lead), shownKey: MacInspector.goalShownKey)
+        } else {
+            split?.inspector.followTask(taskModel?.split == true ? taskModel?.keptChat : nil,
+                                        name: taskModel?.task.map { taskModel?.botName(taskModel?.chatBot($0)) ?? "" } ?? "")
+        }
         #endif
         // The placeholder takes the background of the list beside it, and drops "Choose an item" beside an empty one.
         (root as? DetailPlaceholderViewController)?.follow(list: (selectedViewController as? UINavigationController)?.topViewController)

@@ -14,15 +14,22 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         case offers, keeper, week, group(TodoGroupKind), empty, ideas, skeleton
         /// [goals] The Goals view: a group of goal cards, then "+ New Goal" (or what a goal is, with none).
         case goals(GoalGroupKey), goalsFoot
+        /// [goals] Step 2: Today's Goals shelf, over everything else in Today.
+        case shelf
     }
     /// [goals] The Goals view's groups (docs/goals.md "The Goals view").
-    nonisolated enum GoalGroupKey: String, Hashable { case active, someday, achieved, letGo }
+    /// `found`: a search's Goals group (any status), over its To Do and Done.
+    nonisolated enum GoalGroupKey: String, Hashable { case active, someday, achieved, letGo, found }
     private nonisolated enum Item: Hashable {
         case task(String), skeleton(Int), week, viewEmpty(String)
         /// [goals] A goal's card (its id), "+ New Goal", and the view with no goals.
         case goal(String), newGoal, goalsEmpty
+        /// [goals] Step 2: the shelf (its heading and cards, one cell).
+        case shelf
         /// [task-lists] A bot's offer (its id), the line naming a list's bot, and "4 more in Work" (the list's id).
         case offer(String), keeper(String), more(String)
+        /// [goals step 3] A bot's offer for a goal (its id): one at a time at the top of Today, under any list offer.
+        case goalOffer(String)
         case ideaHead, idea(String), ideaNote(TaskIdeasNote)
     }
 
@@ -45,6 +52,9 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     /// The offers' cards on show, and the ones whose answer is on its way.
     private var offerCards: [String: TaskOfferCardModel] = [:]
     private var answering: Set<String> = []
+    /// [goals step 3] Today's goal offer card, and the one answered here (kept with its Undo until you leave Today).
+    private var goalOfferCards: [String: GoalOfferCardModel] = [:]
+    private var goalOfferKept: String?
     /// Upcoming's week strip.
     private var week: [TodoWeekStrip.Day] = []
     /// The day picked on it ("2026-11-14"): the list holds that day alone. nil: every coming day.
@@ -85,6 +95,9 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private var goalCards: [String: GoalCardModel] = [:]
     private var goalGroups: [(GoalGroupKey, [String])] = []
     private var goalFoldsOpen: Set<GoalGroupKey> = []
+    /// [goals] Step 2: the shelf's cards on show.
+    private var shelfCards: [GoalShelfCard] = []
+    private var shownShelfCards: [GoalShelfCard] = []
     /// Ideas being added (their buttons wait for the gateway).
     private var addingIdeas: Set<String> = []
     private var shownIdeaCards: [String: TaskIdeaCardModel] = [:]
@@ -446,6 +459,16 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
         }
+        let goalOfferCell = UICollectionView.CellRegistration<SoftCardListCell, String> { [weak self] cell, _, id in
+            guard let self, let card = self.goalOfferCards[id] else { return }
+            cell.contentConfiguration = UIHostingConfiguration {
+                GoalOfferCard(model: card, enabled: !self.store.readOnlyGateway,
+                              tap: { [weak self] button in self?.answerGoalOffer(id, button) },
+                              undo: { [weak self] in self?.undoGoalOffer(id) },
+                              more: { [weak self] in self?.showGoalOffer(id) })
+            }.margins(.all, 0)
+            cell.backgroundConfiguration = .clear()
+        }
         let keeperCell = UICollectionView.CellRegistration<SoftCardListCell, String> { cell, _, text in
             cell.contentConfiguration = UIHostingConfiguration { TaskKeeperRow(text: text) }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
@@ -480,6 +503,23 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
         }
+        // [goals] Step 2: Today's Goals shelf (its heading and its row of cards, one cell).
+        let shelfCell = UICollectionView.CellRegistration<SoftCardListCell, Item> { [weak self] cell, _, _ in
+            guard let self else { return }
+            cell.contentConfiguration = UIHostingConfiguration {
+                GoalShelfView(cards: self.shelfCards, folded: GoalShelfFold.folded,
+                              toggle: { [weak self] in self?.toggleShelf() },
+                              open: { [weak self] id in PagesHaptics.selection(); self?.openGoal(id) },
+                              all: { [weak self] in PagesHaptics.selection(); self?.show(.goals) },
+                              look: GoalTeamLook(bots: self.bots))
+            }
+            .margins(.all, 0)
+            // Folded, the line is shorter than a list row's least height: without this the row kept that height and
+            // centred "Goals 3" in it, so the heading dropped 6 pt as the cards folded away.
+            .minSize(height: 0)
+            cell.backgroundConfiguration = .clear()
+            cell.accessibilityIdentifier = "goals.shelf.cell"
+        }
         let skeletonCell = UICollectionView.CellRegistration<SoftCardListCell, Int> { cell, _, _ in
             cell.contentConfiguration = UIHostingConfiguration { PageSkeletonRow() }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
@@ -499,11 +539,13 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             case .week: return cv.dequeueConfiguredReusableCell(using: weekCell, for: path, item: item)
             case .viewEmpty(let text): return cv.dequeueConfiguredReusableCell(using: emptyCell, for: path, item: text)
             case .offer(let id): return cv.dequeueConfiguredReusableCell(using: offerCell, for: path, item: id)
+            case .goalOffer(let id): return cv.dequeueConfiguredReusableCell(using: goalOfferCell, for: path, item: id)
             case .keeper(let text): return cv.dequeueConfiguredReusableCell(using: keeperCell, for: path, item: text)
             case .more(let id): return cv.dequeueConfiguredReusableCell(using: moreCell, for: path, item: id)
             case .goal(let id): return cv.dequeueConfiguredReusableCell(using: goalCell, for: path, item: id)
             case .newGoal: return cv.dequeueConfiguredReusableCell(using: newGoalCell, for: path, item: item)
             case .goalsEmpty: return cv.dequeueConfiguredReusableCell(using: goalsEmptyCell, for: path, item: item)
+            case .shelf: return cv.dequeueConfiguredReusableCell(using: shelfCell, for: path, item: item)
             }
         }
         dataSource.supplementaryViewProvider = { cv, _, path in cv.dequeueConfiguredReusableSupplementary(using: header, for: path) }
@@ -604,7 +646,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         let now = Date()
         let scoped = scope.effective(bots: bots)
         let all = store.tasks
-        let visible = TodoSections.filtered(all, scope: scoped, query: query)
+        let visible = TodoSections.filtered(all, scope: scoped, query: query, goals: store.goals)
         let heads = Dictionary(bots.map { ($0.id, $0.head) }, uniquingKeysWith: { first, _ in first })
         let listShown = store.hasList && !store.needsAddOn
         settleView(tasks: all)
@@ -645,6 +687,20 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                                           buttons: TodoLists.offerButtons(offer), busy: answering.contains(offer.id),
                                           color: TodoLists.color(store.sections.first { $0.id == offer.section })))
         }, uniquingKeysWith: { first, _ in first })
+        // [goals step 3] One goal offer at the top of Today (the oldest first), under the list offers; one answered here
+        // stays with its Undo until you leave Today.
+        let previousGoalOffers = goalOfferCards
+        var goalOffer: TodoOffer?
+        if current == .today, store.goalBotsSupported, !searching, !selecting {
+            if let kept = goalOfferKept, let offer = store.offers.first(where: { $0.id == kept }) ?? TodoOfferStates.live(kept).offer,
+               !offer.isWaiting || answering.contains(kept) {
+                goalOffer = offer
+            } else {
+                goalOfferKept = nil
+                goalOffer = GoalOffers.today(store.offers, goals: store.goals)
+            }
+        }
+        goalOfferCards = goalOffer.map { [$0.id: goalOfferCard($0)] } ?? [:]
         var nextRows: [String: TodoRowModel] = [:]
         // A task ticked here stays where it was until it moves (a moment later), so the tick shows first.
         for group in made {
@@ -664,10 +720,21 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             snapshot.appendItems((0..<8).map { .skeleton($0) }, toSection: .skeleton)
         }
         var ideasShown = false
+        var goalsFound = false
         if listShown {
-            if !waiting.isEmpty {
+            if !waiting.isEmpty || goalOffer != nil {
                 snapshot.appendSections([.offers])
-                snapshot.appendItems(waiting.map { .offer($0.id) }, toSection: .offers)
+                snapshot.appendItems(waiting.map { .offer($0.id) } + (goalOffer.map { [.goalOffer($0.id)] } ?? []), toSection: .offers)
+            }
+            // [goals] Step 2: the Goals shelf (its active goals, your order) leads Today; [goals step 3] a waiting offer (a
+            // list's, then one goal's, as the check-in on board 4) stands over it.
+            if GoalShelf.shows(view: current, searching: searching, scope: scoped, goalsSupported: store.goalsSupported, goals: store.goals) {
+                shelfCards = GoalShelf.cards(store.goals, tasks: all, now: now, bots: store.goalBotsSupported, offers: store.offers,
+                                             keptHere: GoalKeptHere.all)
+                snapshot.appendSections([.shelf])
+                snapshot.appendItems([.shelf], toSection: .shelf)
+            } else {
+                shelfCards = []
             }
             // A list a bot keeps says so in one quiet line, in words (a face on a row means the bot is on that task).
             if !searching, let id = currentList, let list = store.sections.first(where: { $0.id == id }),
@@ -679,6 +746,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                 snapshot.appendSections([.week])
                 snapshot.appendItems([.week], toSection: .week)
             }
+            // [goals] Step 2: a search's Goals group first (the Goals view's cards, any status), then To Do and Done.
+            goalsFound = searching && appendFoundGoals(to: &snapshot, now: now, scope: scoped)
             let open = doneOpen || searching
             for (kind, ids) in groups {
                 snapshot.appendSections([.group(kind)])
@@ -687,7 +756,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             }
             // [goals] The Goals view: its cards, not tasks.
             let goalsShown = current == .goals && !searching
-            if goalsShown { appendGoals(to: &snapshot, now: now) } else { goalCards = [:]; goalGroups = [] }
+            if goalsShown { appendGoals(to: &snapshot, now: now) } else if !goalsFound { goalCards = [:]; goalGroups = [] }
             // No tasks at all: every view says so, with New Task (and Inbox's ideas still under it).
             let nothing = groups.isEmpty && !searching && !goalsShown
             if nothing, all.isEmpty {
@@ -709,6 +778,8 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         shownIdeaCards = ideaCards
         let previousGoalCards = shownGoalCards
         shownGoalCards = goalCards
+        let previousShelf = shownShelfCards
+        shownShelfCards = shelfCards
         var changed = snapshot.itemIdentifiers.compactMap { item -> Item? in
             guard case .task(let id) = item, let old = rows[id], old != nextRows[id] else { return nil }
             return item
@@ -719,8 +790,10 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             switch item {
             case .week, .ideaHead, .more: return true
             case .offer(let id): return previousOffers[id] != nil && previousOffers[id] != offerCards[id]
+            case .goalOffer(let id): return previousGoalOffers[id] != nil && previousGoalOffers[id] != goalOfferCards[id]
             case .idea(let id): return previousIdeaCards[id] != nil && previousIdeaCards[id] != ideaCards[id]
             case .goal(let id): return previousGoalCards[id] != nil && previousGoalCards[id] != goalCards[id]
+            case .shelf: return !previousShelf.isEmpty && previousShelf != shelfCards
             default: return false
             }
         }
@@ -750,7 +823,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         scopeItem.isEnabled = live
         moreItem.isEnabled = live
         searchCapsule?.searchItem?.isEnabled = live
-        updateEmptyState(matches: !groups.isEmpty)
+        updateEmptyState(matches: !groups.isEmpty || goalsFound)
         scheduleSkeleton()
         if let started = refreshStarted, !store.loading {
             let wait = max(0, 0.5 - Date().timeIntervalSince(started))
@@ -785,6 +858,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         current = view
         pickedDay = nil
         openIdea = nil
+        goalOfferKept = nil
         guard isViewLoaded else { return }
         if view == .inbox { readIdeas() }
         reload(animated: false)
@@ -868,6 +942,13 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         var model = TodoRowModel.make(task, kind: kind, now: now, botName: name, head: helper.flatMap { heads[$0] ?? nil },
                                       ticking: ticking.contains(task.id), dot: dot, listName: dot == nil ? nil : listName(task.section),
                                       wide: isTable)
+        // [goals] Step 2: a task in an active or paused goal carries the goal's mark in the dot's place, in every view
+        // (inside a list and under "Next in" too, where no dot is drawn).
+        if let goal = GoalViews.markGoal(task, goals: store.goals) {
+            model.goalMark = goal.tint
+            model.goalName = goal.title.isEmpty ? "Untitled Goal" : goal.title
+            model.listDot = nil
+        }
         model.selecting = selecting
         model.picked = picked.contains(task.id)
         return model
@@ -1493,6 +1574,63 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         }
     }
 
+    // MARK: [goals step 3] Today's goal offer
+
+    private func goalOfferCard(_ offer: TodoOffer) -> GoalOfferCardModel {
+        let goal = store.goals.first { $0.id == (offer.goal ?? offer.madeGoal) }
+        let name: (String?) -> String = { [bots] in PagesNames.botName($0 ?? "default", bots: bots) }
+        return GoalOfferCardModel(offer: offer, goal: goal,
+                                  kicker: offer.kind == "checkin" ? GoalOffers.checkinHead(offer, goal: goal, botName: name) : nil,
+                                  botName: name(offer.bot), head: PagesNames.head(offer.bot, bots: bots),
+                                  busy: answering.contains(offer.id), foot: GoalOffers.foot(offer, past: false), lead: goal?.lead,
+                                  names: Dictionary(bots.map { ($0.id, name($0.id)) }, uniquingKeysWith: { a, _ in a }),
+                                  heads: Dictionary(bots.compactMap { bot in bot.head.map { (bot.id, $0) } }, uniquingKeysWith: { a, _ in a }))
+    }
+
+    /// A tap on the goal offer's card: an answer, or Change (the goal's chat takes the cursor).
+    private func answerGoalOffer(_ id: String, _ button: GoalOfferButton) {
+        guard !answering.contains(id), let offer = store.offers.first(where: { $0.id == id }) else { return }
+        guard let action = button.action else {
+            PagesHaptics.selection()
+            if let goal = offer.goal { openGoal(goal, chat: true) }
+            return
+        }
+        guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
+        Haptics.play(.light)
+        answering.insert(id)
+        goalOfferKept = id
+        reload(animated: false)
+        Task {
+            let ok = await store.answerOffer(id, action, plan: button.plan, inGoal: button.inGoal)
+            answering.remove(id)
+            if ok { PagesHaptics.success() } else { PagesHaptics.error() }
+            if !ok { goalOfferKept = nil }
+            reload(animated: !ok)
+            AppLog.note("tasks", "goal offer \(offer.kind) \(action.rawValue): \(ok ? "ok" : "refused")")
+        }
+    }
+
+    private func undoGoalOffer(_ id: String) {
+        guard !answering.contains(id) else { return }
+        Haptics.play(.light)
+        answering.insert(id)
+        goalOfferKept = id
+        reload(animated: false)
+        Task {
+            let ok = await store.answerOffer(id, .undo)
+            answering.remove(id)
+            if ok { PagesHaptics.success() } else { PagesHaptics.error() }
+            reload(animated: false)
+        }
+    }
+
+    private func showGoalOffer(_ id: String) {
+        guard let card = goalOfferCards[id] else { return }
+        PagesHaptics.selection()
+        let name: (String?) -> String = { [bots] in PagesNames.botName($0 ?? "default", bots: bots) }
+        present(GoalOfferAllSheet.make(card.offer, goal: card.goal, botName: name), animated: true)
+    }
+
     private func undoOffer(_ id: String) {
         Haptics.play(.light)
         Task {
@@ -1688,7 +1826,9 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private func appendGoals(to snapshot: inout NSDiffableDataSourceSnapshot<Section, Item>, now: Date) {
         let made = GoalViews.groups(store.goals)
         let tasks = store.tasks
-        goalCards = Dictionary(store.goals.map { ($0.id, GoalCardModel.make($0, tasks: tasks, now: now, ticking: ticking)) },
+        let look = GoalTeamLook(bots: bots), kept = GoalKeptHere.all
+        goalCards = Dictionary(store.goals.map { ($0.id, GoalCardModel.make($0, tasks: tasks, now: now, ticking: ticking, bots: store.goalBotsSupported, offers: store.offers,
+                                                                   look: look, keptHere: kept[$0.id])) },
                                uniquingKeysWith: { first, _ in first })
         let all: [(GoalGroupKey, [Goal])] = [(.active, made.active), (.someday, made.someday), (.achieved, made.achieved), (.letGo, made.letGo)]
         goalGroups = all.filter { !$0.1.isEmpty }.map { key, goals in (key, goals.map(\.id)) }
@@ -1706,8 +1846,28 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         snapshot.appendItems([.newGoal], toSection: .goalsFoot)
     }
 
+    /// [goals] Step 2: a search's "Goals" group, over its To Do and Done: the goals whose name or why holds the words,
+    /// any status, as the Goals view draws them. Not with one bot picked (a goal has no bot yet; the shelf hides the
+    /// same way). True when it added the group.
+    private func appendFoundGoals(to snapshot: inout NSDiffableDataSourceSnapshot<Section, Item>, now: Date, scope scoped: String) -> Bool {
+        goalCards = [:]
+        goalGroups = []
+        guard store.goalsSupported, scoped == PagesScope.all || scoped == PagesScope.me else { return false }
+        let found = GoalViews.found(store.goals, query: query)
+        guard !found.isEmpty else { return false }
+        let tasks = store.tasks
+        let look = GoalTeamLook(bots: bots), kept = GoalKeptHere.all
+        goalCards = Dictionary(found.map { ($0.id, GoalCardModel.make($0, tasks: tasks, now: now, ticking: ticking, bots: store.goalBotsSupported, offers: store.offers,
+                                                                   look: look, keptHere: kept[$0.id])) },
+                               uniquingKeysWith: { first, _ in first })
+        goalGroups = [(.found, found.map(\.id))]
+        snapshot.appendSections([.goals(.found)])
+        snapshot.appendItems(found.map { .goal($0.id) }, toSection: .goals(.found))
+        return true
+    }
+
     private func configureGoalHeader(_ header: UICollectionViewListCell, _ key: GoalGroupKey) {
-        let title = switch key { case .active: "Active"; case .someday: "Someday"; case .achieved: "Achieved"; case .letGo: "Let Go" }
+        let title = switch key { case .active: "Active"; case .someday: "Someday"; case .achieved: "Achieved"; case .letGo: "Let Go"; case .found: "Goals" }
         let count = goalGroups.first { $0.0 == key }?.1.count ?? 0
         var view = TodoGroupHeaderView(title: title, detail: nil, count: count)
         if key == .achieved || key == .letGo {
@@ -1717,6 +1877,17 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         header.contentConfiguration = UIHostingConfiguration { view }.margins(.all, 0)
         header.backgroundConfiguration = .clear()
         header.accessibilityIdentifier = "tasks.section.\(title)"
+    }
+
+    /// [goals] Step 2: a tap on the shelf's "Goals" folds it to its heading, or opens it again (kept on this device).
+    private func toggleShelf() {
+        PagesHaptics.selection()
+        GoalShelfFold.folded.toggle()
+        var snapshot = dataSource.snapshot()
+        guard snapshot.itemIdentifiers.contains(.shelf) else { return }
+        snapshot.reconfigureItems([.shelf])
+        dataSource.apply(snapshot, animatingDifferences: !HQMotion.reduced)
+        HQAnnounce.say(GoalShelfFold.folded ? "Goals hidden" : "Goals shown")
     }
 
     private func toggleGoalFold(_ key: GoalGroupKey) {
@@ -1730,19 +1901,45 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
         guard presentedViewController == nil else { return }
         PagesHaptics.selection()
-        present(NewGoalSheet.make(store: store) { [weak self] goal in
+        present(NewGoalSheet.make(store: store, onCreated: { [weak self] goal in
             guard let self, let goal else { return }
             if self.current != .goals { self.show(.goals) }
             self.reload(animated: true)
             self.openGoal(goal.id)
-        }, animated: true)
+        }, onPlan: { [weak self] goal, typed in
+            // [goals step 3] Plan With: the goal's chat opens and its lead is asked for a plan (your words in the bubble).
+            guard let self else { return }
+            if self.current != .goals { self.show(.goals) }
+            self.reload(animated: true)
+            self.openGoal(goal.id, chat: true, plan: typed)
+        }), animated: true)
     }
 
-    /// A goal's page, as a sheet over the list (as a task's is).
-    func openGoal(_ id: String) {
-        guard store.goal(id) != nil else { notices.show("That goal isn’t there anymore."); return }
+    /// A goal's page, as a sheet over the list (as a task's is). [goals step 3] A goal with a lead opens on its chat
+    /// with the goal over it (`chat`: the chat first, the goal as its bar). [goals step 5] On the Mac's two panes the
+    /// goal takes the centre and, with a lead, its chat the right-hand pane.
+    func openGoal(_ id: String, chat: Bool = false, plan: String? = nil) {
+        guard store.goal(id) != nil || !store.hasList else { notices.show("That goal isn’t there anymore."); return }
         if let presented = presentedViewController { presented.dismiss(animated: false) }
-        present(GoalPage.make(goalID: id, store: store, context: context), animated: true)
+        let ask: (GoalPageModel?) -> Void = { [weak self] model in
+            guard let self, let plan, let model, let chat = model.chat, let goal = self.store.goal(id) else { return }
+            model.sendHidden(GoalBots.planRequest(goal, typed: plan, now: Date()), display: plan, in: chat)
+            AppLog.note("goals", "plan asked of the goal's lead")
+        }
+        #if targetEnvironment(macCatalyst)
+        if (tabBarController as? MainTabController)?.split?.isDouble == true {
+            let page = GoalPage.page(goalID: id, store: store, context: context, beside: true)
+            if isTable { MacDash.closes(page) }
+            openDetail(page, animated: true)
+            let model = GoalPage.model(of: page)
+            if plan != nil { ask(model) } else if chat { model?.chat?.focusComposer() }
+            return
+        }
+        #endif
+        let sheet = GoalPage.make(goalID: id, store: store, context: context, chat: chat)
+        present(sheet, animated: true) {
+            if plan != nil { ask(GoalPage.model(of: sheet.viewControllers.first)) }
+        }
     }
 
     /// [goals] `-HQPagesOpenGoal "<title>"`: the Goals view, then that goal's page.

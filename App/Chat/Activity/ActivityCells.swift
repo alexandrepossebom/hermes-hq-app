@@ -30,6 +30,12 @@ import UIKit
     /// [task-lists] A tap on a bot's offer (Make Work & Add 9, Not Now, Move 3 to Work, Undo); `done` says whether
     /// the gateway took it.
     func activityCellAnswerOffer(id: String, action: TodoOfferAction, list: Bool, done: @escaping (Bool) -> Void)
+    /// [goals step 3] A tap on a goal's card (Use This Plan, Add to Goal, Just Tasks, Keep the Goal, No Plan, Undo).
+    func activityCellAnswerGoalOffer(id: String, action: TodoOfferAction, plan: Bool, inGoal: Bool, done: @escaping (Bool) -> Void)
+    /// [goals step 3] Change It / Change: the goal's chat takes the cursor (this chat, or the goal's own).
+    func activityCellChangeGoalOffer(goal: String?)
+    /// [goals step 3] "2 more ›": the whole card.
+    func activityCellShowGoalOffer(id: String)
 }
 
 enum ActivityCells {
@@ -41,6 +47,7 @@ enum ActivityCells {
         table.register(DiffPreviewCell.self, forCellReuseIdentifier: DiffPreviewCell.reuse)
         table.register(TasksAddedCell.self, forCellReuseIdentifier: TasksAddedCell.reuse)
         table.register(TasksOfferCell.self, forCellReuseIdentifier: TasksOfferCell.reuse)
+        table.register(GoalOfferCell.self, forCellReuseIdentifier: GoalOfferCell.reuse)
     }
 
     static func reuse(for kind: ActivityRowKind) -> String {
@@ -52,6 +59,7 @@ enum ActivityCells {
         case .diffPreview: return DiffPreviewCell.reuse
         case .tasksAdded: return TasksAddedCell.reuse
         case .tasksOffer: return TasksOfferCell.reuse
+        case .goalOffer: return GoalOfferCell.reuse
         }
     }
 }

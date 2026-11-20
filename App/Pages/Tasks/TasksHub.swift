@@ -69,6 +69,10 @@ enum TasksHub {
         center.addObserver(forName: NotificationHub.taskPushed, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { _ = Task { await current?.refresh(force: true) } }
         }
+        // [goals step 3] A chat names a goal's card the app hasn't read: the list is read again (once per card).
+        center.addObserver(forName: TodoOfferStates.wanted, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { _ = Task { await current?.refresh(force: true) } }
+        }
     }
 
     /// Back in front: the list is read (cheap: `?since=` answers `unchanged` when nothing moved). An add-on without
@@ -108,10 +112,17 @@ enum TasksHub {
         if let presented = stack.presentedViewController { presented.dismiss(animated: false) }
         root.selectedIndex = index
         if let page = stack.topViewController as? TasksViewController { return page }
+        // [goals step 4] Two panes (an iPad): Tasks shows in the right pane, beside More, not on More's own stack. A
+        // check-in's push (and a task's alert) found no page there and did nothing.
+        if let page = more.openedPageOnScreen as? TasksViewController {
+            if let stack = page.navigationController, stack.topViewController !== page { stack.popToViewController(page, animated: false) }
+            if let presented = page.presentedViewController { presented.dismiss(animated: false) }
+            return page
+        }
         stack.popToRootViewController(animated: false)
         more.loadViewIfNeeded()
-        more.open(rowId: "tasks")
-        return stack.topViewController as? TasksViewController
+        let opened = more.open(rowId: "tasks")
+        return stack.topViewController as? TasksViewController ?? opened as? TasksViewController
     }
 
     /// A task's alert or a chat card's row: the page, then that task's sheet (`atReply`: at its chat's newest end, for a
@@ -137,6 +148,21 @@ enum TasksHub {
     /// Another place was opened (a chat's alert for a bot's or a Sessions chat): a task still to open after the page's
     /// turn doesn't come up over it.
     static func cancelPendingOpen() { openToken += 1 }
+
+    /// [goals step 3/4] A goal from outside (a check-in's push, a chat card's Change): the Tasks page, then the goal's
+    /// page (`chat`: at its chat, the goal as its bar). False when there is no Tasks page to show.
+    @discardableResult
+    static func openGoal(_ id: String, chat: Bool = false) -> Bool {
+        guard let page = showPage() else { return false }
+        page.loadViewIfNeeded()
+        openToken += 1
+        let token = openToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            guard token == openToken else { return }   // only the newest way in opens
+            page.openGoal(id, chat: chat)
+        }
+        return true
+    }
 
     // MARK: A task's chat named from outside
 
@@ -190,15 +216,17 @@ enum TasksHub {
 
     /// [task-lists] A chat card's answer to a bot's offer. Through the page's store when the chat is on its gateway (the
     /// Tasks page shows the same at once), else straight to that gateway.
-    static func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool, client: (any GatewayClient)?) async -> Bool {
+    static func answerOffer(_ id: String, _ action: TodoOfferAction, list: Bool, plan: Bool = true, inGoal: Bool = true,
+                            client: (any GatewayClient)?) async -> Bool {
         if let context = MorePages.context, client == nil || client === context.client {
             let store = store(context)
             if !store.offers.contains(where: { $0.id == id }) { await store.refresh(force: true) }
-            if store.offers.contains(where: { $0.id == id }) { return await store.answerOffer(id, action, list: list) }
+            if store.offers.contains(where: { $0.id == id }) { return await store.answerOffer(id, action, list: list, plan: plan, inGoal: inGoal) }
         }
         guard let client = client ?? MorePages.context?.client else { return false }
+        let isGoal = TodoOfferStates.live(id).offer?.isGoal == true
         do {
-            let answer = try await TasksAPI(client: client).answerOffer(id, action: action, list: list)
+            let answer = try await TasksAPI(client: client).answerOffer(id, action: action, list: list, goal: isGoal ? (plan, inGoal) : nil)
             if TodoOfferStates.note([answer.offer], whole: false) {
                 NotificationCenter.default.post(name: TodoOfferStates.changed, object: nil)
             }

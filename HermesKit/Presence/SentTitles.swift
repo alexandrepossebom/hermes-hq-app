@@ -35,7 +35,9 @@ nonisolated struct SentTitles: Sendable {
         }
     }
 
-    func title(forStored text: String) -> String? { titles[ChatText.flat(text)] }
+    /// [goals step 3] A goal's Plan With ask carries your words in it, so its bubble keeps them after a relaunch and on
+    /// another device too, with no entry noted here.
+    func title(forStored text: String) -> String? { titles[ChatText.flat(text)] ?? GoalBots.planBubble(forStored: text) }
 
     /// The request a title stands for, when `typed` is exactly one of the titles (whitespace aside).
     func prompt(forTitle typed: String) -> String? {
@@ -46,7 +48,8 @@ nonisolated struct SentTitles: Sendable {
 
     /// Stored rows as the chat shows them: a user row that is one of the titled prompts shows its title.
     func applied(to messages: [ChatMessage]) -> [ChatMessage] {
-        guard !titles.isEmpty else { return messages }
+        guard !titles.isEmpty || messages.contains(where: { $0.role == .user && $0.plainText.hasPrefix(GoalBots.planRequestStart) })
+        else { return messages }
         return messages.map { message in
             guard message.role == .user, let title = title(forStored: message.plainText) else { return message }
             var shown = message

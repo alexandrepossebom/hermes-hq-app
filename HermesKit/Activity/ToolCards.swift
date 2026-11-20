@@ -21,6 +21,10 @@ nonisolated enum ToolCard: Hashable, Sendable {
     /// [task-lists] `tasks_offer`: a list, or a batch of tasks, the bot offers; its card (with the buttons) goes under
     /// the settled reply. Nothing is on your list until you tap.
     case tasksOffer(TodoOffer)
+    /// [goals step 3] `goals_offer` (hermes-hq-push 0.9.66): a goal, a plan, a check-in or tasks for a goal. Its answer
+    /// is the offer's id alone (`{offer: "waiting", id, kind}`); the card reads the offer itself from the Tasks list.
+    /// A held offer (`{held: true}`) is no card.
+    case goalOffer(id: String, kind: String)
 }
 
 /// [tasks] One task a bot added, as the chat card shows it.
@@ -169,6 +173,10 @@ nonisolated enum ToolCards {
             guard var offer = offer(ActivityJSON.object(result)["offer"]) else { return nil }
             offer.tasks = Array(offer.tasks.prefix(TodoOffer.cardTasks))
             return .tasksOffer(offer)
+        case "goals_offer":
+            let record = ActivityJSON.object(result)
+            guard record["offer"]?.string == "waiting", let id = record["id"]?.string, !id.isEmpty else { return nil }
+            return .goalOffer(id: id, kind: record["kind"]?.string ?? "tasks")
         default:
             return nil
         }
@@ -433,6 +441,8 @@ nonisolated extension ToolCard {
         case .tasksOffer(let offer):
             let value = (try? JSONEncoder().encode(offer)).flatMap { try? JSONValue.parse($0) } ?? .null
             return .object(["kind": "offer", "offer": value])
+        case .goalOffer(let id, let kind):
+            return .object(["kind": "goal-offer", "id": .string(id), "offer_kind": .string(kind)])
         }
     }
 
@@ -460,6 +470,9 @@ nonisolated extension ToolCard {
         case "offer":
             guard let offer = ToolCards.offer(json["offer"]) else { return nil }
             self = .tasksOffer(offer)
+        case "goal-offer":
+            guard let id = json["id"]?.string, !id.isEmpty else { return nil }
+            self = .goalOffer(id: id, kind: json["offer_kind"]?.string ?? "tasks")
         default:
             return nil
         }

@@ -294,7 +294,7 @@ struct ProjectPageHeader: View {
                 .help(label)
             }
         }
-        .animation(.snappy(duration: 0.2), value: selectedPR)
+        .animation(HQMotion.swiftUI(.snappy(duration: 0.2)), value: selectedPR)
     }
 
     private func counts(words: Bool, labelActive: Bool = false) -> some View {
