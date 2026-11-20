@@ -290,7 +290,6 @@ final class SessionStore {
     @ObservationIgnored var pendingLine: ((_ profile: String, _ storedId: String) -> SessionPending?)?
     /// Stored ids of chats where a prompt waits for the user.
     @ObservationIgnored var needsInput: Set<String> = []
-    @ObservationIgnored var inputDetails: [String: String] = [:]
     /// When each bot's projects were last asked for, and the asks in the air.
     @ObservationIgnored var projectsReadAt: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored var projectReads: Set<String> = []
@@ -372,8 +371,6 @@ final class SessionStore {
     @ObservationIgnored private var running: Set<String> = []
     /// [toolnow] Stored id → the running turn's newest step in a few words (LiveSteps).
     @ObservationIgnored private var steps: [String: String] = [:]
-    /// Runtime-to-stored bindings learned from session.info, scoped to this account and connection.
-    @ObservationIgnored private var resultBindings: [String: (profile: String, id: String)] = [:]
     /// The selected chat (the web's `$selectedStoredSessionId`): set when a chat is focused and kept after the user
     /// leaves it, until another chat is focused. Its stored count is absorbed on every read and its local dot is
     /// skipped, so the chat the user just used does not come back unread (the server's own flag still shows).
@@ -522,7 +519,6 @@ final class SessionStore {
         chatFocused = false
         lastProbeMatchAt = nil
         latestQueue = []
-        resultBindings.removeAll()
     }
 
     func removeCachedData() {
@@ -996,23 +992,7 @@ final class SessionStore {
         switch event.type {
         case "sessions.changed":
             throttle?.mark()
-        case "session.info":
-            guard !event.replayed, !event.sessionId.isEmpty else { break }
-            // Never guess a runtime's owner, particularly where two profiles share a stored id.
-            if let id = event.payload["session_key"]?.nonEmptyString ?? event.payload["stored_session_id"]?.nonEmptyString {
-                let profile = event.payload["profile"]?.nonEmptyString
-                let candidates = (recents + cron + messaging + archivedRows).filter {
-                    $0.id == id && (profile == nil || $0.profile == profile)
-                }
-                resultBindings[event.sessionId] = candidates.count == 1 ? (candidates[0].profile, id) : nil
-            }
-        case "message.complete":
-            guard !event.replayed, let binding = resultBindings[event.sessionId],
-                  event.payload["status"]?.string == "complete", !event.payload["error"].isTruthy,
-                  let text = event.payload["text"]?.string else { break }
-            noteConfirmedReply(profile: binding.profile, sessionId: binding.id, text: text)
         case "gateway.ready":
-            resultBindings.removeAll()
             changeEvents = event.payload["change_events"]?.bool ?? false
             // A reconnect: probe first while the last full read is fresh, else read in full.
             // [offline] §6.4: reconnects within 3 s of each other share one refresh (a failed one is not shared).
@@ -1649,19 +1629,12 @@ final class SessionStore {
         summary.cost = row.costUsd
         summary.cwd = row.cwd
         summary.owner = row.userId
-        // Only the message read for this exact list revision can describe its latest outcome.
-        // Older cached previews are still useful elsewhere, but must not overrule newer activity here.
-        if let message = device.latest[key], message.at == row.recency,
-           !TimelineNotes.isTaskSnapshot(message.text) {
-            summary.lastResult = message.codingResult
-        } else if row.messageCount == 0 { summary.lastResult = "No activity yet" }
         summary.pullRequest = isCodingSession(profile: row.profile, cwd: row.cwd)
             ? (pullRequests[key] ?? SessionPRStatus(state: .unknown)) : nil
         summary.branch = row.gitBranch.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         summary.metadata = SessionRowWords.metadata(branch: row.gitBranch, model: row.model, messages: row.messageCount,
                                                     toolCalls: row.toolCallCount)
         summary.pending = pendingLine?(row.profile, row.id)
-        summary.inputDetail = inputDetails[key]
         summary.status = row.liveId(where: needsInput.contains) != nil ? .needsInput : summary.isRunning ? .working : summary.unread ? .unread
             : summary.pending.map { !$0.failed } == true ? .draft : .idle
         if busy, let stepId = row.liveId(where: { steps[$0] != nil }) { summary.step = steps[stepId] }

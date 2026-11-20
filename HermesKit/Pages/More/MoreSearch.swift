@@ -150,7 +150,7 @@ nonisolated enum MoreSearch {
             out.append(Item(id: "new-chat", title: "New Chat", keywords: ["chat", "message", "start", "compose"], symbol: "square.and.pencil"))
             out.append(Item(id: "new-bot", title: "New Bot", keywords: ["bot", "profile", "create", "add"], symbol: "plus.circle"))
             if facts.kanban {
-                out.append(Item(id: "new-task", title: "New Task", keywords: ["kanban", "task", "card", "add"], symbol: "plus.rectangle.on.rectangle"))
+                out.append(Item(id: "new-task", title: "New Kanban Task", keywords: ["kanban", "task", "card", "add"], symbol: "plus.rectangle.on.rectangle"))
             }
             if facts.commandCenter {
                 out.append(Item(id: "restart-gateway", title: "Restart Gateway", keywords: ["restart", "reboot", "gateway"],

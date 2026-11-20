@@ -463,6 +463,7 @@ final class PagesTests: XCTestCase {
         let add = app.navigationBars.buttons["kanban.new.add"]
         XCTAssertTrue(add.waitForExistence(timeout: 5))
         XCTAssertFalse(add.isEnabled, "Add waits for a title")
+        shot("parity-kanban-empty")
         app.textFields["kanban.new.title"].typeText("Write the release post")
         app.buttons["kanban.new.nobody"].tap()
         app.segmentedControls["kanban.new.start"].buttons["Ready"].tap()

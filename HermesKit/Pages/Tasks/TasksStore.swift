@@ -435,6 +435,42 @@ final class TasksStore {
 
     // MARK: Writes
 
+    /// Acceptance is conditional on the exact revision shown. Never retry a conflict: the suggestion may have changed.
+    func acceptSuggestedTitle(_ id: String, suggestion: String, forTitle: String) async -> Bool {
+        guard !refuse(about: id) else { return false }
+        guard inFlight[id] == nil else {
+            notice("This task is being saved. Try again in a moment.", about: id)
+            return false
+        }
+        guard let base = task(id), !TodoIDs.isLocal(id),
+              base.title == forTitle, base.currentSuggestedTitle == suggestion else {
+            notice("This suggestion is no longer current.", about: id)
+            return false
+        }
+        begin(id)
+        defer { end(id) }
+        do {
+            let answer = try await api.patch(id, rev: base.rev, fields: ["title": .string(suggestion)])
+            put(answer); save(); changed()
+            guard answer.title == suggestion else {
+                notice("Couldn’t save the suggested title. Showing the saved task.", about: id)
+                return false
+            }
+            return true
+        } catch {
+            if let current = TasksAPI.conflict(error) {
+                put(current); save(); changed()
+                notice("This task changed somewhere else. Showing the latest.", about: id)
+            } else if PagesREST.status(error) == 404 {
+                tasks.removeAll { $0.id == id }; save(); changed()
+                notice("This task was deleted somewhere else.", about: id)
+            } else {
+                notice("Couldn’t save the suggested title. \(PagesREST.reason(error))", about: id)
+            }
+            return false
+        }
+    }
+
     private func refuse(quiet: Bool = false, about task: String? = nil) -> Bool {
         guard readOnlyGateway else { return false }
         if !quiet { notice(JobsStore.readOnlyNotice, about: task) }

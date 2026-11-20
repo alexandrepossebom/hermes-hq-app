@@ -757,9 +757,7 @@ struct GoalPlainView: View {
                         .submitLabel(.done)
                         .onSubmit { model.addTask(); focus = .task }
                         .onAppear { focus = .task }
-                        .onChange(of: focus) { old, new in
-                            if old == .task, new != .task { model.addTask(); if model.adding == spot { model.adding = nil } }
-                        }
+                        .disabled(model.savingTask)
                         .accessibilityIdentifier("goal.add-task.field")
                 }
                 .id(id)
@@ -767,7 +765,6 @@ struct GoalPlainView: View {
             } else {
                 Button {
                     PagesHaptics.selection()
-                    model.newTask = ""
                     model.adding = spot
                 } label: {
                     TaskGridRow(last: last) {

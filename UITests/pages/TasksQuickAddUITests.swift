@@ -15,14 +15,23 @@ extension PagesTests {
         let title = app.textViews["tasks.new.title"].firstMatch.exists ? app.textViews["tasks.new.title"].firstMatch : app.textFields["tasks.new.title"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10), "the quick add opens with the keys up")
         XCTAssertTrue(app.cells["task-row-Fix the porch light"].firstMatch.exists, "the list is still behind it")
-        XCTAssertFalse(app.navigationBars["New Task"].exists, "a small sheet, not a page")
+        XCTAssertTrue(app.navigationBars["New Task"].exists, "the native sheet navigation bar is present")
+        let details = app.buttons["tasks.new.details"].firstMatch
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["tasks.new.due"].firstMatch.exists)
+        XCTAssertTrue(app.navigationBars.buttons["tasks.new.add"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["sheet.close"].firstMatch.exists)
+        shot("parity-quick-add-empty")
+        details.tap()
         let due = app.descendants(matching: .any)["tasks.new.due"].firstMatch
-        XCTAssertTrue(due.exists && app.descendants(matching: .any)["tasks.new.bot"].firstMatch.exists, "the buttons: date and who")
+        XCTAssertTrue(due.exists && app.buttons["tasks.new.person.you"].firstMatch.exists, "the buttons: date and who")
+        app.swipeUp()
         XCTAssertTrue(app.descendants(matching: .any)["tasks.new.priority"].firstMatch.exists, "priority, on an add-on that keeps it")
         XCTAssertEqual(due.label, "Date", "no date yet")
         shot("quick-add-1-empty" + Self.lookName)
 
         // The date is read from the words; the name loses them.
+        title.tap()
         title.typeText("Call mom tomorrow 9am #family")
         XCTAssertTrue(waitUntil(5) { due.label.contains("Tomorrow 9:00") }, "the date button says what was read: \(due.label)")
         let read = app.descendants(matching: .any)["tasks.new.read"].firstMatch
@@ -46,6 +55,7 @@ extension PagesTests {
         shot("quick-add-3-added" + Self.lookName)
 
         // A date picked by hand wins, and the words stay in the name.
+        title.tap()
         title.typeText("Friday report")
         XCTAssertTrue(waitUntil(5) { due.label.hasPrefix("Due") }, "friday is read: \(due.label)")
         due.tap()
@@ -56,9 +66,71 @@ extension PagesTests {
         app.buttons["tasks.new.add"].firstMatch.tap()
         XCTAssertTrue(waitUntil(10) { posted("Friday report") != nil }, "the name keeps its words once the date is picked by hand")
 
-        // A tap outside closes it.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        // The explicit close control dismisses the sheet.
+        app.buttons["sheet.close"].firstMatch.tap()
         XCTAssertTrue(waitUntil(5) { !title.exists }, "a tap on the list behind closes the quick add")
         XCTAssertTrue(app.cells["task-row-Friday report"].firstMatch.waitForExistence(timeout: 5) || app.buttons["tasks.view.today"].exists)
     }
+    @MainActor func testTasks_QuickAddDiscardGuard() throws {
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
+        let plus = app.buttons["tasks.new"].firstMatch
+        XCTAssertTrue(plus.waitForExistence(timeout: 20))
+        plus.tap()
+        let title = app.textFields["tasks.new.title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        title.typeText("An unfinished task")
+        app.buttons["sheet.close"].firstMatch.tap()
+        let discard = app.buttons["Discard Changes"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        XCTAssertTrue(title.exists)
+        discard.tap()
+        XCTAssertTrue(waitUntil(5) { !title.exists })
+    }
+    @MainActor func testTasks_QuickAddLiteralTitle() throws {
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
+        let plus = app.buttons["tasks.new"].firstMatch
+        XCTAssertTrue(plus.waitForExistence(timeout: 20))
+        app.buttons["tasks.view.inbox"].firstMatch.tap()
+        plus.tap()
+        let title = app.textFields["tasks.new.title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        title.typeText("Review P1 #123")
+        let preview = app.descendants(matching: .any)["tasks.new.read"].firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 5))
+        XCTAssertTrue(preview.label.contains("Review"))
+        let literal = app.buttons["tasks.new.literal"].firstMatch
+        if !literal.isHittable { app.swipeUp() }
+        XCTAssertTrue(literal.waitForExistence(timeout: 5))
+        literal.tap()
+        XCTAssertFalse(requests().contains { $0.method == "POST" && $0.path.hasSuffix("/tasks") })
+        app.buttons["tasks.new.add"].firstMatch.tap()
+        let posted = { self.requests().first { $0.method == "POST" && $0.path.hasSuffix("/tasks") && ($0.body?["title"] as? String) == "Review P1 #123" } }
+        XCTAssertTrue(waitUntil(10) { posted() != nil })
+        XCTAssertNil(posted()?.body?["priority"])
+        XCTAssertNil(posted()?.body?["tags"])
+    }
+
+    @MainActor func testTasks_QuickAddDisclosureAndSubmit() throws {
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
+        let plus = app.buttons["tasks.new"].firstMatch
+        XCTAssertTrue(plus.waitForExistence(timeout: 20))
+        app.buttons["tasks.view.inbox"].firstMatch.tap()
+        plus.tap()
+        let title = app.textFields["tasks.new.title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        let details = app.buttons["tasks.new.details"].firstMatch
+        XCTAssertTrue(details.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["tasks.new.notes"].firstMatch.exists)
+        title.typeText("work on first video #content")
+        XCTAssertTrue(app.descendants(matching: .any)["tasks.new.read"].firstMatch.waitForExistence(timeout: 5))
+        shot("quick-add-room-collapsed")
+        if !details.isHittable { app.swipeUp() }
+        details.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["tasks.new.notes"].firstMatch.waitForExistence(timeout: 5))
+        shot("quick-add-room-expanded")
+        details.tap()
+        app.buttons["tasks.new.add"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(10) { self.requests().contains { $0.method == "POST" && $0.path.hasSuffix("/tasks") && ($0.body?["title"] as? String) == "work on first video" && ($0.body?["tags"] as? [String]) == ["content"] } })
+    }
+
 }

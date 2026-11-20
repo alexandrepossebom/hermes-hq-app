@@ -415,10 +415,9 @@ extension SessionStore {
     // MARK: - A row's status inputs
 
     /// Chats where an approval, a question, a sudo or a secret prompt waits (stored ids).
-    func setNeedsInput(_ ids: Set<String>, details: [String: String] = [:]) {
-        guard ids != needsInput || details != inputDetails else { return }
+    func setNeedsInput(_ ids: Set<String>) {
+        guard ids != needsInput else { return }
         needsInput = ids
-        inputDetails = details
         rebuild()
     }
 

@@ -50,7 +50,7 @@ import UIKit
         if CACurrentMediaTime() < passUntil { return false }
         // A key typed while the first waits goes after it, whatever it is (Return included), so nothing changes order.
         if !held.isEmpty { held.append(event); return true }
-        if CACurrentMediaTime() < fieldComing, ChatFirstResponder.current()?.hqTypingInput == nil {
+        if CACurrentMediaTime() < fieldComing, !(ChatFirstResponder.current() is UIKeyInput) {
             let flags = (event.value(forKey: "modifierFlags") as? NSNumber)?.uintValue ?? 0
             if flags & (1 << 20) == 0 {   // ⌘ shortcuts go on as they are
                 AppLog.note("keys", "typed while a search field takes the keyboard: held for it")
@@ -106,7 +106,7 @@ import UIKit
     private static func awaitField() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
             MainActor.assumeIsolated {
-                if ChatFirstResponder.current()?.hqTypingInput != nil || CACurrentMediaTime() >= fieldComing { fieldComing = 0; release() } else { awaitField() }
+                if ChatFirstResponder.current() is UIKeyInput || CACurrentMediaTime() >= fieldComing { fieldComing = 0; release() } else { awaitField() }
             }
         }
     }
@@ -137,7 +137,7 @@ import UIKit
         // The press is the main window's own (not a menu's being tracked, nor a panel's or a sheet's window).
         guard let pressed = event.value(forKey: "window") as? NSObject, pressed.responds(to: NSSelectorFromString("uiWindows")),
               (pressed.value(forKey: "uiWindows") as? [UIWindow])?.contains(window) == true else { return nil }
-        if let first = window.hqFirstResponder, first.hqTypingInput != nil || first is QuestionDockView { return nil }
+        if let first = window.hqFirstResponder, first is UIKeyInput || first is QuestionDockView { return nil }
         if KeyCommands.questionCard(root) != nil { return nil }
         let box = chat.composer.textView
         guard box.window === window, !box.isHidden, box.isEditable, box.isUserInteractionEnabled,
