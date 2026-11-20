@@ -101,7 +101,11 @@ extension PagesTests {
         let literal = app.buttons["tasks.new.literal"].firstMatch
         if !literal.isHittable { app.swipeUp() }
         XCTAssertTrue(literal.waitForExistence(timeout: 5))
+        // A tap right after a swipe can only stop the scroll: tap again if the switch hasn't taken.
+        let exact = app.staticTexts["Using your title exactly as typed."].firstMatch
         literal.tap()
+        if !exact.waitForExistence(timeout: 2) { literal.tap() }
+        XCTAssertTrue(exact.waitForExistence(timeout: 3), "Keep title as typed switches the preview to the exact words")
         XCTAssertFalse(requests().contains { $0.method == "POST" && $0.path.hasSuffix("/tasks") })
         app.buttons["tasks.new.add"].firstMatch.tap()
         let posted = { self.requests().first { $0.method == "POST" && $0.path.hasSuffix("/tasks") && ($0.body?["title"] as? String) == "Review P1 #123" } }
@@ -125,8 +129,10 @@ extension PagesTests {
         XCTAssertTrue(app.descendants(matching: .any)["tasks.new.read"].firstMatch.waitForExistence(timeout: 5))
         shot("quick-add-room-collapsed")
         if !details.isHittable { app.swipeUp() }
+        let notes = app.descendants(matching: .any)["tasks.new.notes"].firstMatch
         details.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["tasks.new.notes"].firstMatch.waitForExistence(timeout: 5))
+        if !notes.waitForExistence(timeout: 2) { details.tap() }   // a tap right after a swipe can only stop the scroll
+        XCTAssertTrue(notes.waitForExistence(timeout: 5))
         shot("quick-add-room-expanded")
         details.tap()
         app.buttons["tasks.new.add"].firstMatch.tap()

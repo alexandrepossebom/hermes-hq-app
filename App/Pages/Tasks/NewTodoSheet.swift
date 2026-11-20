@@ -174,6 +174,11 @@ enum NewTodoSheet {
         }
         let nav = ChatSheet.wrap(host, title: "New Task", detents: [compact, .large()])
         nav.preferredContentSize = CGSize(width: 520, height: DeviceWord.isMac ? 540 : 460)
+        // The title takes the keys on open, and compact plus the keyboard never fits a phone: the sheet rose to large and
+        // the switch dropped the field's focus (keys up, then straight down). On a phone it opens at the height it types at.
+        if !DeviceWord.isMac, UIDevice.current.userInterfaceIdiom == .phone, let sheet = nav.sheetPresentationController {
+            sheet.selectedDetentIdentifier = .large
+        }
         host.installClose()
         SheetEditGuard.install(on: nav)
         return nav
