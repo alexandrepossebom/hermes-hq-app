@@ -164,6 +164,19 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         out += bySlot[.tools] ?? []
         out += bySlot[.readAloud] ?? []
         out += bySlot[.browser] ?? []
+        // The list must remain reachable even when there are no live tabs to draw.
+        if SessionStripPref.isOn, !isTaskChat, let live, live.isBotChat,
+           !(session is ChatRoomSurface), let screen, let app = host as? AppModel {
+            let profile = session.profile.isEmpty ? "default" : session.profile
+            let name = app.botStore?.bot(named: profile)?.name ?? session.title
+            let chats = UIAction(title: "Chats with \(name)", image: UIImage(systemName: "bubble.left.and.bubble.right")) {
+                [weak screen, weak app] _ in
+                guard let screen, let app else { return }
+                PhoneBotChats.present(from: screen, app: app)
+            }
+            chats.accessibilityIdentifier = "chat.more.bot-chats"
+            out.append(chats)
+        }
         if session is ChatSessionActions, let rename = menu.rename { out.append(menuAction(rename)) }
         var more: [UIMenuElement] = []
         let sections: [[UIMenuElement]] = [menu.chat.map(menuAction), menu.workspace.map(menuAction),

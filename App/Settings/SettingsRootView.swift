@@ -1167,7 +1167,7 @@ struct SettingsRootView: View {
                       + " you’re in; ⇧⌘N asks for both.") : "")
                  + (DeviceWord.isMac
                     ? " Other Chats at the Top shows a bot’s chats that are working, unread or pinned as tabs under the title of the bot’s own chat; All opens the full list beside the chat."
-                    : " Other Chats at the Top shows a bot’s other recent chats as buttons under a chat’s title, so one tap moves between them.")
+                    : " Other Chats at the Top shows working, unread or pinned chats as tabs under a bot’s own chat. All or ⋯ › Chats with the bot opens its full list.")
                  + " Message Reactions adds Tapbacks to a message’s menu, and lets the bot react to yours."
                  + (model.configStore != nil ? " Reopen Last Chat on Launch is saved on \(HostWord.phrase)." : ""))
         } } }

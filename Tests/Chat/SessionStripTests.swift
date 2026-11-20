@@ -172,4 +172,42 @@ struct SessionStripTests {
         #expect(by["busy"]?.detail == "Searching the web")
         #expect(by["pinned"]?.detail == "" && by["pinned"]?.pinned == true && by["said"]?.pinned == false)
     }
+
+    @Test("Phone membership excludes other bots, archived and non-chat runs, tasks and known tiles")
+    func phoneMembership() {
+        var task = chat("task", ago: 1)
+        task.title = "Task: Example · abc123"
+        let chats = [chat("mine", ago: 10), chat("older", ago: 200_000), chat("bc", ago: 1), task,
+                     chat("tile", ago: 1), chat("theirs", ago: 1, profile: "ivy"),
+                     chat("archived", ago: 1, archived: true), chat("helper", ago: 1, source: "subagent"),
+                     chat("job", ago: 1, source: "cron"), chat("tool", ago: 1, source: "tool"),
+                     chat("oneshot", ago: 1, source: "oneshot"), chat("card", ago: 1, source: "kanban"),
+                     chat("cron_123", ago: 1, source: nil)]
+        let result = SessionStripRules.phoneChats(bot: bot(), sessions: chats, profile: "hermes-hq", hidden: ["tile"])
+        #expect(result.map(\.id) == ["mine", "older"])
+        #expect(SessionStripRules.groups(result, now: now).flatMap(\.chats).count == result.count)
+    }
+
+    @Test("Phone shows at most two names, prioritizes work then unread then pinned, and keeps survivors in place")
+    func phonePriorityAndStability() {
+        let day: TimeInterval = 86_400
+        let recent = chat("recent", ago: 10)
+        let pinned = chat("pinned", ago: 2 * day, pinned: true)
+        var unread = chat("unread", ago: 2 * day, unread: true)
+        var busy = chat("busy", ago: 2 * day, running: true)
+        let first = SessionStripRules.phoneEntries([recent, pinned, unread, busy], order: [], now: now)
+        #expect(first.map(\.id) == ["busy", "unread"])
+        #expect(first.allSatisfy { !$0.isBotChat && !$0.current })
+        busy.isRunning = false
+        busy.pinned = true
+        unread.isRunning = true
+        let next = SessionStripRules.phoneEntries([recent, pinned, unread, busy], order: first.map(\.id), now: now)
+        #expect(next.map(\.id) == ["busy", "unread"])
+        busy.archived = true
+        let eligible = SessionStripRules.phoneChats(bot: bot(), sessions: [recent, pinned, unread, busy],
+                                                    profile: "hermes-hq", hidden: [])
+        let after = SessionStripRules.phoneEntries(eligible, order: next.map(\.id), now: now)
+        #expect(after.map(\.id) == ["unread", "pinned"])
+        #expect(SessionStripRules.phoneEntries([recent, chat("stale", ago: 2 * day)], order: [], now: now).isEmpty)
+    }
 }

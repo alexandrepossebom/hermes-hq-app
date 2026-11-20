@@ -264,7 +264,7 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   while the tab shows).
 - **A bot's chats on its chat** (owner 2026-11-18, `[bot-chat-sessions]`, `[bot-tabs-ux]`): on a bot's own chat only,
   a row of underline tabs under the bar (`SessionStrip`, Settings › Chat › Other Chats at the Top, on unless turned off
-  on the Mac; the iPhone and iPad keep their pills on any chat with the bot): Bot Chat with the tint's line under it,
+  on the Mac; on iPhone and iPad the mobile Live Tabs are opt-in and appear only on the bot’s own chat): Bot Chat with the tint's line under it,
   a short rule, then only what is live (chats working, unread, pinned, and the ones shown before this run). A tab is
   one target that lights under the pointer; its tip is the whole title and last line; a right-click offers Open, Mark
   as Read, Pin, Remove from Tabs and Archive. Tabs keep their places (`SessionStripRules.settled`: a new one comes in

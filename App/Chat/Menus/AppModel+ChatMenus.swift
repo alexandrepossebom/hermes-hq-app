@@ -138,7 +138,8 @@ extension AppModel: ChatMenuHosting {
     /// `/new` (docs/spec/3x-composer.md §8.2): the chat Bots › New Chat starts (`newChat(for:)`, made on the gateway as
     /// it opens), put where this one was, as /resume and Branch put theirs (Back returns to the list it came from).
     func openNewChat(like chat: any ChatSessionModel, draft: String, replacing screen: UIViewController) -> Bool {
-        guard let bot = botStore?.bot(named: chat.profile) ?? bots.first(where: { $0.id == chat.profile }),
+        let profile = !DeviceWord.isMac && chat.profile.isEmpty ? "default" : chat.profile
+        guard let bot = botStore?.bot(named: profile) ?? bots.first(where: { $0.id == profile }),
               let navigation = screen.navigationController else {
             AppLog.note("chat", "/new: no bot or no stack for \(AppLog.tag(chat.profile)); nothing opened")
             return false
@@ -147,13 +148,16 @@ extension AppModel: ChatMenuHosting {
         // [bot-chat-sessions] A second click while the first one's chat is still coming in (a double-click on the
         // strip's +): the screen it would replace has already left the stack, so a second new chat was made and pushed
         // over the first, with a Back between them.
-        guard let index = stack.firstIndex(where: { $0 === screen }) else { return false }
+        // A kept bot is still in the stack after the first tap; don't push a duplicate over its new chat.
+        let keepBot = !DeviceWord.isMac && SessionStripPref.isOn && (chat as? LiveChatSession)?.isBotChat == true
+        guard let index = stack.firstIndex(where: { $0 === screen }), !keepBot || navigation.topViewController === screen else { return false }
         Haptics.play(.soft)
         let next = makeChatScreen(newChat(for: bot))
         next.hidesBottomBarWhenPushed = true
         next.navigationItem.largeTitleDisplayMode = .never
         SessionStrip.carryBack(from: screen, to: next, app: self)   // [bot-chat-back] New Chat from a bot's own chat
-        stack.remove(at: index)
+        // The mobile live-tab doorway retains the canonical bot screen and its draft for Back.
+        if !keepBot { stack.remove(at: index) }
         stack.append(next)
         navigation.setViewControllers(stack, animated: true)
         Self.markPane(navigation)
