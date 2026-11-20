@@ -90,6 +90,31 @@ final class QuestionsEndToEndTests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 15) { !self.app.buttons["composer.stop"].exists }, "the turn ends")
     }
 
+    /// A job report has already asked for approval before the chat opens. The add-on creates a server
+    /// request, not an entry in the app server's own approval queue.
+    @MainActor func testRoutineReportApprovalCanBeAnsweredAfterOpeningChat() throws {
+        launch()
+        let request = try account.control("/__fixture/ask", ["profile": "default", "method": "approval",
+            "params": ["request_id": "report-approval", "command": "pwd", "choices": ["once", "deny"]]])
+        let id = try XCTUnwrap(request["id"] as? String)
+        openChat()
+        let run = app.buttons["approval.run"]
+        XCTAssertTrue(run.waitForExistence(timeout: 10))
+        try account.control("/__fixture/event", ["profile": "default", "type": "session.info", "payload": ["running": false]])
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            let rpc = (try? self.account.control("/__fixture/requests")["rpc"]) as? [[String: Any]] ?? []
+            return rpc.contains { $0["method"] as? String == "approval.pending" }
+        })
+        tapWhenSettled(run)
+        XCTAssertTrue(waitUntil(timeout: 10) { (try? self.ledger("approval").last?["outcome"] as? String) == "answered" })
+        let answered = try XCTUnwrap(try ledger("approval").last)
+        XCTAssertEqual(answered["id"] as? String, id)
+        let answers = try XCTUnwrap(answered["answers"] as? [[String: Any]])
+        XCTAssertEqual(answers.count, 1)
+        XCTAssertEqual((answers.first?["result"] as? [String: String])?["choice"], "once")
+        XCTAssertTrue(waitUntil(timeout: 5) { !run.exists })
+    }
+
     // MARK: 17. The question dock
 
     @MainActor func test17_DockPagesWithoutMovingAndSends() throws {

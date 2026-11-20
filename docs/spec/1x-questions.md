@@ -359,7 +359,9 @@ prompts (oldest first), the sent-answers note, and the undelivered flag. Plus ma
    - after answering one of S's approvals;
    - when the chat opens.
 
-   Drop approval entries whose queue `request_id` isn't listed. Add listed ones that are missing, as queue-only.
+   Drop **queue-only** approvals whose `request_id` isn't listed. For an open server request missing from this queue,
+   probe `open_requests` (rule 2) instead: a Bot Chat report turn's queue lives in the messaging gateway, not in
+   `hermes serve`. Add listed approvals that are missing as queue-only.
    Discard the answer if S's approvals changed while it was in flight (the web's revision check).
 4. **`request.cancel {id}`**: remove that entry, whatever its session (the web matches by id,
    `V:desktop/src/app/session/hooks/use-message-stream/gateway-event/input-requests.ts:99-187`). Dismiss its sheet

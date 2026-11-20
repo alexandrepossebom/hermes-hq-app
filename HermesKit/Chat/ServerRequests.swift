@@ -740,10 +740,14 @@ import Foundation
 
     private func reconcileApprovals(_ session: String, _ listed: [JSONValue]) {
         let requests = Set(listed.compactMap { $0["request_id"]?.string })
-        let gone = entries.filter { e in
+        let absent = entries.filter { e in
             e.sessionId == session && e.kind == .approval && e.state == .open
                 && (e.queueRequestId.map { !requests.contains($0) } ?? false)
         }
+        // A report turn's approval lives in the messaging gateway's queue. Its request is open in
+        // hermes serve even though approval.pending there is empty. Ask open_requests before removing it.
+        if absent.contains(where: \.srqOpen) { probeSoon(session) }
+        let gone = absent.filter { !$0.srqOpen }
         var any = !gone.isEmpty
         entries.removeAll { e in gone.contains { $0.id == e.id } }
         for approval in listed {

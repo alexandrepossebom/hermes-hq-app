@@ -313,6 +313,24 @@ final class ServerRequestCenterTests {
         #expect(prompts.approvals.isEmpty)
     }
 
+    @Test(arguments: [ApprovalChoice.once, .deny])
+    func routineReportApprovalSurvivesAnEmptyLocalQueue(choice: ApprovalChoice) async throws {
+        client.onCall { method, _ in method == "approval.pending" ? ["approvals": []] : [:] }
+        // Opening Bot Chat replays the add-on's live request. Its queue is in the messaging gateway,
+        // not in hermes serve. Only the unrelated queue-only card should disappear on refresh.
+        deliver("srq-report", "approval", Self.approval, replayed: true)
+        openRequests(["srq-report"], pending: ["request_id": "local", "command": "pwd"], method: "session.resume")
+        event("session.info", ["running": false])
+        #expect(await waitUntil { self.center.entry("queue:local") == nil })
+        #expect(await waitUntil { !self.client.calls("session.events.since").isEmpty })
+        openRequests(["srq-report"], method: "session.events.since")
+        #expect(prompts.approvals.map(\.id) == ["srq-report"])
+        #expect(prompts.needsInput == .approval)
+        try await center.answerApproval("srq-report", choice)
+        #expect(client.answers == [PromptFakeClient.Answer(id: "srq-report", result: ["choice": .string(choice.rawValue)])])
+        #expect(client.calls("approval.respond").isEmpty)
+    }
+
     @Test func queueOnlyApprovalsAnswerThroughApprovalRespond() async throws {
         client.onCall { method, _ in method == "approval.respond" ? ["resolved": 1] : ["approvals": []] }
         openRequests([], pending: ["request_id": "abc", "command": "ls", "description": "list"])
