@@ -11,6 +11,56 @@ extension SessionsTests {
         if captureMenu { shot(app, "project-card-coding-menu") }
         item.tap()
     }
+    /// A waiting pinned chat, a finished reply, and a request without a reply have distinct coding subtitles.
+    @MainActor func testCodingSessionSubtitles() throws {
+        func reply(_ text: String) -> [[String: String]] { [["role": "assistant", "content": text]] }
+        setRow("s-garden", ["title": "Fix reconnect crash", "messages": reply("12 regression tests passed.")])
+        setRow("s-release", ["title": "Redesign the project header", "messages": reply("Updated the compact layout.")])
+        setRow("s-recipes", ["profile": "default", "title": "Tighten sidebar spacing", "messages": reply("Reduced the gap between rows."), "last_active": nowSeconds - 200])
+        setRow("s-shortcuts", ["title": "Add keyboard shortcuts", "messages": [["role": "user", "content": "Add a shortcut to open search."]], "last_active": nowSeconds - 300])
+        setRow("s-old", ["title": "Retire the old build script", "messages": reply("Removed the unused build step.")])
+        fixture("/__fixture/mode", ["live": ["s-release": "waiting"], "prStatus": [
+            "default/s-garden": ["state": "open", "repo": "example/app", "number": 24],
+            "deploys/s-release": ["state": "draft", "repo": "example/app", "number": 25],
+            "default/s-recipes": ["state": "merged", "repo": "example/app", "number": 23],
+            "default/s-shortcuts": ["state": "none", "repo": "example/app"],
+            "deploys/s-old": ["state": "merged", "repo": "example/app", "number": 19]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        openChat(app, "s-release")
+        let question = "Which header layout should we use?"
+        fixture("/__fixture/emit", ["request": ["method": "clarify", "params": ["questions": [["qid": "layout", "question": question, "choices": ["Compact", "Expanded"]]]]], "session_id": "s-release"])
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", question)).firstMatch.waitForExistence(timeout: 10))
+        backToList(app)
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        let coding = app.buttons["sessions.projectPage.pr.merged"]
+        if coding.exists { toggleProjectCoding(app) }
+        let sent = row(app, "s-shortcuts")
+        XCTAssertTrue(sent.waitForExistence(timeout: 10))
+        XCTAssertFalse(labelOf(sent).contains("No reply yet"))
+        toggleProjectCoding(app)
+        XCTAssertTrue(coding.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil(15) { self.labelOf(sent).contains("No reply yet") }, labelOf(sent))
+        let result = row(app, "s-garden")
+        XCTAssertTrue(waitUntil(20) {
+            let label = self.labelOf(result)
+            return label.contains("12 regression tests passed") && label.contains("Open #24")
+        }, labelOf(result))
+        let waiting = row(app, "s-release")
+        XCTAssertTrue(waitUntil(30) {
+            let label = self.labelOf(waiting).lowercased()
+            return label.contains("choose a header layout")
+        }, labelOf(waiting))
+        shot(app, "coding-session-subtitles")
+        toggleProjectCoding(app)
+        XCTAssertTrue(waitUntil(10) { !coding.exists && !self.labelOf(sent).contains("No reply yet") })
+    }
+
     /// Project summary filters intersect the page's piles, and the coding switch clears the selection.
     @MainActor func testProjectPRCountFilter() throws {
         fixture("/__fixture/mode", ["prStatus": [

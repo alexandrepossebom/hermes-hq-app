@@ -167,7 +167,7 @@ final class ServerRequestCenterTests {
     /// a new chat gets its stored id while it waits, and when the wait ends.
     @Test func aRequestOpenBeforeItsChatBoundStillReachesTheRows() {
         var told: [(runtime: String, profile: String, stored: String?, kind: NeedsInput?)] = []
-        center.onNeedsInput = { runtime, profile, stored, kind in told.append((runtime, profile, stored, kind)) }
+        center.onNeedsInput = { runtime, profile, stored, kind, _ in told.append((runtime, profile, stored, kind)) }
         deliver("srq-early", "approval", Self.approval)
         openRequests(["srq-early"], method: "session.resume")
         #expect(told.isEmpty, "nobody to tell yet: the runtime has no chat")

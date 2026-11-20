@@ -293,6 +293,10 @@ nonisolated struct SessionSummary: Identifiable, Hashable, Sendable {
     // [/sessions-m9]
     /// [toolnow] The running turn's step in a few words (LiveSteps): the row says it instead of "Working…".
     var step: String? = nil
+    /// Last confirmed, current coding-session update, in bounded human wording; never a command or tool output.
+    var lastResult: String? = nil
+    /// The current question or approval from this chat's open prompt, never a typed answer.
+    var inputDetail: String? = nil
     /// The sign-in Hermes stamped on it (`SidebarSessionRow.userId`), for a refused edit's words.
     var owner: String? = nil
     /// nil means not coding, not yet known, or unavailable; `.none` is a confirmed absence.
