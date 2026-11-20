@@ -216,7 +216,11 @@ import Testing
         func groups(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
             Self.run(rows) { $0.projectsByProfile = three; $0.projects = entries; edit(&$0) }
         }
-        func projects(_ groups: [SessionGroup]) -> [String] { groups.filter { SessionListPipeline.isProject($0.id) }.compactMap { SessionListPipeline.projectKey($0.id) } }
+        // [bot-home] Home ends the block (`aBotsHomeEndsItsProjects`); the projects themselves:
+        func projects(_ groups: [SessionGroup]) -> [String] {
+            groups.compactMap { SessionListPipeline.projectKey($0.id) }.filter { $0 != SessionProjects.homeKey }
+        }
+        #expect(groups().compactMap { SessionListPipeline.projectKey($0.id) } == ["/p/a", "/p/b", SessionProjects.homeKey])
         #expect(projects(groups()) == ["/p/a", "/p/b"])                                         // none starred: the newest two
         #expect(projects(groups { $0.favoriteProjects = ["/p/c"] }) == ["/p/c"])
         #expect(projects(groups { $0.favoriteProjects = ["/p/a", "/p/b", "/p/c"] }) == ["/p/a", "/p/b", "/p/c"])
@@ -227,6 +231,77 @@ import Testing
         #expect(Self.recent(groups { $0.favoriteProjects = ["/p/c"]; $0.prefs.projectChatsInRecent = false }) == ["a", "b", "home"])
         // A closed project here draws no chat under its row (that is the Projects side's).
         #expect(groups { $0.liveUnderProjects = true }.filter { SessionListPipeline.isProject($0.id) }.allSatisfy { $0.collapsed && $0.sessions.isEmpty })
+    }
+
+    /// [bot-home] "Projects" ends with Home: the chats in no project (pinned ones counted), closed to its row, which
+    /// opens their page. Under a bot's pill it is that bot's, under All every bot's. Its chats stay in the days below.
+    /// Not with no project shown, nor under a filter.
+    @Test func aBotsHomeEndsItsProjects() {
+        let pinned = Self.chat("loose-pin", ago: 180, status: .unread, pinned: true)
+        let rows = [Self.chat("site", ago: 60, cwd: "/home/hermes/site"), Self.chat("loose", ago: 120), pinned,
+                    Self.chat("theirs", profile: "research", ago: 30),
+                    Self.chat("reading-r", profile: "research", ago: 90, cwd: "/home/hermes/reading")]
+        func run(_ bot: String?, _ live: [SessionSummary] = rows, _ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(live) {
+                $0.projectsByProfile = Self.projects; $0.botFilter = bot
+                // The store's list: the picked bot's projects alone, every bot's under All.
+                $0.projects = SessionProjects.menuEntries(bot.flatMap { bot in Self.projects[bot].map { [bot: $0] } } ?? Self.projects,
+                                                          order: ["default", "research"])
+                edit(&$0)
+            }
+        }
+        let homeId = SessionListPipeline.projectPrefix + SessionProjects.homeKey
+        let mine = run("default")
+        #expect(mine.map(\.id) == ["pinned", "project-/home/hermes/site", homeId, Self.today])
+        let home = mine[2]
+        #expect(home.title == "Home" && home.collapsed && home.sessions.isEmpty)
+        #expect(home.total == 2 && home.unread == 1 && home.profiles == ["default"] && home.whole == nil)   // the pinned one counts; no "of N"
+        #expect(home.latestTitle == "loose" && !home.favorite)
+        #expect(mine[1].whole == 1)                                                              // a project still says its whole
+        // Home's chats stay in the days below, with Project Chats in Recent off too.
+        #expect(Self.recent(mine) == ["site", "loose"])
+        #expect(Self.recent(run("default") { $0.prefs.projectChatsInRecent = false }) == ["loose"])
+        // The other bot's Home is its own.
+        let theirs = run("research")
+        #expect(theirs.map(\.id) == ["project-/home/hermes/reading", homeId, Self.today] && theirs[1].total == 1 && theirs[1].profiles == ["research"])
+        // Under All it is every bot's, one bucket.
+        let everyones = run(nil)
+        #expect(everyones.map(\.id) == ["pinned", "project-/home/hermes/site", "project-/home/hermes/reading", homeId, Self.today])
+        #expect(everyones[3].total == 3 && everyones[3].profiles == ["research", "default"] && everyones[3].whole == nil && everyones[3].collapsed)
+        // No project shown: the days are Home alone, and no row repeats them.
+        #expect(run("default", [Self.chat("loose", ago: 120)]).map(\.id) == [Self.today])
+        // A bot with projects and no chat outside them has no Home row.
+        #expect(!run("default", [Self.chat("site", ago: 60, cwd: "/home/hermes/site")]).contains { $0.id == homeId })
+        // "Projects" closed counts it with the projects, as Group By Project does.
+        let closed = run("default") { $0.collapsedGroups = [SessionListPipeline.projectsId] }
+        #expect(closed.map(\.id) == ["pinned", SessionListPipeline.projectsId, Self.today] && closed[1].total == 2 && closed[1].unread == 1)
+        // A filter narrowing the list: no Home row (it would open and list every match again over the days, which
+        // list them already); the projects it finds show as before.
+        let unread = run("default", rows + [Self.chat("site-new", ago: 45, status: .unread, cwd: "/home/hermes/site"),
+                                            Self.chat("loose-new", ago: 50, status: .unread)]) { $0.prefs.statusFilter = [.unread] }
+        #expect(unread.map(\.id) == ["pinned", "project-/home/hermes/site", Self.today])
+        #expect(Self.recent(unread) == ["site-new", "loose-new"])
+        #expect(run("default") { $0.prefs.statusFilter = [.unread] }.map(\.id) == ["pinned"])
+        #expect(!run("default") { $0.prefs.projectFilter = ["/home/hermes/site"] }.contains { $0.id == homeId })
+        // The row's page: Home kept to the bot (the Projects side with the bot still picked).
+        let page = run("default") { $0.prefs.pills = .projects; $0.prefs.projectFilter = [SessionProjects.homeKey] }
+        #expect(page.map(\.id) == ["page", "state-pinned", "state-active"])
+        #expect(page[0].pageKey == SessionProjects.homeKey && page[0].latestTitle == "Home" && page[0].total == 2 && page[0].profiles == ["default"])
+        #expect(page[1].sessions.map(\.id) == ["loose-pin"] && page[2].sessions.map(\.id) == ["loose"])
+        // Without the bot it is every bot's, as the Projects side's Home has been.
+        let whole = run(nil) { $0.prefs.pills = .projects; $0.prefs.projectFilter = [SessionProjects.homeKey] }
+        #expect(Set(Self.ids(whole)) == ["loose", "loose-pin", "theirs"])
+        // Home's line on its page: what it is and whose, never its key as a folder nor a stray branch.
+        #expect(ProjectPageHeader.meta(folder: SessionProjects.homeKey, branch: "main", bots: ["Otto"]) == "No project · Otto")
+        #expect(ProjectPageHeader.meta(folder: SessionProjects.homeKey, branch: nil, bots: []) == "No project")
+        // The Mac's pop-up button over that page says Home (it had no pill to name, so it said All Projects).
+        let labels = [(key: "/home/hermes/site", label: "Site")]
+        #expect(SessionsHeaderModel.scopeTitle(projects: true, pickedProjects: [SessionProjects.homeKey], labels: labels, bot: "Otto") == "Home")
+        #expect(SessionsHeaderModel.scopeTitle(projects: true, pickedProjects: ["/home/hermes/site"], labels: labels, bot: nil) == "Site")
+        #expect(SessionsHeaderModel.scopeTitle(projects: true, pickedProjects: [], labels: labels, bot: nil) == "All Projects")
+        #expect(SessionsHeaderModel.scopeTitle(projects: true, pickedProjects: ["/gone"], labels: labels, bot: nil) == "All Projects")
+        #expect(SessionsHeaderModel.scopeTitle(projects: false, pickedProjects: [], labels: labels, bot: "Otto") == "Otto")
+        #expect(SessionsHeaderModel.scopeTitle(projects: false, pickedProjects: [], labels: labels, bot: nil) == "All Bots")
     }
 
     /// [sessions-shape] Recent, sorted by a date, is split by the day: Today, Yesterday, This Week, Older. Older starts
@@ -303,9 +378,11 @@ import Testing
             }
         }
         let recent = run()
-        #expect(recent.map(\.id) == ["pinned", "project-/p/a", "project-/p/b", Self.today])    // A is still there
+        // A is still there. [bot-home] Home ends the block, its pinned chat in it (and in Pinned), as a project's.
+        #expect(recent.map(\.id) == ["pinned", "project-/p/a", "project-/p/b", "project-home", Self.today])
         #expect(recent[0].sessions.map(\.id) == ["home-pin", "a"] && recent[1].sessions.map(\.id) == ["a"])
-        #expect(recent[3].sessions.map(\.id) == ["b", "c", "home"])
+        #expect(recent[3].sessions.map(\.id) == ["home-pin", "home"])
+        #expect(recent[4].sessions.map(\.id) == ["b", "c", "home"])
 
         let byProject = run(.project)
         #expect(byProject.map(\.title) == ["A", "B", "C", "Home"])
@@ -331,13 +408,14 @@ import Testing
             Self.run(rows) { $0.projectsByProfile = three; $0.projects = entries; $0.collapsedGroups = closed; edit(&$0) }
         }
         let open = run([])
-        #expect(open.map(\.id) == ["pinned", "project-/p/a", "project-/p/b", Self.today])
+        #expect(open.map(\.id) == ["pinned", "project-/p/a", "project-/p/b", "project-home", Self.today])   // [bot-home] Home ends them
         #expect(open[0].more == 2)
         let closed = run(["pinned", SessionListPipeline.projectsId])
         #expect(closed.map(\.id) == ["pinned", SessionListPipeline.projectsId, Self.today])
         #expect(closed[0].collapsed && closed[0].sessions.isEmpty && closed[0].more == 0 && closed[0].total == 5)
         let projects = closed[1]
-        #expect(projects.collapsed && projects.title == "Projects" && projects.total == 2 && projects.unread == 1)
+        // [bot-home] Home is counted with them, as under Group By Project below.
+        #expect(projects.collapsed && projects.title == "Projects" && projects.total == 3 && projects.unread == 1)
         #expect(SessionListPipeline.folds(projects))
         #expect(!closed[2].collapsed)
         // Group By Project: every project (Home's too) under the one closed header.

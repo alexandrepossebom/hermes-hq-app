@@ -295,6 +295,18 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
   so the name keeps its room); a caption with a hold menu (a bot's under Group By Bot) has it at its end, after any +.
   Each is a 44 pt touch opening the same items as holding the header (`ProjectHeaderMenuItems`); a tap on the row
   still folds it, and VoiceOver finds the ⋯ as its own button, "Actions for <name>" (`sessions.header.menu`).
+- **DECISION (2026-11-19, a tester, then the owner): Home is on the Bots side** [bot-home]. Group By Recent with a
+  project shown: "Projects" ends with a Home row (the house, its count), the chats in no project, pinned ones
+  counted: every bot's under All (one bucket, as Hermes's own sidebar merges the profiles' Homes), the picked bot's
+  under its pill (owner: "the main sessions page, before you click on any bot, should show a home project"). Its
+  chats stay in the days below, whatever Show › Project Chats in Recent says. The row opens Home's page; from a
+  bot's list the page is kept to that bot (a project's page opened the same way is every bot's: a project is a
+  folder they share, Home is not), and its line says "No project · <bots>". From Home's page the switch's Bots side (or
+  the edge swipe) brings back the list it was opened from; a project's pill or All Projects from a bot's Home drops
+  the bot, and with it that way back (as moving on from any project's page does, [project-edge-swipe]).
+  The row has no star, no place in the projects' order and no hold menu. Not while a status or project filter
+  narrows the list: Home would open, as every group a filter finds, and list each match twice. Before 2026-11-15
+  Group By Project under a bot's pill drew that bot's Home; the project pills (which drop the bot) left it no place.
 - Search results ignore steps 2-5 except the bot (§7.4).
 - Budget: 5,000 rows through the whole pipeline in under 50 ms on the simulator's host (unit test with `measure`).
 

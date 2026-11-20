@@ -71,6 +71,9 @@ struct ProjectPageHeader: View {
     /// "~/site · main · Hermes, Otto": each part only when there is one; past three bots, "and N more".
     static func meta(folder: String, branch: String?, bots: [String]) -> String {
         let who = bots.count > 3 ? bots.prefix(2).joined(separator: ", ") + " and \(bots.count - 2) more" : bots.joined(separator: ", ")
+        // [bot-home] Home has no folder: its key ("home") read as one, beside the branch of whichever folder its newest
+        // chat ran in. It says what Home is, then whose chats.
+        if folder == SessionProjects.homeKey { return ["No project", who].filter { !$0.isEmpty }.joined(separator: " · ") }
         return [shortFolder(folder), branch ?? "", who].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 

@@ -15,7 +15,10 @@ extension SessionsViewController {
 
     /// The project keys (or bot profiles) of the groups drawn, in their order.
     func shownGroupKeys(bots: Bool) -> [String] {
-        groups.compactMap { bots ? SessionListPipeline.botProfile($0.id) : SessionListPipeline.projectKey($0.id) }
+        let keys = groups.compactMap { bots ? SessionListPipeline.botProfile($0.id) : SessionListPipeline.projectKey($0.id) }
+        // [bot-home] Group By Recent's Home row (under a bot's pill) ends the block whatever the projects' order: it is
+        // no place to move a project past.
+        return !bots && freshLayout ? keys.filter { $0 != SessionProjects.homeKey } : keys
     }
 
     /// A project or bot group's header actions; nil for any other group.
@@ -24,6 +27,8 @@ extension SessionsViewController {
         if let project = SessionListPipeline.projectKey(group.id) { bots = false; key = project }
         else if let profile = SessionListPipeline.botProfile(group.id) { bots = true; key = profile }
         else { return nil }
+        // [bot-home] That Home row has no star and no place to move to: no hold menu (a tap opens its page).
+        if !bots, freshLayout, key == SessionProjects.homeKey { return nil }
         let favorites = bots ? [] : store?.favoriteProjects ?? []
         let favorite = favorites.contains(key)
         // A favorite moves among the favorites, the rest among the rest.

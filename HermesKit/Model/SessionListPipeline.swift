@@ -31,7 +31,8 @@
 // "Projects", and "See All" in either header draws the rest in place; then "Recent", every other chat newest first, a
 // project's too (a project still holds all its chats, as under Group By Project), unless Show › Project Chats in
 // Recent is off: then Recent holds Home's chats alone. A status chip (New, Working) draws
-// its chats alone, newest first, in one run.
+// its chats alone, newest first, in one run. [bot-home] "Projects" ends with Home, the chats in no project: the picked
+// bot's under its pill (its row opens their page, kept to that bot), every bot's under All.
 //
 // The web: `V/store/sidebar-sort.ts`, `V/app/chat/sidebar/index.tsx:605-680,1471,1872`, `V/lib/session-date-groups.ts`.
 // The web's Archived swaps the pool; here it adds to it, as Background Runs and Outside Chats do (a tester read the
@@ -342,6 +343,21 @@ nonisolated enum SessionListPipeline {
             // Show › Project Chats in Recent off: the chats of the projects shown above stay on their rows; every other
             // chat is listed below (a project not shown has no other place on this side).
             let shownProjects = Set(projects.compactMap { projectKey($0.id) })
+            // [bot-home] A tester 2026-11-19 (a bot picked, its projects listed, no Home among them), then the owner the
+            // same day ("the main sessions page, before you click on any bot, should show a home project"): the block
+            // ends with Home, the chats in no project, one tap from their page. Under a bot's pill it is that bot's;
+            // under All every bot's, one bucket, as Hermes's own sidebar merges them. Its pinned chats count (the page
+            // lists them); its chats stay in the days below whatever Project Chats in Recent says, and it says no
+            // "of N" (every bot's Home is nobody's project). Not without a project shown (then the days below are Home
+            // alone), nor while a filter narrows the list (a filter opens every group it finds: Home, open, would
+            // list each match a second time over the days that already list it).
+            if !projects.isEmpty, prefs.statusFilter.isEmpty, picked.isEmpty {
+                let homeRows = sorted.filter { project($0) == SessionProjects.homeKey }
+                if !homeRows.isEmpty {
+                    out.append(SessionGroup(id: projectPrefix + SessionProjects.homeKey, title: SessionProjects.homeLabel,
+                                            sessions: ranked(homeRows)))
+                }
+            }
             let recent = prefs.projectChatsInRecent ? rest : rest.filter { !shownProjects.contains(project($0)) }
             // [sessions-shape] One long "Recent" had no landmarks: sorted by a date (Updated, Created) it is split by
             // the day, Today, Yesterday, This Week (the five days before) and Older; any other sort keeps one Recent.

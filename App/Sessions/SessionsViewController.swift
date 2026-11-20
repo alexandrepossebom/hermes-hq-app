@@ -22,6 +22,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// list was scrolled, for the switch's Bots side to bring back. Spent on the way back; dropped when the switch is
     /// turned to Projects by hand.
     private var projectPageReturn: (bot: String?, offset: CGFloat)?
+    /// [bot-home] Home's page opened from a bot's list: the bot it is kept to (Home is no project, so its page there
+    /// is that bot's chats in no project, not every bot's). Leaving for a project's page or every project drops it.
+    private var homePageBot: String?
     private var pageSign = ""            // [project-pills] the project page's header, as last drawn
     /// [three-piles] A project's page lists its archived chats as Done: they are read the first time a page shows.
     private var doneRequested = false
@@ -2183,6 +2186,7 @@ extension SessionsViewController {
     func pickPills(_ pills: SessionPills) {
         guard var state = filterStateNow(), state.prefs.pills != pills else { return }
         Haptics.play(.selection)
+        homePageBot = nil   // [bot-home] the bot is the Bots side's own again (`projectPageReturn`)
         if pills == .projects { groupBeforeProjects = state.prefs.groupBy }
         let group: SessionGroupBy = pills == .projects ? .project : (groupBeforeProjects == .project ? .date : groupBeforeProjects)
         SessionFilterApply.apply(.group(group), to: &state, homeBot: homeBot)
@@ -2226,8 +2230,16 @@ extension SessionsViewController {
             groupBeforeProjects = state.prefs.groupBy
             // [project-page-return] What the switch's Bots side brings back. The page shows the whole project, every
             // bot's chats in it (owner: the project's own page is where to see all of it); the bot returns on the way back.
-            projectPageReturn = (state.botFilter, collectionView.contentOffset.y)
+            let bot = state.botFilter
+            projectPageReturn = (bot, collectionView.contentOffset.y)
             SessionFilterApply.apply(.group(.project), to: &state, homeBot: homeBot)
+            // [bot-home] A tester 2026-11-19: Home under a bot's pill is that bot's own. A project is a folder every
+            // bot can work in, so its page is the whole of it; Home is the chats in no project, so its page from a
+            // bot's list keeps the bot (the page's line names it).
+            if key == SessionProjects.homeKey, let bot {
+                state.botFilter = bot
+                homePageBot = bot
+            }
         }
         state.prefs.projectFilter = [key]
         // [sessions-motion] Owner 2026-11-17: a project tapped in the list "should like transition to the project": its
@@ -2248,6 +2260,12 @@ extension SessionsViewController {
         // project, another project's pill) the swipe goes back there, not to the Bots side.
         projectPageReturn = nil
         state.prefs.projectFilter = picked
+        // [bot-home] From a bot's Home to a project's page (or every project): the bot goes, or it would narrow them
+        // with nothing on screen saying so.
+        if let bot = homePageBot {
+            homePageBot = nil
+            if state.botFilter == bot { state.botFilter = nil }
+        }
         // [sessions-ux] Into a project's page or back out the whole list changes, from its top, not rows flying
         // between sections under a list left scrolled where the tapped row was. [sessions-motion] Into a page it slides
         // in from the right, back out to the list it slides away to the right; one page to another fades.
@@ -2368,6 +2386,7 @@ extension SessionsViewController {
         let clearsProjects = projectPills && !store.view.projectFilter.isEmpty
         guard store.statusChip != nil || store.botFilter != nil || clearsProjects else { return }
         Haptics.play(.selection)
+        homePageBot = nil   // [bot-home] All clears the bot with the rest
         func cleared(_ state: SessionFilterState) -> SessionFilterState {
             var state = state
             state.botFilter = nil

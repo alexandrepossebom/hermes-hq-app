@@ -263,9 +263,9 @@ struct SessionsHeaderView: View {
     /// folded into a submenu. It had been names alone in a SwiftUI picker.
     private func scopeMenu(picture: Bool) -> some View {
         let projects = model.pills == .projects
-        let pickedProject = model.projects.first { model.pickedProjects.contains($0.key) }
-        let title = projects ? (model.pickedProjects.count == 1 ? pickedProject?.label ?? "All Projects" : "All Projects")
-            : model.picked.flatMap { id in model.bots.first { $0.id == id }?.name } ?? "All Bots"
+        let title = SessionsHeaderModel.scopeTitle(projects: projects, pickedProjects: model.pickedProjects,
+                                                   labels: model.projects.map { ($0.key, $0.label) },
+                                                   bot: model.picked.flatMap { id in model.bots.first { $0.id == id }?.name })
         let side = HQFont.scaled(15)
         // [mac-scope-button] Owner 2026-11-19 ("And the button to open that drop down?"): it was a grey box like the
         // switch beside it, so it read as the switch's third side. It is a Mac pop-up button now: an outline on the page
@@ -298,7 +298,8 @@ struct SessionsHeaderView: View {
     @ViewBuilder private func scopePicture(projects: Bool, side: CGFloat) -> some View {
         let dark = colorScheme == .dark
         if projects {
-            Image(systemName: model.pickedProjects.count == 1 ? "folder" : "square.stack")
+            // [bot-home] Home's page: the house its row has.
+            Image(systemName: model.pickedProjects == [SessionProjects.homeKey] ? "house" : model.pickedProjects.count == 1 ? "folder" : "square.stack")
                 .font(Font.hqSystem(size: HQFont.scaled(11), weight: .medium))
                 .foregroundStyle(Color.hqLabel2)
                 .frame(width: side, height: side)
@@ -899,6 +900,15 @@ extension SessionsHeaderModel {
         if project.states.contains(.working) { parts.append("Working") }
         if project.states.contains(.ready) { parts.append("New") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// [mac-scope-button] The button's words: the picked project or bot, else every one. [bot-home] Home's page (opened
+    /// from its row; Home has no pill and no row in the menu) says Home: it read "All Projects" over one bot's chats.
+    nonisolated static func scopeTitle(projects: Bool, pickedProjects: Set<String>, labels: [(key: String, label: String)], bot: String?) -> String {
+        guard projects else { return bot ?? "All Bots" }
+        guard pickedProjects.count == 1, let key = pickedProjects.first else { return "All Projects" }
+        if key == SessionProjects.homeKey { return SessionProjects.homeLabel }
+        return labels.first { $0.key == key }?.label ?? "All Projects"
     }
 
     /// The menu's rows: All, then each bot with its face and counts (or each project with its folder and states, the

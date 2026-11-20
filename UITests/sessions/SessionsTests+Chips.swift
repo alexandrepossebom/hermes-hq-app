@@ -578,6 +578,97 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(8) { !app.collectionViews["sessions.list"].isHittable || app.navigationBars.buttons.firstMatch.exists }, "the chat opens")
     }
 
+    /// [bot-home] A tester 2026-11-19: with a bot picked, Home was not among its projects, and the Projects side's Home
+    /// is every bot's; the owner the same day: the page "before you click on any bot" shows Home too. "Projects" ends
+    /// with Home: under All every bot's chats in no project, under a bot's pill that bot's. Its row opens that Home
+    /// alone; a project's pill from a bot's Home is every bot's again (the bot went with Home, and with it the way
+    /// back to its list: [project-edge-swipe]); back from Home's page itself is the list it was opened from.
+    @MainActor func test40j_ABotsHomeOnTheBotsSide() throws {
+        let now = nowSeconds
+        // A chat in no project under each of two bots (Research has Reading, and "Bread recipes" in no project
+        // already; Hermes has Website and App).
+        setRow("s-notes", ["profile": "research", "title": "Loose notes", "cwd": "/home/hermes/loose", "last_active": now - 1_800])
+        setRow("s-errand", ["profile": "default", "title": "Errand list", "cwd": "/home/hermes/loose", "last_active": now - 2_400])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
+        let page = app.cells["sessions.projectPage"], place = app.staticTexts["sessions.projectPage.place"]
+        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
+        func home() -> XCUIElement { header(app, "Home") }
+        func count() -> String { home().value as? String ?? "" }
+        // Under All: Home ends the projects' shortcut, every bot's chats in no project.
+        XCTAssertTrue(home().waitForExistence(timeout: 8), "Home under All (\(headers(app)))")
+        let all = headers(app)
+        XCTAssertTrue(all.contains { $0.hasPrefix("Website") || $0.hasPrefix("Reading") || $0.hasPrefix("App") }, "the projects' shortcut (\(all))")
+        XCTAssertEqual(all.filter { $0.hasPrefix("Home") }.count, 1, "one Home (\(all))")
+        XCTAssertTrue(waitUntil(6) { count().contains("3 chats") }, "every bot's three (\(count()))")
+        shot(app, "H0-all-bots")
+        // A bot picked: Home ends its projects, with that bot's chats in no project counted.
+        tapChip(app, "research")
+        XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
+        XCTAssertTrue(waitUntil(6) { self.headers(app).contains { $0.hasPrefix("Reading") } && self.order(app).first == "s-trip" },
+                      "Research's list (\(headers(app)), \(order(app)))")
+        shot(app, "H1-bot-picked")
+        XCTAssertTrue(home().waitForExistence(timeout: 6), "Home ends Research's projects (\(headers(app)))")
+        let titles = headers(app)
+        let reading = titles.firstIndex { $0.hasPrefix("Reading") }, last = titles.firstIndex { $0.hasPrefix("Home") }
+        XCTAssertTrue(reading != nil && last != nil && reading! < last!, "after its projects (\(titles))")
+        XCTAssertTrue(waitUntil(6) { count().contains("2 chats") }, "Research's two (\(count()))")
+        XCTAssertFalse(count().contains(" of "), "no count of every bot's")
+        XCTAssertTrue(waitUntil(6) { let o = self.order(app); return o.contains("s-notes") && !o.contains("s-errand") },
+                      "its chats stay in the days below (\(order(app)))")
+        // Its row opens Home's page, kept to the bot.
+        reveal(app, home())
+        home().tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "Home's page")
+        XCTAssertTrue(waitUntil(6) { Set(self.order(app)) == ["s-notes", "s-recipes"] }, "Research's Home alone (\(order(app)))")
+        XCTAssertTrue(app.staticTexts["Home"].exists, "its name")
+        XCTAssertEqual(place.label, "No project · Research", "what Home is, and whose")
+        XCTAssertTrue(toBots.exists, "on the Projects side, the switch's Bots side the way back")
+        shot(app, "H2-bots-home-page")
+        // The pills there are that bot's projects. One tapped: the project, every bot's (the bot went with Home), so
+        // the other bots' projects are pills again and theirs open whole.
+        let pills = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.'"))
+        func pill(_ name: String) -> XCUIElement? { pills.allElementsBoundByIndex.first { $0.exists && $0.label.hasPrefix(name) } }
+        XCTAssertTrue(waitUntil(6) { pill("Reading") != nil && pill("App") == nil }, "Research's projects (\(pills.allElementsBoundByIndex.map(\.label)))")
+        if let reading = pill("Reading") { onScreen(app, reading).tap() }
+        XCTAssertTrue(waitUntil(8) { self.order(app) == ["s-trip"] && place.label.contains("~/reading") }, "Reading's page (\(order(app)))")
+        XCTAssertTrue(waitUntil(8) { pill("App") != nil }, "every bot's projects again (\(pills.allElementsBoundByIndex.map(\.label)))")
+        if let other = pill("App") { onScreen(app, other).tap() }
+        XCTAssertTrue(waitUntil(8) { let o = Set(self.order(app)); return o.contains("s-garden") && o.contains("s-release") },
+                      "App, Hermes's and Deploys' chats (\(order(app)))")
+        // Moved on within the Projects side, the switch's Bots side is every bot's (the way back to Research's list
+        // belonged to Home's page).
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(8) { toProjects.exists && self.nothingPicked(app) && count().contains("3 chats") },
+                      "the Bots side, every bot's (\(headers(app)), \(count()))")
+        // From Home's page itself the edge swipe goes back to the bot's list.
+        tapChip(app, "research")
+        XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected && count().contains("2 chats") }, "Research again (\(count()))")
+        reveal(app, home())
+        home().tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "Home's page again")
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
+        XCTAssertTrue(waitUntil(6) { !page.exists && toProjects.exists && self.chip(app, "research").isSelected },
+                      "the swipe goes back: the Bots side, Research picked")
+        // All again: its Home row opens every bot's Home, and back is All's list.
+        tapChip(app, "research")
+        XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) && count().contains("3 chats") }, "All again: every bot's Home (\(count()))")
+        reveal(app, home())
+        home().tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "every bot's Home")
+        XCTAssertTrue(waitUntil(6) { Set(self.order(app)) == ["s-errand", "s-notes", "s-recipes"] }, "\(order(app))")
+        XCTAssertTrue(place.label.hasPrefix("No project · ") && place.label.contains("Research") && place.label.contains("Hermes"), "\(place.label)")
+        shot(app, "H3-every-bots-home-page")
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(8) { toProjects.exists && self.nothingPicked(app) && home().exists }, "back to All's list (\(headers(app)))")
+        // The Projects side's Home is the same every bot's Home, as it was.
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(8) { toBots.exists && home().exists }, "the Projects side lists Home (\(headers(app)))")
+    }
+
     /// [three-piles] Owner 2026-11-17 (picked from pictures, "I like option 1"): a project's page is three piles.
     /// Pinned; Active, one run (a long one draws its first rows then Show More); Done, the archived chats, closed to
     /// its count until tapped. On the page the swipe says Done, and Not Done on a chat in Done.
