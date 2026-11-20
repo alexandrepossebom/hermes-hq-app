@@ -183,11 +183,15 @@ final class TileWidgetWriter {
             changed = TileWidgetStore.saveIndex(index) || changed
         }
         let placed = await Self.placed()
-        let specs = TileWidgetPlan.wanted(index: index, wants: TileWidgetStore.wants(), placed: placed, asked: asked,
-                                          fallback: Self.fallbackSizes(), now: Date())
+        let wants = TileWidgetStore.wants(), sizes = Self.fallbackSizes(), now = Date()
+        let live = TileWidgetPlan.wanted(index: index, wants: wants, placed: placed, asked: asked, fallback: sizes, now: now)
+        // [tile-widgets] Every tile's three sizes are kept too, so one picked in Edit Widget shows at once.
+        let specs = TileWidgetPlan.wanted(index: index, wants: wants, placed: placed, asked: asked,
+                                          ahead: TileWidgetPlan.aheadTiles, fallback: sizes, now: now)
+        let aheadOnly = TileWidgetPlan.aheadOnly(all: specs, live: live)
         changed = TileWidgetStore.keepPictures(specs) || changed
         if drawing {
-            let due = Self.due(specs, stale: stale, drawn: drawn, has: { spec in
+            let due = Self.due(specs, stale: stale, drawn: drawn, aheadOnly: aheadOnly, has: { spec in
                 TileWidgetStore.loadPicture(tile: spec.tile, family: spec.family, dark: false) != nil
                     && TileWidgetStore.loadPicture(tile: spec.tile, family: spec.family, dark: true) != nil
             })
@@ -260,10 +264,13 @@ final class TileWidgetWriter {
 
     /// The specs to draw this pass: those with no picture in a look yet, and those whose page may have changed
     /// (`stale` nil: all of them), unless drawn in the last minute.
-    static func due(_ specs: [TilePictureSpec], stale: Set<String>?, drawn: [String: Date], has: (TilePictureSpec) -> Bool,
+    /// `aheadOnly` (kept ahead of a choice, on no widget yet): drawn only while they have no picture.
+    static func due(_ specs: [TilePictureSpec], stale: Set<String>?, drawn: [String: Date],
+                    aheadOnly: Set<TilePictureSpec> = [], has: (TilePictureSpec) -> Bool,
                     now: Date = Date()) -> [TilePictureSpec] {
         specs.filter { spec in
             if !has(spec) { return true }
+            if aheadOnly.contains(spec) { return false }
             if let at = drawn[specKey(spec)], now.timeIntervalSince(at) < 60 { return false }
             return stale.map { $0.contains(spec.tile) } ?? true
         }

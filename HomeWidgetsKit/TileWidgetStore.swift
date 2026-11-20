@@ -142,8 +142,13 @@ nonisolated enum TileWidgetPlan {
     /// once), and the tiles `asked` (Add to Home Screen…) at those three. `placed`: what the system says is on the
     /// Home Screen (`WidgetCenter.currentConfigurations`), nil when it couldn't say; then the recent wants stand in.
     /// A family's size is the newest want's for it, else `fallback`'s. Tiles not in the index are left out.
+    /// `ahead`: this many of the index's first tiles are kept at Small, Medium and Large too, so a tile picked in
+    /// Edit Widget shows its picture at once (owner 2026-11-19, the first phone run: a tile just chosen said "Drawn
+    /// when you open Hermes HQ" until the app was opened again). They come last: `aheadOnly` tells them apart.
+    static let aheadTiles = 12
+
     static func wanted(index: TileWidgetIndex, wants: [TileWant], placed: [(tile: String?, family: TileFamily)]?,
-                       asked: [String] = [], fallback: [TileFamily: CGSize], now: Date) -> [TilePictureSpec] {
+                       asked: [String] = [], ahead: Int = 0, fallback: [TileFamily: CGSize], now: Date) -> [TilePictureSpec] {
         guard index.state == .live, let first = index.defaultTile else { return [] }
         let recent = wants.filter { now.timeIntervalSince($0.at) < wantKeptFor }
         var sizes: [TileFamily: (CGSize, Date)] = [:]
@@ -165,7 +170,14 @@ nonisolated enum TileWidgetPlan {
         for widget in onScreen { add(widget.tile, widget.family) }
         for family in [TileFamily.small, .medium, .large] { add(first.id, family) }
         for tile in asked { for family in [TileFamily.small, .medium, .large] { add(tile, family) } }
+        for tile in index.tiles.prefix(max(0, ahead)) { for family in [TileFamily.small, .medium, .large] { add(tile.id, family) } }
         return out
+    }
+
+    /// The specs kept only ahead of a choice (in `all`, not in `live`): drawn once, when they have no picture, and
+    /// not again on every change of their page (twelve tiles at three sizes in two looks is 72 pages to draw).
+    static func aheadOnly(all: [TilePictureSpec], live: [TilePictureSpec]) -> Set<TilePictureSpec> {
+        Set(all).subtracting(live)
     }
 
     /// The best picture for a widget showing `tile` at `family`, `size`: its own family's in its own look, else the

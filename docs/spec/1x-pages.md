@@ -906,7 +906,11 @@ the app. The Tasks widget shares its store, links and refresh (`docs/tasks.md` i
 6. **Sizes.** Each picture is drawn by `PageSnapshots` in the widget's own window (`Shape.frame`, exact points, no
    zoom) at the screen's scale, both looks, for every placed widget (`WidgetCenter.currentConfigurations`, else the
    recent wants) and for the default tile at Small, Medium and Large (`TileWidgetPlan.wanted`); a family's size is
-   the newest want's, else Apple's table (`fallbackSizes`). WidgetKit's archive refuses an image over **4.4 × the
+   the newest want's, else Apple's table (`fallbackSizes`). The first twelve tiles are kept at those three sizes too
+   (`aheadTiles`), so a tile picked in Edit Widget shows at once (owner's first phone run, 2026-11-19: the tile just
+   picked said "Drawn when you open Hermes HQ" until the app was opened again); a picture kept only ahead of a choice
+   is drawn once, while it has none, and drawn again like the others once its tile is on a widget (`aheadOnly`,
+   `TileWidgetWriter.due`; `TileWidgetPlanTests.everyTilesThreeSizesAreKeptAheadOfAChoice`). WidgetKit's archive refuses an image over **4.4 × the
    widget's pixel area** (measured: "totalArea: 8265600 > max[2275490.8]" for a 349.7 × 164.3 pt Medium at 3x); a
    picture is never more than the widget's own pixels (`TilePictureEncoding.fitted`).
 7. **Add to Home Screen…** in a tile's hold menu and the opened tile's menu (iPhone and iPad, page tiles only;
