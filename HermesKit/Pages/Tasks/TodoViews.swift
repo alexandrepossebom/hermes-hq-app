@@ -97,6 +97,10 @@ nonisolated struct TodoRowWords: Hashable, Sendable {
     var note: String?
     var tone: TodoTone = .plain
     var dot: TodoDot?
+    /// [tasks-calm] The second line as the iPhone's row draws it, after the bot's small face (owner 2026-11-19, pick A
+    /// of hermes-hq/workspace/mockups/tasks-calm: "Quiet ink"): `note` without the bot's name, since the face says it,
+    /// and a line for every task a bot is on ("Working on it", "Not started yet"), so its face has one place.
+    var said: String?
 
     /// What VoiceOver hears after the title.
     var spoken: String {
@@ -364,7 +368,25 @@ nonisolated enum TodoViews {
                 words.note = note            // Bots: what it is on
             }
         }
+        words.said = said(task, words: words, note: note, name: name)
         return words
+    }
+
+    /// [tasks-calm] `note` as it reads beside the face of the task's bot: its name left off (the face says it), and a
+    /// quiet line while it works or hasn't started. A line by someone else (another bot's "looks done", Still Need
+    /// These?'s "Added by …") keeps its words whole.
+    private static func said(_ task: TodoTask, words: TodoRowWords, note: String, name: String) -> String? {
+        guard task.helper != nil else { return words.note }
+        switch task.status {
+        case "ready": return note.isEmpty ? "Finished its part" : note
+        case "needs_you": return note.isEmpty ? "Needs you" : note
+        default: break
+        }
+        if let line = words.note {
+            let own = "\(name): "
+            return line.hasPrefix(own) ? String(line.dropFirst(own.count)) : line
+        }
+        return task.status == "working" ? "Working on it" : "Not started yet"
     }
 
     /// A group's heading; nil for one with none (a list's and Inbox's open tasks).

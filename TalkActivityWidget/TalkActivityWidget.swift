@@ -14,6 +14,9 @@ struct HermesHQActivitiesBundle: WidgetBundle {
     var body: some Widget {
         TalkActivityWidget()
         ReplyActivityWidget()
+        // [tile-widgets] Home Screen widgets, in the same extension (no new App ID): a Tile, and Tasks.
+        TileWidget()
+        TasksWidget()   // [tasks-widget]
     }
 }
 

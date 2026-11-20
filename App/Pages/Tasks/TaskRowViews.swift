@@ -1,7 +1,8 @@
 // [tasks-first] The Tasks page's rows (owner 2026-11-12, mockup 1-list-today: "One line per task"): a circle to tick,
-// the name, a tiny 2/4 with steps, and when it's due at the end. A bot on the task is a small face after that, with a
-// dot for what it is doing (blue working, green finished its part, orange has a question). A second line shows only
-// when the bot has something for you, in its words. The Mac's table (a window-wide list) keeps its columns.
+// the name, a tiny 2/4 with steps, and when it's due at the end. [tasks-calm] A bot on the task has a quiet grey second
+// line led by its small face, in its words (owner 2026-11-19 pick A, "Quiet ink": the face and its coloured dot at the
+// row's end, and a green or orange line naming the bot, read busy); only a question keeps its orange. The Mac's table (a
+// window-wide list) keeps its columns.
 
 import SwiftUI
 import UIKit
@@ -43,8 +44,6 @@ struct TodoRowModel: Hashable {
     /// The bot on the task (its own, or one you share): its face at the row's end.
     var face: String?
     var head: JSONValue?
-    /// [Mac AAA 2026-11-16] Another row of the group has a face: this row keeps its room, so the times line up.
-    var faceSlot = false
     /// Select: the lead is a pick circle (filled when `picked`), the whole row toggles it.
     var selecting = false
     var picked = false
@@ -85,9 +84,9 @@ struct TodoRowView: View {
     /// Pressed through accessibility: opens the task as a click does (`UICollectionView.pressRow`).
     var open: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
-    @ScaledMetric(relativeTo: .callout) private var textFaceSize: CGFloat = 20
+    @ScaledMetric(relativeTo: .footnote) private var textLineFaceSize: CGFloat = 15
     /// [ui-sizing] × UI Scale too: a ScaledMetric follows only the text size, and at 150 % the text grew around it.
-    private var faceSize: CGFloat { HQFont.scaled(textFaceSize) }
+    private var lineFaceSize: CGFloat { HQFont.scaled(textLineFaceSize) }
     @ScaledMetric(relativeTo: .callout) private var textCircleSize: CGFloat = 22
     /// [ui-sizing] × UI Scale too: a ScaledMetric follows only the text size, and at 150 % the text grew around it.
     private var circleSize: CGFloat { HQFont.scaled(textCircleSize) }
@@ -143,8 +142,15 @@ struct TodoRowView: View {
         .accessibilityAction(named: row.done ? "Mark Not Done" : "Mark Done") { toggle() }
     }
 
+    /// [tasks-calm] Quiet ink (owner 2026-11-19, pick A of hermes-hq/workspace/mockups/tasks-calm: the page read busy):
+    /// the row's end holds only when it is due (or its steps, with no date). The bot's line is grey, led by its small
+    /// face instead of its name; only a question keeps its colour. No dot on the face: the line says what it is doing.
+    /// Steps of a dated task with a bot's line end that line ("Draft ready · 1/2").
     private var list: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        let said = row.done ? nil : (row.words.said ?? row.words.note)
+        let stepsAtEnd = row.words.when == nil && row.words.steps != nil
+        let stepsOnLine = !stepsAtEnd && said != nil && row.words.steps != nil
+        return HStack(alignment: .firstTextBaseline, spacing: 12) {
             lead
             VStack(alignment: .leading, spacing: 2) {
                 // At the largest sizes the date goes under the name, so the name keeps the row's width.
@@ -152,7 +158,7 @@ struct TodoRowView: View {
                 top {
                     // The marks run on after the name's last word, so a long name wraps to a second line with them
                     // (cut to one line it read "Reply to Ivy about the ve…").
-                    titleLine
+                    titleLine(steps: !stepsAtEnd && !stepsOnLine)
                         .lineLimit(large ? 4 : 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     // [task-lists] Its list's dot, before the date (and alone at the row's end with no date); [goals] its
@@ -166,20 +172,30 @@ struct TodoRowView: View {
                             .foregroundStyle(row.words.late && !row.done ? Color.hqRed : Color.hqLabel2)
                             .lineLimit(1)
                             .fixedSize()
+                    } else if stepsAtEnd, let steps = row.words.steps {
+                        stepsText(steps, font: Font.hq(.footnote))
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                 }
-                if let note = row.words.note {
-                    Text(note)
-                        .font(Font.hq(.footnote))
-                        .foregroundStyle(TodoInk.color(row.words.tone))
-                        .lineLimit(large ? nil : 1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if let said {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        if let profile = row.face { lineFace(profile) }
+                        Text(said)
+                            .font(Font.hq(.footnote))
+                            .foregroundStyle(row.words.tone == .needsYou ? Color.hqOrange : Color.hqLabel2)
+                            .lineLimit(large ? nil : 1)
+                            .layoutPriority(stepsOnLine ? 0 : 1)
+                        // The steps stay whole; a long line is cut before them, not them.
+                        if stepsOnLine, let steps = row.words.steps {
+                            Text("\(Text("·").foregroundStyle(Color.hqLabel3))\u{00A0}\(stepsText(steps, font: Font.hq(.footnote)))")
+                                .font(Font.hq(.footnote))
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        Spacer(minLength: 0)
+                    }
                 }
-            }
-            if let profile = row.face {
-                face(profile)
-            } else if row.faceSlot {
-                Color.clear.frame(width: min(30, faceSize).rounded(), height: 1).accessibilityHidden(true)
             }
         }
         .padding(.vertical, Theme.isDesktop ? 10 : 8)
@@ -200,7 +216,7 @@ struct TodoRowView: View {
     /// tried and dropped: it pushed long names onto a second line and said little.) The marks are
     /// tied to the name's last word (no-break spaces), so a long name wraps with them: a count never sits on a line
     /// alone.
-    private var titleLine: Text {
+    private func titleLine(steps showsSteps: Bool) -> Text {
         let struck = row.done || row.ticking
         var line = Text(row.title)
             .font(Font.hq(.callout))
@@ -208,8 +224,8 @@ struct TodoRowView: View {
             .strikethrough(struck, color: Color.hqLabel3)
         let small = Font.hq(.caption)
         let gap = "\u{00A0}\u{00A0}"
-        if let steps = row.words.steps {
-            line = Text("\(line)\(gap)\(Text(Image(systemName: "checklist")).font(small).foregroundStyle(Color.hqLabel2))\u{00A0}\(Text(steps).font(small).monospacedDigit().foregroundStyle(Color.hqLabel2))")
+        if showsSteps, let steps = row.words.steps {
+            line = Text("\(line)\(gap)\(stepsText(steps, font: small))")
         }
         if row.words.repeats {
             line = Text("\(line)\(gap)\(Text(Image(systemName: "repeat")).font(small).foregroundStyle(Color.hqLabel3))")
@@ -265,30 +281,18 @@ struct TodoRowView: View {
         }
     }
 
-    /// The bot's face, with a dot at its foot for what it is doing.
-    private func face(_ profile: String) -> some View {
-        let size = min(30, faceSize).rounded()
-        let dot = (size * 0.42).rounded()
-        return HeadImage(raw: row.head, profile: profile, size: size)
-            .frame(width: size, height: size)
-            .overlay(alignment: .bottomTrailing) {
-                if let kind = row.words.dot, !row.done {
-                    Circle().fill(TodoRowView.dotColor(kind))
-                        .frame(width: dot, height: dot)
-                        .overlay { Circle().strokeBorder(Color.hqPage, lineWidth: 1.5) }
-                        .offset(x: dot * 0.3, y: dot * 0.3)
-                }
-            }
-            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(.callout).capHeight / 2 }
-            .accessibilityHidden(true)
+    /// Steps done of all, small and grey: "☰ 2/4".
+    private func stepsText(_ steps: String, font: Font) -> Text {
+        Text("\(Text(Image(systemName: "checklist")))\u{00A0}\(Text(steps).monospacedDigit())").font(font).foregroundStyle(Color.hqLabel2)
     }
 
-    static func dotColor(_ dot: TodoDot) -> Color {
-        switch dot {
-        case .working: return Color.hqTint
-        case .ready: return Color(uiColor: TodoInk.ready)
-        case .question: return Color.hqOrange
-        }
+    /// [tasks-calm] The bot's face, small, at the head of its line (the line's words say what it is doing).
+    private func lineFace(_ profile: String) -> some View {
+        let size = min(22, lineFaceSize).rounded()
+        return HeadImage(raw: row.head, profile: profile, size: size)
+            .frame(width: size, height: size)
+            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(.footnote).capHeight / 2 }
+            .accessibilityHidden(true)
     }
 }
 

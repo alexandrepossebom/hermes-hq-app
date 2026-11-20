@@ -704,13 +704,9 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         var nextRows: [String: TodoRowModel] = [:]
         // A task ticked here stays where it was until it moves (a moment later), so the tick shows first.
         for group in made {
-            // [Mac AAA 2026-11-16] A group with a bot's face on any row keeps the face's room on every row, so the
-            // times stand in one column (a row without a face had its "5:00 PM" 36 pt right of the one over it).
-            let faceSlot = DeviceWord.isMac && group.tasks.contains { $0.helper != nil }
+            // [tasks-calm] No face at a row's end any more (it leads the bot's line), so the times stand in one column.
             for task in group.tasks {
-                var model = rowModel(task, kind: group.kind, now: now, heads: heads)
-                model.faceSlot = faceSlot
-                nextRows[task.id] = model
+                nextRows[task.id] = rowModel(task, kind: group.kind, now: now, heads: heads)
             }
         }
 
