@@ -175,6 +175,26 @@ struct TileWidgetPlanTests {
                                       now: now).isEmpty)
     }
 
+    /// A tile picked in Edit Widget shows at once: every tile's three sizes are kept ahead of the choice, after the
+    /// placed ones, and only the first `ahead` tiles.
+    @Test func everyTilesThreeSizesAreKeptAheadOfAChoice() {
+        let idx = index([tile("a"), tile("b"), tile("c", page: "p1")])
+        let now = Date()
+        let placed: [(tile: String?, family: TileFamily)] = [("b", .large)]
+        let live = TileWidgetPlan.wanted(index: idx, wants: [], placed: placed, fallback: sizes, now: now)
+        let all = TileWidgetPlan.wanted(index: idx, wants: [], placed: placed, ahead: 12, fallback: sizes, now: now)
+        #expect(Array(all.prefix(live.count)) == live, "what is on a widget comes first")
+        for id in ["a", "b", "c"] {
+            #expect(Set(all.filter { $0.tile == id }.map(\.family)) == [.small, .medium, .large], "\(id) at all three")
+        }
+        #expect(all.count == 9, "none twice")
+        let ahead = TileWidgetPlan.aheadOnly(all: all, live: live)
+        #expect(ahead == Set(all.filter { $0.tile == "c" || ($0.tile == "b" && $0.family != .large) }))
+        // Only the first tiles when there are many.
+        let two = TileWidgetPlan.wanted(index: idx, wants: [], placed: [], ahead: 2, fallback: sizes, now: now)
+        #expect(Set(two.map(\.tile)) == ["a", "b"])
+    }
+
     @Test func aWidgetsOwnSizeWinsAndOldWantsAreForgotten() {
         let idx = index([tile("a"), tile("b")])
         let now = Date()
@@ -309,6 +329,9 @@ struct WidgetLinkTests {
         // Only the stale tiles.
         #expect(TileWidgetWriter.due([a, b], stale: ["b"], drawn: [:], has: { _ in true }, now: now) == [b])
         #expect(TileWidgetWriter.due([a, b], stale: [], drawn: [:], has: { _ in true }, now: now).isEmpty)
+        // Kept ahead of a choice: drawn while it has no picture, never again just because its page may have changed.
+        #expect(TileWidgetWriter.due([a, b], stale: nil, drawn: [:], aheadOnly: [b], has: { _ in true }, now: now) == [a])
+        #expect(TileWidgetWriter.due([a, b], stale: [], drawn: [:], aheadOnly: [b], has: { $0 == a }, now: now) == [b])
     }
 
     @Test func aPushRefreshesAtMostEveryTenMinutes() {

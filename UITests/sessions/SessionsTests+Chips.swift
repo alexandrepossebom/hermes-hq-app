@@ -500,6 +500,50 @@ extension SessionsTests {
                       "the swipe goes back to every project (\(headers(app)))")
     }
 
+    /// [project-edge-swipe] Owner 2026-11-19 (voice memo): "toggle into projects and then click a project … swipe from
+    /// the left side of the screen to go back, you go all the way back to the bots page." Switched to Projects by hand,
+    /// a project opened from its row: back is every project, never the Bots side. Also after a page opened from the
+    /// Bots side was left within the Projects side (its pill tapped off) and another project opened.
+    @MainActor func test40i_EdgeSwipeStaysOnProjectsSide() throws {
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
+        let page = app.cells["sessions.projectPage"]
+        XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
+        func edgeSwipe() {
+            let window = app.windows.firstMatch
+            let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
+            from.press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
+        }
+        func onProjectsList() -> Bool { !page.exists && toBots.exists && !toProjects.exists && nothingPicked(app) }
+        // 1. The switch to Projects, then a project's row in the list.
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists })
+        let reading = header(app, "Reading")
+        XCTAssertTrue(reading.waitForExistence(timeout: 6))
+        reveal(app, reading)
+        reading.tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "Reading's page")
+        edgeSwipe()
+        XCTAssertTrue(waitUntil(6) { onProjectsList() }, "back to every project, not the Bots side (\(headers(app)))")
+        // 2. Back on the Bots side, a project opened from its list, left by its pill (still on Projects), another opened.
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists })
+        let again = header(app, "Reading")
+        XCTAssertTrue(again.waitForExistence(timeout: 6))
+        reveal(app, again)
+        again.tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "Reading's page from the Bots side")
+        let lit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND selected == true")).firstMatch
+        onScreen(app, lit).tap()
+        XCTAssertTrue(waitUntil(6) { onProjectsList() }, "every project")
+        let website = app.buttons["sessions.chip.project.0"]
+        onScreen(app, website).tap()
+        XCTAssertTrue(page.waitForExistence(timeout: 6), "Website's page")
+        edgeSwipe()
+        XCTAssertTrue(waitUntil(6) { onProjectsList() }, "back to every project, where the page was opened (\(headers(app)))")
+    }
+
     /// [sessions-shape] Owner 2026-11-18 ("It doesn't feel like it has enough organization"; "an additional click to end
     /// up to your final destination"): the Bots side is Pinned, the projects' shortcut, and the chats by the day; on
     /// the Projects side a project's live chats (a reply not read, at work) sit under its row, one tap from the chat.
