@@ -435,7 +435,8 @@ extension SessionsTests {
         openFilter(app)
         XCTAssertTrue(filterChecked(app, "allbots"), "All Bots is on while no chip is picked")
         tapFilter(app, "allbots")
-        XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget", "s-garden"] }, "only Hermes's chats (\(order(app)))")
+        // Projects are hidden by default, so both chats are in Recent, newest first (garden before budget).
+        XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-garden", "s-budget"] }, "only Hermes's chats (\(order(app)))")
         closeFilter(app)
         XCTAssertTrue(chip(app, "default").isSelected, "the Hermes chip lights")
         XCTAssertFalse(nothingPicked(app))

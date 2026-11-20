@@ -307,6 +307,13 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
   The row has no star, no place in the projects' order and no hold menu. Not while a status or project filter
   narrows the list: Home would open, as every group a filter finds, and list each match twice. Before 2026-11-15
   Group By Project under a bot's pill drew that bot's Home; the project pills (which drop the bot) left it no place.
+- **DECISION (2026-11-20, tester #387, owner): the switch's left side is Chats, with no projects by
+  default** [chats-projects] [chats-switch]. With projects on both sides of the switch the two sides looked alike, and
+  "Bots" read as the bots themselves. The left side is called Chats (the Sessions tab's chat bubbles, VoiceOver
+  "Switch to Chats", the Mac's "Show Chats"); the bot pills and All Bots keep their names. Group By Recent lists Pinned,
+  then every chat by the day; the projects' shortcut above them, Home's row with it ([bot-home]), only with Filter &
+  Sort › Show › Projects (off by default, kept per gateway account), and Project Chats in Recent is offered only then.
+  Home stays on the Projects side. The owner picked this over keeping Home on the Chats side alone.
 - Search results ignore steps 2-5 except the bot (§7.4).
 - Budget: 5,000 rows through the whole pipeline in under 50 ms on the simulator's host (unit test with `measure`).
 
