@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 
 /// Native mobile opt-in: an ordinary chat must never acquire its bot’s Live Tabs.
@@ -14,9 +15,10 @@ final class SessionStripTests: XCTestCase {
         }
     }
 
-    @MainActor func launch() -> XCUIApplication {
+    @MainActor func launch(stripOn: Bool? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-HQDebugNoSwipePeek", "YES", "-HQDebugResetSessionsView", "YES", "-HQDebugResetUnread", "YES", "-dispatch.notifications.asked", "YES", "-HQDebugResetTheme", "YES", "-HQDebugResetAccounts", "YES", "-HQDebugNoDrag", "YES", "-HQDebugAppearance", env["HQN_SESSIONS_DARK"] == "1" ? "dark" : "light"]
+        if let stripOn { app.launchArguments += ["-hqn.sessionStrip", stripOn ? "YES" : "NO"] }
         app.launchEnvironment["HQN_SIGNIN_URL"] = account.url
         app.launchEnvironment["HQN_SIGNIN_USERNAME"] = account.username
         app.launchEnvironment["HQN_SIGNIN_PASSWORD"] = account.password
@@ -41,6 +43,130 @@ final class SessionStripTests: XCTestCase {
         XCTAssertTrue(all(app).waitForExistence(timeout: 12), "Back returns directly to the originating bot chat")
     }
     @MainActor func all(_ app: XCUIApplication) -> XCUIElement { app.buttons["session-strip.all"] }
+
+    /// A real software keyboard must hide only the bot's row, and dismissal restores it without losing the draft.
+    @MainActor func testTypingHidesAndRestoresBotStrip() throws {
+        let app = launch(stripOn: true)
+        bot(app)
+        let all = all(app)
+        let field = app.textViews["composer.text"]
+        let more = app.buttons["chat.more"]
+        let title = app.descendants(matching: .any)["chat.title"].firstMatch
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(all.waitForExistence(timeout: 20))
+        XCTAssertTrue(more.exists && title.exists && backButton.exists)
+        let beforeFrame = all.frame
+        shot(app, "typing-before")
+
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "software keyboard must actually appear")
+        field.typeText("An unsent fixture draft")
+        XCTAssertTrue(waitUntil(10) { app.keyboards.firstMatch.exists }, "software keyboard returns after typing")
+        shot(app, "typing-during")
+        XCTAssertTrue(waitUntil(5) { !all.exists }, "the row is hidden while the keyboard occludes the chat")
+        XCTAssertTrue(more.isHittable && title.exists && backButton.isHittable, "the navigation bar stays intact")
+        XCTAssertEqual(field.value as? String, "An unsent fixture draft")
+
+        // Open the actual menu while the keyboard is up; it may dismiss the keyboard as it presents.
+        more.tap()
+        let chatsWhileTyping = app.buttons["chat.more.bot-chats"]
+        XCTAssertTrue(chatsWhileTyping.waitForExistence(timeout: 5), "Chats is reachable from the compact header")
+        chatsWhileTyping.tap()
+        let doneWhileTyping = app.buttons["phone-bot-chats.done"]
+        XCTAssertTrue(doneWhileTyping.waitForExistence(timeout: 8)); doneWhileTyping.tap()
+        XCTAssertEqual(field.value as? String, "An unsent fixture draft")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        let table = app.tables["chat.table"]
+        table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            .press(forDuration: 0.1, thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        XCTAssertTrue(waitUntil(10) { !app.keyboards.firstMatch.exists })
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "the row returns when the keyboard is dismissed")
+        XCTAssertEqual(field.value as? String, "An unsent fixture draft")
+        XCTAssertEqual(all.frame.minX, beforeFrame.minX, accuracy: 1)
+        shot(app, "typing-after")
+
+        more.tap()
+        let chats = app.buttons["chat.more.bot-chats"]
+        XCTAssertTrue(chats.waitForExistence(timeout: 5), "the bot's chats remain in the menu")
+        chats.tap()
+        let done = app.buttons["phone-bot-chats.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 8)); done.tap()
+        let budget = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Quarterly budget")).firstMatch
+        XCTAssertTrue(budget.waitForExistence(timeout: 8)); budget.tap()
+        XCTAssertTrue(waitUntil(10) { !all.exists && app.textViews["composer.text"].exists })
+        backToBot(app)
+        XCTAssertEqual(field.value as? String, "An unsent fixture draft")
+    }
+
+    /// A long bot chat read from higher up: the line being read stays on screen as the row folds away and returns,
+    /// and neither focusing nor dismissing jumps the chat to its newest end.
+    @MainActor func testTypingKeepsTheReadingPlaceInALongChat() throws {
+        let digest = SHA256.hash(data: Data("default".utf8)).map { String(format: "%02x", $0) }.joined()
+        let lines: [[String: Any]] = (1...48).map { n in
+            ["role": n % 2 == 1 ? "user" : "assistant", "content": "Line \(n) of the long fixture chat."]
+        }
+        try account.control("/__fixture/rows", ["id": "20261009_090000_bc" + digest.prefix(6), "set": ["messages": lines]])
+        let app = launch(stripOn: true)
+        bot(app)
+        let all = all(app)
+        XCTAssertTrue(all.waitForExistence(timeout: 20))
+        let table = app.tables["chat.table"]
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Line 48 of the long")).firstMatch
+            .waitForExistence(timeout: 15), "the long history is drawn")
+        for _ in 0..<2 { table.swipeDown(velocity: .slow) }   // up into the older lines
+        Thread.sleep(forTimeInterval: 1.2)
+        func onScreen() -> [(n: Int, y: CGFloat)] {
+            let room = table.frame
+            return app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Line ")).allElementsBoundByIndex
+                .compactMap { e -> (Int, CGFloat)? in
+                    let f = e.frame
+                    guard f.height > 0, f.minY > room.minY + 60, f.maxY < room.maxY - 60,
+                          let n = Int(e.label.split(separator: " ").dropFirst().first ?? "") else { return nil }
+                    return (n, f.minY)
+                }
+        }
+        let before = onScreen()
+        XCTAssertFalse(before.isEmpty, "some older lines are on screen")
+        XCTAssertFalse(before.contains { $0.n == 48 }, "the chat was scrolled up away from the newest line")
+        shot(app, "long-before")
+
+        let field = app.textViews["composer.text"]
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil(5) { !all.exists }, "the row folds away")
+        Thread.sleep(forTimeInterval: 0.8)
+        let during = onScreen()
+        shot(app, "long-during")
+        let middle = before.map(\.n).sorted()[before.count / 2]
+        XCTAssertTrue(during.contains { $0.n == middle }, "line \(middle) is still on screen while typing: \(during.map(\.n))")
+        XCTAssertFalse(during.contains { $0.n == 48 }, "focusing did not jump the chat to its newest end")
+
+        table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            .press(forDuration: 0.1, thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        XCTAssertTrue(waitUntil(10) { !app.keyboards.firstMatch.exists })
+        XCTAssertTrue(all.waitForExistence(timeout: 10), "the row returns")
+        Thread.sleep(forTimeInterval: 0.8)
+        let after = onScreen()
+        shot(app, "long-after")
+        XCTAssertFalse(after.isEmpty)
+        XCTAssertFalse(after.contains { $0.n == 48 }, "dismissing did not jump to the newest end either: \(after.map(\.n))")
+    }
+
+    @MainActor func testTypingWithStripSettingOff() throws {
+        let app = launch(stripOn: false)
+        bot(app)
+        let field = app.textViews["composer.text"]
+        XCTAssertFalse(all(app).exists)
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(all(app).exists)
+        let table = app.tables["chat.table"]
+        table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            .press(forDuration: 0.1, thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        XCTAssertTrue(waitUntil(10) { !app.keyboards.firstMatch.exists })
+        XCTAssertFalse(all(app).exists)
+    }
 
     /// Install default and real Settings toggle; run against a newly provisioned simulator. No preference launch override.
     @MainActor func testAcceptance_RealSettingsAndRelaunch() throws {

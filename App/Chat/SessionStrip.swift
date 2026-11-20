@@ -21,6 +21,12 @@ import UIKit
 // comes in first; nothing is re-sorted under the pointer), a tab's tip gives its whole title and last line, and a
 // right-click offers Mark as Read, Pin, Archive and Remove from Tabs.
 
+// [typing-header] Owner 2026-11-20 ("Is there any way to reduce the height of that whole top section? … with the
+// keyboard up, there's really not much screen real estate left for the actual chat"; of the drawn study he said
+// "That works!!!"): on the iPhone the row folds away while the software keyboard covers the chat and comes back as
+// it goes. Only the row's height changes (`setKeyboardOccludesChat`): Back, the title and ⋯ stay as they are, ⋯ ›
+// Chats with the bot still lists every chat, and the pills, their scroll place and the draft are kept.
+
 /// Settings › Chat › Other Chats at the Top (opt-in).
 enum SessionStripPref {
     static let key = "hqn.sessionStrip"
@@ -354,6 +360,8 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
     private lazy var scrollerToAll = scroller.trailingAnchor.constraint(equalTo: allChats.leadingAnchor, constant: -7)
     private var shown: [SessionStripEntry] = []
     private var watches: [NSObjectProtocol] = []
+    private var availableHeight: CGFloat = 0
+    private var keyboardOccludesChat = false
     /// The pill of the chat on screen is kept in view as the pills change, until the person scrolls the strip.
     private var personScrolled = false
     private var placedCurrent = false
@@ -589,6 +597,20 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
 
     @objc private func scrolledByPerson() { personScrolled = true }
 
+    /// The keyboard guide follows actual occlusion, including interactive dismissal; focus alone is not enough.
+    /// Only change the height here: the existing pills and their scroll position remain untouched.
+    func setKeyboardOccludesChat(_ occludes: Bool) {
+        guard keyboardOccludesChat != occludes else { return }
+        keyboardOccludesChat = occludes
+        updateHeight(animated: false)
+    }
+
+    private func updateHeight(animated: Bool) {
+        let height = keyboardOccludesChat ? 0 : availableHeight
+        view.isHidden = height == 0
+        screen?.setTopAccessoryHeight(height, insets: true, animated: animated)
+    }
+
     private func reload() {
         guard let app, let screen else { return }
         let entries = SessionStripPref.isOn ? SessionStrip.entries(app: app, model: screen.session) : []
@@ -598,8 +620,8 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         let height: CGFloat = SessionStripPref.isOn && drawn ? stripHeight : 0
         showAllCount(height > 0 ? others : 0)
         app.setChatList(self, shown: appeared && (DeviceWord.isMac ? height > 0 : SessionStripPref.isOn))
-        screen.setTopAccessoryHeight(height, insets: true, animated: view.window != nil && !HQMotion.reduced)
-        view.isHidden = height == 0
+        availableHeight = height
+        updateHeight(animated: view.window != nil && !HQMotion.reduced)
         guard entries != shown else { return }
         shown = entries
         row.arrangedSubviews.forEach { $0.removeFromSuperview() }
