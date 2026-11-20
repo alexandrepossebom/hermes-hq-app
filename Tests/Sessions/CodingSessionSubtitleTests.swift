@@ -8,44 +8,49 @@ import Testing
                        source: nil, unread: false, isRunning: false)
     }
 
-    @Test func pendingAndLiveWorkTakePrecedenceWithoutLeakingText() {
+    @Test func liveWorkNamesTheToolCallAndPendingTakesPrecedence() {
         var s = row()
         s.lastResult = "Tests passed"
         s.isRunning = true
-        s.step = "running npm test --token=secret"
-        #expect(CodingSessionSubtitle.line(s) == "Running tests…")
+        #expect(CodingSessionSubtitle.line(s) == "Working…")
+        s.step = "running npm test"
+        #expect(CodingSessionSubtitle.line(s) == "Running npm test…")
+        s.step = "running curl https://example.com?key=hunter22secret"
+        #expect(!CodingSessionSubtitle.line(s).contains("hunter22secret"))
         s.pending = SessionPending(failed: false, text: "password=secret")
         #expect(CodingSessionSubtitle.line(s) == "Draft not sent")
         s.status = .needsInput
         #expect(CodingSessionSubtitle.line(s) == "Waiting for you in chat")
         s.pending = SessionPending(failed: true, text: "password=secret")
         #expect(CodingSessionSubtitle.line(s) == "Your message wasn’t delivered")
-        s.pending = nil; s.status = .working; s.step = "reading latest.env"
-        #expect(CodingSessionSubtitle.line(s) == "Reading a file…")
-        s.step = "running curl https://example.com?key=secret"
-        #expect(CodingSessionSubtitle.line(s) == "Running a command…")
+        s.pending = nil; s.status = .working; s.step = "reading Package.swift"
+        #expect(CodingSessionSubtitle.line(s) == "Reading Package.swift…")
     }
 
-    @Test func onlyExplicitAssistantReportsAreNamed() {
+    @Test func aFinishedTurnShowsItsSummary() {
         func result(_ text: String, _ role: String? = "assistant") -> String? {
             CodingSessionSubtitle.result(SessionLatestMessage(at: 1, text: text, role: role))
         }
-        #expect(result("All tests passed.") == "All tests passed")
-        #expect(result("12 UI tests passed.") == "12 UI tests passed")
-        #expect(result("Tests failed") == "Tests failed")
-        #expect(result("Command completed successfully") == "Replied in chat")
+        #expect(result("All tests passed.") == "All tests passed.")
+        #expect(result("Done. Added the header picker and wired it to settings. 12 UI tests pass.")
+                == "Added the header picker and wired it to settings.")
+        #expect(result("**Fixed** the reconnect bug in `SessionStore`.") == "Fixed the reconnect bug in SessionStore.")
+        #expect(result("```swift\nlet x = 1\n```") == "Replied in chat")
         #expect(result("Tests passed", "user") == "No reply yet")
         #expect(result("Tests passed", nil) == nil)
-        #expect(result("Tests passed but the build failed") == "Tests passed · build failed")
+        #expect(result("Updated the token: ghp_" + String(repeating: "a1", count: 20)) == "Replied in chat")
+        let long = result("Refactored the session list so every coding project row shows its live tool call and then the final summary without wrapping")
+        #expect(long?.hasSuffix("…") == true && (long?.count ?? 99) <= 86)
         var s = row()
         #expect(CodingSessionSubtitle.line(s) == "No recent update")
         s.preview = "secret from the first message"
         // A sidebar preview can be the first request, not a confirmed reply.
         #expect(CodingSessionSubtitle.line(s) == "No recent update")
-        #expect(result("Updated the token: ghp_" + String(repeating: "a1", count: 20)) == "Replied in chat")
-        s.lastResult = result("Please review my notes")
+        s.lastResult = result("```\ncode\n```")
         s.pullRequest = SessionPRStatus(state: .merged, number: 23)
         #expect(CodingSessionSubtitle.line(s) == "PR #23 merged")
+        s.lastResult = result("Merged PR #23 and cleaned up the branch.")
+        #expect(CodingSessionSubtitle.line(s) == "Merged PR #23 and cleaned up the branch.")
     }
 }
 

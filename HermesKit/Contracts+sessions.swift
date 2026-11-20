@@ -146,39 +146,35 @@ nonisolated enum CodingSessionSubtitle {
 
     private static let replyFallback = "Replied in chat"
 
+    /// While the bot works: the tool call it is on, as every other Sessions row streams it ("Running npm test…",
+    /// owner 2026-10-30), masked once more. "Working…" before the first step and while the reply writes.
     private static func live(_ step: String) -> String {
-        let s = step.lowercased()
-        if s.hasPrefix("running ") {
-            if s.range(of: #"^running (?:npm (?:run )?test|pnpm test|yarn test|swift test|cargo test|go test|pytest|xctest|xcodebuild test)(?:\s|$)"#, options: .regularExpression) != nil { return "Running tests…" }
-            if s.range(of: #"^running (?:swift build|npm run build|cargo build|xcodebuild build)(?:\s|$)"#, options: .regularExpression) != nil { return "Building the project…" }
-            return "Running a command…"
-        }
-        for (verb, wording) in [("reading", "Reading a file…"), ("editing", "Editing a file…"), ("writing", "Writing a file…"), ("patching", "Editing a file…"), ("searching", "Searching…"), ("looking through", "Looking through files…")] where s == verb || s.hasPrefix(verb + " ") {
-            return wording
-        }
-        return "Working on your request…"
+        let words = NotificationText.oneLine(NotificationText.redact(step))
+        return words.isEmpty ? "Working…" : LiveSteps.line(words)
     }
 
-    /// Only a whole, explicit report may become an outcome. Never put free text or commands on the row.
+    /// Fillers a reply opens with that say nothing about the work.
+    private static let openers = ["done. ", "done! ", "done, ", "done: ", "done — ", "done - ", "all set. ", "all set! ",
+                                  "sure. ", "sure! ", "okay. ", "okay, ", "ok. ", "ok, ", "got it. ", "great. ", "great news: "]
+
+    /// When the turn ends: the reply's own summary, its first sentence (owner, 2026-11-20: tool calls while it works,
+    /// the summary when it's done). A reply that opens with code or a masked secret says only that it replied.
     static func result(_ message: SessionLatestMessage) -> String? {
         if message.role == "user" { return "No reply yet" }
         guard message.role == "assistant" else { return nil }
-        let words = message.text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".!"))
-        switch words {
-        case "all tests passed": return "All tests passed"
-        case "tests passed": return "Tests passed"
-        case "tests failed": return "Tests failed"
-        case "build passed", "build succeeded": return "Build passed"
-        case "build failed": return "Build failed"
-        case "tests passed but the build failed": return "Tests passed · build failed"
-        default: break
+        let raw = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.hasPrefix("```"), !raw.hasPrefix("$ ") else { return replyFallback }
+        var words = NotificationText.oneLine(RosterPreview.cleanPreviewText(raw))
+        while let lead = openers.first(where: { words.lowercased().hasPrefix($0) }) {
+            words = String(words.dropFirst(lead.count)).trimmingCharacters(in: .whitespaces)
         }
-        if let report = words.wholeMatch(of: #/([0-9]{1,5}) (unit |ui |integration |regression )?tests? (passed|failed)/#), let n = Int(report.1) {
-            let suite = report.2 == "ui " ? "UI " : String(report.2 ?? "")
-            return "\(n) \(suite)\(n == 1 ? "test" : "tests") \(report.3)"
+        if let end = words.range(of: #"[.!?](?=\s)"#, options: .regularExpression),
+           words.distance(from: words.startIndex, to: end.lowerBound) >= 12 {
+            words = String(words[..<end.upperBound])
         }
-        return replyFallback
+        let line = NotificationText.preview(words, max: 86)
+        guard !line.isEmpty, !line.contains(NotificationText.redacted) else { return replyFallback }
+        return line.prefix(1).uppercased() + line.dropFirst()
     }
 
     static func prompt(_ prompts: ChatPrompts) -> String? {

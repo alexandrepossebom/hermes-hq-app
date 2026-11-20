@@ -61,6 +61,53 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(10) { !coding.exists && !self.labelOf(sent).contains("No reply yet") })
     }
 
+    /// A working coding row streams its tool call like every other row; the finished turn ends on its summary
+    /// (owner, 2026-11-20).
+    @MainActor func testCodingSessionStreamsStepsThenSummary() throws { try streamsStepsThenSummary(faces: true) }
+
+    /// Bot Faces off: no face to animate, so the spinner on the status line alone says the bot works.
+    @MainActor func testCodingSessionStreamsStepsThenSummaryWithoutFaces() throws { try streamsStepsThenSummary(faces: false) }
+
+    @MainActor private func streamsStepsThenSummary(faces: Bool) throws {
+        let tag = faces ? "" : "-nofaces"
+        fixture("/__fixture/mode", ["prompts": "hold", "prStatus": [
+            "default/s-garden": ["state": "open", "repo": "example/app", "number": 24],
+            "default/s-shortcuts": ["state": "none", "repo": "example/app"]
+        ]])
+        setRow("s-shortcuts", ["title": "Add keyboard shortcuts", "messages": [["role": "user", "content": "Add a shortcut to open search."]]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-shortcuts").waitForExistence(timeout: 15))
+        if !faces { openFilter(app); tapFilter(app, "show", "faces"); closeFilter(app) }
+        // The project page first: a running chat reorders the chips.
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        let coding = app.buttons["sessions.projectPage.pr.open"]
+        if !coding.exists { toggleProjectCoding(app) }
+        XCTAssertTrue(coding.waitForExistence(timeout: 10))
+        openChat(app, "s-shortcuts")
+        type(app, "Add Cmd-K for search", send: true)
+        XCTAssertTrue(app.buttons["composer.stop"].waitForExistence(timeout: 8), "the turn runs")
+        backToList(app)
+        XCTAssertTrue(coding.waitForExistence(timeout: 10), "still on the coding project page")
+        let working = row(app, "s-shortcuts")
+        fixture("/__fixture/emit", ["type": "tool.start", "session_id": "s-shortcuts",
+                                    "payload": ["name": "terminal", "tool_id": "cs1", "args": ["command": "cd ~/app && npm test"]]])
+        XCTAssertTrue(waitUntil(8) { self.labelOf(working).contains("Running npm test") }, labelOf(working))
+        Thread.sleep(forTimeInterval: 0.4)
+        shot(app, "coding-session-live-step" + tag)
+        let summary = "Added Cmd-K to open search and covered it with a UI test."
+        fixture("/__fixture/emit", ["type": "message.complete", "session_id": "s-shortcuts", "payload": ["text": summary + " Details below."]])
+        XCTAssertTrue(waitUntil(10) {
+            let label = self.labelOf(working)
+            return label.contains("Added Cmd-K to open search") && !label.contains("npm") && !label.contains("Details below")
+        }, labelOf(working))
+        Thread.sleep(forTimeInterval: 0.4)
+        shot(app, "coding-session-summary" + tag)
+    }
+
     /// Project summary filters intersect the page's piles, and the coding switch clears the selection.
     @MainActor func testProjectPRCountFilter() throws {
         fixture("/__fixture/mode", ["prStatus": [
