@@ -2649,6 +2649,20 @@ def handler(gateway):
                                           'content': body.get('text') or '', 'timestamp': now()})
                     s['last_active'] = now()
                 return self.reply(200, {'ok': True, 'message_count': len(s['messages'])})
+            if path == '/__fixture/task-chat-move':
+                # [tasks] {"task", "session_id"}: the task's chat is now a new hidden session (a copy of its messages),
+                # as when the task's chat was made on another device: a list this phone read before doesn't name it.
+                body = self.body_json()
+                with lock:
+                    t = TASKS.get(body.get('task'))
+                    old = SESSIONS.get(((t or {}).get('chat') or {}).get('session_id'))
+                    if not t or not old: return self.reply(404, {'detail': 'Task or chat not found'})
+                    sid = body.get('session_id')
+                    add_session(sid, old['profile'], old['title'] + ' (moved)', copy.deepcopy(old['messages']), now(),
+                                hidden=True, listed=False)
+                    t['chat'] = {'profile': old['profile'], 'session_id': sid}
+                    t['rev'] += 1; TSTATE['rev'] += 1
+                return self.reply(200, {'ok': True})
             if path.startswith('/auth/') or path.startswith('/api/auth/') or path.startswith('/__fixture/'):
                 return super().do_POST()
             return self.handle_api('POST')

@@ -407,3 +407,25 @@ merged here; their reports and the merge log are in `docs/m2-stream-reports.md`.
   (five bots and listed chats; a deleted chat answers 4007), ports 9920–9929. It drives the real Shortcuts app (the
   App Shortcut tile is run by the system) and the real Home Screen menu, then repeats those in the simulator's dark
   appearance.
+
+## Home Screen widgets (tile-widgets, docs/spec/1x-pages.md §5.8, docs/tasks.md item 12)
+
+- **No new target.** The Tile (`ai.hermes.hq.tile`) and Tasks (`ai.hermes.hq.tasks`) widgets are in the existing
+  `HermesHQTalkActivity` extension's `HermesHQActivitiesBundle` (`TalkActivityWidget/TileWidget.swift`,
+  `TalkActivityWidget/TasksWidget.swift`), so only the `original` identity has them; the `native` identity and the Mac
+  build none, and the app's side switches itself off there (`TileWidgetWriter.enabled`).
+- `HomeWidgetsKit/` is compiled into the app AND the extension (project.yml, as `LiveKit/`): Foundation, Security,
+  ImageIO, AppIntents, `nonisolated`. `WidgetVault` keeps everything as generic-password items in the app's own
+  default Keychain access group, which the extension's `keychain-access-groups` already lists: no App Group, no change
+  at Apple. The extension reads, notes what each placed widget wants, and runs the Tasks check-off intent in the app's
+  process; it never reaches the gateway.
+- The app's side is `App/Widgets/`: `TileWidgetWriter` (index + pictures drawn by `PageSnapshots` at each widget's
+  own size), `TasksWidgetWriter` (the Tasks page's first screen, worded), `WidgetRouter` (`<scheme>://widget/…`, first
+  in `SceneDelegate.open`), `WidgetRefresh` (`BGAppRefreshTask` `ai.hermes.hq.widgets.refresh` + a pushed wake-up
+  throttled to 10 minutes) and `AddToHomeScreenSheet`.
+- DEBUG hooks: `-HQDebugWidgetProbe YES` (a `debug.widgets` element reading back what the store holds),
+  `-HQDebugWidgetRefreshInBackground YES` (the background refresh's work 3 s after the app leaves the screen; the
+  simulator can't schedule a `BGAppRefreshTask`), `-HQDebugWidgetOversize <n>` (pictures n × the widget's pixels, to
+  find WidgetKit's budget), `-HQPagesPinPages YES` (pins the fixture's pages as tiles), `-HQDebugTileWidgetsOff YES`.
+- Tests: `Tests/Widgets/` (Swift Testing; Keychain items under `WidgetVault.testPrefix`); `UITests/widgets/` drives
+  the real Home Screen (Edit › Add Widget › Hermes HQ, Edit Widget, a tap) against the pages fixture with kit tiles.

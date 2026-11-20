@@ -8,13 +8,16 @@ import UIKit
 /// (`scripts/diagnostics-unit.sh <udid>` and `HQ_IDENTITY=original scripts/diagnostics-unit.sh <udid>`).
 @Suite struct BackgroundModesTests {
     /// [talk-background] `audio` keeps a live voice conversation going with the app away (docs/spec/3x-talk-background.md).
-    @Test func theBackgroundModesAreAudioAndRemoteNotification() {
+    /// [tile-widgets] `fetch` is the widgets' background app refresh (App/Widgets/WidgetRefresh.swift, D-14.1 amended).
+    @Test func theBackgroundModesAreAudioRemoteNotificationAndFetch() {
         let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
-        #expect(modes == ["audio", "remote-notification"])
+        #expect(modes == ["audio", "remote-notification", "fetch"])
     }
 
-    @Test func noBackgroundTaskSchedulerIdentifiers() {
-        #expect(Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") == nil)
+    /// One identifier only: the widgets' refresh. Anything else wants its own amendment to D-14.1.
+    @Test func theOnlyBackgroundTaskSchedulerIdentifierIsTheWidgetsRefresh() {
+        let ids = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String]
+        #expect(ids == ["ai.hermes.hq.widgets.refresh"])
     }
 
     @Test func theHostIsTheApp() {

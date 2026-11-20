@@ -225,6 +225,9 @@ enum TaskPage {
         let account = context.account
         let model: any ChatSessionModel
         let link = TaskChatLinks.link(task, account: account)
+        if let link, TaskChatLinks.unsaved(task, account: account) {
+            TaskChatLinks.save(link, task: task.id, store: store, account: account)   // a save that failed before
+        }
         if let link {
             model = context.pages.chat(for: SessionSummary(id: link.sessionId, profile: link.profile, title: task.title, preview: nil,
                                                            lastActive: nil, source: nil, unread: false, isRunning: false))
@@ -233,8 +236,8 @@ enum TaskPage {
             let id = task.id
             model = context.pages.taskChat(for: bot, sessionTitle: TaskChatLinks.sessionTitle(task), shownTitle: task.title) { stored in
                 let made = TodoChat(profile: bot.id, sessionId: stored)
-                TaskChatLinks.remember(made, task: id, account: account)
-                Task { _ = await store.patch(id, ["chat": made.json]) }
+                TaskChatLinks.remember(made, task: id, account: account, unsaved: true)
+                TaskChatLinks.save(made, task: id, store: store, account: account)
             }
         }
         if let live = model as? LiveChatSession {

@@ -182,6 +182,8 @@ enum PagesDebug {
                 TileVersionsModel.debugAsk = defaults.bool(forKey: "HQPagesTileRollBack")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { artifacts.debugShowVersions() }
             }
+            // [tile-widgets] `-HQPagesPinPages YES`: every page artifact pinned as a tile (the widgets' pictures and tests).
+            if defaults.bool(forKey: "HQPagesPinPages") { artifacts.debugPinPages() }
             if defaults.bool(forKey: "HQPagesNewTile") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { artifacts.newTile() }
             }

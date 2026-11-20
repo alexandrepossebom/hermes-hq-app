@@ -36,9 +36,8 @@ extension AppModel {
             guard let host = FailureAlert.topmost(MainTabController.current) else { return }
             DraftsStore.open(id, from: host)
         }
-        hub.openTask = { id, _ in   // [tasks]; [goals step 4] a check-in's push opens its goal
-            if let goal = GoalBots.pushedGoal(id) { TasksHub.openGoal(goal) } else { TasksHub.open(taskID: id) }
-        }
+        // [tasks] A task's alert; [goals step 4] a check-in's push opens its goal. Both through the guarded route.
+        hub.openTask = { [weak self] id, _ in self?.openNotifiedTask(id) }
         hub.answerLocal = { [weak self] request, approve in
             guard let center = self?.serverRequests else { return }
             Task {
@@ -460,11 +459,14 @@ extension AppModel {
         // [tasks] A task's own chat opens on its task, the task above it (it is hidden, so Sessions has no row for it,
         // and a bot without its own chat yet would have taken it).
         let task = TasksHub.task(forChat: stored)
-        let bot = task != nil ? nil : bots.first { $0.canonicalSessionId == stored }
-            ?? profile.flatMap { name in bots.first { $0.id == name && $0.canonicalSessionId == nil } }
+        let ownBot = task != nil ? nil : bots.first { $0.canonicalSessionId == stored }
         let session = sessions.first { $0.id == stored }
-        // No task list yet (a cold launch with none on disk): it is read, so the chat can still be told for a task's.
-        let listPending = task == nil && bot == nil && session == nil && TasksHub.listPending()
+        // A chat nothing in hand names (no task list yet, or one read before this task's chat was made): the list is
+        // read for this tap first, so a task's reply opens on its task, not in its bot's own chat or bare (audit
+        // 2026-11-19: the bot's name was taken for its chat before the list was asked).
+        let listPending = task == nil && ownBot == nil && session == nil && TasksHub.listPending(for: stored)
+        let bot = ownBot ?? (task != nil || listPending ? nil
+            : profile.flatMap { name in bots.first { $0.id == name && $0.canonicalSessionId == nil } })
         if task == nil, bot == nil, session == nil, profile == nil || !botsLoaded || listPending, attempt < 20 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.openNotifiedChat(stored: stored, profile: profile, attempt: attempt + 1)
@@ -484,6 +486,7 @@ extension AppModel {
             AppLog.note("notify", "open chat: a task's")
             if TasksHub.open(taskID: task.id, atReply: true) { return }
         }
+        TasksHub.cancelPendingOpen()   // a task tapped just before doesn't come up over this chat
         if let bot {
             root.select(.bots)
             root.botsViewController.navigationController?.popToRootViewController(animated: false)
@@ -503,9 +506,40 @@ extension AppModel {
         ChatViewController.push(screen, on: navigation) {}
     }
 
+    /// [tasks] A task's alert (its reminder, or the add-on's "needs you"): the task's page, as a chat's alert opens its
+    /// chat. It waits for the tabs on a cold launch (it was dropped when they weren't up yet), and a sheet holding
+    /// unsaved edits asks before it goes (UX study #263; it closed without asking).
+    func openNotifiedTask(_ id: String, attempt: Int = 0) {
+        guard let root = MainTabController.current, root.view.window != nil else {
+            guard attempt < 20 else {
+                AppLog.note("notify", "open task: waiting for the tabs")
+                taskAwaitingTabs = (id, Date())
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.openNotifiedTask(id, attempt: attempt + 1) }
+            return
+        }
+        if attempt == 0 { AppLog.note("notify", "open task") }
+        if root.presentedViewController != nil, root.guardedSheet != nil {
+            Task { @MainActor [weak self] in
+                guard await root.clearForRoute() else { return }
+                self?.openNotifiedTask(id, attempt: max(attempt, 1))
+            }
+            return
+        }
+        root.presentedViewController?.dismiss(animated: false)
+        if let goal = GoalBots.pushedGoal(id) { TasksHub.openGoal(goal) } else { TasksHub.open(taskID: id) }
+    }
+
     /// The tabs are on screen (AppDelegate.showApp): a tapped alert's chat that was waiting for them opens now, unless
     /// it was tapped more than two minutes ago (a launch that long has moved on).
     func openChatAwaitingTabs() {
+        if let task = taskAwaitingTabs {
+            taskAwaitingTabs = nil
+            if Date().timeIntervalSince(task.at) < 120 {
+                DispatchQueue.main.async { [weak self] in self?.openNotifiedTask(task.id) }
+            }
+        }
         guard let waiting = chatAwaitingTabs else { return }
         chatAwaitingTabs = nil
         guard Date().timeIntervalSince(waiting.at) < 120 else { return }
