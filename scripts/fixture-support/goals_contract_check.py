@@ -22,7 +22,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 STANDIN = HERE.parent / 'pages-fixture-gateway.py'
-DEFAULT_ADDON = Path.home() / '.hermes/profiles/hermes-hq/workspace/goals/addon-066/hermes-hq-push'
+DEFAULT_ADDON = Path.home() / '.hermes/plugins/hermes-hq-push'   # the installed add-on; --addon names another copy
 BASE = '/api/plugins/hermes-hq-push'
 
 TIME_KEYS = {'at', 'created_at', 'updated_at', 'status_at', 'answered_at', 'kept_at', 'done_at', 'checked_at', 'page_at'}
