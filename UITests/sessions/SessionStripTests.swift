@@ -118,13 +118,15 @@ final class SessionStripTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.2)
         func onScreen() -> [(n: Int, y: CGFloat)] {
             let room = table.frame
-            return app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Line ")).allElementsBoundByIndex
-                .compactMap { e -> (Int, CGFloat)? in
-                    let f = e.frame
-                    guard f.height > 0, f.minY > room.minY + 60, f.maxY < room.maxY - 60,
-                          let n = Int(e.label.split(separator: " ").dropFirst().first ?? "") else { return nil }
-                    return (n, f.minY)
-                }
+            // A bubble's label may carry who said it before the words, so match the words anywhere in it.
+            var seen: [Int: CGFloat] = [:]
+            for e in app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "of the long fixture chat")).allElementsBoundByIndex {
+                let f = e.frame
+                guard f.height > 0, f.minX >= room.minX - 1, f.maxX <= room.maxX + 1, f.minY > room.minY + 60, f.maxY < room.maxY - 60,
+                      let hit = e.label.firstMatch(of: /Line (\d+) of the long/), let n = Int(hit.1) else { continue }
+                seen[n] = f.minY
+            }
+            return seen.map { (n: $0.key, y: $0.value) }
         }
         let before = onScreen()
         XCTAssertFalse(before.isEmpty, "some older lines are on screen")
