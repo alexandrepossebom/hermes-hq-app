@@ -1179,24 +1179,7 @@ struct SettingsRootView: View {
             }
             .accessibilityIdentifier("settings.message-reactions")
             .revealRow("row:message-reactions", model.revealed)
-        } header: { categoryHeader("Chat") } footer: { if !notes { HQSectionFooter {
-            // UX study #69: the switches' names say what they do; the footer keeps only what a name can't say.
-            Text("Fewer Timestamps shows a day line only when the date changes, and a time only under the bot’s replies."
-                 + " File Changes is the “files changed” card under a reply that edited files: Folded is one line that opens on it, Open shows it whole; with it off, ⋯ › Changes still lists them."
-                 + " New Chat Asks for a Project: off, New Chat with a bot picked on Sessions starts in no project at once, with no sheet."
-                 + " Send While Replying is what Send does while a reply runs: Steer adds your message to that reply, Queue sends it when the reply finishes."
-                 + (DeviceWord.isMac ? " ⌘Return does the other one." : " Touch and hold Send for the other one.")
-                 + " Open Links In is for web links: pages and files your bots make always open in the app."
-                 + (DeviceWord.isMac ? (model.newChatKeyMode == .botChat
-                    ? " ⌘N opens the ⌘N bot’s own chat, ready to type; ⌥⌘N starts a new chat like the one you’re in; ⇧⌘N asks for a bot and project."
-                    : " ⌘N starts a new chat with the ⌘N bot, in its project, at once; ⌥⌘N starts one with the bot and project of the chat"
-                      + " you’re in; ⇧⌘N asks for both.") : "")
-                 + (DeviceWord.isMac
-                    ? " Other Chats at the Top shows a bot’s chats that are working, unread or pinned as tabs under the title of the bot’s own chat; All opens the full list beside the chat."
-                    : " Other Chats at the Top shows working, unread or pinned chats as tabs under a bot’s own chat. All or ⋯ › Chats with the bot opens its full list.")
-                 + " Message Reactions adds Tapbacks to a message’s menu, and lets the bot react to yours."
-                 + (model.configStore != nil ? " Reopen Last Chat on Launch is saved on \(HostWord.phrase)." : ""))
-        } } }
+        } header: { categoryHeader("Chat") }
         }
 
         // [settings] §1, §18: "Sounds & Haptics". The Haptics row does not depend on the completion cue being wired.
@@ -1276,12 +1259,7 @@ struct SettingsRootView: View {
                 }
                 .revealRow("row:thinking-drive", model.revealed)
             }
-        } header: { categoryHeader(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics") } footer: { HQSectionFooter {
-            Text(!SettingsSearch.hasHaptics ? "Completion Sound plays when a bot’s reply finishes."
-                 : SettingsHooks.completionCueWired
-                 ? "Completion Sound plays when a bot’s reply finishes. Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up."
-                 : "Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up.")
-        } }
+        } header: { categoryHeader(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics") }
         }
 
         if model.shows(.gateway) {
@@ -1303,9 +1281,6 @@ struct SettingsRootView: View {
                     .accessibilityIdentifier("settings.sessions")
             } header: { HQSectionLabel {
                 Text("On Your Gateway")   // UX study #72: was "Hermes", which said nothing about where these are kept
-            } } footer: { HQSectionFooter {
-                // UX study 2026-10-21 #186, #50, #117: whose settings these are, and the few kept on this device.
-                Text(SettingsWords.gatewayFooter(defaultBot: model.defaultBotName, otherBots: model.rosterCount > 1))
             } }
 
             Section {
@@ -1448,7 +1423,7 @@ struct SettingsRootView: View {
                     if let status = model.fileStatus {
                         Text(status).foregroundStyle(Color.hqLabel).accessibilityIdentifier("settings.file-status")
                     }
-                    Text("Keys, tokens and passwords are left out of exported files, including those in connector links and arguments. Importing one keeps the ones already on \(HostWord.phrase).")
+                    Text("Exported files leave out keys, tokens and passwords.")
                 }
             } }
         }
