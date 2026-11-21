@@ -963,6 +963,11 @@ def handler(gateway):
                 answer = onepassword_route('GET', path, {})
                 if answer is not None:
                     return self.reply(*answer)
+                if path == '/api/profiles':
+                    # More › Bot Profiles reads the roster over REST: this fixture's own bots, as its `profiles.list`
+                    # gives them. Unanswered here, the reference fixture answered with its two (Hermes and Sam), so the
+                    # page listed bots this fixture doesn't have and none of its own.
+                    return self.reply(200, {'profiles': [profile_row(n, False) for n in S['profiles']]})
                 if path == '/api/profiles/sessions':
                     p = S['profiles'].get(profile)
                     if p is None:

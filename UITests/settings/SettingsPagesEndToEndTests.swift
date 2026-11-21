@@ -358,7 +358,7 @@ extension SettingsEndToEndTests {
         XCTAssertTrue(appears(magnifier, app, "search-after-back"), "back on Settings")
 
         magnifier.tap()
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertTrue(appears(search, app, "search-reopened"), "the field opens again after a result")
         search.typeText("zzzz")
         XCTAssertTrue(app.staticTexts["settings.search-empty"].waitForExistence(timeout: 3) || app.descendants(matching: .any)["settings.search-empty"].exists)
         shot(app, "settings-search-empty")
@@ -505,10 +505,10 @@ extension SettingsEndToEndTests {
         openSection(app, "model")
         let sectionFooter = app.staticTexts["config-section.model.footer"]
         XCTAssertTrue(appears(sectionFooter, app, "model-section-footer", timeout: 8))
-        XCTAssertTrue(sectionFooter.label.hasPrefix("Hermes’s models"), sectionFooter.label)
+        XCTAssertTrue(sectionFooter.label.hasPrefix("Hermes’ models"), sectionFooter.label)   // [macpass-settings2] "Hermes’", not "Hermes’s"
         XCTAssertTrue(sectionFooter.label.contains("change them in each bot’s Bot Info › Brain"), sectionFooter.label)
         app.buttons["config-page.model.main"].tap()
-        let header = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Hermes’s Default Model")).firstMatch
+        let header = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Hermes’ Default Model")).firstMatch
         XCTAssertTrue(appears(header, app, "main-model-header", timeout: 8), "whose Main Model this is")
         XCTAssertEqual(app.staticTexts["main-model.footer"].label,
                        "Applies to Hermes only. Other bots keep their own in Bot Info › Brain. A chat can still switch its own model.")
