@@ -1305,8 +1305,12 @@ struct SessionPRPill: View {
             Image(uiImage: SessionPRGlyph.image(tag.state)).renderingMode(.template)
                 .resizable().scaledToFit()
                 .frame(width: HQFont.scaled(12), height: HQFont.scaled(12))
-            Text(verbatim: tag.pillText)
-                .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
+            // Owner 2026-11-21: "If it can't match a number to the PR it should not write out the status" — the
+            // icon alone says the state; only a real number is written.
+            if let number = tag.number {
+                Text(verbatim: "#\(number)")
+                    .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
+            }
         }
         // Owner 2026-11-21: no capsule around it ("doesn't seem like it fits") — the mark and words in the state's color.
         .foregroundStyle(tint)
