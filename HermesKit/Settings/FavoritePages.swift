@@ -1,4 +1,4 @@
-// [favorites] More › Favorites (a tester, a tester, 2026-11-20: "a widget where we can add pages we use often, for
+// [favorites] More › Favorites (a tester, 2026-11-20: "a widget where we can add pages we use often, for
 // easier access", her pages buried under More). Owner 2026-11-20: one Favorites page you fill yourself, from a list of
 // every page, not a star on each page. Which More pages it lists, in its order, on this device (as the tab order is).
 // A page this gateway lacks stays chosen and is left out of the list until it is back.

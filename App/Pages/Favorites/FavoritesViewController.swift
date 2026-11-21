@@ -1,6 +1,6 @@
 // [favorites] More › Favorites (docs/spec/3x-morepages.md §24): the More pages you chose, drawn as More draws its rows,
 // each opening on this page's own stack. + opens Add Pages (every page, in More's groups); Edit removes and reorders,
-// and a row swipes away. The choice is this device's (`FavoritePages`), as the tab order is. A tester, a tester,
+// and a row swipes away. The choice is this device's (`FavoritePages`), as the tab order is. A tester,
 // 2026-11-20: the pages she uses most were buried under More. It can be a tab of its own from Settings › Tabs.
 
 import UIKit

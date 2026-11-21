@@ -1214,7 +1214,7 @@ gains an optional trailing `value` string and `valueIsIssue` flag, unused by thi
 
 ## 24. Favorites ([favorites])
 
-A tester (a tester, 2026-11-20) asked for one place holding the pages she uses most, since they sit under More and she
+A tester (2026-11-20) asked for one place holding the pages she uses most, since they sit under More and she
 scrolls past the same rows each time. The owner chose (2026-11-20) one Favorites page you fill yourself from a list of
 every page — not a star on each page, and not a list that learns from use.
 
