@@ -56,6 +56,11 @@ nonisolated struct AppIconChoice: Identifiable, Hashable, Sendable {
         AppIconChoice(id: "AppIcon-ReplyCut", title: "Reply Cut", art: .picture),
         AppIconChoice(id: "AppIcon-Turntaking", title: "Turntaking", art: .picture),
         AppIconChoice(id: "AppIcon-Swoop", title: "Swoop", art: .picture),
+        // Two flat feathers from the owner's 50-icon flat round (artifacts/hq-icons-finalists, picks 02 and 48,
+        // 2026-11-21: "Add 02 and 48 to the app as additional icon options"): a solid feather, and the same feather
+        // inside an outline of itself.
+        AppIconChoice(id: "AppIcon-Silhouette", title: "Silhouette", art: .picture),
+        AppIconChoice(id: "AppIcon-Halo", title: "Halo", art: .picture),
     ]
 
     /// The name iOS knows the icon by in `look`: "AppIcon-Feather-Dark" for the feather pinned dark.
