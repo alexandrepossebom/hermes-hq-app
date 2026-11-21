@@ -148,7 +148,7 @@ struct LiveVoiceSection: View {
     }
 
     private var footer: String {
-        var text = "\(DeviceWord.Tap) ▶ to hear a voice. The one you pick is saved for all your bots and is heard the next time you talk. To give one bot its own voice, use Voice with … › Voice in its chat."
+        var text = "The one you pick is saved for all your bots and is heard the next time you talk. To give one bot its own voice, use Voice with … › Voice in its chat."
         if !failed.isEmpty { text += " Couldn’t save it for \(ListFormatter.localizedString(byJoining: failed))." }
         return text
     }

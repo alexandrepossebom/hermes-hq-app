@@ -161,7 +161,6 @@ struct PasswordsPageView: View {
 
     private var savedFooter: String {
         "Your bots fill these in Hermes’s browser without ever seeing them. They’re kept encrypted on \(HostWord.phrase)."
-            + (DeviceWord.isMac || model.items.isEmpty ? "" : " Swipe left to delete one.")
     }
 
     @ViewBuilder private var saved: some View {

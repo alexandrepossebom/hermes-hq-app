@@ -448,7 +448,7 @@ struct SessionsSettingsView: View {
                         .hqRowPadding(4)   // [mac] Stress test 2026-10-28 round 9: the list's one room on the Mac
                     }
                 } footer: { HQSectionFooter {
-                    Text("Automatically archive chats you haven’t touched in a while. Pinned chats are never archived, and nothing is deleted.")
+                    Text("Pinned chats are never archived, and nothing is deleted.")
                 } }
                 if let account = router.services.account {
                     Section {
@@ -473,7 +473,7 @@ struct SessionsSettingsView: View {
                     } header: { HQSectionLabel {
                         Text("Default Project Folder")
                     } } footer: { HQSectionFooter {
-                        Text("New chats start in this folder on \(HostWord.phrase) unless you pick another. Leave it empty to use the folder set in Settings › Workspace › Projects. This choice is saved only in Hermes HQ on this \(DeviceWord.name), not in Hermes.")
+                        Text("New chats start in this folder on \(HostWord.phrase) unless you pick another. Leave it empty to use the folder set in Settings › Workspace › Projects.")
                     } }
                 }
             }
@@ -601,7 +601,7 @@ struct DefaultProjectFolderPage: View {
                         .accessibilityIdentifier("sessions.default-folder.problem")
                 }
             } footer: { HQSectionFooter {
-                Text("New chats start in this folder on \(HostWord.phrase) unless you pick another. Leave it empty to use the folder set in Settings › Workspace › Projects. This choice is saved only in Hermes HQ on this \(DeviceWord.name), not in Hermes.")
+                Text("New chats start in this folder on \(HostWord.phrase) unless you pick another. Leave it empty to use the folder set in Settings › Workspace › Projects.")
             } }
             if saved != nil {
                 Section {

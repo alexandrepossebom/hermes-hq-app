@@ -280,5 +280,5 @@ extension SettingsEndToEndTests {
 /// The words the app shows (App/Notifications/NotificationsSettingsView.swift, HermesKit/Live/LiveActivityRules.swift).
 enum SettingsLiveWords {
     static let label = "Show Progress on Lock Screen"
-    static let footer = "A bot’s reply that’s still going when you leave the app, or a job you run from Jobs, shows on the Lock Screen and in the Dynamic Island with how long it has run, until it’s done. A reply also names the step its bot is on. Your voice chat’s own Lock Screen controls aren’t affected."
+    static let footer = "A bot’s reply that’s still going when you leave the app, or a job you run from Jobs, shows on the Lock Screen and in the Dynamic Island until it’s done. Your voice chat’s own Lock Screen controls aren’t affected."
 }

@@ -488,10 +488,9 @@ struct ConfigFieldEditor: View {
                     Label("Add Item", systemImage: "plus")
                 }
                 .accessibilityIdentifier("config-editor.add-item")
-            } footer: { HQSectionFooter {
-                Text(items.isEmpty ? "Nothing listed."
-                     : DeviceWord.isMac ? "Click the red button to remove an item." : "Swipe left on an item to remove it.")
-            } }
+            } footer: {
+                if items.isEmpty { HQSectionFooter { Text("Nothing listed.") } }
+            }
         case .toggle:
             SwitchRow(title: field.label, isOn: Binding(get: { field.value?.bool ?? false }, set: { store.set(key, .bool($0)) }))
         case .fallbackModels:
@@ -508,9 +507,7 @@ struct ConfigFieldEditor: View {
                     .autocorrectionDisabled()
                     .onSubmit(commit)
                     .accessibilityIdentifier("config-editor.field")
-            } footer: { HQSectionFooter {
-                Text("Type any name, or pick a suggestion.")
-            } }
+            }
         }
         if searchable {
             Section {

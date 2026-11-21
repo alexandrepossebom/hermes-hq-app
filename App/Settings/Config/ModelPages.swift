@@ -645,8 +645,8 @@ struct FallbackModelsView: View {
                     }
                 } footer: { HQSectionFooter {
                     Text(SettingsWords.botScoped(list.isEmpty ? "No fallback models. If the default model fails, the chat shows the error."
-                         : DeviceWord.isMac ? "Tried in order when the default model fails. Click one, then − to remove it; \(DeviceWord.hold) it to reorder."   // [mac] Stress test 2026-10-28 round 9: no "or down." alone on a line; Mac polish #135: never "Control-" alone
-                         : "Tried in order when the default model fails. \(DeviceWord.Tap) the red button to remove one; drag the handle to reorder.",
+                         : DeviceWord.isMac ? "Tried in order when the default model fails. \(DeviceWord.hold) one to reorder."   // Mac polish #135: never "Control-" alone
+                         : "Tried in order when the default model fails.",
                                                  bot: botName, defaultBot: router.defaultBotName, otherBots: router.hasOtherBots))   // [model-scope]
                         .accessibilityIdentifier("fallbacks.footer")
                 } }
@@ -804,9 +804,7 @@ struct AuxiliaryTaskView: View {
                     }
                     .disabled(catalog.mainModel.isEmpty)
                     .accessibilityIdentifier("aux.use-main")
-                } footer: { HQSectionFooter {
-                    Text("Or pick a model for this job below.")
-                } }
+                }
             }.hqMacSettingsRowInsets() }
             .settingsList().hqMacSettingsRows()
             .frame(maxHeight: 150)
@@ -1055,11 +1053,7 @@ struct MixtureOfAgentsView: View {
                         }
                     } header: { HQSectionLabel {
                         Text("Reference Models")
-                    } } footer: {
-                        if DeviceWord.isMac, !(preset["reference_models"]?.array ?? []).isEmpty {
-                            HQSectionFooter { Text("Click beside a model, then − to remove it.") }
-                        }
-                    }
+                    } }
                     .disabled(!on)
                     Section {
                         let slot = preset["aggregator"]
