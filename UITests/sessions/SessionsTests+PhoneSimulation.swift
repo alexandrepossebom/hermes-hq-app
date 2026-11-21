@@ -62,11 +62,23 @@ extension SessionsTests {
         shot(app, "phone-ready")
     }
 
-    /// From a chat: open the sheet, fill the confirm form, check nothing dialed before confirming, confirm.
-    @MainActor func placeSimulatedCall(_ app: XCUIApplication, _ callButton: XCUIElement, _ samplehost: FixtureAccount) throws {
+    /// Opens the chat's ⋯ and answers whether Phone Call is in it (owner 2026-11-21: in the ⋯, not its own bar button).
+    /// With `open`, taps it; otherwise closes the menu.
+    @MainActor @discardableResult func phoneCallInMenu(_ app: XCUIApplication, open: Bool = false, timeout: TimeInterval = 5) -> Bool {
+        let more = app.buttons["chat.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 20)); more.tap()
+        let item = app.buttons["chat.phone-calls"]
+        let found = item.waitForExistence(timeout: timeout)
+        if found { shot(app, "phone-more-menu") }
+        if found && open { item.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82)).tap() }
+        return found
+    }
+
+    /// From a chat: ⋯ › Phone Call, fill the confirm form, check nothing dialed before confirming, confirm.
+    @MainActor func placeSimulatedCall(_ app: XCUIApplication, _ samplehost: FixtureAccount) throws {
         let to = app.textFields["phone.to"]
         for _ in 0..<3 where !to.exists {
-            callButton.tap(); if to.waitForExistence(timeout: 4) { break }
+            phoneCallInMenu(app, open: true, timeout: 10); if to.waitForExistence(timeout: 4) { break }
         }
         XCTAssertTrue(to.waitForExistence(timeout: 10)); to.tap(); to.typeText("+15550100002")
         let purpose = app.textFields["phone.purpose"].exists ? app.textFields["phone.purpose"] : app.textViews["phone.purpose"]
@@ -86,7 +98,7 @@ extension SessionsTests {
         let garden = row(app, "s-garden")
         XCTAssertTrue(garden.waitForExistence(timeout: 20)); garden.tap()
         XCTAssertTrue(app.textViews["composer.text"].waitForExistence(timeout: 20))
-        XCTAssertFalse(app.buttons["chat.phone-calls"].waitForExistence(timeout: 3), "no key: no calling")
+        XCTAssertFalse(phoneCallInMenu(app, timeout: 3), "no key: no Phone Call in the ⋯")
         shot(app, "phone-no-key")
         XCTAssertTrue(try samplehostRequests(samplehost).isEmpty, "nothing talks to samplehost before a key is connected")
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
@@ -100,9 +112,8 @@ extension SessionsTests {
 
         app.tabBars.buttons["Sessions"].tap()
         XCTAssertTrue(garden.waitForExistence(timeout: 15)); garden.tap()
-        let callButton = app.buttons["chat.phone-calls"]
-        XCTAssertTrue(callButton.waitForExistence(timeout: 20))
-        try placeSimulatedCall(app, callButton, samplehost)
+        XCTAssertFalse(app.navigationBars.buttons["Phone Calls"].exists, "no phone button in the bar")
+        try placeSimulatedCall(app, samplehost)
 
         XCTAssertTrue(app.staticTexts["Which simulated time works?"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Hello from the simulated agent."].exists)
@@ -131,8 +142,7 @@ extension SessionsTests {
 
         app.buttons["phone.close"].tap()
         XCTAssertTrue(app.buttons["phone.close"].waitForNonExistence(timeout: 10), "sheet must actually close before reopening")
-        XCTAssertTrue(callButton.waitForExistence(timeout: 10))
-        callButton.tap()
+        XCTAssertTrue(phoneCallInMenu(app, open: true, timeout: 10), "Phone Call reopens from the ⋯")
         XCTAssertTrue(app.buttons["phone.close"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Ended · you hung up"].waitForExistence(timeout: 10), "the ended call is still shown after reopening")
         XCTAssertTrue(app.staticTexts["Simulated answer received: Morning"].exists)
@@ -176,7 +186,7 @@ extension SessionsTests {
         XCTAssertTrue(app.tabBars.buttons["Sessions"].waitForExistence(timeout: 30)); app.tabBars.buttons["Sessions"].tap()
         XCTAssertTrue(garden.waitForExistence(timeout: 20)); garden.tap()
         XCTAssertTrue(app.textViews["composer.text"].waitForExistence(timeout: 20))
-        XCTAssertFalse(app.buttons["chat.phone-calls"].waitForExistence(timeout: 5), "B has no key: no calling")
+        XCTAssertFalse(phoneCallInMenu(app), "B has no key: no Phone Call in the ⋯")
         shot(app, "phone-switch-b-chat")
         app.navigationBars.buttons["BackButton"].firstMatch.tap()
         openPhoneSettings(app)
@@ -197,9 +207,8 @@ extension SessionsTests {
         items.element(boundBy: 1).tap()
         XCTAssertTrue(app.tabBars.buttons["Sessions"].waitForExistence(timeout: 20)); app.tabBars.buttons["Sessions"].tap()
         XCTAssertTrue(garden.waitForExistence(timeout: 20)); garden.tap()
-        let callButton = app.buttons["chat.phone-calls"]
-        XCTAssertTrue(callButton.waitForExistence(timeout: 20), "A's key is still connected")
-        try placeSimulatedCall(app, callButton, samplehost)
+        XCTAssertTrue(app.textViews["composer.text"].waitForExistence(timeout: 20))
+        try placeSimulatedCall(app, samplehost)   // A's key is still connected: Phone Call is in its ⋯
         XCTAssertTrue(app.staticTexts["Which simulated time works?"].waitForExistence(timeout: 20))
         let morning = app.buttons["Morning"]
         for _ in 0..<3 where !morning.isHittable { app.swipeUp() }

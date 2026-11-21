@@ -14,7 +14,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         didSet { if isViewLoaded, sessionPR != oldValue { updateSessionTitle() } }
     }
     let session: any ChatSessionModel
-    private var phoneReady = false
 
     /// A view drawn left of the name in the title (the bot's head, added at integration). 34 pt.
     var titleAccessoryView: UIView? { didSet { titleView.accessory = titleHidesFace ? nil : titleAccessoryView; sizeTitle(); noteTitleHead() } }
@@ -1568,9 +1567,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // [phone-calls] Only an account with a connected samplehost key (this device's Keychain) offers calling.
-        phoneReady = (session as? LiveChatSession).map { PhoneCallController.shared(for: $0.client.account.id).ready } ?? false
-        updateMoreButton()
         if let make = makeTopStrip {   // [session-strip]
             makeTopStrip = nil
             if topAccessory == nil, let strip = make() { setTopAccessory(strip) }
@@ -1865,16 +1861,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             #if targetEnvironment(macCatalyst)
             readAloudButtonShown = false
             #endif
-        }
-        if phoneReady, let live = session as? LiveChatSession, live.runtimeSessionId != nil || live.storedSessionId != nil {
-            let phone = UIBarButtonItem(image: Self.barImage("phone"), primaryAction: UIAction { [weak self, weak live] _ in
-                guard let self, let live, self.phoneReady, (self.session as? LiveChatSession) === live,
-                      let id = live.runtimeSessionId ?? live.storedSessionId else { return }
-                self.present(UIHostingController(rootView: PhoneCallView(accountID: live.client.account.id, sessionID: id)), animated: true)
-            })
-            phone.accessibilityLabel = "Phone Calls"
-            phone.accessibilityIdentifier = "chat.phone-calls"
-            navigationItem.rightBarButtonItems = (navigationItem.rightBarButtonItems ?? []) + [phone]
         }
     }
 
@@ -2579,10 +2565,6 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     private func applyState() {
-        if phoneReady, navigationItem.rightBarButtonItems?.contains(where: { $0.accessibilityIdentifier == "chat.phone-calls" }) != true,
-           let live = session as? LiveChatSession, live.runtimeSessionId != nil || live.storedSessionId != nil {
-            updateMoreButton()
-        }
         let wasRunning = composer.isRunning && roomChrome == nil
         // [groups] A room's round shows the same Stop square as a bot chat (it stops the room; owner 2026-11-06).
         composer.isRunning = session.isRunning || (session as? ChatRoomSurface)?.roomRunning == true
