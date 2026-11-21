@@ -291,7 +291,7 @@ struct NotificationsSettingsView: View {
                 .disabled(!model.prefs.enabled || model.denied)   // #82
                 .accessibilityIdentifier("notifications.previews")
             } footer: { HQSectionFooter {
-                Text("Off, alerts only say who needs you.")
+                Text("Show what a reply, question or request says. Off, alerts only say who needs you. \(DeviceWord.settingsApp) can also hide previews while \(DeviceWord.subject) is locked.")
             } }
 
             Section {

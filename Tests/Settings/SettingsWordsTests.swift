@@ -94,4 +94,13 @@ struct SettingsWordsTests {
         #expect(SettingsWords.notificationsSummary(enabled: true, denied: false, undetermined: false, plugin: .unknown) == "On")
         #expect(SettingsWords.notificationsSummary(enabled: true, denied: false, undetermined: false, plugin: nil) == "On")
     }
+
+    @Test func gatewayFooterNamesWhoseSettingsTheseAre() {
+        let named = SettingsWords.gatewayFooter(defaultBot: "Ada", otherBots: true)
+        #expect(named.hasPrefix("Ada’s settings, saved on the computer running Hermes") && named.contains("Other bots keep their own."))
+        #expect(!SettingsWords.gatewayFooter(defaultBot: "Ada", otherBots: false).contains("Other bots"))
+        let unnamed = SettingsWords.gatewayFooter(defaultBot: nil, otherBots: true)
+        #expect(unnamed.hasPrefix("Saved on the computer running Hermes") && !unnamed.contains("Other bots"))
+        #expect(unnamed.contains("default project folder") && unnamed.contains("Read Replies Aloud"), "the rows kept on this device")
+    }
 }

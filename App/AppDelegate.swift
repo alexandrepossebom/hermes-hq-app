@@ -329,6 +329,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
         if IntentsDebugHooks.handle(url, model: model) { return }   // [intents] <scheme>://debug-intent/<word>
         if AlertDebugHooks.handle(url) { return }                   // [notify] <scheme>://debug-alert/task|chat/<id>
         #endif
+        // [phone-calls] A call proposal counts only as a tap inside a chat (ChatViewController.chatCellOpen). From
+        // another app, a web page or a widget it is refused, so nothing outside can pre-fill a call.
+        if PhoneProposal.refusesOutside(url) {
+            AppLog.note("link", "phone-call refused: from outside the app")
+            if let top = window?.rootViewController {
+                LinkOpener.notice(DeepLink.unavailable(device: DeviceWord.name), from: LinkOpener.noticeHost(root: top))
+            }
+            return
+        }
         // [tile-widgets] <scheme>://widget/…: a Home Screen widget's tap (a tile, Tiles, Tasks, a task, New Task).
         if WidgetRouter.handle(url) { return }
         // [shortcut-new-chat] <scheme>://new-chat?bot=…&project=…: a new chat with that bot in that project.

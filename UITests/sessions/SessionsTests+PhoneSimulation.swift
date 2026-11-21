@@ -40,6 +40,17 @@ extension SessionsTests {
         XCTAssertTrue(app.staticTexts["phone.settings.status"].waitForExistence(timeout: 10))
     }
 
+    /// Waits for the element, then scrolls the sheet down and back up until it is in the tree: a Form drops rows it
+    /// hasn't drawn, and this round's sheet is taller than one screen.
+    @MainActor func revealed(_ app: XCUIApplication, _ element: XCUIElement, timeout: TimeInterval = 2) -> Bool {
+        if element.waitForExistence(timeout: timeout) { return true }
+        for swipe in [true, true, true, false, false, false, false, false, false] {
+            if swipe { app.swipeUp() } else { app.swipeDown() }
+            if element.waitForExistence(timeout: 1) { return true }
+        }
+        return false
+    }
+
     /// Types the synthetic key and connects. The fake account has one number (preselected) and no AI Assistant, so the
     /// page offers Create Assistant; one tap makes it, selects it and saves (the owner's 2026-11-20 "I can't select an agent").
     @MainActor func connectsamplehost(_ app: XCUIApplication) {
@@ -54,9 +65,11 @@ extension SessionsTests {
         XCTAssertTrue(app.buttons["From number, +15550100001"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Voice connection, Simulated connection"].exists)
         let create = app.buttons["phone.settings.create-assistant"]
+        if !create.waitForExistence(timeout: 5) { app.swipeUp() }   // a long footer can push it under the fold
         XCTAssertTrue(create.waitForExistence(timeout: 10), "an account with no assistant is offered one")
         shot(app, "phone-no-assistant")
         create.tap()
+        if !app.staticTexts["Ready"].waitForExistence(timeout: 5) { app.swipeDown() }
         XCTAssertTrue(app.staticTexts["Ready"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["Disconnect"].exists)
         shot(app, "phone-ready")
@@ -75,14 +88,16 @@ extension SessionsTests {
     }
 
     /// From a chat: ⋯ › Phone Call, fill the confirm form, check nothing dialed before confirming, confirm.
-    @MainActor func placeSimulatedCall(_ app: XCUIApplication, _ samplehost: FixtureAccount) throws {
+    @MainActor func placeSimulatedCall(_ app: XCUIApplication, _ samplehost: FixtureAccount, to number: String = "+15550100002",
+                                       shotForm: Bool = false) throws {
         let to = app.textFields["phone.to"]
         for _ in 0..<3 where !to.exists {
             phoneCallInMenu(app, open: true, timeout: 10); if to.waitForExistence(timeout: 4) { break }
         }
-        XCTAssertTrue(to.waitForExistence(timeout: 10)); to.tap(); to.typeText("+15550100002")
+        XCTAssertTrue(to.waitForExistence(timeout: 10)); to.tap(); to.typeText(number)
         let purpose = app.textFields["phone.purpose"].exists ? app.textFields["phone.purpose"] : app.textViews["phone.purpose"]
         purpose.tap(); purpose.typeText("Discuss simulated appointment")
+        if shotForm { shot(app, "phone-call-form") }
         app.buttons["Review call"].tap()
         let confirm = app.buttons["Place call (billed to samplehost)"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
@@ -94,6 +109,7 @@ extension SessionsTests {
     @MainActor func testPhoneCallsSimulatedAcceptance() throws {
         let samplehost = try samplehostFixture()
         try samplehost.control("/__fixture/reset", [:])
+        try account.control("/__fixture/mode", ["prompts": "reply"])
         let app = launch(fresh: true, environment: ["HQ_SAMPLEHOST_BASE_URL": samplehost.url + "/v2"])
         let garden = row(app, "s-garden")
         XCTAssertTrue(garden.waitForExistence(timeout: 20)); garden.tap()
@@ -105,20 +121,26 @@ extension SessionsTests {
 
         openPhoneSettings(app)
         connectsamplehost(app)
+        _ = waitUntil(10) { ((try? samplehost.control("/__fixture/state"))?["telephony_updates"] as? [Bool])?.isEmpty == false }
         let setupRequests = try samplehostRequests(samplehost).map { "\($0["method"] ?? "") \($0["path"] ?? "")" }
-        XCTAssertEqual(Set(setupRequests), ["GET /v2/phone_numbers", "GET /v2/ai/assistants", "POST /v2/ai/assistants"],
-                       "setup reads and creates only the assistant")
+        XCTAssertEqual(Set(setupRequests), ["GET /v2/phone_numbers", "GET /v2/ai/assistants", "POST /v2/ai/assistants",
+                                            "GET /v2/ai/assistants/assistant-sim", "POST /v2/ai/assistants/assistant-sim"],
+                       "setup reads, creates only the assistant, and turns its recording off to match Record calls")
         XCTAssertEqual(setupRequests.filter { $0 == "POST /v2/ai/assistants" }.count, 1, "one assistant made")
+        XCTAssertEqual(try samplehost.control("/__fixture/state")["telephony_updates"] as? [Bool], [false], "Record calls is off by default")
 
         app.tabBars.buttons["Sessions"].tap()
         XCTAssertTrue(garden.waitForExistence(timeout: 15)); garden.tap()
         XCTAssertFalse(app.navigationBars.buttons["Phone Calls"].exists, "no phone button in the bar")
-        try placeSimulatedCall(app, samplehost)
+        try placeSimulatedCall(app, samplehost, shotForm: true)
 
         XCTAssertTrue(app.staticTexts["Which simulated time works?"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Hello from the simulated agent."].exists)
+        XCTAssertTrue(app.staticTexts["Hello from the simulated agent."].exists, "no emotion tag")
         XCTAssertTrue(app.staticTexts["The simulated recipient has a question."].exists)
-        XCTAssertTrue(app.staticTexts["Live"].exists)
+        XCTAssertTrue(app.staticTexts["On the call"].exists)
+        XCTAssertFalse(app.staticTexts["Request failed"].exists, "the tool's receipt is hidden")
+        XCTAssertFalse(app.staticTexts["[long silence]"].exists)
+        XCTAssertTrue(app.staticTexts["Not recorded · If voicemail answers: hang up"].exists)
         shot(app, "phone-question")
         let morning = app.buttons["Morning"]
         for _ in 0..<3 where !morning.isHittable { app.swipeUp() }
@@ -135,8 +157,9 @@ extension SessionsTests {
         let hangup = app.buttons["Hang up"]
         for _ in 0..<3 where !hangup.isHittable { app.swipeUp() }
         hangup.tap()
-        XCTAssertTrue(app.staticTexts["Ended · you hung up"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["You hung up"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Hang up"].exists)
+        XCTAssertTrue(statusText(app, prefix: "Finished · ").waitForExistence(timeout: 30), "settled from the event log")
         XCTAssertEqual(try samplehost.control("/__fixture/state")["hangups"] as? Int, 1)
         shot(app, "phone-ended")
 
@@ -144,8 +167,8 @@ extension SessionsTests {
         XCTAssertTrue(app.buttons["phone.close"].waitForNonExistence(timeout: 10), "sheet must actually close before reopening")
         XCTAssertTrue(phoneCallInMenu(app, open: true, timeout: 10), "Phone Call reopens from the ⋯")
         XCTAssertTrue(app.buttons["phone.close"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Ended · you hung up"].waitForExistence(timeout: 10), "the ended call is still shown after reopening")
-        XCTAssertTrue(app.staticTexts["Simulated answer received: Morning"].exists)
+        XCTAssertTrue(statusText(app, prefix: "Finished · ").waitForExistence(timeout: 10), "the ended call is still shown after reopening")
+        XCTAssertTrue(revealed(app, app.staticTexts["Simulated answer received: Morning"]), "the transcript is still there")
         shot(app, "phone-reopened")
 
         let state = try samplehost.control("/__fixture/state")
@@ -160,6 +183,7 @@ extension SessionsTests {
     @MainActor func testPhoneCallsAccountSwitch() throws {
         let samplehost = try samplehostFixture()
         try samplehost.control("/__fixture/reset", [:])
+        try account.control("/__fixture/mode", ["prompts": "reply"])
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["HQN_PHONE_B"])
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let b = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
@@ -217,8 +241,217 @@ extension SessionsTests {
         let hangup = app.buttons["Hang up"]
         for _ in 0..<3 where !hangup.isHittable { app.swipeUp() }
         hangup.tap()
-        XCTAssertTrue(app.staticTexts["Ended · you hung up"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["You hung up"].waitForExistence(timeout: 10))
         shot(app, "phone-switch-a-ended")
+        XCTAssertEqual(try samplehost.control("/__fixture/state")["problems"] as? [String], [])
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
+    /// A call's status line (`phone.call.status`) that starts with these words.
+    @MainActor func statusText(_ app: XCUIApplication, prefix: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "identifier == 'phone.call.status' AND label BEGINSWITH %@", prefix)).firstMatch
+    }
+
+    /// Reset both fakes, pick the fake samplehost's scenario, launch fresh, connect, and open the Garden chat.
+    @MainActor func phoneChat(_ samplehost: FixtureAccount, scenario: String, extra: [String] = []) throws -> XCUIApplication {
+        try samplehost.control("/__fixture/reset", [:])
+        try samplehost.control("/__fixture/scenario", ["name": scenario])
+        try account.control("/__fixture/mode", ["prompts": "reply"])
+        let app = launch(fresh: true, extra: extra, environment: ["HQ_SAMPLEHOST_BASE_URL": samplehost.url + "/v2"])
+        openPhoneSettings(app)
+        connectsamplehost(app)
+        app.tabBars.buttons["Sessions"].tap()
+        let garden = row(app, "s-garden")
+        XCTAssertTrue(garden.waitForExistence(timeout: 15)); garden.tap()
+        XCTAssertTrue(app.textViews["composer.text"].waitForExistence(timeout: 20))
+        return app
+    }
+
+    /// Voicemail picks up 1 second after the dial: "Went to voicemail" and the straight-to-voicemail note (item 12).
+    @MainActor func testPhoneCallsVoicemailInOneSecond() throws {
+        let samplehost = try samplehostFixture()
+        let app = try phoneChat(samplehost, scenario: "voicemail")
+        try placeSimulatedCall(app, samplehost, to: "212 555 0142")
+        XCTAssertTrue(statusText(app, prefix: "Went to voicemail").waitForExistence(timeout: 40), "settled from the event log")
+        let note = app.staticTexts["phone.call.voicemail-note"]
+        XCTAssertTrue(revealed(app, note, timeout: 5))
+        XCTAssertEqual(note.label, "Voicemail picked up in 1 second, so the phone probably never rang. That is the other phone or its carrier (Do Not Disturb or a Focus, Silence Unknown Callers, a spam filter), not your samplehost setup.")
+        XCTAssertTrue(revealed(app, app.staticTexts["The person you are calling is not available. Please record your message at the tone."]))
+        XCTAssertFalse(app.buttons["Hang up"].exists)
+        shot(app, "phone-voicemail-note")
+        let state = try samplehost.control("/__fixture/state")
+        XCTAssertEqual((state["dials"] as? [[String: Any]])?.first?["to"] as? String, "+12125550142", "typed without +1")
+        XCTAssertEqual(state["hangups"] as? Int, 0, "the far side ended it")
+        XCTAssertEqual(state["problems"] as? [String], [])
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
+    /// The model asks the same question twice: it shows once, and one tap answers both tool calls in one request.
+    @MainActor func testPhoneCallsQuestionAskedTwice() throws {
+        let samplehost = try samplehostFixture()
+        let app = try phoneChat(samplehost, scenario: "asks-twice")
+        try placeSimulatedCall(app, samplehost)
+        let question = app.staticTexts["phone.question"]
+        XCTAssertTrue(question.waitForExistence(timeout: 20))
+        XCTAssertTrue(revealed(app, app.staticTexts["Let me check that for you."], timeout: 15), "the second ask has arrived")
+        Thread.sleep(forTimeInterval: 2)   // a poll after the second tool call
+        let shown = app.staticTexts.matching(identifier: "phone.question")
+        XCTAssertTrue(revealed(app, shown.firstMatch))
+        XCTAssertEqual(shown.count, 1, "shown once")
+        XCTAssertEqual(shown.firstMatch.label, "Which simulated time works?")
+        shot(app, "phone-live-question")
+        let morning = app.buttons["Morning"]
+        for _ in 0..<3 where !morning.isHittable { app.swipeUp() }
+        morning.tap()
+        XCTAssertTrue(revealed(app, app.staticTexts["Simulated answer received: Morning"], timeout: 15))
+        XCTAssertFalse(app.staticTexts["phone.question"].exists, "both copies settled")
+        let answers = try XCTUnwrap(try samplehost.control("/__fixture/state")["answers"] as? [[String: Any]])
+        XCTAssertEqual(answers.count, 1, "one request")
+        XCTAssertEqual(Set(answers.first?["tool_call_ids"] as? [String] ?? []), ["call_ask_1", "call_ask_2"])
+        XCTAssertEqual(answers.first?["roles"] as? [String], ["tool", "tool", "system"])
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == 'Morning'")).count >= 1, true, "the You line")
+        let hangup = app.buttons["Hang up"]
+        for _ in 0..<3 where !hangup.isHittable { app.swipeUp() }
+        hangup.tap()
+        XCTAssertTrue(app.staticTexts["You hung up"].waitForExistence(timeout: 10))
+        XCTAssertEqual(try samplehost.control("/__fixture/state")["problems"] as? [String], [])
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
+    /// Tell the assistant: the words show as a You line at once and reach the call as the owner's message.
+    @MainActor func testPhoneCallsTellTheAssistant() throws {
+        let samplehost = try samplehostFixture()
+        let app = try phoneChat(samplehost, scenario: "answers")
+        try placeSimulatedCall(app, samplehost)
+        XCTAssertTrue(app.staticTexts["Hello from the simulated agent."].waitForExistence(timeout: 20))
+        XCTAssertTrue(revealed(app, app.staticTexts["phone.lag-note"]), "says once that the transcript trails the call")
+        XCTAssertEqual(app.staticTexts.matching(identifier: "phone.lag-note").count, 1)
+        let tell = app.textFields["phone.tell"]
+        for _ in 0..<4 where !tell.isHittable { app.swipeUp() }
+        tell.tap(); tell.typeText("Ask for the earliest slot.")
+        XCTAssertTrue(app.buttons["phone.tell.send"].isEnabled, "Send lights up once there are words")
+        tell.typeText("\n")   // the keyboard's Send key
+        XCTAssertTrue(revealed(app, app.staticTexts["Ask for the earliest slot."], timeout: 5), "shown at once")
+        XCTAssertTrue(revealed(app, app.staticTexts["Simulated note received: Ask for the earliest slot."], timeout: 15))
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == 'Ask for the earliest slot.'")).count, 1,
+                       "one You line once the conversation returns it")
+        XCTAssertEqual(try samplehost.control("/__fixture/state")["told"] as? [String], ["Ask for the earliest slot."])
+        shot(app, "phone-tell")
+        let hangup = app.buttons["Hang up"]
+        for _ in 0..<3 where !hangup.isHittable { app.swipeUp() }
+        hangup.tap()
+        XCTAssertTrue(app.staticTexts["You hung up"].waitForExistence(timeout: 10))
+        XCTAssertEqual(try samplehost.control("/__fixture/state")["problems"] as? [String], [])
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
+    /// A busy call is still there after the app is quit and opened again: in the call sheet and in Call history.
+    /// Check my setup reads the fake account and ticks every row.
+    @MainActor func testPhoneCallsHistorySurvivesRelaunch() throws {
+        let samplehost = try samplehostFixture()
+        let app = try phoneChat(samplehost, scenario: "busy")
+        try placeSimulatedCall(app, samplehost)
+        XCTAssertTrue(statusText(app, prefix: "Busy").waitForExistence(timeout: 40))
+        app.buttons["phone.close"].tap()
+        app.terminate()
+
+        let again = launch(environment: ["HQ_SAMPLEHOST_BASE_URL": samplehost.url + "/v2"])
+        openPhoneSettings(again)
+        XCTAssertTrue(again.staticTexts["Ready"].waitForExistence(timeout: 10), "the key is still there")
+        let history = again.buttons["phone.settings.history"]
+        for _ in 0..<4 where !history.isHittable { again.swipeUp() }
+        history.tap()
+        let rowEntry = again.buttons.matching(NSPredicate(format: "identifier == 'phone.history.row'")).firstMatch
+        XCTAssertTrue(rowEntry.waitForExistence(timeout: 10))
+        XCTAssertTrue(rowEntry.label.contains("+1 555 010 0002") && rowEntry.label.contains("Busy"), rowEntry.label)
+        shot(again, "phone-history")
+        rowEntry.tap()
+        XCTAssertTrue(statusText(again, prefix: "Busy").waitForExistence(timeout: 10))
+        again.navigationBars.buttons.firstMatch.tap()
+        again.navigationBars.buttons.firstMatch.tap()
+
+        let check = again.buttons["phone.settings.check"]
+        for _ in 0..<4 where !check.isHittable { again.swipeUp() }
+        check.tap()
+        let balance = again.descendants(matching: .any)["phone.check.balance"]
+        XCTAssertTrue(balance.waitForExistence(timeout: 20))
+        XCTAssertTrue(balance.label.contains("$25.00"), balance.label)
+        for id in ["key", "number", "connection", "profile", "country", "assistant", "model", "recording", "balance"] {
+            let row = again.descendants(matching: .any)["phone.check." + id]
+            XCTAssertTrue(row.exists, id)
+            XCTAssertTrue(row.label.hasPrefix("OK"), "\(id): \(row.label)")
+        }
+        shot(again, "phone-check-setup")
+        let paths = try samplehostRequests(samplehost).map { "\($0["method"] ?? "") \($0["path"] ?? "")" }
+        for read in ["GET /v2/balance", "GET /v2/call_control_applications/conn-sim", "GET /v2/outbound_voice_profiles/ovp-sim"] {
+            XCTAssertTrue(paths.contains(read), read)
+        }
+        XCTAssertEqual(try samplehost.control("/__fixture/state")["problems"] as? [String], [])
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
+    /// The agent proposes a call with a link in its reply. From outside the app the same link is refused; tapped in
+    /// the chat it opens the call sheet filled in, nothing dials until the owner confirms, and the call's result goes
+    /// back into the chat as the next message (the gateway's prompt.submit log).
+    @MainActor func testPhoneCallsAgentProposal() throws {
+        let samplehost = try samplehostFixture()
+        let link = "phone-call?to=%2B12125550142&goal=Ask%20for%20a%20table%20for%20two%20at%207&voicemail=leave"
+        try account.control("/__fixture/reset", [:])
+        try account.control("/__fixture/rows", ["id": "s-garden", "set": ["messages": [
+            ["role": "user", "content": "Can you call the restaurant and book a table for two at 7?"],
+            ["role": "assistant", "content": "[Call +12125550142](hermes://\(link))"],
+        ]]])
+        let app = try phoneChat(samplehost, scenario: "busy", extra: ["-HQNDebugOpenLink", "hermeshq-native://" + link])
+        // The debug hook opened the link through the system, as another app would: refused.
+        let notice = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "That isn’t available on iPhone yet.")).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "a call link from outside the app is refused")
+        XCTAssertFalse(app.textFields["phone.to"].exists, "no sheet from outside")
+        XCTAssertTrue(try samplehostRequests(samplehost).allSatisfy { ($0["path"] as? String) != "/v2/calls" })
+
+        let proposal = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Call +1 212 555 0142")).firstMatch
+        XCTAssertTrue(proposal.waitForExistence(timeout: 15), "drawn as an action: Call and the number")
+        XCTAssertTrue(proposal.label.contains("Ask for a table for two at 7"), "the goal under it: \(proposal.label)")
+        shot(app, "phone-proposal-chat")
+        proposal.tap()
+        let to = app.textFields["phone.to"]
+        XCTAssertTrue(to.waitForExistence(timeout: 10), "the call sheet opens")
+        XCTAssertTrue(app.descendants(matching: .any)["phone.suggested"].exists, "Suggested by your agent")
+        XCTAssertEqual(to.value as? String, "+12125550142")
+        let purpose = app.textFields["phone.purpose"].exists ? app.textFields["phone.purpose"] : app.textViews["phone.purpose"]
+        XCTAssertEqual(purpose.value as? String, "Ask for a table for two at 7")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Leave a short message'")).firstMatch.exists)
+        shot(app, "phone-proposal-sheet")
+        XCTAssertTrue(try samplehostRequests(samplehost).allSatisfy { ($0["path"] as? String) != "/v2/calls" }, "a tap never dials")
+        app.buttons["Review call"].tap()
+        let confirm = app.buttons["Place call (billed to samplehost)"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10)); confirm.tap()
+        XCTAssertTrue(statusText(app, prefix: "Busy").waitForExistence(timeout: 40))
+        let dial = try XCTUnwrap((try samplehost.control("/__fixture/state")["dials"] as? [[String: Any]])?.first)
+        XCTAssertEqual(dial["leaves_message"] as? Bool, true, "voicemail=leave reached the instructions")
+        app.buttons["phone.close"].tap()
+
+        // The result reaches the chat once: prompt.submit carries the whole result; the bubble shows one line.
+        var submitted: [String] = []
+        let deadline = Date().addingTimeInterval(45)
+        while Date() < deadline {
+            let rpc = try account.control("/__fixture/state")["rpc"] as? [[String: Any]] ?? []
+            submitted = rpc.filter { $0["method"] as? String == "prompt.submit" }
+                .compactMap { ($0["params"] as? [String: Any])?["text"] as? String }
+                .filter { $0.hasPrefix("Phone call result (sent by Hermes HQ") }
+            if !submitted.isEmpty { break }
+            Thread.sleep(forTimeInterval: 1)
+        }
+        XCTAssertEqual(submitted.count, 1, "the result went back to the agent")
+        XCTAssertTrue(submitted.first?.contains("To: +12125550142") == true)
+        XCTAssertTrue(submitted.first?.contains("Goal: Ask for a table for two at 7") == true)
+        XCTAssertTrue(submitted.first?.contains("Outcome: busy") == true)
+        let bubble = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Call to +1 212 555 0142: busy")).firstMatch
+        XCTAssertTrue(bubble.waitForExistence(timeout: 15), "the bubble is the short line")
+        shot(app, "phone-result-in-chat")
+        Thread.sleep(forTimeInterval: 8)
+        let again = (try account.control("/__fixture/state")["rpc"] as? [[String: Any]] ?? [])
+            .filter { (($0["params"] as? [String: Any])?["text"] as? String)?.hasPrefix("Phone call result") == true }
+        XCTAssertEqual(again.count, 1, "exactly once")
         XCTAssertEqual(try samplehost.control("/__fixture/state")["problems"] as? [String], [])
         try assertKeyOnlyInHeader(samplehost)
     }

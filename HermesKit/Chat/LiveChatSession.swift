@@ -1162,6 +1162,10 @@ final class LiveChatSession: ChatSessionModel {
 
     /// [tasks] Set by a task's page: what a typed send carries and shows instead (nil: as typed).
     var wrapsSend: ((String) -> (text: String, display: String)?)?
+    /// [phone-calls] Set by AppModel: the note a typed message carries when it mentions calling and Phone Calls is
+    /// ready (nil: none). Only what is sent carries it; the bubble shows the words as typed, also from history
+    /// (SentTitles strips it). A typed message that steers a running reply goes in as typed, without the note.
+    var notesTypedSend: ((String) -> String?)?
     /// [tasks] Opening the screen makes no session: the first message does (`openIfWaiting`).
     var opensOnFirstSend = false
     /// [tasks] A chat not made yet keeps its draft under this (a task's id) rather than under its bot alone: every
@@ -1181,8 +1185,14 @@ final class LiveChatSession: ChatSessionModel {
     func send(_ text: String, display: String?, attachments: [DraftAttachment] = []) {
         // [tasks] A task's chat: typed words go out with what the task adds (its details, the first time); the bubble
         // shows what the task says it shows.
+        let note = display == nil && !steersTyped(text, display: nil, attachments: attachments)
+            ? notesTypedSend?(text) : nil   // [phone-calls]
         if display == nil, let wrap = wrapsSend, let wrapped = wrap(text) {
-            send(wrapped.text, display: wrapped.display, attachments: attachments)
+            send(note.map { wrapped.text + "\n\n" + $0 } ?? wrapped.text, display: wrapped.display, attachments: attachments)
+            return
+        }
+        if let note, !ChatText.trimmed(text).isEmpty {
+            send(text + "\n\n" + note, display: ChatText.trimmed(text), attachments: attachments)
             return
         }
         if defersSendUntilReady && preOpenWaiting == 0 {

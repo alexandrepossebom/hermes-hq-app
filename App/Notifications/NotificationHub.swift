@@ -389,6 +389,9 @@ import UIKit
         if content.userInfo["deviceDraft"] is String { return [.banner, .list, .sound] }
         // [update-flow] A Hermes update ended while its sheet wasn't on screen: always shown.
         if content.userInfo[HermesUpdate.alertKey] is String { return [.banner, .list, .sound] }
+        // [phone-calls] The assistant on a call asks something, or background time ran out: always shown (the call's
+        // sheet wasn't on screen when it was posted).
+        if content.userInfo[PhoneAlerts.alertKey] is String { return [.banner, .list, .sound] }
         let info = PushSeal.opened(content.userInfo, keys: PushSealKeys.all())
         let kind: String
         let muteKind: String
@@ -477,6 +480,12 @@ import UIKit
             AppLog.note("notify", "response hermes update")
             let shown = response.notification.request.content
             HermesUpdateCenter.shared.open(key, title: shown.title, body: shown.body)
+            return
+        }
+        if delivered[PhoneAlerts.alertKey] is String {
+            // [phone-calls] That call's chat, then its call sheet.
+            AppLog.note("notify", "response phone call")
+            PhoneAlerts.open(delivered)
             return
         }
         let info = PushSeal.opened(delivered, keys: PushSealKeys.all())

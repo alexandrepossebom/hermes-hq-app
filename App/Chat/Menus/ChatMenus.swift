@@ -57,10 +57,10 @@ final class ChatMenus: NSObject, ModelSwitchUI {
             // samplehost key for this account; checked each time the menu opens.
             menus.slotItems[.phone] = { [weak screen, weak live] in
                 guard let screen, let live, PhoneCallController.shared(for: live.client.account.id).ready,
-                      let id = live.runtimeSessionId ?? live.storedSessionId else { return [] }
+                      let id = PhoneCallChat.key(live) else { return [] }
                 let call = UIAction(title: "Phone Call", image: UIImage(systemName: "phone")) { [weak screen, weak live] _ in
                     guard let screen, let live else { return }
-                    screen.present(UIHostingController(rootView: PhoneCallView(accountID: live.client.account.id, sessionID: id)), animated: true)
+                    PhoneCallChat.present(account: live.client.account.id, session: id, profile: live.profile, from: screen)
                 }
                 call.accessibilityIdentifier = "chat.phone-calls"
                 return [call]

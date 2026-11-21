@@ -49,6 +49,8 @@ nonisolated enum samplehostError: Error, Equatable, Sendable, CustomStringConver
     case unexpected(Int)
     /// A URL that is not HTTPS to the samplehost host; never sent.
     case refusedURL
+    /// The app's own words for why it stopped (shown as they are).
+    case refused(String)
 
     var description: String { phoneMessage(self) }
 }
@@ -62,6 +64,7 @@ nonisolated func phoneMessage(_ error: Error) -> String {
     case .network: return "Couldn't reach samplehost. Check your connection and try again."
     case .unexpected(let status): return "samplehost answered with an unexpected error (\(status)). Try again."
     case .refusedURL: return "Phone Calls only talks to api.samplehost.com over HTTPS."
+    case .refused(let words): return words
     case nil: return "The phone request couldn't be completed. Try again."
     }
 }
@@ -103,9 +106,84 @@ nonisolated struct samplehostMessage: Decodable, Sendable, Equatable {
 
 private nonisolated struct DataList<T: Decodable>: Decodable { let data: [T] }
 private nonisolated struct DataOne<T: Decodable>: Decodable { let data: T }
-private nonisolated struct DialResult: Decodable { let call_control_id: String }
-private nonisolated struct CallStatus: Decodable { let is_alive: Bool }
+/// dial: `data.call_control_id`, `data.call_leg_id`, `data.call_session_id` (proven on a real call, 2026-11-21).
+nonisolated struct samplehostDialed: Decodable, Sendable, Equatable {
+    let call_control_id: String
+    var call_leg_id: String? = nil
+    var call_session_id: String? = nil
+}
 private nonisolated struct ConversationRow: Decodable { let id: String }
+
+/// retrieve-a-call-status: `is_alive`, and after the end, for a while, `start_time`, `end_time`, `call_duration` (seconds).
+nonisolated struct samplehostCallStatus: Decodable, Sendable, Equatable {
+    var is_alive: Bool? = nil
+    var start_time: String? = nil
+    var end_time: String? = nil
+    var call_duration: Int? = nil
+
+    init(is_alive: Bool? = nil, start_time: String? = nil, end_time: String? = nil, call_duration: Int? = nil) {
+        self.is_alive = is_alive; self.start_time = start_time; self.end_time = end_time; self.call_duration = call_duration
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        is_alive = try? c.decodeIfPresent(Bool.self, forKey: .is_alive)
+        start_time = try? c.decodeIfPresent(String.self, forKey: .start_time)
+        end_time = try? c.decodeIfPresent(String.self, forKey: .end_time)
+        call_duration = (try? c.decodeIfPresent(Int.self, forKey: .call_duration))
+            ?? (try? c.decodeIfPresent(Double.self, forKey: .call_duration)).map { Int($0.rounded()) }
+    }
+    private enum CodingKeys: String, CodingKey { case is_alive, start_time, end_time, call_duration }
+}
+
+/// get-an-assistant: the fields Check my setup and the recording switch read. `telephony_settings` stays raw JSON so it
+/// can be sent back whole (update-an-assistant).
+nonisolated struct samplehostAssistantDetail: Sendable, Equatable {
+    var id: String
+    var name: String?
+    var model: String?
+    var greeting: String?
+    var enabledFeatures: [String]
+    /// The whole `telephony_settings` object as samplehost sent it (nil when absent).
+    var telephonyJSON: Data?
+
+    /// `telephony_settings.recording_settings.enabled`. samplehost's default is true (update-an-assistant reference).
+    var recordingOn: Bool? {
+        guard let settings = telephony else { return nil }
+        return ((settings["recording_settings"] as? [String: Any])?["enabled"] as? Bool) ?? true
+    }
+    var telephony: [String: Any]? { telephonyJSON.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any] }
+
+    init(json: [String: Any]) {
+        id = json["id"] as? String ?? ""
+        name = json["name"] as? String
+        model = json["model"] as? String
+        greeting = json["greeting"] as? String
+        enabledFeatures = (json["enabled_features"] as? [Any] ?? []).compactMap { $0 as? String }
+        telephonyJSON = (json["telephony_settings"] as? [String: Any]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+    }
+}
+
+/// get-balance: `data.balance` (string dollars), `data.currency`.
+nonisolated struct samplehostBalance: Decodable, Sendable, Equatable {
+    let balance: String
+    var currency: String? = nil
+    var amount: Double? { Double(balance) }
+}
+
+/// retrieve-a-call-control-application: `active`, `application_name`, `outbound.outbound_voice_profile_id`.
+nonisolated struct samplehostCallControlApp: Decodable, Sendable, Equatable {
+    nonisolated struct Outbound: Decodable, Sendable, Equatable { var outbound_voice_profile_id: String? = nil }
+    var active: Bool? = nil
+    var application_name: String? = nil
+    var outbound: Outbound? = nil
+}
+
+/// retrieve-an-outbound-voice-profile: `enabled`, `whitelisted_destinations` (country codes such as "US").
+nonisolated struct samplehostVoiceProfile: Decodable, Sendable, Equatable {
+    var enabled: Bool? = nil
+    var whitelisted_destinations: [String]? = nil
+}
 
 // MARK: - The dial request
 
@@ -118,13 +196,29 @@ nonisolated struct PhoneDialRequest: Sendable, Equatable {
     let purpose: String
     /// dial `command_id`: samplehost ignores another Dial with the same one, so a retry never places a second call.
     let commandID: String
+    /// Said on calls ("calling on behalf of Alex"); empty: no name.
+    var ownerName: String = ""
+    /// The assistant's recording setting, as made to match the switch just before dialing.
+    var recorded: Bool = false
+    var voicemail: PhoneVoicemailChoice = .hangUp
+}
+
+/// The call form's "If voicemail answers".
+nonisolated enum PhoneVoicemailChoice: String, Codable, Sendable, CaseIterable {
+    case hangUp = "hangup"
+    case leaveMessage = "leave"
+    var title: String { self == .hangUp ? "Hang up" : "Leave a short message" }
 }
 
 nonisolated enum PhoneLimits {
-    /// dial `time_limit_secs`: the hard cap on the answered leg (owner, beta: 60 seconds).
-    static let callSeconds = 60
+    /// dial `time_limit_secs` (30 to 14400): the one safety stop, so a stuck call can't bill for hours. samplehost hangs the
+    /// leg up then. The assistant's own `time_limit_secs` only stops the assistant and leaves the leg billed.
+    static let callSeconds = 1800
     /// dial `timeout_secs`: how long it may ring before samplehost gives up (default 30).
-    static let ringSeconds = 30
+    static let ringSeconds = 45
+    /// The words for the safety stop wherever it shows.
+    static let safetyStopNote = "30-minute safety stop"
+    static let stayCopy = "The assistant stays on until the job is done. Safety stop at 30 minutes."
     /// Never resolves (RFC 2606 `.invalid`), so the ask_owner webhook sends nothing anywhere. See PhoneAskOwner.
     static let askOwnerURL = "https://ask-owner.invalid/hermes-hq"
 }
@@ -147,19 +241,46 @@ nonisolated enum PhoneAskOwner {
     static let baseInstructions = "You are a polite voice assistant placing short phone calls on behalf of the owner of this "
         + "account. Each call gives you its purpose. Be honest that you are an AI assistant if asked."
 
-    static func instructions(purpose: String) -> String {
-        """
-        You are a voice assistant placing a phone call on behalf of the owner of this account. \
-        The purpose of this call, in the owner's words: \(purpose)
+    /// The prefix of the message an unprompted owner message goes in (wire-proven 2026-11-21).
+    static let ownerMessagePrefix = "Message from the owner, sent during the call: "
 
-        Keep the call short: it ends automatically after \(PhoneLimits.callSeconds) seconds. \
-        Be honest that you are an AI assistant calling for the owner if asked. \
-        When you need a decision or a fact only the owner has, call the \(name) tool with one short question and, \
-        when there are clear options, up to four short choices. Then tell the person you are checking with the owner \
-        and keep the conversation going politely. The tool's immediate result never contains the answer and may say \
-        it failed; ignore that result. The owner's answer arrives later as a message that starts with \
-        "\(answerPrefix)". Never guess or invent the owner's answer. When the conversation is finished, say goodbye \
-        and hang up.
+    /// dial `assistant.greeting`: replaces the assistant's stored greeting for this call.
+    static func greeting(ownerName: String, recorded: Bool) -> String {
+        let name = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let opening = name.isEmpty ? "Hi, this is an AI assistant calling with a quick request."
+            : "Hi, this is an AI assistant calling on behalf of \(name)."
+        return recorded ? opening + " This call is recorded." : opening
+    }
+
+    static func instructions(purpose: String, ownerName: String = "", recorded: Bool = false,
+                             voicemail: PhoneVoicemailChoice = .hangUp) -> String {
+        let given = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = given.isEmpty ? "the owner" : given
+        let Owner = owner.prefix(1).uppercased() + owner.dropFirst()
+        let recordedLine = recorded ? " This call is recorded; say so if asked." : ""
+        let onVoicemail = voicemail == .hangUp ? "hang up right away without saying anything"
+            : "leave one short message saying who you are calling for and why, then hang up"
+        return """
+        You are an AI voice assistant placing a phone call on behalf of \(owner). \(Owner) is not on the call: they \
+        follow a transcript and can send you messages. The person who answers is not \(owner).
+
+        Why you are calling, in \(owner)'s words: \(purpose)
+
+        How to run the call:
+        - After your greeting, say why you are calling in one short sentence, then work toward that goal. Keep it \
+        natural and brief.
+        - If asked, say honestly that you are an AI assistant calling for \(owner).\(recordedLine)
+        - Stay on the call until the goal is done or clearly cannot be done, then say goodbye and hang up. Do not end \
+        the call just because it is taking long.
+        - Never invent facts about \(owner) (dates, preferences, payment details, addresses). When you need a decision \
+        or a fact only \(owner) has, call the \(Self.name) tool once with one short question and, when there are clear \
+        options, up to four short choices. The tool only sends the question; its result is a receipt, never the \
+        answer, and may read like an error. Either way the question was sent: never call it twice for the same \
+        question, and never ask the person on the phone to answer for \(owner). Tell the person you are checking \
+        with \(owner) and that it can take a minute, and keep them on the line politely. The answer arrives as a \
+        message that starts with "\(answerPrefix)".
+        - A message that starts with "Message from the owner" is a new instruction from \(owner): follow it.
+        - If a voicemail greeting or another recording answers instead of a person, \(onVoicemail).
         """
     }
 
@@ -247,9 +368,10 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
         return try decode(samplehostAssistant.self, data)
     }
 
-    /// dial: `POST /v2/calls` with `connection_id`, `from`, `to`, `timeout_secs`, `time_limit_secs`, `command_id` and
-    /// `assistant` (CallAssistantRequest: `id`, `instructions`, `tools`). Answers `data.call_control_id`.
-    func dial(_ request: PhoneDialRequest) async throws -> String {
+    /// dial: `POST /v2/calls` with `connection_id`, `from`, `to`, `timeout_secs`, `time_limit_secs`, `command_id`,
+    /// `answering_machine_detection: "premium"` and `assistant` (CallAssistantRequest: `id`, `greeting`,
+    /// `instructions`, `tools`). Answers `data.call_control_id`, `call_leg_id`, `call_session_id`.
+    func dial(_ request: PhoneDialRequest) async throws -> samplehostDialed {
         let body: [String: Any] = [
             "connection_id": request.connectionID,
             "from": request.from,
@@ -257,14 +379,17 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
             "timeout_secs": PhoneLimits.ringSeconds,
             "time_limit_secs": PhoneLimits.callSeconds,
             "command_id": request.commandID,
+            "answering_machine_detection": "premium",
             "assistant": [
                 "id": request.assistantID,
-                "instructions": PhoneAskOwner.instructions(purpose: request.purpose),
+                "greeting": PhoneAskOwner.greeting(ownerName: request.ownerName, recorded: request.recorded),
+                "instructions": PhoneAskOwner.instructions(purpose: request.purpose, ownerName: request.ownerName,
+                                                           recorded: request.recorded, voicemail: request.voicemail),
                 "tools": PhoneAskOwner.tools,
             ] as [String: Any],
         ]
         let data = try await send("POST", ["calls"], body: try JSONSerialization.data(withJSONObject: body))
-        return try decode(DataOne<DialResult>.self, data).data.call_control_id
+        return try decode(DataOne<samplehostDialed>.self, data).data
     }
 
     /// list-conversations: `GET /v2/ai/conversations?metadata->call_control_id=eq.<id>&limit=1`. nil until samplehost has
@@ -281,17 +406,30 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
         return try decode(DataList<samplehostMessage>.self, data).data
     }
 
-    /// add-messages-to-ai-assistant: `POST /v2/calls/{id}/actions/ai_assistant_add_messages` with a `tool` message
-    /// (`tool_call_id`, `content`) and a `system` message, `trigger_response: true` and `command_id`. The system
-    /// message is there because GPT Live assistants never receive injected `tool` records (same reference).
-    func deliverAnswer(callControlID: String, toolCallID: String, question: String, answer: String, commandID: String) async throws {
+    /// add-messages-to-ai-assistant: `POST /v2/calls/{id}/actions/ai_assistant_add_messages` with one `tool` message
+    /// per tool call id (`tool_call_id`, `content`), so a question the model asked twice is answered for both, and one
+    /// `system` message, `trigger_response: true` and `command_id`. The system message is there because GPT Live
+    /// assistants never receive injected `tool` records (same reference). `quiet`: the tool results alone, no system
+    /// message and no new reply (a late repeat of a question already answered).
+    func deliverAnswer(callControlID: String, toolCallIDs: [String], question: String, answer: String, commandID: String,
+                       quiet: Bool = false) async throws {
+        var messages: [[String: Any]] = toolCallIDs.map {
+            ["role": "tool", "tool_call_id": $0, "content": PhoneAskOwner.toolAnswer(answer, toolCallID: $0)]
+        }
+        if !quiet {
+            messages.append(["role": "system",
+                             "content": "\(PhoneAskOwner.answerPrefix) your question \"\(question)\": \(answer). Tell the person now, then continue."])
+        }
+        let body: [String: Any] = ["messages": messages, "trigger_response": !quiet, "command_id": commandID]
+        _ = try await send("POST", ["calls", callControlID, "actions", "ai_assistant_add_messages"],
+                           body: try JSONSerialization.data(withJSONObject: body))
+    }
+
+    /// add-messages-to-ai-assistant with one `system` message "Message from the owner, sent during the call: …" and
+    /// `trigger_response: true` (proven 2026-11-21: the assistant acted on it within about 2 seconds).
+    func sendOwnerMessage(callControlID: String, text: String, commandID: String) async throws {
         let body: [String: Any] = [
-            "messages": [
-                ["role": "tool", "tool_call_id": toolCallID,
-                 "content": PhoneAskOwner.toolAnswer(answer, toolCallID: toolCallID)],
-                ["role": "system",
-                 "content": "\(PhoneAskOwner.answerPrefix) your question \"\(question)\": \(answer). Tell the person now, then continue."],
-            ],
+            "messages": [["role": "system", "content": PhoneAskOwner.ownerMessagePrefix + text]],
             "trigger_response": true,
             "command_id": commandID,
         ]
@@ -310,9 +448,78 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
 
     /// retrieve-a-call-status: `GET /v2/calls/{id}` → `data.is_alive`. nil when samplehost no longer knows the call (404).
     func isAlive(callControlID: String) async throws -> Bool? {
+        try await callStatus(callControlID: callControlID)?.is_alive
+    }
+
+    /// retrieve-a-call-status: `GET /v2/calls/{id}` → `is_alive`, and after the end `start_time`, `end_time`,
+    /// `call_duration`. nil on 404 (samplehost forgot the call).
+    func callStatus(callControlID: String) async throws -> samplehostCallStatus? {
         do {
-            return try decode(DataOne<CallStatus>.self, try await send("GET", ["calls", callControlID])).data.is_alive
+            return try decode(DataOne<samplehostCallStatus>.self, try await send("GET", ["calls", callControlID])).data
         } catch samplehostError.unexpected(404) { return nil }
+    }
+
+    /// list-call-events: `GET /v2/call_events?filter[leg_id]=<leg>&filter[type]=webhook&page[size]=50`. samplehost logs every
+    /// webhook event it would have sent; without `filter[type]=webhook` our own commands flood the list. The log lags
+    /// the call by 10 to 30 seconds, so it is read for the outcome, not for anything live.
+    func callEvents(legID: String) async throws -> [PhoneCallEvent] {
+        let data = try await send("GET", ["call_events"],
+                                  query: [("filter[leg_id]", legID), ("filter[type]", "webhook"), ("page[size]", "50")])
+        return try decode(DataList<PhoneCallEvent>.self, data).data
+    }
+
+    /// get-an-assistant: `GET /v2/ai/assistants/{id}` (`name`, `model`, `greeting`, `enabled_features`,
+    /// `telephony_settings`). Answers the object itself or wrapped in `data`.
+    func assistant(id: String) async throws -> samplehostAssistantDetail {
+        let data = try await send("GET", ["ai", "assistants", id])
+        guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw samplehostError.unexpected(200) }
+        if object["id"] == nil, let inner = object["data"] as? [String: Any] { object = inner }
+        return samplehostAssistantDetail(json: object)
+    }
+
+    /// update-an-assistant: `POST /v2/ai/assistants/{id}` with `{"telephony_settings": <the whole object>}`. Proven
+    /// 2026-11-21: sending back the whole object read from get-an-assistant keeps greeting, model, tools and
+    /// instructions. Merge-vs-replace is undocumented and the object holds `default_texml_app_id`, so it is never sent
+    /// partial.
+    func updateTelephony(assistantID: String, telephony: [String: Any]) async throws {
+        let body: [String: Any] = ["telephony_settings": telephony]
+        _ = try await send("POST", ["ai", "assistants", assistantID], body: try JSONSerialization.data(withJSONObject: body))
+    }
+
+    /// Makes the assistant's recording match `on`: get-an-assistant, compare, and update-an-assistant with the whole
+    /// `telephony_settings` (only `recording_settings.enabled` changed) only when it differs. Answers whether it wrote.
+    @discardableResult
+    func matchRecording(assistantID: String, on: Bool) async throws -> Bool {
+        let detail = try await assistant(id: assistantID)
+        guard var telephony = detail.telephony else {
+            throw samplehostError.provider("The assistant has no telephony settings. Turn on telephony for it in the samplehost portal.")
+        }
+        guard detail.recordingOn != on else { return false }
+        var recording = telephony["recording_settings"] as? [String: Any] ?? [:]
+        recording["enabled"] = on
+        telephony["recording_settings"] = recording
+        try await updateTelephony(assistantID: assistantID, telephony: telephony)
+        return true
+    }
+
+    /// get-balance: `GET /v2/balance`.
+    func balance() async throws -> samplehostBalance {
+        try decode(DataOne<samplehostBalance>.self, try await send("GET", ["balance"])).data
+    }
+
+    /// retrieve-a-call-control-application: `GET /v2/call_control_applications/{id}`.
+    func callControlApp(id: String) async throws -> samplehostCallControlApp {
+        try decode(DataOne<samplehostCallControlApp>.self, try await send("GET", ["call_control_applications", id])).data
+    }
+
+    /// retrieve-an-outbound-voice-profile: `GET /v2/outbound_voice_profiles/{id}`.
+    func voiceProfile(id: String) async throws -> samplehostVoiceProfile {
+        try decode(DataOne<samplehostVoiceProfile>.self, try await send("GET", ["outbound_voice_profiles", id])).data
+    }
+
+    /// list-phone-numbers with every status (Check my setup says why a number can't call).
+    func allPhoneNumbers() async throws -> [samplehostNumber] {
+        try decode(DataList<samplehostNumber>.self, try await send("GET", ["phone_numbers"], query: [("page[size]", "250")])).data
     }
 
     // MARK: Transport
@@ -391,6 +598,16 @@ nonisolated struct PhoneSetup: Codable, Equatable, Sendable {
     var connectionID: String? = nil
     var assistantID: String? = nil
     var assistantName: String? = nil
+    /// Settings › "Your name (said on calls)". Not secret; kept in the same item for simplicity.
+    var ownerName: String? = nil
+    /// Settings › Record calls (nil: off). Optional so an item saved before these switches still reads.
+    var recordCalls: Bool? = nil
+    /// Settings › Send call results to the chat (nil: on).
+    var sendResults: Bool? = nil
+
+    var records: Bool { recordCalls ?? false }
+    var sendsResults: Bool { sendResults ?? true }
+    var name: String { (ownerName ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var ready: Bool {
         [fromNumber, connectionID, assistantID].allSatisfy { !($0 ?? "").isEmpty }

@@ -883,6 +883,19 @@ nonisolated private struct BlockBuilder {
                 c.link = url
             }
             let before = out.length
+            if let url = c.link, let proposal = PhoneProposal.parse(url) {
+                // [phone-calls] An agent's call proposal reads as an action: a phone glyph, "Call <number>", and the goal
+                // under it. A tap opens the call sheet filled in (PhoneCallChat.open); nothing dials by itself.
+                let font = attributes(ctx)[.font] as? UIFont ?? style.body
+                out.append(PhoneProposal.glyph(font: font, color: theme.link))
+                out.append(styled("Call " + phoneShown(proposal.to), c))
+                var goal = attributes(c)
+                goal[.foregroundColor] = theme.secondary
+                goal[.font] = font.withSize(max(11, font.pointSize - 2))
+                goal.removeValue(forKey: .underlineStyle)
+                out.append(NSAttributedString(string: "\u{2028}" + proposal.goal, attributes: goal))
+                break
+            }
             if let dest = l.destination, dest.hasPrefix("#media:"), let ref = MarkdownMedia.ref(destination: dest, title: l.plainText, image: false) {
                 // [attachments] the glyph says what it is: "File: data.csv" reads "data.csv"
                 out.append(styled(MarkdownMedia.inlineTitle(l.plainText, ref: ref), c))

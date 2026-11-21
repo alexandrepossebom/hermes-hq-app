@@ -827,6 +827,13 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
             }
             text.enumerateAttribute(.chatLink, in: NSRange(location: 0, length: text.length)) { value, _, _ in
                 guard let url = value as? URL, seen.insert(url).inserted else { return }
+                if let proposal = PhoneProposal.parse(url) {   // [phone-calls] an agent's call proposal
+                    actions.append(UIAccessibilityCustomAction(name: "Call \(phoneShown(proposal.to))") { [weak self] _ in
+                        self?.delegate?.chatCellOpen(url: url)
+                        return true
+                    })
+                    return
+                }
                 guard let path = FileLinks.path(fromLink: url) else {
                     guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
                     // Two links to one site are told apart by their address.
@@ -875,7 +882,8 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         Self.spokenBuilds += 1
         #endif
         // [attachments] a reply's picture is read by its name, not its path (docs/spec/1x-attachments.md §7.5)
-        let spoken = spokenMarkdown ? (mine ? UserMarkdown.spoken(copyText) : SpokenMarkdown.plain(MediaTags.forSpeech(copyText))) : copyText
+        // [phone-calls] a call proposal is read as the bubble draws it: "Call <number>. <goal>"
+        let spoken = spokenMarkdown ? (mine ? UserMarkdown.spoken(copyText) : SpokenMarkdown.plain(MediaTags.forSpeech(PhoneProposal.spoken(copyText)))) : copyText
         let label = spokenSpeaker.map { "\($0) said: " + spoken } ?? spoken
         spokenCache = (copyText, spokenMarkdown, spokenSpeaker, label)
         return label

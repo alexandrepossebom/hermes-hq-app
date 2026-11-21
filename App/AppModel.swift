@@ -586,6 +586,7 @@ final class AppModel: AppServices {
         notificationsDidActivate(account, client: client)   // [notifications]
         shareActivated(account)                       // [share] roster for the sheet; a share made while away opens its chat
         intentsDidActivate(account)                   // [intents]
+        _ = PhoneCallController.shared(for: account.id)   // [phone-calls] calls left unfinished are checked again
         groupsHub.activated(self, account: account, client: client, bots: bots)   // [groups]
         syncHub.activated(account: account, client: client, bots: bots, sessions: sessions)   // [sync]
         offlineHub.activated(account, label: signIn.store.stored(account)?.label)   // [offline]
@@ -1058,6 +1059,10 @@ final class AppModel: AppServices {
         if seconds > 0 { chat.resumeTimeout = .milliseconds(Int(seconds * 1000)) }
         #endif
         chat.lostSends = LostSends.shared               // [sessions-m9] a send that may not have arrived names itself on its row
+        chat.notesTypedSend = { [weak chat] typed in   // [phone-calls] item 13a: the agent learns it can propose a call
+            guard let chat else { return nil }
+            return PhoneChatNote.note(for: typed, ready: PhoneCallController.shared(for: chat.client.account.id).ready)
+        }
         chat.onObservingChange = { [weak self, weak chat] observing in
             guard let self, let chat else { return }
             if observing { self.chatCameOnScreen(chat) } else { self.chatLeft(chat) }
@@ -1178,6 +1183,7 @@ final class AppModel: AppServices {
     /// for a bot's chat, the bot is read.
     private func chatOpened(_ chat: LiveChatSession, fresh: Bool) {
         intentsVisited(chat)                          // [intents]
+        PhoneChatDelivery.chatReady(chat)             // [phone-calls] a call result waiting for this chat goes in
         botStore?.noteChatOpening(false)
         if chat.menus.isBotChat { botStore?.noteBotOpening(chat.profile, false) }   // [botslist]
         if let runtime = chat.runtimeSessionId { screenSessionOwners[runtime] = chat.profile }   // [screen]

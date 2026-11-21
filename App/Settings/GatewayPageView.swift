@@ -571,7 +571,9 @@ struct GatewayPageView: View {
                         model.router.push(page)
                     }
                     .accessibilityIdentifier("gateway.command-center")
-                }
+                } footer: { HQSectionFooter {
+                    Text("The Hermes version, Restart Gateway, Update Hermes, Recent Logs and Run Doctor.")
+                } }
             }
 
             if let url = model.currentCloudURL, let cloud = model.cloud {

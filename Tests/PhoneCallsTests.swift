@@ -61,12 +61,17 @@ nonisolated final class PhoneCallsTests: XCTestCase {
     }
 
     /// A controller for account `id` whose setup is saved and whose requests go to the stub.
-    @MainActor func controller(_ id: String = "https://a.example.com|a", now: Date = Date()) throws -> PhoneCallController {
-        try store.save(PhoneSetup(apiKey: Self.key, fromNumber: "+15550100001", connectionID: "conn-1",
-                                  assistantID: "assistant-1", assistantName: "Otto"), for: id)
-        let made = PhoneCallController(accountID: id, store: store)
+    /// No polling task and no alerts or chat sends of its own: each test drives `refresh` and captures what it needs.
+    @MainActor func controller(_ id: String = "https://a.example.com|a", now: Date = Date(), setup: PhoneSetup? = nil,
+                               history: PhoneHistoryStore? = nil) throws -> PhoneCallController {
+        try store.save(setup ?? PhoneSetup(apiKey: Self.key, fromNumber: "+15550100001", connectionID: "conn-1",
+                                           assistantID: "assistant-1", assistantName: "Otto"), for: id)
+        let made = PhoneCallController(accountID: id, store: store, history: history)
         made.makeAPI = { samplehostAPI(key: $0, base: samplehostEndpoint.production, session: samplehostStub.session) }
         made.now = { now }
+        made.autoPoll = false
+        made.alert = { _ in }
+        made.chatSender = { _ in nil }
         return made
     }
 
@@ -74,6 +79,14 @@ nonisolated final class PhoneCallsTests: XCTestCase {
     nonisolated final class Script: @unchecked Sendable {
         var alive = true
         var hungUp = false
+        /// What list-call-events answers (the real row shape).
+        var events: [[String: Any]] = []
+        var duration: Int? = nil
+        /// The assistant's telephony_settings as get-an-assistant answers them; update-an-assistant replaces them.
+        var telephony: [String: Any] = ["default_texml_app_id": "texml-1", "noise_suppression": "krisp",
+                                        "recording_settings": ["enabled": false, "channels": "dual", "format": "mp3"]]
+        var updateFails = false
+        var model = "openai/gpt-4o"
         var messages: [[String: Any]] = [
             ["role": "assistant", "text": "Hello from the simulated agent.", "created_at": "2026-01-01T00:00:01.000Z"],
             ["role": "user", "text": "The simulated recipient has a question.", "created_at": "2026-01-01T00:00:02.000Z"],
@@ -88,13 +101,24 @@ nonisolated final class PhoneCallsTests: XCTestCase {
             }
             switch (seen.method, seen.path) {
             case ("POST", "/v2/calls"):
-                return (200, ["data": ["call_control_id": PhoneCallsTests.callID, "call_leg_id": "leg", "call_session_id": "s", "is_alive": false, "record_type": "call"]])
+                return (200, ["data": ["call_control_id": PhoneCallsTests.callID, "call_leg_id": "leg-1", "call_session_id": "s", "is_alive": false, "record_type": "call"]])
+            case ("GET", "/v2/ai/assistants/assistant-1"):
+                return (200, ["id": "assistant-1", "name": "Otto", "model": model, "enabled_features": ["telephony"],
+                              "greeting": "Hello", "telephony_settings": telephony])
+            case ("POST", "/v2/ai/assistants/assistant-1"):
+                if updateFails { return (500, ["errors": [["code": "500", "title": "Server error"]]]) }
+                if let next = seen.json["telephony_settings"] as? [String: Any] { telephony = next }
+                return (200, ["id": "assistant-1", "telephony_settings": telephony])
+            case ("GET", "/v2/call_events"):
+                return (200, ["data": events, "meta": ["total_pages": 1]])
             case ("GET", "/v2/ai/conversations"):
                 return (200, ["data": [["id": "conv-1", "name": "", "created_at": "2026-01-01T00:00:00Z", "metadata": [:]]]])
             case ("GET", "/v2/ai/conversations/conv-1/messages"):
                 return (200, ["data": Array(messages.reversed()), "meta": ["total_pages": 1, "total_results": messages.count, "page_number": 1, "page_size": 100]])
             case ("GET", "/v2/calls/\(PhoneCallsTests.callID)"):
-                return (200, ["data": ["call_control_id": PhoneCallsTests.callID, "is_alive": alive, "record_type": "call"]])
+                var data: [String: Any] = ["call_control_id": PhoneCallsTests.callID, "is_alive": alive, "record_type": "call"]
+                if !alive, let duration { data["call_duration"] = duration }
+                return (200, ["data": data])
             case ("POST", "/v2/calls/\(PhoneCallsTests.callID)/actions/ai_assistant_add_messages"):
                 return (200, ["data": ["result": "ok"]])
             case ("POST", "/v2/calls/\(PhoneCallsTests.callID)/actions/hangup"):
@@ -158,7 +182,7 @@ nonisolated final class PhoneCallsTests: XCTestCase {
 
     // MARK: Dial
 
-    @MainActor func testDialSendsTheDocumentedFieldsAndSixtySecondLimit() async throws {
+    @MainActor func testDialSendsTheDocumentedFieldsAndTheSafetyStop() async throws {
         let script = Script()
         samplehostStub.reset(script.route)
         let calls = try controller()
@@ -167,15 +191,19 @@ nonisolated final class PhoneCallsTests: XCTestCase {
         let dial = try XCTUnwrap(samplehostStub.seen.first { $0.path == "/v2/calls" })
         XCTAssertEqual(dial.method, "POST")
         let body = dial.json
-        XCTAssertEqual(Set(body.keys), ["connection_id", "from", "to", "timeout_secs", "time_limit_secs", "command_id", "assistant"])
+        XCTAssertEqual(Set(body.keys), ["connection_id", "from", "to", "timeout_secs", "time_limit_secs", "command_id",
+                                        "answering_machine_detection", "assistant"])
         XCTAssertEqual(body["connection_id"] as? String, "conn-1")
         XCTAssertEqual(body["from"] as? String, "+15550100001")
         XCTAssertEqual(body["to"] as? String, "+15550100002")
-        XCTAssertEqual(body["time_limit_secs"] as? Int, 60)
-        XCTAssertEqual(body["timeout_secs"] as? Int, 30)
+        XCTAssertEqual(body["time_limit_secs"] as? Int, 1800, "one 30-minute safety stop, no 60-second cap")
+        XCTAssertEqual(body["timeout_secs"] as? Int, 45)
+        XCTAssertEqual(body["answering_machine_detection"] as? String, "premium")
         XCTAssertFalse((body["command_id"] as? String ?? "").isEmpty)
         let assistant = try XCTUnwrap(body["assistant"] as? [String: Any])
         XCTAssertEqual(assistant["id"] as? String, "assistant-1")
+        XCTAssertEqual(assistant["greeting"] as? String, "Hi, this is an AI assistant calling with a quick request.")
+        XCTAssertFalse(String(decoding: dial.body ?? Data(), as: UTF8.self).contains("60 seconds"))
         XCTAssertTrue((assistant["instructions"] as? String ?? "").contains("Book a table for two"))
         XCTAssertTrue((assistant["instructions"] as? String ?? "").contains("ask_owner"))
         let tools = try XCTUnwrap(assistant["tools"] as? [[String: Any]])
@@ -306,7 +334,8 @@ nonisolated final class PhoneCallsTests: XCTestCase {
         XCTAssertEqual(hangups.first?.method, "POST")
         XCTAssertFalse((hangups.first?.json["command_id"] as? String ?? "").isEmpty)
         XCTAssertEqual(calls.calls.first?.state, .ended)
-        XCTAssertEqual(calls.calls.first?.statusText, "Ended · you hung up")
+        XCTAssertEqual(calls.calls.first?.statusText, "Ended", "the outcome is still being read from the event log")
+        XCTAssertEqual(calls.calls.first?.endNote, "You hung up")
         await calls.hangup(Self.callID)
         await calls.refresh(Self.callID)
         XCTAssertEqual(samplehostStub.seen.filter { $0.path.hasSuffix("/actions/hangup") }.count, 1, "an ended call sends nothing")
@@ -323,11 +352,16 @@ nonisolated final class PhoneCallsTests: XCTestCase {
         await calls.refresh(Self.callID)
         XCTAssertEqual(calls.calls.first?.state, .live)
         script.alive = false
+        script.duration = 12
+        script.events = Self.events(answered: true, hangupCause: "normal_clearing")
+        calls.resultQuiet = 0
         await calls.refresh(Self.callID)
         XCTAssertEqual(calls.calls.first?.state, .ended)
+        XCTAssertEqual(calls.calls.first?.outcome, .finished)
+        XCTAssertEqual(calls.calls.first?.statusText, "Finished · 12s")
         let before = samplehostStub.seen.count
         await calls.refresh(Self.callID)
-        XCTAssertEqual(samplehostStub.seen.count, before, "polling stops once the call ended")
+        XCTAssertEqual(samplehostStub.seen.count, before, "polling stops once the call ended and its outcome is settled")
     }
 
     @MainActor func testRingingCallIsNotEndedEarly() async throws {
@@ -350,17 +384,20 @@ nonisolated final class PhoneCallsTests: XCTestCase {
         try await calls.place(sessionID: "s1", to: "+15550100002", purpose: "Ask")
         XCTAssertEqual(calls.calls.first?.state, .calling)
         clock = clock.addingTimeInterval(91)
+        try await Task.sleep(for: .milliseconds(1500))
+        XCTAssertEqual(calls.calls.first?.state, .calling, "no 60-second cap: a long call keeps going")
+        clock = Date(timeIntervalSince1970: 1_000).addingTimeInterval(45 + 1800 + 1)
         for _ in 0..<40 where calls.calls.first?.state != .ended { try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertEqual(calls.calls.first?.state, .ended)
-        XCTAssertEqual(calls.calls.first?.endNote, "60-second limit")
+        XCTAssertEqual(calls.calls.first?.endNote, "30-minute safety stop")
         XCTAssertEqual(samplehostStub.seen.filter { $0.path.hasSuffix("/actions/hangup") }.count, 1)
     }
 
     @MainActor func testHangupDeadline() {
         let placed = Date(timeIntervalSince1970: 0)
-        XCTAssertEqual(phoneHangupDeadline(placedAt: placed, liveAt: nil), placed.addingTimeInterval(90))
-        XCTAssertEqual(phoneHangupDeadline(placedAt: placed, liveAt: placed.addingTimeInterval(10)), placed.addingTimeInterval(70))
-        XCTAssertEqual(phoneHangupDeadline(placedAt: placed, liveAt: placed.addingTimeInterval(50)), placed.addingTimeInterval(90))
+        XCTAssertEqual(phoneHangupDeadline(placedAt: placed), placed.addingTimeInterval(45 + 1800), "ring time + 30 minutes")
+        XCTAssertEqual(PhoneLimits.callSeconds, 1800)
+        XCTAssertEqual(PhoneLimits.ringSeconds, 45)
     }
 
     // MARK: Errors

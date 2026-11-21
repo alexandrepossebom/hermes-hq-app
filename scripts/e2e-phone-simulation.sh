@@ -5,7 +5,8 @@
 #                                                 launch environment HQ_SAMPLEHOST_BASE_URL=https://127.0.0.1:<port>/v2
 # The only key used is the synthetic KEYTEST.
 #   zsh scripts/e2e-phone-simulation.sh <simulator udid> [gateway port, default 19978; fake samplehost uses port + 1]
-#   HQ_PHONE_TEST=switch runs only the account-switch test; HQ_PHONE_DERIVED=<folder> reuses a DerivedData folder.
+#   HQ_PHONE_TEST=switch runs only the account-switch test; HQ_PHONE_ONLY='<test> …' runs those tests;
+#   HQ_PHONE_DERIVED=<folder> reuses a DerivedData folder.
 set -eu
 cd "${0:A:h}/.."
 SIM=${1:?pass a dedicated simulator UDID}
@@ -37,8 +38,12 @@ for i in {1..100}; do
 done
 curl --fail --silent --cacert "$OUT/root.pem" "https://127.0.0.1:$TPORT/__fixture/state" > /dev/null
 xcodegen generate -q
-tests=(-only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsSimulatedAcceptance -only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsAccountSwitch)
+tests=(-only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsSimulatedAcceptance -only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsAccountSwitch
+  -only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsVoicemailInOneSecond -only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsQuestionAskedTwice
+  -only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsTellTheAssistant -only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsHistorySurvivesRelaunch
+  -only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsAgentProposal)
 if [[ ${HQ_PHONE_TEST:-} == switch ]]; then tests=(-only-testing:HermesHQNativeUITests/SessionsTests/testPhoneCallsAccountSwitch); fi
+if [[ -n ${HQ_PHONE_ONLY:-} ]]; then tests=(); for t in ${=HQ_PHONE_ONLY}; do tests+=(-only-testing:HermesHQNativeUITests/SessionsTests/$t); done; fi
 RESULT="$OUT/PhoneAcceptance-$(date +%Y%m%d-%H%M%S).xcresult"
 set +e
 TEST_RUNNER_HQN_UI_CREDENTIALS="$OUT/credentials.json" TEST_RUNNER_HQN_PHONE_B="$OUT/credentials.json.b" \

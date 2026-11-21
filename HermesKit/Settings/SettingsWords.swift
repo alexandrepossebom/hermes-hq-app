@@ -129,6 +129,19 @@ nonisolated enum SettingsWords {
         }
     }
 
+    // MARK: On Your Gateway footer (UX study 2026-10-21 #50, #117, #186)
+
+    /// Whose settings these are (the gateway's default profile, the main bot) and the few rows in the group kept on this
+    /// device instead. `defaultBot`: the main bot's name when known; `otherBots`: the roster has more than it.
+    static func gatewayFooter(defaultBot: String?, otherBots: Bool) -> String {
+        var text = "Saved on \(HostWord.phrase), so they apply wherever you use Hermes."
+        if let defaultBot, !defaultBot.isEmpty {
+            text = "\(possessive(defaultBot)) settings, saved on \(HostWord.phrase) so they apply wherever you use Hermes."
+            if otherBots { text += " Other bots keep their own." }
+        }
+        return text + " Voice’s Read Replies Aloud and Send Memo on Release, and the default project folder, are kept on this \(DeviceWord.name)."
+    }
+
     // MARK: Default Model (tester batch 3: "Changing the model in Settings only changes it for default.")
 
     /// Settings › Model › Main Model's section header: whose default model it is. `defaultBot`: the main bot's name.

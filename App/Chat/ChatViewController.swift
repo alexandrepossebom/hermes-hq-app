@@ -4577,6 +4577,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     func chatCellOpen(url: URL) {
+        if PhoneCallChat.open(url, from: self) { return }                                         // [phone-calls] an agent's call proposal
         if openMediaLink(url) { return }                                                          // [attachments] `#media:` links
         if openFileLink(url) { return }                                                           // a path in backticks: Files
         LinkOpener.open(url, from: self)   // [transcript] in-app Safari; a gateway-loopback page says why it can't open
