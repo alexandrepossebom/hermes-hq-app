@@ -185,6 +185,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         collectionView.delegate = self
         collectionView.alwaysBounceVertical = true
         collectionView.accessibilityIdentifier = "sessions.list"
+        // Owner 2026-11-21: room under the last row (the Done link sat right on the tab bar), scrolled to the end.
+        collectionView.contentInset.bottom = Self.bottomRoom
         ListBarAppearance.apply(to: navigationItem)        // the same bar as the Bots tab
         if let settings = services as? SettingsServices {   // settings stream: the gateway switcher (1x-settings §4.6)
             titleSwitcher = GatewayTitleSwitcher(host: self, services: services, settings: settings, baseTitle: "Sessions")
@@ -462,6 +464,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         }
         return layout
     }
+
+    /// Room under the list's last row when scrolled to its end, clear of the tab bar (owner 2026-11-21).
+    static let bottomRoom: CGFloat = 28
 
     /// [project-cards] An open project's card (its rows are set in to the card's edges).
     private func isOpenCard(_ section: Int) -> Bool {
