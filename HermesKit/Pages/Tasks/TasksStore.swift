@@ -218,12 +218,17 @@ final class TasksStore {
     private(set) var offers: [TodoOffer] = []
     /// [goals] Every goal, any status (optimistic edits applied); docs/goals.md.
     private(set) var goals: [Goal] = [] { didSet { TodoOfferStates.noteGoals(goals) } }
-    /// [goals] The add-on keeps goals (0.9.65+: `goals` in `GET /tasks`). Without it nothing of Goals shows.
+    /// [goals] The add-on keeps goals (`goals` in `GET /tasks`). Without it the page offers the update in Goals' place
+    /// (`goalsNeedAddOn`). Public from hermes-hq-push 0.9.73 as re-published 2026-11-20 and 0.9.74; the "0.9.65" and
+    /// "0.9.66" named here and in goals.py were only ever installed on the owner's computer (PushPolicy.goals).
     private(set) var goalsSupported = false
-    /// [goals step 3] The add-on puts bots on goals (0.9.66's `goal_bots`): a lead, helpers, offers, the check-in. With
-    /// 0.9.65 none of it shows.
+    /// [goals-addon] Tasks work but the add-on keeps no goals: an add-on from before Goals was published. The Goals
+    /// pill stays and says to update the add-on (a public tester, 2026-11-20: "can't see Goals in Tasks").
+    var goalsNeedAddOn: Bool { hasList && !needsAddOn && !goalsSupported }
+    /// [goals step 3] The add-on puts bots on goals (`goal_bots`, with Goals in the public add-on): a lead, helpers,
+    /// offers, the check-in.
     private(set) var goalBotsSupported = false
-    /// [goals step 5] The add-on draws Goal Pages (0.9.66's `goal_pages` in `/status`).
+    /// [goals step 5] The add-on draws Goal Pages (`goal_pages` in `/status`).
     private(set) var goalPagesSupported = false
     /// [goals step 3] Goal offers seen here, by id (newest kept, 80 at most): what a goal's chat card draws once the
     /// gateway has let the offer go ("Answered").
@@ -718,7 +723,7 @@ final class TasksStore {
         addGoalFailure = nil
         guard !refuse() else { addGoalFailure = JobsStore.readOnlyNotice; return nil }
         guard goalsSupported else {
-            addGoalFailure = "Goals need the newest HQ add-on on your computer (0.9.65 or later)."
+            addGoalFailure = "Goals need the newest HQ add-on on your computer (0.9.74 or later)."   // [goals-addon] PushPolicy.goals
             notice(addGoalFailure ?? "")
             return nil
         }

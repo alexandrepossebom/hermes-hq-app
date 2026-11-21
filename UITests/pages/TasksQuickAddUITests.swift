@@ -10,7 +10,7 @@ extension PagesTests {
         let plus = app.buttons["tasks.new"].firstMatch
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "the page has +")
         // From Inbox, so a new task has no date until the line gives it one.
-        app.buttons["tasks.view.inbox"].firstMatch.tap()
+        tapView("inbox")
         plus.tap()
         let title = app.textViews["tasks.new.title"].firstMatch.exists ? app.textViews["tasks.new.title"].firstMatch : app.textFields["tasks.new.title"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10), "the quick add opens with the keys up")

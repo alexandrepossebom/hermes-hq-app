@@ -87,7 +87,7 @@ extension PagesTests {
         // Only on Today: not on Upcoming, Inbox or a list.
         app.buttons["tasks.view.upcoming"].firstMatch.tap()
         XCTAssertTrue(waitUntil(5) { !self.goalShelfHeading().exists }, "no shelf on Upcoming")
-        app.buttons["tasks.view.inbox"].firstMatch.tap()
+        tapView("inbox")
         XCTAssertTrue(waitUntil(5) { !self.goalShelfHeading().exists }, "no shelf on Inbox")
         app.buttons["tasks.view.today"].firstMatch.tap()
         XCTAssertTrue(goalShelfHeading().waitForExistence(timeout: 5))
@@ -168,7 +168,7 @@ extension PagesTests {
         shot("goals2-7-marks-upcoming" + name)
 
         // Inbox: a paused goal's task keeps its mark.
-        app.buttons["tasks.view.inbox"].firstMatch.tap()
+        tapView("inbox")
         let lesson = app.cells["task-row-Book a trial lesson"].firstMatch
         XCTAssertTrue(scrollTo(lesson))
         XCTAssertTrue(rowLabel(lesson).contains("for Learn conversational Spanish"), rowLabel(lesson))
@@ -193,7 +193,7 @@ extension PagesTests {
         let bots = app.buttons["tasks.view.bots"].firstMatch
         XCTAssertTrue(bots.waitForExistence(timeout: 5))
         for _ in 0..<3 where bots.frame.maxX > edge { rail.swipeLeft() }
-        bots.tap()
+        tapView("bots")
         let podcasts = app.cells["task-row-List three Spanish podcasts for beginners"].firstMatch
         XCTAssertTrue(scrollTo(podcasts), "the bot's task under Bots")
         XCTAssertTrue(rowLabel(podcasts).contains("for Learn conversational Spanish"), rowLabel(podcasts))
@@ -223,7 +223,8 @@ extension PagesTests {
         XCTAssertTrue(cleaning.waitForExistence(timeout: 20))
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         XCTAssertFalse(goalShelfHeading().exists, "no shelf and no heading")
-        XCTAssertFalse(app.buttons["tasks.view.goals"].exists)
+        // [goals-addon] The Goals pill stays, to offer the update (TasksGoalsUITests' testTasks_GoalsNeedTheAddOn).
+        XCTAssertTrue(app.buttons["tasks.view.goals"].exists, "the Goals pill offers the update")
         XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "tasks.goal-mark").count, 0, "no mark on any row")
         for row in app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", "task-row-")).allElementsBoundByIndex.prefix(12) {
             XCTAssertFalse(rowLabel(row).contains(", for "), "no goal said on \(row.identifier): \(rowLabel(row))")
@@ -625,6 +626,20 @@ extension PagesTests {
     static let largestText = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
 
     @MainActor func goalShelfHeading() -> XCUIElement { app.buttons["goals.shelf.heading"].firstMatch }
+
+    /// [goals-addon] Taps a view's pill (`tasks.view.<key>`), first sliding the row of pills until it is on screen: a
+    /// Goals pill leads the row (also on an add-on without goals, which offers the update there), so Inbox, a list or
+    /// Bots can start past the screen's edge on a phone.
+    @MainActor func tapView(_ key: String) {
+        let pill = app.buttons["tasks.view.\(key)"].firstMatch
+        _ = pill.waitForExistence(timeout: 20)
+        let screen = app.windows.firstMatch.frame
+        for _ in 0..<4 where pill.exists && !screen.contains(pill.frame) {
+            app.descendants(matching: .any)["tasks.views"].firstMatch.swipeLeft()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        }
+        pill.tap()
+    }
 
     @MainActor func shelfCard(_ title: String) -> XCUIElement { app.buttons["goal-shelf-\(title)"].firstMatch }
 
