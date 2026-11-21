@@ -738,7 +738,7 @@ extension MoreViewController: KeySearchable {}
     /// [macpass] A text field or text view in the window holds the caret (the arrows are its own).
     static func typing(_ root: MainTabController) -> Bool {
         guard let first = root.view.window?.hqFirstResponder else { return false }
-        return first is UIKeyInput
+        return first.hqTypingInput != nil   // [search-keys] a search bar holding the keyboard counts
     }
 
     /// [Mac AAA 2026-11-16] The list row the keyboard's focus is on in the main window (a grey mark after ↓ or Tab).
@@ -918,7 +918,7 @@ extension AppDelegate {
             // [Mac AAA 2026-11-16] Nor ⌘↑ / ⌘↓ while a field holds words: they are the caret's (start / end of the text),
             // as `walkFromEmptyField` says. The menu's item went first, so ⌘↓ in a half-typed message switched the chat
             // (seen in the running app); an empty field still walks the chats.
-            if KeyCommands.typing(root), (root.view.window?.hqFirstResponder as? UIKeyInput)?.hasText == true { enabled = false }
+            if KeyCommands.typing(root), root.view.window?.hqFirstResponder?.hqTypingInput?.hasText == true { enabled = false }
             #endif
         case KeyCommands.selectTab:
             let place = KeyCommands.namePlace(command, root)
@@ -972,7 +972,7 @@ extension AppDelegate {
             #if targetEnvironment(macCatalyst)
             // [Mac AAA 2026-11-17] While a field holds words ⌘⌫ is the text's (delete to the start of the line), as ⌘↑ /
             // ⌘↓ are: the item took it and asked to delete the chat mid-message (seen in the running app).
-            if KeyCommands.typing(root), (root.view.window?.hqFirstResponder as? UIKeyInput)?.hasText == true { enabled = false }
+            if KeyCommands.typing(root), root.view.window?.hqFirstResponder?.hqTypingInput?.hasText == true { enabled = false }
             #endif
         case KeyCommands.escape:
             // An alert or a menu on top: the system's own Escape closes it, so this command must not take the key.
@@ -1780,7 +1780,7 @@ extension KanbanBoardListController: ListPaneContent {}
 
     /// An input method is composing (marked text) in the key window's field, UIKit's or AppKit's.
     private static func composing() -> Bool {
-        if (sheetWindow()?.hqFirstResponder as? UITextInput)?.markedTextRange != nil { return true }
+        if (sheetWindow()?.hqFirstResponder?.hqTypingInput as? UITextInput)?.markedTextRange != nil { return true }
         guard let app = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
               let first = (app.value(forKey: "keyWindow") as? NSObject)?.value(forKey: "firstResponder") as? NSObject,
               first.responds(to: NSSelectorFromString("hasMarkedText")) else { return false }
