@@ -348,12 +348,14 @@ def seed():
         {'role': 'assistant', 'content': 'Index rebuilt.'},
     ], base - 2 * 3600, source='tool', input_tokens=300, output_tokens=0)
     PROJECTS['default'] = [
-        {'id': 'p_site', 'label': 'Website', 'path': f'{HOME}/site', 'repos': [], 'sessionCount': 0},
-        {'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [], 'sessionCount': 0},
+        {'id': 'p_site', 'label': 'Website', 'path': f'{HOME}/site', 'repos': [{'path': f'{HOME}/site', 'groups': []}], 'sessionCount': 0},
+        # [repo-pickers] The git repositories Hermes found in a project: its Repository… page offers them.
+        {'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [{'path': f'{HOME}/app', 'groups': []},
+                                                                         {'path': f'{HOME}/app-server', 'groups': []}], 'sessionCount': 0},
         {'id': 'home', 'label': 'Home', 'path': None, 'isNoProject': True, 'repos': [], 'sessionCount': 3},
     ]
     PROJECTS['research'] = [{'id': 'p_reading', 'label': 'Reading', 'path': f'{HOME}/reading', 'repos': [], 'sessionCount': 0}]
-    PROJECTS['deploys'] = [{'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [], 'sessionCount': 0}]
+    PROJECTS['deploys'] = [{'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [{'path': f'{HOME}/app', 'groups': []}], 'sessionCount': 0}]
 
 def seed_everyday():
     """An everyday list, for looking at the page: 9 bots, 6 projects, about 45 chats over three weeks, 3 pinned,

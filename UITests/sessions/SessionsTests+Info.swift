@@ -241,17 +241,41 @@ extension SessionsTests {
         XCTAssertTrue(folder.waitForExistence(timeout: 5))
         shot(app, "project-repository-empty")
         XCTAssertFalse(app.buttons["project.repository.unlink"].exists)
+        // [repo-pickers] The project's repositories, the others Hermes knows and the GitHub names already seen are one
+        // tap each; the folder's own GitHub repository is the default.
+        let own = app.buttons["project.repository.folder.app"], server = app.buttons["project.repository.folder.app-server"]
+        XCTAssertTrue(server.waitForExistence(timeout: 5))
+        XCTAssertTrue(own.isSelected && !server.isSelected)
+        XCTAssertTrue(app.buttons["project.repository.others"].exists, "the other projects' repositories are folded")
+        XCTAssertTrue(app.buttons["project.repository.public.own"].isSelected)
+        server.tap()
+        XCTAssertTrue(waitUntil(4) { server.isSelected && !own.isSelected })
+        XCTAssertTrue((folder.value as? String ?? "").hasSuffix("/app-server"), "\(folder.value ?? "")")
+        let named = app.buttons["project.repository.public.example/app"]
+        if !named.exists { app.swipeUp() }
+        XCTAssertTrue(named.waitForExistence(timeout: 5), "a GitHub name a chat's branch was read against")
+        named.tap()
+        XCTAssertTrue(waitUntil(4) { named.isSelected })
+        XCTAssertEqual(app.textFields["project.repository.public"].value as? String, "example/app")
+        shot(app, "project-repository-picked")
+        app.buttons["project.repository.public.own"].tap()
+        if !own.isHittable { app.swipeDown() }
+        own.tap()
+        XCTAssertTrue(waitUntil(4) { own.isSelected })
         folder.tap()
-        folder.typeText("/nope")
+        folder.typeText("/nope\n")      // Return puts the keyboard away: it covers Link once the choices are listed
         app.buttons["project.repository.link"].tap()
         let problem = app.staticTexts["project.repository.error"]
         XCTAssertTrue(problem.waitForExistence(timeout: 8))
         XCTAssertTrue(problem.label.contains("isn’t a git repository"), problem.label)
         shot(app, "project-repository-error")
-        folder.tap()
-        folder.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
+        own.tap()                       // [repo-pickers] one tap puts the project's own repository back
+        XCTAssertTrue(waitUntil(4) { own.isSelected })
         app.buttons["project.repository.link"].tap()
-        XCTAssertTrue(app.buttons["project.repository.unlink"].waitForExistence(timeout: 8))
+        // The choices make the page longer: Linked, Update Link and Unlink are below them.
+        let unlink = app.buttons["project.repository.unlink"]
+        XCTAssertTrue(waitUntil(10) { if !unlink.exists { app.swipeUp() }; return unlink.exists })
+        XCTAssertEqual(app.buttons["project.repository.link"].label, "Update Link")
         XCTAssertFalse(problem.exists)
         XCTAssertTrue(app.descendants(matching: .any)["project.repository.main"].firstMatch.exists)
         shot(app, "project-repository-linked")

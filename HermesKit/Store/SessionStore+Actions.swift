@@ -30,6 +30,9 @@ nonisolated struct SessionProject: Sendable, Hashable, Identifiable, Codable {  
     var paths: [String]
     /// Hermes found it by itself (`isAuto`): no saved project behind it, so there is nothing to delete.
     var isAuto: Bool? = nil
+    /// [repo-pickers] The git repositories Hermes found in it (each repo's root, not its worktree lanes): what its
+    /// Repository… page offers. nil in a copy saved before they were kept.
+    var repos: [String]? = nil
 
     /// The tree's projects a chat can move to: every project with a folder (not the folder-less "Home" bucket).
     static func decodeTree(_ json: JSONValue) -> [SessionProject] {
@@ -43,7 +46,8 @@ nonisolated struct SessionProject: Sendable, Hashable, Identifiable, Codable {  
             let lanes = repos.flatMap { ($0["groups"]?.array ?? []).compactMap { RosterText.trimmed($0["path"]) } }
             guard let root = own ?? repoPaths.first else { return nil }
             return SessionProject(id: id, label: label, root: root, paths: [own].compactMap { $0 } + repoPaths + lanes,
-                                  isAuto: node["isAuto"]?.bool == true || node["is_auto"]?.bool == true ? true : nil)
+                                  isAuto: node["isAuto"]?.bool == true || node["is_auto"]?.bool == true ? true : nil,
+                                  repos: repoPaths.isEmpty ? nil : repoPaths)
         }
     }
 

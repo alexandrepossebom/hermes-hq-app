@@ -15,6 +15,10 @@ struct ProjectRepositoryPage: View {
     @State private var busy = false
     @State private var loaded = false
 
+    @State private var othersOpen = false
+    @State private var choices: (here: [String], elsewhere: [String]) = ([], [])
+    @State private var publicChoices: [String] = []
+
     var body: some View {
         List { Group {
             Section {
@@ -26,16 +30,31 @@ struct ProjectRepositoryPage: View {
                     Text(problem).font(Font.hq(.footnote)).foregroundStyle(Color.hqRed)
                         .accessibilityIdentifier("project.repository.error")
                 }
+                // [repo-pickers] The repositories Hermes already knows, one tap each (owner 2026-11-21: "These fields
+                // need to be more than just free-type. It's to hard to manually type these things."). The field stays
+                // for a folder none of them is.
+                ForEach(choices.here, id: \.self) { folderChoice($0) }
+                if !choices.elsewhere.isEmpty { otherFolders }
             } header: { HQSectionLabel { Text("Folder") } } footer: { HQSectionFooter {
                 Text("The git repository on the computer running Hermes that this project’s chats work in. Each chat’s mark is read from the branches it made there.")
             } }
             Section {
-                TextField("Public Repository", text: $publicRepo, prompt: Text("owner/repo"))
+                TextField("Public Repository", text: $publicRepo, prompt: Text("owner/repo or a GitHub link"))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .keyboardType(.URL)
                     .accessibilityIdentifier("project.repository.public")
+                choiceRow(publicRepo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, id: "public.own") {
+                    Text("The Folder’s Own").foregroundStyle(Color.hqLabel)
+                    Text("Whatever GitHub repository its origin is").font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
+                } pick: { publicRepo = "" }
+                ForEach(publicChoices, id: \.self) { name in
+                    choiceRow(SessionStore.ownerRepo(from: publicRepo).lowercased() == name.lowercased(), id: "public.\(name)") {
+                        Text(name).foregroundStyle(Color.hqLabel).lineLimit(1).truncationMode(.middle)
+                    } pick: { publicRepo = name }
+                }
             } header: { HQSectionLabel { Text("Public Repository") } } footer: { HQSectionFooter {
-                Text("Optional. Fill it in when the code is published to a different GitHub repository than the folder’s own.")
+                Text("Leave it on The Folder’s Own unless the code is published to a different GitHub repository than the folder’s own. You can paste a GitHub link.")
             } }
             if let linked {
                 Section {
@@ -59,9 +78,79 @@ struct ProjectRepositoryPage: View {
             guard !loaded else { return }
             loaded = true
             show(store.prRepo(forProject: project))
+            readChoices()
             await store.loadPRRepos()
             if linked == nil { show(store.prRepo(forProject: project)) }
+            readChoices()
         }
+    }
+
+    private func readChoices() {
+        choices = store.repositoryFolderChoices(forProject: project)
+        publicChoices = store.publicRepoChoices()
+        // The folder in use is one of the others: they start open so its tick shows.
+        if choices.elsewhere.contains(SessionStore.tidyFolder(folder)) { othersOpen = true }
+    }
+
+    /// Every other repository known here, folded under one row (there can be dozens).
+    @ViewBuilder private var otherFolders: some View {
+        let label = HStack {
+            Text(choices.here.isEmpty ? "Repositories" : "Other Repositories").foregroundStyle(Color.hqLabel)
+            Spacer(minLength: 8)
+            Text("\(choices.elsewhere.count)").foregroundStyle(Color.hqLabel2)
+        }
+        if DeviceWord.isMac {
+            Button {
+                withAnimation(HQMotion.swiftUI(.smooth(duration: HQMotion.pane))) { othersOpen.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    label.frame(maxWidth: .infinity, alignment: .leading)
+                    MacChevron().rotationEffect(.degrees(othersOpen ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .accessibilityValue(othersOpen ? "Expanded" : "Collapsed")
+            .accessibilityIdentifier("project.repository.others")
+            if othersOpen { ForEach(choices.elsewhere, id: \.self) { folderChoice($0) } }
+        } else {
+            DisclosureGroup(isExpanded: $othersOpen) {
+                ForEach(choices.elsewhere, id: \.self) { folderChoice($0) }
+            } label: { label }
+            .tint(Color.hqLabel2)
+            .accessibilityIdentifier("project.repository.others")
+        }
+    }
+
+    private func folderChoice(_ path: String) -> some View {
+        choiceRow(SessionStore.tidyFolder(folder) == path, id: "folder.\(SessionStore.folderName(path))") {
+            Text(SessionStore.folderName(path)).foregroundStyle(Color.hqLabel).lineLimit(1)
+            Text((path as NSString).deletingLastPathComponent).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
+                .lineLimit(1).truncationMode(.head)
+        } pick: {
+            folder = path
+            problem = nil
+        }
+    }
+
+    /// A row that fills a field in when tapped, with a tick on the one the field holds.
+    private func choiceRow<Label: View>(_ picked: Bool, id: String, @ViewBuilder label: () -> Label,
+                                        pick: @escaping () -> Void) -> some View {
+        Button {
+            guard !picked else { return }
+            Haptics.play(.selection)
+            pick()
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) { label() }
+                Spacer(minLength: 8)
+                if picked { Image(systemName: "checkmark").foregroundStyle(Color.hqTintText).fontWeight(.semibold) }
+            }
+            .contentShape(Rectangle())
+        }
+        .disabled(busy)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("project.repository.\(id)")
     }
 
     private func row(_ title: String, _ value: String, id: String) -> some View {
@@ -90,7 +179,9 @@ struct ProjectRepositoryPage: View {
         Task {
             defer { busy = false }
             do {
-                show(try await store.linkPRRepo(project: project, path: folder, publicRepo: publicRepo))
+                show(try await store.linkPRRepo(project: project, path: folder,
+                                                publicRepo: SessionStore.ownerRepo(from: publicRepo)))
+                readChoices()
                 Haptics.play(.success)
             } catch SessionPRRepoError.notARepository {
                 problem = "That folder isn’t a git repository on the computer running Hermes."

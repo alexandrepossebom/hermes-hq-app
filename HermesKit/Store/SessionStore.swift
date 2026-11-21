@@ -393,6 +393,11 @@ final class SessionStore {
     @ObservationIgnored let client: any GatewayClient
     // Per-store (and therefore per gateway) cache; a profile and stored id form the identity.
     private var pullRequests: [String: SessionPRStatus] = [:]
+    /// [repo-pickers] The GitHub repositories (owner/repo) chats' pull requests and branches were read against, for the
+    /// Repository… page's Public Repository choices.
+    var pullRequestRepos: [String] {
+        pullRequests.values.flatMap { status in [status.repo] + (status.items ?? []).map(\.repo) }.compactMap { $0 }
+    }
     @ObservationIgnored private var prInFlight: Set<String> = []
     @ObservationIgnored private var prCheckedAt: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var prGeneration = 0
