@@ -256,7 +256,7 @@ nonisolated enum SettingsWords {
 /// search finds a row by these words on both devices (`SettingsSearch.appRows`); the iPhone keeps its paragraph.
 nonisolated enum ChatRowNotes {
     static let fewerTimestamps = "Shows a day line only when the date changes, and a time only under the bot’s replies."
-    static let showFileChanges = "Puts a “files changed” card under a reply that edited files; with it off, ⋯ › Changes still lists them."
+    static let showFileChanges = "The “files changed” card under a reply that edited files: Folded is one line that opens on it, Open shows it whole; with it off, ⋯ › Changes still lists them."
     static let newChatAsksProject = "Off, New Chat with a bot picked on Sessions starts in no project at once, with no sheet."
     static func sendWhileBusy(mac: Bool = DeviceWord.isMac) -> String {
         "What Send does while a reply runs: Steer adds your message to that reply, Queue sends it when the reply finishes."

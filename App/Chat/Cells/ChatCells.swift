@@ -8,6 +8,8 @@ import UIKit
     func chatCellToggle(rowId: String)
     /// A code block's clamp toggle (block index inside the bubble).
     func chatCellToggleCode(rowId: String, block: Int)
+    /// [files] A folded "N files changed" line was tapped: its card opens under it, or folds back.
+    func chatCellToggleFiles(rowId: String)
     func chatCellOpenStep(rowId: String, index: Int)
     func chatCellOpen(url: URL)
     /// [transcript] A link held in a bubble or a link chip: its own menu (Open, Open in Safari, Copy Link, Share…), titled
@@ -47,6 +49,7 @@ import UIKit
 }
 
 extension ChatCellDelegate {
+    func chatCellToggleFiles(rowId: String) {}
     func chatCellLinkMenu(url: URL, source: UIView) -> UIMenu? { nil }
     func chatCellShowAllSteps(rowId: String) {}
     func chatCellShowLiveSteps() {}

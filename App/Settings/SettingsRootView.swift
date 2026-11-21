@@ -67,7 +67,7 @@ final class SettingsRootModel {
     var query = ""
     var inAppTips = InAppTips.isOn
     var fewerTimestamps = ToolCallSettings.fewerTimestamps
-    var showFileChanges = ToolCallSettings.showFileChanges
+    var fileChanges = ToolCallSettings.fileChanges
     var newChatAsksProject = NewChatProjectChoice.isOn
     var waitForModels = ModelPrefs.waitForModels
     // [settings] On this iPhone: Haptics (docs/spec/3x-settings.md §1) and Intro Splash (§7).
@@ -939,14 +939,40 @@ struct SettingsRootView: View {
             }
             .accessibilityIdentifier("settings.fewer-timestamps")
             .revealRow("row:fewer-timestamps", model.revealed)
-            Toggle(isOn: Binding(get: { model.showFileChanges }, set: { on in
-                model.showFileChanges = on
-                ToolCallSettings.showFileChanges = on
-            })) {
-                SettingsRowLabel(title: "Show File Changes", systemImage: "doc.badge.ellipsis", subtitle: notes ? ChatRowNotes.showFileChanges : nil)
+            // [files] Owner 2026-11-20 (tester Mordred): Off / Folded / Open, Folded by default — the card as one line,
+            // like a reply's work line, that opens on it.
+            let fileChanges = Binding(get: { model.fileChanges }, set: { (value: FileChangesLook) in
+                Haptics.play(.selection)
+                model.fileChanges = value
+                ToolCallSettings.fileChanges = value
+                AppLog.note("settings", "File Changes set to \(value.rawValue)")
+            })
+            if DeviceWord.isMac {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {   // [Mac AAA 2026-11-17] on the title's line, as the switches
+                    SettingsRowLabel(title: "File Changes", systemImage: "doc.badge.ellipsis", subtitle: ChatRowNotes.showFileChanges)
+                    Spacer(minLength: 16)
+                    MacPopUp(label: "File Changes", selection: fileChanges, options: FileChangesLook.allCases) { $0.title }
+                        .accessibilityIdentifier("settings.show-file-changes")
+                        .hqMacSettingsControl()
+                }
+                .revealRow("row:show-file-changes", model.revealed)
+            } else {
+                SettingsMenuRowFace(label: SettingsRowLabel(title: "File Changes", systemImage: "doc.badge.ellipsis"),
+                                    value: model.fileChanges.title)
+                .overlay {
+                    Menu {
+                        Picker("File Changes", selection: fileChanges) {
+                            ForEach(FileChangesLook.allCases) { Text($0.title).tag($0) }
+                        }
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("File Changes")
+                    .accessibilityValue(model.fileChanges.title)
+                    .accessibilityIdentifier("settings.show-file-changes")
+                }
+                .revealRow("row:show-file-changes", model.revealed)
             }
-            .accessibilityIdentifier("settings.show-file-changes")
-            .revealRow("row:show-file-changes", model.revealed)
             Toggle(isOn: Binding(get: { model.newChatAsksProject }, set: { on in
                 model.newChatAsksProject = on
                 NewChatProjectChoice.isOn = on
@@ -1156,7 +1182,7 @@ struct SettingsRootView: View {
         } header: { categoryHeader("Chat") } footer: { if !notes { HQSectionFooter {
             // UX study #69: the switches' names say what they do; the footer keeps only what a name can't say.
             Text("Fewer Timestamps shows a day line only when the date changes, and a time only under the bot’s replies."
-                 + " Show File Changes puts a “files changed” card under a reply that edited files; with it off, ⋯ › Changes still lists them."
+                 + " File Changes is the “files changed” card under a reply that edited files: Folded is one line that opens on it, Open shows it whole; with it off, ⋯ › Changes still lists them."
                  + " New Chat Asks for a Project: off, New Chat with a bot picked on Sessions starts in no project at once, with no sheet."
                  + " Send While Replying is what Send does while a reply runs: Steer adds your message to that reply, Queue sends it when the reply finishes."
                  + (DeviceWord.isMac ? " ⌘Return does the other one." : " Touch and hold Send for the other one.")

@@ -951,6 +951,13 @@ Review (tinted) opens the Changes page; `matchChangedFile` maps a card row to th
     "This chat has no folder."
 - VoiceOver: card is a container labelled "N files changed"; rows read "<name>, A added, R removed".
 - "After Reply: Hide" hides tool rows but keeps the card.
+- DECISION 2026-11-20 (owner, from tester Mordred: "the files edited as a collapsible section similar to Ran <x>
+  commands"): Settings › Chat › **File Changes** is Off / **Folded** (default) / Open, replacing the Show File Changes
+  switch (its stored "off" reads as Off; `ToolCallSettings.fileChanges`). Folded draws the card as one centred line in
+  the work line's look — file glyph, "N files changed", every file's +/− summed, a soft caret (down shut, up open) —
+  and a tap opens the card under it (4 pt below) or folds it back; the opened card's top line is "Review ›" alone,
+  since the line already counts the files. The open state is per card (`ChatRow.filesOpenKey`, separate from Show
+  All's key). Open is the card as above, with no line (`ActivityRows.changedFiles`, `ChangedFilesCell.configureLine`).
 
 **Wire.** Existing: `GET /api/git/review/list?path=<cwd>&scope=uncommitted` and
 `GET /api/git/review/diff?path=<cwd>&file=<rel>&scope=uncommitted&staged=<bool>`.

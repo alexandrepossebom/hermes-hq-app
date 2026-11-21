@@ -387,7 +387,7 @@ import UIKit
         var a = ActivityRowsInput()
         a.style = ToolCallSettings.style
         a.hideSteps = ToolCallSettings.hidesSteps
-        a.showFileChanges = ToolCallSettings.showFileChanges
+        a.fileChanges = ToolCallSettings.fileChanges
         a.revealed = revealed
         a.profile = chat.session.profile
         if let p = provider {

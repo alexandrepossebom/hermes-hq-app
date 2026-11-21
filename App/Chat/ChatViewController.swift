@@ -4456,6 +4456,15 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         rebuildMessage(row.messageId)
     }
 
+    func chatCellToggleFiles(rowId: String) {
+        guard let row = rows.first(where: { $0.id == rowId }) else { return }
+        let key = ChatRow.filesOpenKey(rowId)
+        if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) }
+        // As "Show All N Files": the newest row opened at the chat's end grows up into view; elsewhere it holds its top.
+        if !(following && rows.first?.id == rowId) { holdRowId = rowId }
+        rebuildMessage(row.messageId)
+    }
+
     func chatCellToggleCode(rowId: String, block: Int) {
         guard let row = rows.first(where: { $0.id == rowId }) else { return }
         let key = "\(rowId)#c\(block)"
