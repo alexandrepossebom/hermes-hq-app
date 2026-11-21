@@ -84,6 +84,8 @@ enum SettingsNavigator {
             if let open = router.openGateway { open() } else { router.push(GatewayPageController(services: services, router: router)) }
         case "notifications": router.push(NotificationsSettingsController(app: services as? AppModel))
         case "device-access": router.push(DeviceAccessSettingsController())   // [macpass-settings2]
+        case "phone-calls":
+            if let client = (services as? AppModel)?.client { router.push("Phone Calls (Beta)", PhoneSettingsView(accountID: client.account.id)) }
         case "providers": router.push("Providers", ProvidersPageView(router: router))
         case "keys": router.push("Keys", KeysPageView(router: router))
         case "vault": router.push(PasswordsPageController(router: router))   // [passwords-page] the page More › Passwords opens

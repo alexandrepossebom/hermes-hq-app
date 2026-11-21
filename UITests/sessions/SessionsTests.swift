@@ -378,8 +378,9 @@ final class SessionsTests: XCTestCase {
     /// Every other launch opens it in place (`-HQDebugProjectRowsUnfold`, the Mac's way), which is what the tests of a
     /// project's card under Group By Project look at.
     @MainActor func launch(peek: Bool = false, fresh: Bool = false, keepView: Bool = false, drag: Bool = false,
-                          projectPages: Bool = false, extra: [String] = []) -> XCUIApplication {
+                          projectPages: Bool = false, extra: [String] = [], environment: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchEnvironment.merge(environment) { _, new in new }
         app.launchArguments = ["-HQDebugSessionsTab", "YES", "-HQDebugHUDSeconds", "5", "-HQDebugResetTheme", "YES",
                                "-dispatch.notifications.asked", "YES"] + extra
             + (projectPages ? [] : ["-HQDebugProjectRowsUnfold", "YES"])

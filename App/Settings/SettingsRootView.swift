@@ -1283,6 +1283,8 @@ struct SettingsRootView: View {
             } }
 
             Section {
+                NavRow(title: "Phone Calls (Beta)", systemImage: "phone") { SettingsNavigator.openRoot("phone-calls", router: router) }
+                    .accessibilityIdentifier("settings.phone-calls")
                 NavRow(title: "Providers", systemImage: "bolt") { SettingsNavigator.openRoot("providers", router: router) }
                     .accessibilityIdentifier("settings.providers")
                 NavRow(title: "Keys", systemImage: "key") { SettingsNavigator.openRoot("keys", router: router) }

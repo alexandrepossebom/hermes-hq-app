@@ -132,6 +132,7 @@ enum DebugHooks {
         }
         #endif
         AccountVault.app.removeAll()
+        PhoneKeyStore.app.removeAll()           // [phone-calls] every account's samplehost key
         OnboardingGate.signedInBefore = false   // [onboarding] a clean first run has never signed in
         TranscriptCache.shared.purgeAll()
         try? FileManager.default.removeItem(at: AppModel.listsCacheDirectory)
