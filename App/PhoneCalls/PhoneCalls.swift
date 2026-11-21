@@ -24,6 +24,17 @@ nonisolated func phoneIsE164(_ value: String) -> Bool {
     value.wholeMatch(of: /\+[1-9][0-9]{6,14}/) != nil
 }
 
+/// What the To field means as a dialable number. Spaces, dashes, dots and brackets are dropped. Calling from a +1
+/// (North American) number, a plain 10-digit number, or 11 digits starting with 1, is a +1 number (owner 2026-11-21:
+/// "2125550142" left Review Call greyed out). Anything else must be typed with its `+` country code.
+nonisolated func phoneDestination(_ typed: String, from: String?) -> String {
+    let kept = typed.filter { !$0.isWhitespace && !"-().".contains($0) }
+    guard !kept.hasPrefix("+"), (from ?? "").hasPrefix("+1"), kept.allSatisfy({ ("0"..."9").contains($0) }) else { return kept }
+    if kept.count == 10, kept.first != "0", kept.first != "1" { return "+1" + kept }
+    if kept.count == 11, kept.first == "1" { return "+" + kept }
+    return kept
+}
+
 /// When the app hangs up itself if samplehost's `time_limit_secs` somehow didn't: 60 s after the conversation first shows
 /// (it is made at pickup), and never later than ring time + 60 s after dialing.
 nonisolated func phoneHangupDeadline(placedAt: Date, liveAt: Date?) -> Date {
@@ -490,7 +501,7 @@ struct PhoneCallView: View {
         _controller = State(initialValue: .shared(for: accountID))
     }
 
-    private var destination: String { to.filter { !$0.isWhitespace && $0 != "-" && $0 != "(" && $0 != ")" } }
+    private var destination: String { phoneDestination(to, from: controller.setup?.fromNumber) }
     private var trimmedPurpose: String { purpose.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -503,7 +514,13 @@ struct PhoneCallView: View {
                         Button("Review call") { confirming = true }
                             .disabled(!phoneIsE164(destination) || trimmedPurpose.isEmpty || busy || controller.hasActiveCall)
                     } header: { Text("New call") } footer: {
-                        Text("From \(controller.setup?.fromNumber ?? "your samplehost number"). Calls end after \(PhoneLimits.callSeconds) seconds and are billed to your samplehost account.")
+                        VStack(alignment: .leading, spacing: 4) {
+                            if !to.isEmpty && !phoneIsE164(destination) {
+                                Text("Enter a full phone number, like 615 555 0123, or +44 and the number for other countries.")
+                                    .foregroundStyle(.red).accessibilityIdentifier("phone.to.hint")
+                            }
+                            Text("From \(controller.setup?.fromNumber ?? "your samplehost number"). Calls end after \(PhoneLimits.callSeconds) seconds and are billed to your samplehost account.")
+                        }
                     }
                 } else {
                     Section { Text("Connect samplehost in Settings › Phone Calls (Beta) to place calls.") }

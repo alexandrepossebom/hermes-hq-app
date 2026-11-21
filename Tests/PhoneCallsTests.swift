@@ -453,6 +453,18 @@ nonisolated final class PhoneCallsTests: XCTestCase {
         XCTAssertTrue(samplehostStub.seen.isEmpty)
     }
 
+    @MainActor func testUSNumbersTypedWithoutThePlusAreDialable() {
+        let from = "+16155550100"
+        for typed in ["2125550142", "212 555 0142", "212 555-0142", "212.555.0142", "12125550142", "+12125550142"] {
+            XCTAssertEqual(phoneDestination(typed, from: from), "+12125550142", typed)
+        }
+        XCTAssertEqual(phoneDestination("+44 20 7946 0958", from: from), "+442079460958")
+        XCTAssertFalse(phoneIsE164(phoneDestination("2125550142", from: "+442071234567")), "only a +1 caller assumes +1")
+        for bad in ["5550123", "0155550142", "1155550142", "212555014"] {
+            XCTAssertFalse(phoneIsE164(phoneDestination(bad, from: from)), bad)
+        }
+    }
+
     @MainActor func testE164AndRetryKey() {
         XCTAssertTrue(phoneIsE164("+15550100002"))
         for bad in ["15550100002", "+05550100002", "+1555", "+1 555 010 0002", "+1555010000212345", ""] { XCTAssertFalse(phoneIsE164(bad), bad) }
