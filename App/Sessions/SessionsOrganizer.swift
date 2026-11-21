@@ -302,8 +302,10 @@ extension AppModel: SessionsServices {}
         // A bot's recent projects: the ones the sheet started for it, then the ones its newest chats are in.
         let chats = (store?.sessions ?? []).sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
         let byProfile = store?.projectsByProfile ?? [:]
+        // [favorite-in-new-chat] Favorites lead the short list (in the order they were starred), ahead of the recent ones.
+        let favorites = store?.device.favoriteProjects ?? []
         let recent: (String) -> [String] = { bot in
-            NewChatLast.recents(for: bot) + chats.filter { $0.profile == bot }.map {
+            favorites + NewChatLast.recents(for: bot) + chats.filter { $0.profile == bot }.map {
                 SessionProjects.key(cwd: $0.cwd, profile: bot, projectsByProfile: byProfile)
             }
         }
@@ -331,7 +333,7 @@ extension AppModel: SessionsServices {}
         page.view.backgroundColor = HQPalette.sheetPage   // [glass] the glass shows around the rows
         // The sheet is as tall as its rows (New Project…, the last one, is on show without a scroll) up to the full
         // height: the title bar, the pills, Start Chat and the heading, then the projects, All Projects and New Project….
-        let listed = NewChatLast.shown(all: projects.map(\.key), recent: [])
+        let listed = NewChatLast.shown(all: projects.map(\.key), recent: favorites)
         let folderHeading = projects.contains { $0.isFolder && listed.keys.contains($0.key) } ? 1 : 0   // [own-folder]
         let rows = CGFloat(listed.keys.count + (listed.more ? 1 : 0) + 1 + folderHeading)
         let fit = UISheetPresentationController.Detent.custom(identifier: .init("new-chat.fit")) { context in
@@ -734,7 +736,7 @@ extension AppModel: SessionsServices {}
     /// folder), then the chat moves into it.
     func newProjectThenMove(_ session: SessionSummary) {
         guard let store else { return }
-        askNewProject { [weak self] name, folder in
+        askNewProject(profile: session.profile) { [weak self] name, folder in
             self?.run("Couldn’t Move Chat", {
                 let project = try await store.createProject(name: name, folder: folder, profile: session.profile)
                 try await store.move(session, to: project)
@@ -756,7 +758,7 @@ extension AppModel: SessionsServices {}
     /// `startsChat`: the New Chat sheet's New Project…: a new chat opens in the project once it is made.
     func newProject(profile: String, name: String = "", folder: String = "", startsChat: Bool = false) {
         guard let store else { return }
-        askNewProject(name: name, folder: folder) { [weak self] name, folder in
+        askNewProject(profile: profile, name: name, folder: folder) { [weak self] name, folder in
             // A slow gateway: "Creating Project…" once the call has taken 400 ms, until it answers (30 s at most).
             let hud = self?.slowHUD("Creating Project…") ?? {}
             Task { [weak self] in
@@ -786,7 +788,10 @@ extension AppModel: SessionsServices {}
 
     /// The New Project alert: Create is off until the name has text. The folder is optional: left empty, the app makes
     /// one named after the project (its placeholder says where, as the name is typed).
-    private func askNewProject(name: String = "", folder: String = "", create made: @escaping (_ name: String, _ folder: String) -> Void) {
+    /// [new-project-folder] Choose Folder… browses `profile`'s folders on the gateway's computer and comes back here
+    /// with the pick in Folder (and, with no name typed yet, the folder's own name in Name).
+    private func askNewProject(profile: String, name: String = "", folder: String = "",
+                               create made: @escaping (_ name: String, _ folder: String) -> Void) {
         guard let host = FailureAlert.topmost(host) else { return }
         let alert = UIAlertController(title: "New Project",
                                       message: "A project holds the chats in its folder on \(HostWord.phrase). Leave Folder empty to make a new one.",
@@ -817,10 +822,48 @@ extension AppModel: SessionsServices {}
             create?.isEnabled = !name.isEmpty
             alert?.textFields?.last?.placeholder = autoPlaceholder(name)
         }, for: .editingChanged)
+        let browse = UIAlertAction(title: "Choose Folder…", style: .default) { [weak self, weak alert] _ in
+            let typedName = alert?.textFields?.first?.text ?? "", typedFolder = alert?.textFields?.last?.text ?? ""
+            self?.chooseProjectFolder(profile: profile, typed: typedFolder) { [weak self] picked in
+                let named = typedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? picked.map(ProjectFolderWords.suggestedName(folder:)) ?? typedName : typedName
+                self?.askNewProject(profile: profile, name: named, folder: picked ?? typedFolder, create: made)
+            }
+        }
+        browse.accessibilityIdentifier = "project.choose-folder"
+        alert.addAction(browse)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(create)
         alert.preferredAction = create
         host.present(alert, animated: true)
+    }
+
+    /// [new-project-folder] The folder browser, as a sheet. `done`: the picked folder, or nil when the sheet was
+    /// closed without one. Delivered once, after the sheet has gone (the alert that follows needs a free presenter).
+    private func chooseProjectFolder(profile: String, typed: String, done: @escaping (String?) -> Void) {
+        guard let store, let host = FailureAlert.topmost(host) else { done(nil); return }
+        let workspace = ChatWorkspace(client: store.client, profile: profile.isEmpty || profile == "default" ? nil : profile)
+        final class Box { weak var sheet: UINavigationController?; var delivered = false; var picked: String? }
+        let box = Box()
+        // Whichever notices the sheet gone first (the dismissal's completion, the page's own disappearance, the
+        // timer for a completion UIKit dropped) delivers the same answer: the pick, or nil for a plain close.
+        let deliver: () -> Void = {
+            guard !box.delivered else { return }
+            box.delivered = true
+            done(box.picked)
+        }
+        let picker = ProjectFolderPickerHost(rootView: ProjectFolderPickerView(
+            browser: ProjectFolderBrowser(workspace: workspace, typed: typed)) { picked in
+                Haptics.play(.selection)
+                box.picked = picked
+                guard let sheet = box.sheet, sheet.presentingViewController != nil else { deliver(); return }
+                sheet.dismiss(animated: true) { deliver() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { deliver() }
+            })
+        picker.closed = deliver
+        let sheet = ChatSheet.wrap(picker, title: "Choose Folder")
+        box.sheet = sheet
+        host.present(sheet, animated: true)
     }
 
     /// Branch in New Chat: the gateway copies the chat into a new one, which opens.

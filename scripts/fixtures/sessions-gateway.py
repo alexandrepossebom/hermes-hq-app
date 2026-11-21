@@ -845,6 +845,16 @@ def handler(gateway):
                     {'slug': 'signedout', 'name': 'Signed Out', 'authenticated': False, 'models': ['signedout-only-1']}]}
             if path == '/api/config' and method == 'GET' and MODE.get('projects') == 'configured':   # [own-folder-everywhere]
                 return 200, {'terminal': {'cwd': f"{HOME}/bots/{one('profile') or 'default'}", 'backend': 'local'}}
+            if path == '/api/fs/default-cwd' and method == 'GET':   # [new-project-folder] where Choose Folder… opens
+                return 200, {'cwd': f'{HOME}/Projects'}
+            if path == '/api/fs/list' and method == 'GET':          # [new-project-folder] the folder browser's rows
+                where = one('path').rstrip('/') or '/'
+                tree = {'/': ['home/'], '/home': ['hermes/'], HOME: ['Documents/', 'Projects/', '.config/'],
+                        f'{HOME}/Projects': ['hermes-hq-native/', 'papers/', 'site/', 'notes.txt'],
+                        f'{HOME}/Projects/hermes-hq-native': ['App/', 'Tests/', 'README.md'], f'{HOME}/Documents': []}
+                if where not in tree: return 200, {'entries': [], 'error': 'not-found'}
+                return 200, {'entries': [{'name': n.rstrip('/'), 'path': (where if where != '/' else '') + '/' + n.rstrip('/'),
+                                          'isDirectory': n.endswith('/')} for n in tree[where]]}
             if path == '/api/files/mkdir' and method == 'POST':     # New Project with no folder typed: ~ is HOME
                 made = str((body or {}).get('path') or '')
                 if not made: return 400, {'detail': 'path is required'}

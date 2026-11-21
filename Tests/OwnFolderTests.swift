@@ -25,6 +25,14 @@ import Testing
         #expect(early.map(\.label) == ["bookkeeper", "otto"] && early.allSatisfy(\.isFolder))
     }
 
+    /// [favorite-in-new-chat] A starred folder is offered even though it is a bot's own.
+    @Test func aFavoriteOwnFolderIsOffered() {
+        let tree = ["otto": [Self.auto("/home/me/otto")], "juno": [Self.auto("/home/me/bookkeeper")]]
+        let folders = ["otto": "/home/me/otto", "juno": "/home/me/bookkeeper/"]
+        let entries = SessionProjects.newChatEntries(tree, botFolders: folders, order: [], favorites: ["/home/me/otto"])
+        #expect(entries.map(\.key) == ["/home/me/otto"] && entries.allSatisfy(\.isFolder))
+    }
+
     @Test func otherFoldersComeAfterSavedProjects() {
         let tree = ["otto": [Self.auto("/home/me/otto"), Self.auto("/home/me/code/site"), Self.saved("p1", "Books", "/home/me/books")],
                     "juno": [Self.saved("p2", "Atlas", "/home/me/atlas")]]

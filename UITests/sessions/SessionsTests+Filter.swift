@@ -890,6 +890,44 @@ extension SessionsTests {
         XCTAssertTrue(app.staticTexts["Created Papers"].waitForExistence(timeout: 5))
     }
 
+    /// [new-project-folder] New Project › Choose Folder…: the folder is picked from the gateway's computer, not typed;
+    /// the pick comes back in Folder, with the folder's own name in an empty Name. Closing the browser keeps what was typed.
+    @MainActor func test33b_ChooseFolder() throws {
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        tapChip(app, "default")
+        openFilter(app)
+        tapFilter(app, "project", "project.new")
+        let alert = app.alerts["New Project"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "the New Project alert")
+        shot(app, "D5-alert-with-choose-folder")
+        press(alert.buttons["Choose Folder…"].firstMatch)
+        let native = app.buttons["project-folder-hermes-hq-native"]
+        XCTAssertTrue(native.waitForExistence(timeout: 8), "it opens in the gateway's Projects folder")
+        XCTAssertFalse(app.buttons["project-folder-notes.txt"].exists, "folders only")
+        shot(app, "D5-folder-browser")
+        native.tap()
+        XCTAssertTrue(app.buttons["project-folder-App"].waitForExistence(timeout: 5), "a tap goes into the folder")
+        XCTAssertTrue(app.buttons["project-folder-up"].exists, "and Up goes back out")
+        shot(app, "D5-folder-inside")
+        app.buttons["project-folder-use"].tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Project comes back")
+        XCTAssertEqual(alert.textFields["project.folder"].value as? String, "/home/hermes/Projects/hermes-hq-native", "with the picked folder")
+        XCTAssertEqual(alert.textFields["project.name"].value as? String, "hermes-hq-native", "and its name offered")
+        shot(app, "D5-alert-filled")
+        // Closed without a pick: what was typed is kept.
+        press(alert.buttons["Choose Folder…"].firstMatch)
+        XCTAssertTrue(app.buttons["project-folder-App"].waitForExistence(timeout: 8), "it reopens in the folder already chosen")
+        app.buttons["sheet.close"].firstMatch.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Project comes back after a close")
+        XCTAssertEqual(alert.textFields["project.name"].value as? String, "hermes-hq-native")
+        XCTAssertEqual(alert.textFields["project.folder"].value as? String, "/home/hermes/Projects/hermes-hq-native")
+        press(alert.buttons["Create"])
+        XCTAssertTrue(waitUntil(8) { self.rpc("projects.create").count == 1 }, "one projects.create")
+        XCTAssertEqual(rpc("projects.create").first?["folders"] as? [String], ["/home/hermes/Projects/hermes-hq-native"])
+        XCTAssertEqual(rpc("projects.create").first?["name"] as? String, "hermes-hq-native")
+    }
+
     /// D4: Move to Project › New Project… still creates the project, then moves the chat.
     @MainActor func test34_MoveToANewProject() throws {
         let app = launch()

@@ -86,7 +86,7 @@ extension SessionStore {
 
     /// What New Chat offers: saved projects, then the folders Hermes found that are no bot's own (Home is not an entry).
     func newChatEntries(order: [String] = []) -> [SessionProjectEntry] {
-        SessionProjects.newChatEntries(projectsByProfile, botFolders: device.botFolders, order: order)
+        SessionProjects.newChatEntries(projectsByProfile, botFolders: device.botFolders, order: order, favorites: favoriteProjects)
     }
 }
 
@@ -157,8 +157,10 @@ extension SessionProjects {
     /// [own-folder-everywhere] Any bot's own folder is left out whichever bot is picked. The store's projects come
     /// without them already (`droppingOwnFolders`); this also leaves out, for New Chat only, the found group that holds a
     /// bot's own folder (a checkout it works inside) and folders inside its own profile home.
+    /// [favorite-in-new-chat] A favorite is always offered, a bot's own folder too (owner 2026-11-21: "I made it a
+    /// favorite and it's not an option on the list"): the star says the person wants to start chats there, with any bot.
     static func newChatEntries(_ projectsByProfile: [String: [SessionProject]], botFolders: [String: String],
-                               order: [String]) -> [SessionProjectEntry] {
+                               order: [String], favorites: Set<String> = []) -> [SessionProjectEntry] {
         var saved = Set<String>(), own = Set<String>()
         let everyOwn = Set(botFolders.values)
         for (profile, projects) in projectsByProfile {
@@ -175,7 +177,7 @@ extension SessionProjects {
         }
         let all = entries(projectsByProfile, order: order)
         let projects = all.filter { saved.contains($0.key) }
-        let folders = all.filter { !saved.contains($0.key) && !own.contains($0.key) }.map { entry in
+        let folders = all.filter { !saved.contains($0.key) && (!own.contains($0.key) || favorites.contains($0.key)) }.map { entry in
             var folder = entry
             folder.isFolder = true
             return folder
