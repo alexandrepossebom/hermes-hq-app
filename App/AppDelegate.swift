@@ -331,6 +331,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
         #endif
         // [tile-widgets] <scheme>://widget/…: a Home Screen widget's tap (a tile, Tiles, Tasks, a task, New Task).
         if WidgetRouter.handle(url) { return }
+        // [shortcut-new-chat] <scheme>://new-chat?bot=…&project=…: a new chat with that bot in that project.
+        if NewChatRouter.handle(url) { return }
         // [live] <scheme>://job/<owner|id>: a job's Lock Screen progress opens its page in Jobs.
         // Signed out (no tabs): nothing to open, and it is not an unknown link, so no "isn't available" notice.
         if case .other(kind: "job", let key, _)? = DeepLink.parse(url, scheme: AppIdentity.current.urlScheme), !key.isEmpty {

@@ -31,12 +31,16 @@ extension AppModel {
             QuickActions.resetItems()
             IntentsRuntime.shared.reset()
             wiring.catalog.empty()
+            ProjectShortcutCatalog.clear()           // [shortcut-new-chat]
             wiring.visits = [:]
             AppLog.note("intents", "account changed")
         }
         // Bots stored for another account (an update from a build that did not keep the digest) are not this one's.
         if let first = VoiceBotCatalog.bots().first, !VoiceBotCatalog.sameAccount(first.account, VoiceBotCatalog.account(url: url, username: username)) {
             wiring.catalog.empty()
+        }
+        if let first = ProjectShortcutCatalog.projects().first, !VoiceBotCatalog.sameAccount(first.account, VoiceBotCatalog.account(url: url, username: username)) {
+            ProjectShortcutCatalog.clear()           // [shortcut-new-chat]
         }
         intentsListsChanged()
         IntentsRuntime.shared.kick()                 // a request that launched the app
@@ -50,6 +54,11 @@ extension AppModel {
         // DECISION I4: an empty roster is written only once the gateway has answered with one (never while it loads, never
         // after a failed read).
         wiring.catalog.sync(bots: bots, account: intentsAccount, answered: (botStore?.phase ?? .none) >= .slim)
+        // [shortcut-new-chat] The New Chat action's projects: the New Chat sheet's, written once there are some.
+        if let account = intentsAccount, let sessionStore {
+            let projects = ProjectShortcutCatalog.records(sessionStore.newChatEntries(), account: account)
+            if !projects.isEmpty, ProjectShortcutCatalog.store(projects) { AppLog.note("intents", "shortcut projects: \(projects.count)") }
+        }
         QuickActions.schedule()
     }
 
@@ -74,6 +83,7 @@ extension AppModel {
         let wiring = IntentsWiring.shared
         IntentsRuntime.shared.reset()
         wiring.catalog.empty()
+        ProjectShortcutCatalog.clear()               // [shortcut-new-chat]
         wiring.visits = [:]
         if let note = VoiceBotCatalog.pendingNote() {
             if let file = LegacyNoteFile.resolve(note.path) { LegacyNoteFile.remove(file) }

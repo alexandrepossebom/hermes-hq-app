@@ -118,6 +118,11 @@ nonisolated struct HQAppShortcuts: AppShortcutsProvider {
                     phrases: ["Ask a bot in \(.applicationName)",
                               "Ask \(\.$bot) in \(.applicationName)"],
                     shortTitle: "Ask Bot", systemImageName: "paperplane.fill")
+        // [shortcut-new-chat] Owner 2026-11-20: a new chat with any bot, in any project.
+        AppShortcut(intent: NewChatIntent(),
+                    phrases: ["Start a new chat in \(.applicationName)",
+                              "Start a new chat with \(\.$bot) in \(.applicationName)"],
+                    shortTitle: "New Chat", systemImageName: "square.and.pencil")
     }
 }
 

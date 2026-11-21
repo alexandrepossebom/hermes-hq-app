@@ -286,6 +286,48 @@ extension SessionsTests {
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
     }
 
+    /// [shortcut-new-chat] The New Chat shortcut's link: `<scheme>://new-chat?bot=…&project=…` starts a chat with that
+    /// bot in that project's folder. A project named (any case) for a bot without it: the bot is given it first; one
+    /// named by its folder for a bot that has it: no projects.create. A bot alone: its own chat folder, no project.
+    @MainActor func test23e_NewChatShortcutLinkStartsTheChatInTheProject() throws {
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        XCTAssertTrue(waitUntil(10) { self.rpc("projects.tree").contains { $0["profile"] as? String == "default" } }, "projects read with the list")
+        let scheme = ProcessInfo.processInfo.environment["HQN_UI_SCHEME"] ?? "hermeshq-native"
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func openLink(_ query: String) {
+            XCUIDevice.shared.system.open(URL(string: "\(scheme)://new-chat?\(query)")!)
+            let open = springboard.buttons["Open"]
+            if open.waitForExistence(timeout: 4) { open.tap() }
+        }
+        // By name, for Research (which has no Website).
+        openLink("bot=research&project=website")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("projects.create").contains { $0["profile"] as? String == "research" && $0["name"] as? String == "Website"
+                && ($0["folders"] as? [String]) == ["/home/hermes/site"] }
+        }, "projects.create for Research (\(rpc("projects.create")))")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("session.create").contains { $0["cwd"] as? String == "/home/hermes/site" && $0["profile"] as? String == "research" }
+        }, "session.create in Website's folder (\(rpc("session.create")))")
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+        shot(app, "shortcut-new-chat-project")
+        // By folder, for Hermes (which has App): no new project.
+        let made = rpc("projects.create").count
+        openLink("bot=default&project=%2Fhome%2Fhermes%2Fapp%2F")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("session.create").contains { $0["cwd"] as? String == "/home/hermes/app" && $0["profile"] as? String == "default" }
+        }, "session.create in App's folder (\(rpc("session.create")))")
+        XCTAssertEqual(rpc("projects.create").count, made, "Hermes already has App")
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+        // A bot alone, by its name: a plain new chat, no folder asked for.
+        let before = rpc("session.create").count
+        openLink("bot=Deploys")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("session.create").dropFirst(before).contains { $0["profile"] as? String == "deploys" && $0["cwd_explicit"] as? Bool != true }
+        }, "session.create for Deploys (\(rpc("session.create")))")
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+    }
+
     /// [project-cards] A bot in New Chat's menu (not the bot's chip, which has the same name).
     @MainActor func menuBot(_ app: XCUIApplication, _ name: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'sessions.chip')", name)).firstMatch
