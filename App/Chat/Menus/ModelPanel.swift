@@ -2262,6 +2262,14 @@ final class FactColumn: UIControl {
     private let valueLabel = FitLabel()
     private let captionLabel = FitLabel()
     private static let inset = UIEdgeInsets(top: 10, left: 6, bottom: 11, right: 6)
+    /// [session-context] Owner 2026-11-20, on the tiles under the Context card: "taking up Way too much space". On the
+    /// sheet a tile is one line in the Context card's grammar, what it is leading and its value trailing ("Price ...
+    /// Included ›"), 44 pt tall; it stacks as before only when the two won't sit side by side (a long price, the
+    /// accessibility sizes, the Status dot).
+    private static let rowInset = UIEdgeInsets(top: 11, left: 14, bottom: 11, right: 14)
+    private var stackedValue = NSAttributedString(), stackedCaption = NSAttributedString()
+    private var rowValue = NSAttributedString(), rowCaption = NSAttributedString()
+    private var inRow = false
     /// [model-sheet] A tile of its own on the sheet: the sheet's card fill, rounder, a little taller, its value larger.
     var tile = false {
         didSet {
@@ -2318,7 +2326,18 @@ final class FactColumn: UIControl {
             caption.append(NSAttributedString(string: "\u{2009}"))
             caption.append(NSAttributedString(attachment: NSTextAttachment(image: chevron.withTintColor(ChatPalette.label2, renderingMode: .alwaysOriginal))))
         }
-        captionLabel.attributedText = caption
+        stackedValue = NSAttributedString(string: fact?.value ?? "", attributes: [.font: valueLabel.font as Any, .foregroundColor: ChatPalette.label])
+        stackedCaption = caption
+        // The row: the caption as the Context card's title, the value as its figure, the chevron after the value.
+        let rowFont = ModelPanelView.font(.subheadline, .regular), rowBold = ModelPanelView.font(.subheadline, .semibold)
+        rowCaption = NSAttributedString(string: fact?.caption ?? "", attributes: [.font: rowFont, .foregroundColor: ChatPalette.label2])
+        let value = NSMutableAttributedString(string: fact?.value ?? "", attributes: [.font: rowBold, .foregroundColor: ChatPalette.label])
+        if opens, let chevron = UIImage(systemName: "chevron.forward", withConfiguration: UIImage.SymbolConfiguration(font: HQFont.system(ofSize: rowFont.pointSize * 0.8, weight: .semibold))) {
+            value.append(NSAttributedString(string: "\u{2009}\u{2009}"))
+            value.append(NSAttributedString(attachment: NSTextAttachment(image: chevron.withTintColor(ChatPalette.label2, renderingMode: .alwaysOriginal))))
+        }
+        rowValue = value
+        show(row: inRow, force: true)   // the new words in the current mode; layout picks the mode
         isUserInteractionEnabled = opens
         accessibilityLabel = fact?.title
         accessibilityValue = fact.map { $0.spoken ?? $0.value }
@@ -2328,20 +2347,54 @@ final class FactColumn: UIControl {
         setNeedsLayout()
     }
 
+    /// Whether a tile `width` wide holds its caption and value on one line.
+    func fitsRow(width: CGFloat) -> Bool {
+        guard tile, dot.isHidden, !ModelPanelView.accessibilityType, !(fact?.value ?? "").isEmpty else { return false }
+        let room = width - Self.rowInset.left - Self.rowInset.right
+        return ceil(rowCaption.size().width) + 12 + ceil(rowValue.size().width) <= room
+    }
+
+    private func show(row: Bool, force: Bool = false) {
+        guard force || row != inRow else { return }
+        inRow = row
+        valueLabel.attributedText = row ? rowValue : stackedValue
+        captionLabel.attributedText = row ? rowCaption : stackedCaption
+        valueLabel.textAlignment = row ? .right : .center
+        captionLabel.textAlignment = row ? .left : .center
+    }
+
     /// Whether the words read at their size in a column `width` wide.
     func comfortable(width: CGFloat) -> Bool {
+        if fitsRow(width: width) { return true }
         let room = width - Self.inset.left - Self.inset.right
+        show(row: false)
         return valueLabel.fit(width: room).comfortable && captionLabel.fit(width: room).comfortable
     }
 
-    /// At least 44 pt, the column's words centred in it.
+    /// At least 44 pt, the column's words centred in it (one line on a tile that holds it).
     func fittedHeight(width: CGFloat) -> CGFloat {
+        if fitsRow(width: width) {
+            let lines = max(rowCaption.size().height, rowValue.size().height)
+            return max(44, ceil(Self.rowInset.top + lines + Self.rowInset.bottom))
+        }
+        show(row: false)
         let room = width - Self.inset.left - Self.inset.right
         return max(tile ? 66 : 44, Self.inset.top + valueLabel.fittedHeight(width: room) + 1 + captionLabel.fittedHeight(width: room) + Self.inset.bottom)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        if fitsRow(width: bounds.width) {
+            show(row: true)
+            let inner = bounds.width - Self.rowInset.left - Self.rowInset.right
+            let captionW = min(inner, ceil(rowCaption.size().width))
+            let valueW = max(0, inner - captionW - 12)
+            let captionH = captionLabel.fittedHeight(width: captionW), valueH = valueLabel.fittedHeight(width: valueW)
+            captionLabel.frame = CGRect(x: Self.rowInset.left, y: ((bounds.height - captionH) / 2).rounded(), width: captionW, height: captionH)
+            valueLabel.frame = CGRect(x: bounds.width - Self.rowInset.right - valueW, y: ((bounds.height - valueH) / 2).rounded(), width: valueW, height: valueH)
+            return
+        }
+        show(row: false)
         let inset = Self.inset
         let width = max(0, bounds.width - inset.left - inset.right)
         let valueH = valueLabel.fittedHeight(width: width)
@@ -2377,7 +2430,6 @@ final class ContextCard: UIControl {
     }
     private let titleLabel = FitLabel()
     private let figureLabel = FitLabel()
-    private let noteLabel = FitLabel()
     private let track = UIView()
     private let bar = UIView()
     private static let barHeight: CGFloat = 6
@@ -2392,8 +2444,7 @@ final class ContextCard: UIControl {
         hqGlassEdge()
         titleLabel.text = "Context"
         figureLabel.textAlignment = .right
-        noteLabel.maxLines = 2
-        for view in [titleLabel, figureLabel, noteLabel, track] as [UIView] {
+        for view in [titleLabel, figureLabel, track] as [UIView] {
             view.isUserInteractionEnabled = false
             addSubview(view)
         }
@@ -2427,17 +2478,18 @@ final class ContextCard: UIControl {
         let accent = context?.warn == true ? ChatPalette.orange : ChatPalette.tint
         titleLabel.font = body
         titleLabel.textColor = ChatPalette.label
-        let figure = NSMutableAttributedString(string: context?.used ?? "", attributes: [.font: body, .foregroundColor: ChatPalette.label])
+        // [session-context] Nothing under the bar (owner 2026-11-20): "Almost full" leads the figure, in the bar's orange.
+        let figure = NSMutableAttributedString()
+        if let note = context?.note {
+            figure.append(NSAttributedString(string: note + " · ", attributes: [.font: body, .foregroundColor: accent]))
+        }
+        figure.append(NSAttributedString(string: context?.used ?? "", attributes: [.font: body, .foregroundColor: ChatPalette.label]))
         figure.append(NSAttributedString(string: " of \(context?.window ?? "")", attributes: [.font: quiet, .foregroundColor: ChatPalette.label2]))
         if tapOpens, let chevron = UIImage(systemName: "chevron.forward", withConfiguration: UIImage.SymbolConfiguration(font: HQFont.system(ofSize: quiet.pointSize * 0.8, weight: .semibold))) {
             figure.append(NSAttributedString(string: "\u{2009}\u{2009}"))
             figure.append(NSAttributedString(attachment: NSTextAttachment(image: chevron.withTintColor(ChatPalette.label2, renderingMode: .alwaysOriginal))))
         }
         figureLabel.attributedText = figure
-        noteLabel.font = ModelPanelView.font(.footnote, .regular)
-        noteLabel.textColor = context?.warn == true ? ChatPalette.orange : ChatPalette.label2
-        noteLabel.text = context?.note
-        noteLabel.isHidden = context?.note == nil
         track.backgroundColor = ChatPalette.label.withAlphaComponent(0.13)
         bar.backgroundColor = accent
         isUserInteractionEnabled = tapOpens
@@ -2447,7 +2499,7 @@ final class ContextCard: UIControl {
         setNeedsLayout()
     }
 
-    private struct Metrics { var title = CGRect.zero, figure = CGRect.zero, track = CGRect.zero, note = CGRect.zero, height: CGFloat = 0 }
+    private struct Metrics { var title = CGRect.zero, figure = CGRect.zero, track = CGRect.zero, height: CGFloat = 0 }
 
     private func metrics(width: CGFloat) -> Metrics {
         var m = Metrics()
@@ -2461,11 +2513,6 @@ final class ContextCard: UIControl {
         var y = inset.top + rowH + 10
         m.track = CGRect(x: inset.left, y: y, width: inner, height: Self.barHeight)
         y += Self.barHeight
-        if !noteLabel.isHidden {
-            let noteH = noteLabel.fittedHeight(width: inner)
-            m.note = CGRect(x: inset.left, y: y + 9, width: inner, height: noteH)
-            y += 9 + noteH
-        }
         m.height = ceil(y + inset.bottom)
         return m
     }
@@ -2478,7 +2525,6 @@ final class ContextCard: UIControl {
         titleLabel.frame = m.title
         figureLabel.frame = m.figure
         track.frame = m.track
-        noteLabel.frame = m.note
         let share = CGFloat(context?.fill ?? 0)
         bar.frame = CGRect(x: 0, y: 0, width: share > 0 ? max(Self.barHeight, (m.track.width * share).rounded()) : 0, height: Self.barHeight)
     }

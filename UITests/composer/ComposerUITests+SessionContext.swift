@@ -1,5 +1,5 @@
 // [session-context] The model panel's context card: what the chat holds of its window, a bar of how full it is, and a
-// line when there's something to know (earlier messages summarized, almost full). The sample cases fill the window to 18%
+// line only when it's almost full. The sample cases fill the window to 18%
 // (-HQDebugModelPanelSample), 78% and 96% (-HQDebugModelPanelCase context-warm, context-full).
 
 import XCTest
@@ -8,7 +8,7 @@ extension ComposerUITests {
     @MainActor func test33_TheContextCardSaysHowFullTheChatIs() throws {
         let cases: [(arguments: [String], shot: String, value: String)] = [
             (["-HQDebugModelPanelSample", "YES"], "context-tile-room", "184K of 1M tokens, 18% used"),
-            (["-HQDebugModelPanelCase", "context-warm"], "context-tile-warm", "Earlier messages summarized once to make room"),
+            (["-HQDebugModelPanelCase", "context-warm"], "context-tile-warm", "780K of 1M tokens, 78% used"),
             (["-HQDebugModelPanelCase", "context-full"], "context-tile-full", "Almost full"),
         ]
         for item in cases {

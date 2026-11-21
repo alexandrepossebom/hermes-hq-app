@@ -54,17 +54,16 @@ struct ModelPanelTests {
         #expect(ModelPanelModel.context(state.facts) == ModelPanelModel.Context(used: "184K", window: "1M", fill: 0.184, note: nil, warn: false,
                                                                                  spoken: "184K of 1M tokens, 18% used"))
         #expect(ModelPanelModel.cardFacts(state.facts).map(\.title) == ["Price", "Plan"])
-        // Summarized earlier: the line says so.
+        // Summarized earlier, still room: no line (owner 2026-11-20, "Do we need the 'earlier messages' line?" — no).
         let summarized = ModelPanelModel.context(ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 120_000,
-                                                                       compressions: 1).facts)
-        #expect(summarized?.note == "Earlier messages summarized once to make room" && summarized?.warn == false)
-        #expect(summarized?.spoken == "120K of 200K tokens, 60% used. Earlier messages summarized once to make room")
-        #expect(ModelPanelModel.context(ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 120_000,
-                                                              compressions: 3).facts)?.note == "Earlier messages summarized 3 times to make room")
+                                                                       compressions: 3).facts)
+        #expect(summarized?.note == nil && summarized?.warn == false)
+        #expect(summarized?.spoken == "120K of 200K tokens, 60% used")
         // From 90% it warns (over a summary); a used figure past the window fills the bar.
         let nearly = ModelPanelModel.context(ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 180_000,
                                                                    compressions: 1).facts)
-        #expect(nearly?.warn == true && nearly?.note == "Almost full · earlier messages get summarized next")
+        #expect(nearly?.warn == true && nearly?.note == "Almost full")
+        #expect(nearly?.spoken == "180K of 200K tokens, 90% used. Almost full")
         let over = ModelPanelModel.context(ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 900_000).facts)
         #expect(over?.used == "200K" && over?.fill == 1 && over?.warn == true)
         // Nothing used yet: no card, the window's tile as before.

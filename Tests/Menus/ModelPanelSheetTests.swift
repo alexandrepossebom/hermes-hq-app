@@ -51,7 +51,10 @@ import UIKit
         for (a, b) in zip(tiles, tiles.dropFirst()) where abs(a.frame.minY - b.frame.minY) < 1 {
             #expect(b.frame.minX - a.frame.maxX >= 8, "a gap between tiles")
         }
-        #expect(tiles.allSatisfy { $0.frame.height >= 60 && $0.backgroundColor != nil && $0.backgroundColor != .clear })
+        #expect(tiles.allSatisfy { $0.backgroundColor != nil && $0.backgroundColor != .clear })
+        // [session-context] Owner 2026-11-20 ("taking up Way too much space"): each tile one line, a tap target tall.
+        #expect(tiles.allSatisfy { $0.frame.height >= 44 && $0.frame.height < 52 }, "one-line tiles: \(tiles.map(\.frame.height))")
+        #expect(tiles.allSatisfy { $0.fitsRow(width: $0.frame.width) }, "caption and value side by side")
         #expect(strip.backgroundColor == .clear, "no strip behind the tiles")
         // [session-context] The window is on the context card now, and it opens Context Window.
         #expect(tiles.count == 2 && panel.debugContext.opens && panel.debugContext.shown)
@@ -74,6 +77,19 @@ import UIKit
                     #expect(nameFrame.minX >= own.close.maxX - 0.5, "the name clears the close disc (\(name), \(width))")
                 }
             }
+        }
+    }
+
+    /// [session-context] Owner 2026-11-20, "Do we need any of the text under the bar??": no. "Almost full" leads the top
+    /// row, so the card is one height full or not, at every phone width.
+    @Test func nothingSitsUnderTheBar() {
+        let card = ContextCard()
+        card.onSheet = true
+        for width in widths {
+            card.context = ModelPanelModel.Context(used: "780K", window: "1M", fill: 0.78, note: nil, warn: false, spoken: "")
+            let room = card.preferredHeight(width: width - 32)
+            card.context = ModelPanelModel.Context(used: "960K", window: "1M", fill: 0.96, note: "Almost full", warn: true, spoken: "")
+            #expect(card.preferredHeight(width: width - 32) == room, "one height at \(width): \(room)")
         }
     }
 

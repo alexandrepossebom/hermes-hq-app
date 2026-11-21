@@ -290,11 +290,13 @@ nonisolated extension ModelPanelModel {
 
     /// [session-context] The chat's context on the card, a card of its own under Thinking and in its grammar: "Context"
     /// with what the chat holds of the window beside it ("780K of 1M"), a bar of how full it is, and a line only when
-    /// there's something to know (earlier messages were summarized; almost full). nil until the chat has used some.
+    /// and, from 90%, "Almost full" before the figure. Owner 2026-11-20, "Do we need any of the text under the bar??": no,
+    /// so nothing sits under the bar and the card is one height. nil until the chat has used some.
     nonisolated struct Context: Sendable, Equatable {
         var used: String
         var window: String
         var fill: Double
+        /// "Almost full" from 90%, shown before the figure in the top row; nil below.
         var note: String?
         /// Almost full: the bar and the note turn orange.
         var warn: Bool
@@ -305,10 +307,8 @@ nonisolated extension ModelPanelModel {
         guard let fact = facts.first(where: { $0.title == ModelPanelState.Fact.usedTitle }), let fill = fact.fill,
               let amount = fact.amount, let of = amount.range(of: " of ") else { return nil }
         let used = String(amount[..<of.lowerBound]), window = String(amount[of.upperBound...])
-        let summaries = fact.summaries ?? 0, warn = fill >= ModelPanelState.Fact.nearlyFull
-        let times = summaries == 1 ? "once" : "\(summaries) times"
-        let note: String? = warn ? "Almost full · earlier messages get summarized next"
-            : summaries > 0 ? "Earlier messages summarized \(times) to make room" : nil
+        let warn = fill >= ModelPanelState.Fact.nearlyFull
+        let note: String? = warn ? "Almost full" : nil
         var spoken = "\(used) of \(window) tokens, \(fact.value) used"
         if let note { spoken += ". " + note.replacingOccurrences(of: " · ", with: ". ") }
         return Context(used: used, window: window, fill: min(1, max(0, fill)), note: note, warn: warn, spoken: spoken)
