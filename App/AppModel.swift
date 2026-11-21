@@ -224,6 +224,12 @@ final class AppModel: AppServices {
         freshChat(for: bot, folder: folder, shownTitle: "New Chat", extra: [:], created: nil)
     }
 
+    /// [project-new-chat-model] A project's New Chat: `start` is what its settings add to `session.create` (`model` and
+    /// `provider`, `reasoning_effort`); empty, the call is the one above exactly.
+    func newChat(for bot: Bot, folder: String?, start: [String: JSONValue]) -> ChatSessionModel {
+        freshChat(for: bot, folder: folder, shownTitle: "New Chat", extra: start, created: nil)
+    }
+
     /// [tasks] A task's own chat: born hidden (never in Sessions, nor the desktop app's sidebar) under `sessionTitle`,
     /// headed `shownTitle` here; `created` gets the stored id once the gateway made it, so the task can keep it.
     func taskChat(for bot: Bot, sessionTitle: String, shownTitle: String,
@@ -257,7 +263,7 @@ final class AppModel: AppServices {
                                        return stored
                                    }, startsNew: true)
         chat.botName = bot.name
-        chat.modelName = botStore.profile(named: profile)?.model
+        chat.modelName = extra["model"]?.string ?? botStore.profile(named: profile)?.model   // [project-new-chat-model] the project's own
         chat.activityLink.store = activityStore       // [activity]
         wire(chat)
         chat.keepQueue()
@@ -505,6 +511,7 @@ final class AppModel: AppServices {
             sessions.resetGroupFolds()
             sessions.resetOrders()                 // [manual-order]
             sessions.resetProjectBotChoices()      // [project-default-bot]
+            sessions.resetProjectSettings()        // [project-settings]
             LostSends.shared.purge(accountId: accountId)
             attachments.debugReset()
         }
@@ -532,6 +539,7 @@ final class AppModel: AppServices {
             NotificationCenter.default.post(name: SessionStrip.listChanged, object: nil)   // [session-strip]
             self?.onLaunchListsChange?()              // [restore]
             self?.refreshNotificationDirectory()      // [notifications]
+            if let sessions = self?.sessionStore { ProjectMuteCenter.shared.update(sessions.projectMuteLevels) }   // [project-mute]
             self?.intentsListsChanged()               // [intents]
         }
         botStore = bots

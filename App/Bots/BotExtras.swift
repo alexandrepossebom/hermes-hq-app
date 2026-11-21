@@ -9,6 +9,9 @@ import UIKit
 /// A new chat with a bot and the chat screen for a model (AppModel).
 @MainActor protocol BotChatStarting: AnyObject {
     func newChat(for bot: Bot, folder: String?) -> ChatSessionModel
+    /// [project-new-chat-model] The same, with what its project's settings add to `session.create` (a model and its
+    /// provider, a reasoning level); empty: as the one above.
+    func newChat(for bot: Bot, folder: String?, start: [String: JSONValue]) -> ChatSessionModel
     func makeChatScreen(_ model: any ChatSessionModel) -> UIViewController
 }
 

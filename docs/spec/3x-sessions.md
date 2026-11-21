@@ -311,6 +311,52 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
 - **DECISION (2026-11-21, owner): a project's page has its own Sort** [project-sort]. ⋯ › Sort: Needs Me First (the
   default, the order above) or Newest (one run by the list's sort; reading or a reply's New state moves nothing).
   Kept per project and synced (`projectSorts`); an older document erases it not.
+- **DECISION (2026-11-21, owner): a project's settings are one page** [project-settings]. The project page's ⋯ was
+  getting long: it starts with Project Settings… (`sessions.projectPage.settings`), a sheet titled with the project's
+  name (`ProjectSettingsPage`, presented by `SessionsViewController.presentProjectSettings` through `ChatSheet.wrap`).
+  Sections: Chats, Notifications, New Chats, Look. A change is kept at once (no Save) and the page behind redraws.
+  Pins Stay in Project moved there from the ⋯ (same id); Coding Project, Repository…, Sort, New Chat With… and Default
+  Bot stay in the ⋯. Every setting is per project key, kept with the hand-picked parts and synced in the "sessions"
+  document; an older document without a part erases nothing, and a rebase only fills what this device has not set
+  (`SessionStore+Sync.swift`). Home's page keeps Pins Stay in Project, Move Quiet Chats to Done and Notifications.
+- **DECISION (2026-11-21, owner): a project can keep its chats on its page** [project-keep]. Keep Chats in This
+  Project (`projectKeep`, `SessionStore.setProjectKept`, never Home): its chats leave Recent and the days, Group By
+  Status, Group By Bot, a flat sort and the Working pill (`SessionListPipeline.listed`, `SessionListInput.keptProjects`).
+  Still shown: its page, its own row or card and their counts, Pinned for a chat pinned everywhere, and, only while
+  the chat waits on the owner (`needsInput`), New for You and the New pill, whose count follows (`chipCounts`). A
+  reply not read yet does not bring one back. Search is unchanged. Under Group By Recent there is no New for You, so
+  such a chat is under the New pill and in its project.
+- **DECISION (2026-11-21, owner): quiet chats can move to Done on a project's page** [project-auto-done]. Move Quiet
+  Chats to Done: Never, After 3, 7 or 14 Days, and in a coding project a switch, When the Pull Request Merges
+  (`projectAutoDone`, `ProjectAutoDone`). On that page a live chat that is quiet, not pinned (either kind), not read
+  since the page was last left (`keepNew`) and last active longer ago than the age (`input.now`), or whose pull
+  request's state is merged, is listed in Done with the archived ones (`SessionListPipeline.projectPage`). Display
+  only: nothing is archived, no write reaches the gateway, the row keeps its verbs, and no other list reads the rule.
+- **DECISION (2026-11-21, owner): a project has its own Notifications** [project-mute]. All, Only When It Needs Me, or
+  Mute (`projectNotify`, `ProjectNotify`). A push names its account, bot and chat, not the chat's folder, so the app
+  keeps which chats are in a project that is not on All, by gateway account and stored id, in the Keychain group it
+  shares with the notification extension (`Shared/ProjectMutes.swift`, beside the bot mutes), rewritten whenever the
+  list or the setting changes (`ProjectMuteCenter.update`, `SessionStore.projectMuteLevels`; the newest 2,000 chats).
+  Only When It Needs Me quiets what a bot mute quiets (finished replies, background work); Mute quiets every kind but
+  an approval or a question. The extension delivers a quieted push passively, as a muted bot's
+  (`NotificationOpener.process`); the app's own alerts, the peek and a push presented while the app is open show
+  nothing (`NotificationHub`). The setting syncs; the list of chats is each device's own, so a chat made in the
+  project elsewhere is quieted once this device's Sessions list has it.
+- **DECISION (2026-11-21, owner): a project's new chats can start with a model and a reasoning level**
+  [project-new-chat-model]. New Chats › Model and Reasoning, each Bot's Default until chosen (`projectNewChat`,
+  `ProjectNewChat`). The models are the project's default bot's (`SessionStore.projectModelProviders`,
+  `GET /api/model/options?explicit_only=1&profile=`, signed-in providers only); a model is kept with its provider. A
+  project's New Chat (`SessionsOrganizer.newChat(inProject:)`) adds `model`, `provider` and `reasoning_effort` to
+  `session.create` (`ProjectNewChat.createParams`); with nothing chosen the call is what it was.
+- **DECISION (2026-11-21, owner): a project has an icon and a colour** [project-look]. Look › Icon (one emoji) and
+  Color (the chat colours' swatches, `SessionColors`; None clears) (`projectLooks`, `ProjectLook`). Drawn on its pill
+  (`ProjectPillMark`: in the folder's place, the project's state as a small badge on its corner), before its name on
+  its page (`ProjectPageHeader`) and in the folder's place on its row or card (`ProjectCardHeader`). An emoji with a
+  colour stands on a disc of it; a colour alone fills the folder. An archived project's pill keeps its box.
+- **DECISION (2026-11-21, owner): a coding project's rows can show their branch** [project-branch-rows]. Look › Show
+  Branch on Rows, in a coding project only, off until turned on (`projectBranchRows`). On its page a row's coding line
+  starts with the chat's branch, cut in its middle when long, then " · " and the usual line
+  (`SessionRowView.branchLead`); a chat without a branch is unchanged.
 - **DECISION (2026-11-19, a tester, then the owner): Home is on the Bots side** [bot-home]. Group By Recent with a
   project shown: "Projects" ends with a Home row (the house, its count), the chats in no project, pinned ones
   counted: every bot's under All (one bucket, as Hermes's own sidebar merges the profiles' Homes), the picked bot's

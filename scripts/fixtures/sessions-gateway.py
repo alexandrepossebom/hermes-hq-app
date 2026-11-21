@@ -825,6 +825,12 @@ def handler(gateway):
                         links[body.get('project')] = {'project': body.get('project'), 'path': folder.rstrip('/'), 'main': 'main',
                                                       'public_repo': body.get('public_repo') or 'example/app', 'mirror': mirror}
                         return 200, {'repo': links[body.get('project')]}
+            if path == '/api/model/options' and method == 'GET':     # [project-new-chat-model] a bot's models
+                return 200, {'model': 'claude-sonnet-5-5', 'provider': 'anthropic', 'providers': [
+                    {'slug': 'anthropic', 'name': 'Anthropic', 'authenticated': True, 'is_current': True,
+                     'models': ['claude-sonnet-5-5', 'claude-haiku-5-5']},
+                    {'slug': 'openrouter', 'name': 'OpenRouter', 'authenticated': True, 'models': ['example/large-1']},
+                    {'slug': 'signedout', 'name': 'Signed Out', 'authenticated': False, 'models': ['signedout-only-1']}]}
             if path == '/api/files/mkdir' and method == 'POST':     # New Project with no folder typed: ~ is HOME
                 made = str((body or {}).get('path') or '')
                 if not made: return 400, {'detail': 'path is required'}

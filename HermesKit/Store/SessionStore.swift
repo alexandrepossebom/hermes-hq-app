@@ -102,6 +102,19 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     var projectPins: [String: [String]] = [:]
     /// [project-sort] Each project page's Sort (key → `ProjectPageSort` raw); absent: Needs Me First.
     var projectSorts: [String: String] = [:]
+    /// [project-keep] Projects whose chats stay on their own page (key → on; false kept so sync carries turning it off).
+    var projectKeep: [String: Bool] = [:]
+    /// [project-auto-done] Move Quiet Chats to Done (key → `ProjectAutoDone.raw`); absent: Never.
+    var projectAutoDone: [String: String] = [:]
+    /// [project-mute] Each project's Notifications (key → `ProjectNotify` raw); absent: All.
+    var projectNotify: [String: String] = [:]
+    /// [project-new-chat-model] The model and reasoning a project's New Chat starts with; an empty one is kept so sync
+    /// carries going back to the bot's default.
+    var projectNewChat: [String: ProjectNewChat] = [:]
+    /// [project-look] Each project's emoji and colour; an empty one is kept so sync carries clearing it.
+    var projectLooks: [String: ProjectLook] = [:]
+    /// [project-branch-rows] Coding projects whose rows start with the chat's branch (key → on).
+    var projectBranchRows: [String: Bool] = [:]
 
     init() {}
 
@@ -110,6 +123,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
         case chatOrder, projectOrder, projectPillOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
         case projectBots, codingProjects, projectPinsLocal, projectPins, projectSorts
+        case projectKeep, projectAutoDone, projectNotify, projectNewChat, projectLooks, projectBranchRows
     }
 
     init(from decoder: Decoder) throws {
@@ -136,6 +150,12 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         projectPinsLocal = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectPinsLocal)) ?? [:]
         projectPins = (try? c.decodeIfPresent([String: [String]].self, forKey: .projectPins)) ?? [:]
         projectSorts = (try? c.decodeIfPresent([String: String].self, forKey: .projectSorts)) ?? [:]
+        projectKeep = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectKeep)) ?? [:]
+        projectAutoDone = (try? c.decodeIfPresent([String: String].self, forKey: .projectAutoDone)) ?? [:]
+        projectNotify = (try? c.decodeIfPresent([String: String].self, forKey: .projectNotify)) ?? [:]
+        projectNewChat = (try? c.decodeIfPresent([String: ProjectNewChat].self, forKey: .projectNewChat)) ?? [:]
+        projectLooks = (try? c.decodeIfPresent([String: ProjectLook].self, forKey: .projectLooks)) ?? [:]
+        projectBranchRows = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectBranchRows)) ?? [:]
     }
 }
 

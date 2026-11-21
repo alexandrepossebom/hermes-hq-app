@@ -36,6 +36,13 @@ struct SessionRowView: View {
     /// Group By Recent is on: a card chat follows its Preview (`previewLine`); the other groupings' cards keep one line.
     var recentLayout = false
     var codingProject = false
+    /// [project-branch-rows] Project Settings › Show Branch on Rows (a coding project's page): the chat's branch, which
+    /// its coding line starts with. nil: off, or the chat has no branch.
+    var branchLead: String? = nil
+    /// [project-branch-rows] A branch as its row shows it: past 24 characters, its first and last 11 around an ellipsis.
+    nonisolated static func branchShown(_ branch: String) -> String {
+        branch.count > 24 ? String(branch.prefix(11)) + "…" + String(branch.suffix(11)) : branch
+    }
     enum Fresh { case pinned, recent }
     /// [mac-pane] The Mac: the pointer over a row swaps its time for Pin, Archive and More (`SessionRowHover`). nil
     /// elsewhere (a finger has the swipes and the hold).
@@ -263,6 +270,17 @@ struct SessionRowView: View {
                 if codingWorking {
                     ProgressView().controlSize(.mini).tint(Color.hqLabel2)
                         .accessibilityHidden(true)
+                }
+                if let branchLead {
+                    // [project-branch-rows] The branch first, cut in its middle when long, then the usual line.
+                    // A long branch is cut in its middle by characters, so the dot sits right after the words (a
+                    // width-capped Text left a gap whenever its cut fell short of the cap).
+                    Text(Self.branchShown(branchLead) + " · ")
+                        .font(Font.hq(.footnote))
+                        .foregroundStyle(Color.hqLabel2)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .padding(.trailing, -6)
                 }
                 Text(codingLine)
                     .font(Font.hq(.footnote))
@@ -559,6 +577,7 @@ struct SessionRowView: View {
         if codingProject {
             // Match the visible line rather than announcing the regular list's preview/status a second time.
             var parts = [Self.title(session)]
+            if let branchLead { parts.append("Branch " + branchLead) }   // [project-branch-rows]
             if let codingLine, !codingLine.isEmpty { parts.append(codingLine) }
             parts.append(ownerName)
             if detail.contains(.tokens), let tokens = SessionRowWords.compactTokens(session.tokens) { parts.append("\(tokens) tokens") }
@@ -675,6 +694,8 @@ struct SessionProjectSummary {
     var home = false
     /// The project above is open: this one stands a card's gap below its card.
     var afterCard = false
+    /// [project-look] The project's own emoji and colour, in place of the folder.
+    var look = ProjectLook()
 
     /// "Otto, Herald, Hermes · 12 chats"; past three bots "5 bots · 23 chats"; under a chip "Otto · 3 of 12 chats".
     var whoWords: String {

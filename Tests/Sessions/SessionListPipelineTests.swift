@@ -1036,3 +1036,141 @@ import Testing
         }
     }
 }
+
+// MARK: - Project Settings [project-settings]
+
+extension SessionListPipelineTests {
+    private static let site = "/home/hermes/site"
+
+    /// [project-keep] Owner 2026-11-20: a kept project's chats leave Recent, the days, Group By Status, Group By Bot,
+    /// a flat sort and the status chips; they stay in their project (page, row, counts), in Pinned when pinned
+    /// everywhere, and in New for You and under the New chip only while they wait on the owner.
+    @Test func aKeptProjectsChatsStayOnItsPage() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        var asks = Self.chat("asks", ago: 50, status: .needsInput, cwd: Self.site)
+        asks.unread = false
+        let rows = [Self.chat("quiet", ago: 100, cwd: Self.site), Self.chat("unread", ago: 90, status: .unread, cwd: Self.site),
+                    Self.chat("busy", ago: 80, status: .working, cwd: Self.site), asks,
+                    Self.chat("pin", ago: 70, pinned: true, cwd: Self.site), Self.chat("home", ago: 60),
+                    Self.chat("homeNew", ago: 40, status: .unread)]
+        func run(_ kept: Bool, _ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(rows) {
+                $0.projectsByProfile = Self.projects; $0.projects = entries
+                $0.keptProjects = kept ? [Self.site] : []
+                edit(&$0)
+            }
+        }
+        func sessions(_ groups: [SessionGroup], _ id: String) -> [String] { groups.first { $0.id == id }?.sessions.map(\.id) ?? [] }
+
+        // Group By Recent: the days hold Home's chats alone; Pinned keeps the chat pinned everywhere.
+        #expect(Set(Self.recent(run(false))) == ["quiet", "unread", "busy", "asks", "home", "homeNew"])
+        let fresh = run(true)
+        #expect(Self.recent(fresh) == ["homeNew", "home"])
+        #expect(sessions(fresh, "pinned") == ["pin"])
+        // With Show › Projects the project's own row still counts every one of its chats.
+        let shown = run(true) { $0.prefs.showProjects = true }
+        #expect(shown.first { $0.id == "project-" + Self.site }?.total == 5)
+        #expect(Self.recent(shown) == ["homeNew", "home"])
+
+        // Group By Status: New for You keeps the chat that waits on the owner, not the unread one; the groups hold
+        // Home's.
+        let status = run(true) { $0.prefs.groupBy = .status }
+        #expect(sessions(status, SessionListPipeline.newId) == ["homeNew", "asks"])
+        #expect(sessions(status, "status-working").isEmpty && sessions(status, "status-done") == ["home"])
+        #expect(sessions(status, "pinned") == ["pin"])
+        #expect(Set(sessions(run(false) { $0.prefs.groupBy = .status }, SessionListPipeline.newId)) == ["homeNew", "asks", "unread"])
+
+        // Group By Bot and a flat sort: Home's alone (and Pinned).
+        let bots = run(true) { $0.prefs.groupBy = .bot }
+        #expect(sessions(bots, "bot-default") == ["home"])
+        let flat = run(true) { $0.prefs.sortBy = .tokens }
+        #expect(sessions(flat, SessionListPipeline.flatId) == ["homeNew", "home"] && sessions(flat, "pinned") == ["pin"])
+
+        // The chips: New lists the asking chat, not the unread one; Working lists none of the project's. The counts
+        // say the same.
+        #expect(Self.ids(run(true) { $0.statusChip = .new }) == ["homeNew", "asks"])
+        #expect(Self.ids(run(true) { $0.statusChip = .working }).isEmpty)
+        #expect(Self.ids(run(false) { $0.statusChip = .working }) == ["busy"])
+        var counted = SessionListInput(live: rows, projectsByProfile: Self.projects, projects: entries)
+        #expect(SessionListPipeline.chipCounts(counted) == [.new: 3, .working: 1])
+        counted.keptProjects = [Self.site]
+        #expect(SessionListPipeline.chipCounts(counted) == [.new: 2])
+
+        // Its own page, and its card under Group By Project: every chat, as before.
+        let page = run(true) { $0.prefs.groupBy = .project; $0.prefs.projectFilter = [Self.site] }
+        #expect(page.first { $0.id == SessionListPipeline.pageId }?.total == 5)
+        #expect(Set(Self.ids(page)) == ["quiet", "unread", "busy", "asks", "pin"])
+        counted.prefs.groupBy = .project
+        counted.prefs.projectFilter = [Self.site]
+        #expect(SessionListPipeline.chipCounts(counted) == [.new: 2, .working: 1], "on the page the chips count its chats")
+        let cards = run(true) { $0.prefs.groupBy = .project; $0.openGroups = ["project-" + Self.site] }
+        #expect(cards.first { $0.id == "project-" + Self.site }?.total == 5)
+        // Another project kept: nothing here changes.
+        #expect(Set(Self.recent(run(false) { $0.keptProjects = ["/elsewhere"] })) == ["quiet", "unread", "busy", "asks", "home", "homeNew"])
+    }
+
+    /// [project-auto-done] Owner 2026-11-20: on a project's page a quiet live chat older than the chosen age (or whose
+    /// pull request merged) is listed in Done with the archived ones. Pinned chats, chats that are not quiet, and a
+    /// chat read since the page was last left stay in Active. Display only: the rows are still live.
+    @Test func quietChatsMoveToDoneOnTheirProjectsPage() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        let day = 86_400.0
+        var merged = Self.chat("merged", ago: 60, cwd: Self.site)
+        merged.pullRequest = SessionPRStatus(state: .merged)
+        var open = Self.chat("open", ago: 120, cwd: Self.site)
+        open.pullRequest = SessionPRStatus(state: .open)
+        var archived = Self.chat("archived", ago: day, cwd: Self.site)
+        archived.archived = true
+        let rows = [Self.chat("fresh", ago: day * 2, cwd: Self.site), Self.chat("week", ago: day * 8, cwd: Self.site),
+                    Self.chat("old", ago: day * 20, cwd: Self.site), Self.chat("oldUnread", ago: day * 20, status: .unread, cwd: Self.site),
+                    Self.chat("oldPinned", ago: day * 20, pinned: true, cwd: Self.site),
+                    Self.chat("oldLocal", ago: day * 21, cwd: Self.site), Self.chat("oldHeld", ago: day * 22, cwd: Self.site), merged, open]
+        func page(_ rule: ProjectAutoDone?, key: String = Self.site) -> [SessionGroup] {
+            Self.run(rows, archived: [archived]) {
+                $0.projectsByProfile = Self.projects; $0.projects = entries
+                $0.prefs.groupBy = .project
+                $0.prefs.projectFilter = [Self.site]
+                $0.openGroups = ["state-done"]
+                $0.projectPins = [Self.site: ["default\u{1F}oldLocal"]]
+                $0.keepNew = ["default\u{1F}oldHeld"]
+                if let rule { $0.projectAutoDone = [key: rule] }
+            }
+        }
+        func done(_ groups: [SessionGroup]) -> [String] { groups.first { $0.id == "state-done" }?.sessions.map(\.id) ?? [] }
+        func active(_ groups: [SessionGroup]) -> Set<String> { Set(groups.first { $0.id == "state-active" }?.sessions.map(\.id) ?? []) }
+
+        // Never: Done is the archived chat alone.
+        #expect(done(page(nil)) == ["archived"])
+        #expect(page(nil).first { $0.id == SessionListPipeline.pageId }?.total == 9)
+        // After 7 Days: the quiet chats older than that join it, newest first; the unread, pinned, pinned-here and
+        // just-read ones stay.
+        let seven = page(ProjectAutoDone(days: 7))
+        #expect(done(seven) == ["archived", "week", "old"])
+        #expect(active(seven) == ["fresh", "oldUnread", "oldHeld", "merged", "open"])
+        #expect(seven.first { $0.id == "state-pinned" }?.sessions.map(\.id) == ["oldPinned", "oldLocal"])
+        #expect(seven.first { $0.id == SessionListPipeline.pageId }?.total == 7, "the header counts what is not in Done")
+        #expect(seven.flatMap(\.sessions).first { $0.id == "week" }?.archived == false, "nothing is archived")
+        // After 3 Days and After 14 Days draw the line elsewhere.
+        #expect(done(page(ProjectAutoDone(days: 14))) == ["archived", "old"])
+        #expect(done(page(ProjectAutoDone(days: 3))) == ["archived", "week", "old"])
+        // When the Pull Request Merges: the merged chat, whatever its age; an open one stays.
+        #expect(done(page(ProjectAutoDone(onMerge: true))) == ["merged", "archived"])
+        #expect(done(page(ProjectAutoDone(days: 14, onMerge: true))) == ["merged", "archived", "old"])
+        // Another project's rule moves nothing here; and no other list reads it.
+        #expect(done(page(ProjectAutoDone(days: 3), key: "/elsewhere")) == ["archived"])
+        let list = Self.run(rows) { $0.projectsByProfile = Self.projects; $0.projects = entries; $0.projectAutoDone = [Self.site: ProjectAutoDone(days: 3)] }
+        #expect(Self.recent(list).contains("old"))
+    }
+
+    @Test func autoDoneReadsItsStoredWords() {
+        #expect(ProjectAutoDone(raw: nil).isOff && ProjectAutoDone(raw: "never").isOff && ProjectAutoDone(raw: "junk").isOff)
+        #expect(ProjectAutoDone(raw: "7") == ProjectAutoDone(days: 7))
+        #expect(ProjectAutoDone(raw: "5").days == nil, "only the offered ages")
+        #expect(ProjectAutoDone(raw: "14+merged") == ProjectAutoDone(days: 14, onMerge: true))
+        #expect(ProjectAutoDone(raw: "never+merged") == ProjectAutoDone(onMerge: true))
+        for rule in [ProjectAutoDone(), ProjectAutoDone(days: 3), ProjectAutoDone(onMerge: true), ProjectAutoDone(days: 14, onMerge: true)] {
+            #expect(ProjectAutoDone(raw: rule.raw) == rule)
+        }
+        #expect(ProjectAutoDone.title(days: nil) == "Never" && ProjectAutoDone.title(days: 7) == "After 7 Days")
+    }
+}

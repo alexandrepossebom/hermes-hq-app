@@ -40,7 +40,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// The Other Apps page while it is in the stack (its rows' actions and reloads go through this list).
     private weak var otherAppsPage: OtherAppsViewController?
     /// The roster by profile, rebuilt once per reload: rows draw their owner's name and head from it.
-    private var owners: [String: Bot] = [:]
+    private(set) var owners: [String: Bot] = [:]
     private(set) var groups: [SessionGroup] = []
     /// [drag-to-project] The project group a dragged chat is held over: its header lights up as the place it would go.
     var dropTargetGroup: String? {
@@ -473,12 +473,25 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         return store?.isCodingProject(key) == true
     }
 
+    /// [project-branch-rows] A coding project's page with Show Branch on Rows on: its rows start with their branch.
+    private var branchRowsPage: Bool {
+        guard codingProjectPage, let key = groups.first(where: { $0.id == SessionListPipeline.pageId })?.pageKey else { return false }
+        return store?.isProjectBranchRows(key) == true
+    }
+
+    /// The branch such a row starts with; nil when the chat has none.
+    private static func branchLead(_ session: SessionSummary) -> String? {
+        let branch = session.branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return branch.isEmpty ? nil : branch
+    }
+
     private func configureDataSource() {
         let rowRegistration = UICollectionView.CellRegistration<SessionListCell, String> { [weak self] cell, _, id in
             guard let self, let session = self.sessionsByID[id] else { return }
             let owner = self.owner(of: session)
             let busy = self.busy.contains(Self.realKey(id))
             let coding = self.codingProjectPage
+            let branchLead = self.branchRowsPage ? Self.branchLead(session) : nil   // [project-branch-rows]
             let detail = coding ? self.rowDetail.subtracting([.time, .tokens, .cost]) : self.rowDetail
             let muted = BotMuteCenter.shared.isMuted(session.profile)   // UX study #248
             let origin = session.origin          // where it came from: the platform's mark before the title
@@ -508,7 +521,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 SessionRowView(session: session, ownerName: owner.name, ownerHead: owner.head,
                                time: time, busy: busy, detail: detail, muted: muted,
                                origin: origin, compact: compact, shortPreview: short, card: card, fresh: fresh, faces: faces,
-                               recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, hover: hover)
+                               recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, branchLead: branchLead, hover: hover)
             }
             .margins(.all, 0)
             // [sessions-layout] A one-line row is as tall as it draws itself (44 pt), not the list's taller least row.
@@ -581,18 +594,15 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                     self?.store?.setCodingProject(key, enabled)
                     self?.reload(animated: false)
                 },
-                localPins: self.store?.isProjectPinsLocal(key) ?? false,
                 sort: self.store?.projectSort(key) ?? .needsMeFirst,
                 onSortChange: { [weak self] sort in
                     Haptics.play(.selection)
                     self?.store?.setProjectSort(key, sort)
                     self?.reload(animated: true)
                 },
-                onLocalPinsChange: { [weak self] on in
-                    Haptics.play(.selection)
-                    self?.store?.setProjectPinsLocal(key, on)
-                    self?.reload(animated: false)
-                }, onInfo: { [weak self] in
+                onSettings: { [weak self] in self?.presentProjectSettings(key, name: group.latestTitle ?? key) },
+                look: self.store?.projectLook(key) ?? ProjectLook(),
+                onInfo: { [weak self] in
                     guard let self else { return }
                     let guide = ProjectIconGuide(coding: self.store?.isCodingProject(key) ?? false)
                     self.present(ChatSheet.wrap(UIHostingController(rootView: guide), title: "Project Icons", detents: [.large()]), animated: true)
@@ -704,7 +714,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                                     latestTitle: group.latestTitle, time: ListTime.string(group.newest), collapsed: group.collapsed,
                                     working: group.working, whole: group.whole, home: key == SessionProjects.homeKey,
                                     afterCard: section > 0 && SessionListPipeline.isProject(groups[section - 1].id)
-                                        && !groups[section - 1].collapsed)
+                                        && !groups[section - 1].collapsed,
+                                    look: key.map { store?.projectLook($0) ?? ProjectLook() } ?? ProjectLook())   // [project-look]
             : nil
         // [sessions-layout] New for You says how many it holds.
         let badge = !searching && id == SessionListPipeline.newId ? group.total : nil
@@ -1602,7 +1613,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","), usual,
                         "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")", prSign,
                         "\(page.pageKey.map { store?.isProjectPinsLocal($0) ?? false } ?? false)",
-                        page.pageKey.map { store?.projectSort($0).rawValue ?? "" } ?? ""].joined(separator: "|")   // [project-pins]
+                        page.pageKey.map { store?.projectSort($0).rawValue ?? "" } ?? "",                          // [project-pins]
+                        page.pageKey.map { projectSettingsSign($0) } ?? ""].joined(separator: "|")                 // [project-settings]
             if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
             pageSign = sign
         }
@@ -1613,6 +1625,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             otherAppsSign = sign
         }
         let coding = codingProjectPage
+        let branchRows = branchRowsPage   // [project-branch-rows]
         var next: [String: Int] = [:]
         for id in snapshot.itemIdentifiers {
             guard let session = sessionsByID[id] else { continue }
@@ -1626,6 +1639,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             hasher.combine(cardKeys[id])                                    // [project-cards] in a card, and whose
             hasher.combine(rowDetail)             // [sessions-m9]
             hasher.combine(coding)
+            hasher.combine(branchRows)
             hasher.combine(BotMuteCenter.shared.isMuted(session.profile))   // UX study #248
             hasher.combine(compactKeys.contains(id))                        // [sessions-layout] Pinned's one line
             hasher.combine(shortKeys.contains(id))                          // [sessions-layout] New for You's one line
@@ -2478,6 +2492,8 @@ extension SessionsViewController {
         if headerModel.pills != pills { headerModel.pills = pills; headerChanged = true }
         let pillProjects = pills == .projects ? store.pillProjects(order: bots.map(\.id)) : []
         if headerModel.projects != pillProjects { headerModel.projects = pillProjects; headerChanged = true }
+        let looks = pills == .projects ? store.projectLooks : [:]   // [project-look] the pills' own emoji and colour
+        if headerModel.projectLooks != looks { headerModel.projectLooks = looks; headerChanged = true }
         let pickedProjects = SessionFilterWords.effectiveProjects(state)
         if headerModel.pickedProjects != pickedProjects { headerModel.pickedProjects = pickedProjects; headerChanged = true }
         if headerModel.botPicked != (state.botFilter != nil) { headerModel.botPicked = state.botFilter != nil; headerChanged = true }

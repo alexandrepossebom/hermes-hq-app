@@ -126,4 +126,124 @@ import Testing
         first.adoptSynced(["sortBy": "updated"], merge: .replace, base: nil)
         #expect(first.projectSort("/a") == .newest)
     }
+
+    /// [project-settings] Each of a project's settings: kept per account, carried by the "sessions" document (turning one
+    /// off too), filled in by a rebase only where this device has set nothing, and erased by no older document.
+    @Test @MainActor func projectSettingsPersistAndSync() throws {
+        let dir = BotsTest.tempDirectory()
+        func store() -> SessionStore {
+            SessionStore(client: BotsFakeGatewayClient(), account: .botsTestAccount, cacheDirectory: dir, timing: .fast, autoStart: false)
+        }
+        let first = store()
+        #expect(!first.isProjectKept("/a") && first.projectAutoDone("/a").isOff && first.projectNotify("/a") == .all)
+        #expect(first.projectNewChat("/a").isEmpty && first.projectLook("/a").isEmpty && !first.isProjectBranchRows("/a"))
+        var changes = 0
+        first.onChange = { changes += 1 }
+        first.setProjectKept("/a", true)
+        first.setProjectAutoDone("/a", ProjectAutoDone(days: 7, onMerge: true))
+        first.setProjectNotify("/a", .needsMe)
+        first.setProjectNewChat("/a", ProjectNewChat(provider: "anthropic", model: "claude-sonnet-5-5", reasoning: "high"))
+        first.setProjectLook("/a", ProjectLook(emoji: "🚀", color: 4))
+        first.setProjectBranchRows("/a", true)
+        #expect(changes == 6, "each change redraws")
+        first.setProjectKept("/a", true)
+        #expect(changes == 6, "the same value again changes nothing")
+        first.setProjectKept(SessionProjects.homeKey, true)
+        #expect(!first.isProjectKept(SessionProjects.homeKey), "Home is no project to keep chats in")
+        RosterDiskWriter.shared.flush()
+
+        let again = store()
+        #expect(again.isProjectKept("/a") && !again.isProjectKept("/b") && again.keptProjects == ["/a"])
+        #expect(again.projectAutoDone("/a") == ProjectAutoDone(days: 7, onMerge: true))
+        #expect(again.projectNotify("/a") == .needsMe)
+        #expect(again.projectNewChat("/a") == ProjectNewChat(provider: "anthropic", model: "claude-sonnet-5-5", reasoning: "high"))
+        #expect(again.projectLook("/a") == ProjectLook(emoji: "🚀", color: 4) && again.projectLooks.keys.sorted() == ["/a"])
+        #expect(again.isProjectBranchRows("/a"))
+
+        let synced = first.syncValue()
+        #expect(synced["projectKeep"]?["/a"]?.bool == true)
+        #expect(synced["projectAutoDone"]?["/a"]?.string == "7+merged")
+        #expect(synced["projectNotify"]?["/a"]?.string == "needsMe")
+        #expect(synced["projectNewChat"]?["/a"]?["model"]?.string == "claude-sonnet-5-5")
+        #expect(synced["projectNewChat"]?["/a"]?["provider"]?.string == "anthropic")
+        #expect(synced["projectNewChat"]?["/a"]?["reasoning"]?.string == "high")
+        #expect(synced["projectLooks"]?["/a"]?["emoji"]?.string == "🚀" && synced["projectLooks"]?["/a"]?["color"]?.int == 4)
+        #expect(synced["projectBranchRows"]?["/a"]?.bool == true)
+
+        // Turned off here: the document carries it, and a rebase over the older copy keeps this device's change.
+        first.setProjectKept("/a", false)
+        first.setProjectAutoDone("/a", ProjectAutoDone())
+        first.setProjectNotify("/a", .all)
+        first.setProjectNewChat("/a", ProjectNewChat())
+        first.setProjectLook("/a", ProjectLook())
+        first.setProjectBranchRows("/a", false)
+        let off = first.syncValue()
+        #expect(off["projectKeep"]?["/a"]?.bool == false && off["projectAutoDone"]?["/a"]?.string == "never")
+        #expect(off["projectNotify"]?["/a"]?.string == "all" && off["projectBranchRows"]?["/a"]?.bool == false)
+        #expect(off["projectNewChat"]?["/a"]?.object?.isEmpty == true && off["projectLooks"]?["/a"]?.object?.isEmpty == true)
+        var parts = synced.object ?? [:]
+        parts["projectKeep"] = ["/a": true, "/b": true]
+        parts["projectNotify"] = ["/a": "mute", "/b": "mute"]
+        parts["projectLooks"] = ["/a": ["emoji": "🚀"], "/b": ["color": 2]]
+        first.adoptSynced(.object(parts), merge: .rebase, base: nil)
+        #expect(!first.isProjectKept("/a") && first.isProjectKept("/b"), "a rebase only fills what this device has not set")
+        #expect(first.projectNotify("/a") == .all && first.projectNotify("/b") == .mute)
+        #expect(first.projectLook("/a").isEmpty && first.projectLook("/b") == ProjectLook(color: 2))
+        #expect(first.projectAutoDone("/a").isOff && first.projectNewChat("/a").isEmpty && !first.isProjectBranchRows("/a"))
+
+        // The gateway's copy replaces this one; a document from before these settings erases none of them.
+        first.adoptSynced(synced, merge: .replace, base: nil)
+        func whole() -> Bool {
+            first.isProjectKept("/a") && first.projectAutoDone("/a") == ProjectAutoDone(days: 7, onMerge: true)
+                && first.projectNotify("/a") == .needsMe && first.projectNewChat("/a").model == "claude-sonnet-5-5"
+                && first.projectLook("/a") == ProjectLook(emoji: "🚀", color: 4) && first.isProjectBranchRows("/a")
+        }
+        #expect(whole() && !first.isProjectKept("/b"))
+        first.adoptSynced(["sortBy": "updated"], merge: .replace, base: nil)
+        #expect(whole(), "old sync documents erase nothing")
+        let old = try JSONDecoder().decode(SessionsDeviceState.self, from: Data("{}".utf8))
+        #expect(old.projectKeep.isEmpty && old.projectAutoDone.isEmpty && old.projectNotify.isEmpty && old.projectNewChat.isEmpty
+                && old.projectLooks.isEmpty && old.projectBranchRows.isEmpty)
+
+        // The merge switch counts in a coding project only.
+        #expect(first.projectAutoDoneRules["/a"] == ProjectAutoDone(days: 7))
+        first.setCodingProject("/a", true)
+        #expect(first.projectAutoDoneRules["/a"] == ProjectAutoDone(days: 7, onMerge: true))
+    }
+
+    /// [project-branch-rows] A long branch is cut in its middle by characters (no width cap, so no gap before the dot).
+    @Test func aLongBranchIsCutInItsMiddle() {
+        #expect(SessionRowView.branchShown("feat/homepage-copy") == "feat/homepage-copy")
+        #expect(SessionRowView.branchShown("feat/a-very-long-branch-name-for-the-pricing-page-rewrite") == "feat/a-very…age-rewrite")
+    }
+
+    /// [project-look] One character, the last typed; a colour outside the palette is none.
+    @Test func aProjectsLookHoldsOneEmojiAndAPaletteColour() {
+        #expect(ProjectLook.oneEmoji("🚀") == "🚀" && ProjectLook.oneEmoji("🚀🌊") == "🌊" && ProjectLook.oneEmoji("  ") == nil)
+        #expect(ProjectLook.oneEmoji("👩‍🚀") == "👩‍🚀", "one grapheme, however many scalars")
+        #expect(ProjectLook.oneEmoji("🌊🚀", replacing: "🚀") == "🌊", "typed before the old one, the new one stands")
+        #expect(ProjectLook.oneEmoji("🚀🌊", replacing: "🚀") == "🌊" && ProjectLook.oneEmoji("🚀🚀", replacing: "🚀") == "🚀")
+        #expect(ProjectLook.oneEmoji("", replacing: "🚀") == nil)
+        #expect(ProjectLook(emoji: "ab", color: 99) == ProjectLook(emoji: "b", color: nil))
+        #expect(ProjectLook(json: ["emoji": "", "color": 3]) == ProjectLook(color: 3))
+        #expect(ProjectLook(json: ProjectLook(emoji: "🌊", color: 7).json) == ProjectLook(emoji: "🌊", color: 7))
+    }
+
+    /// [project-new-chat-model] What a project's New Chat adds to `session.create`: nothing when nothing was chosen (the
+    /// call is today's exactly), the model with its provider, the reasoning level on its own.
+    @Test func aProjectsNewChatChoiceShapesSessionCreate() {
+        #expect(ProjectNewChat().createParams.isEmpty)
+        #expect(ProjectNewChat(provider: "anthropic", model: "claude-sonnet-5-5").createParams
+                == ["model": "claude-sonnet-5-5", "provider": "anthropic"])
+        #expect(ProjectNewChat(reasoning: "high").createParams == ["reasoning_effort": "high"])
+        #expect(ProjectNewChat(provider: "anthropic", model: nil, reasoning: nil).createParams.isEmpty, "a provider alone names nothing")
+        let base: [String: JSONValue] = ["profile": "default", "follow_profile_config": true]
+        let plain = SessionCreate.params(base, profile: "default", folder: "/a")
+        #expect(SessionCreate.params(base.merging(ProjectNewChat().createParams) { _, new in new }, profile: "default", folder: "/a") == plain)
+        let chosen = SessionCreate.params(base.merging(ProjectNewChat(provider: "anthropic", model: "claude-sonnet-5-5", reasoning: "low").createParams) { _, new in new },
+                                          profile: "default", folder: "/a")
+        #expect(chosen["model"]?.string == "claude-sonnet-5-5" && chosen["provider"]?.string == "anthropic")
+        #expect(chosen["reasoning_effort"]?.string == "low" && chosen["cwd"]?.string == "/a" && chosen["follow_profile_config"]?.bool == true)
+        #expect(ProjectNewChat(json: ["provider": "anthropic"]).isEmpty && ProjectNewChat(json: ["model": "m", "provider": "p"]).provider == "p")
+    }
 }

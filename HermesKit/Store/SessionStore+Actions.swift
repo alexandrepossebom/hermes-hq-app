@@ -626,12 +626,14 @@ extension SessionStore {
 
     /// Compose: a new chat in `profile` (`session.create`, the profile's own model settings); its stored id, else its
     /// runtime id, to open.
-    func newChat(profile: String, folder: String? = nil) async throws -> SessionBranch {
+    /// [project-new-chat-model] `start`: a project's own model, provider and reasoning level, when it chose any.
+    func newChat(profile: String, folder: String? = nil, start: [String: JSONValue] = [:]) async throws -> SessionBranch {
         try refuseWhenReadOnly()
         let made: JSONValue
         do {
-            made = try await SessionCreate.call(client, profile: profile, ["profile": .string(profile), "follow_profile_config": true],
-                                         folder: folder, timeout: .seconds(30))
+            made = try await SessionCreate.call(client, profile: profile,
+                                                start.merging(["profile": .string(profile), "follow_profile_config": true]) { _, own in own },
+                                                folder: folder, timeout: .seconds(30))
         } catch {
             AppLog.note("sessions", "new chat (\(profile)): failed, \(SessionActionText.reason(error))")
             throw error

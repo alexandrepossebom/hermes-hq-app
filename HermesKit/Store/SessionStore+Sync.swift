@@ -24,6 +24,12 @@ extension SessionStore: GatewaySynced {
             "projectPinsLocal": .object(device.projectPinsLocal.mapValues { .bool($0) }),            // [project-pins]
             "projectPins": .object(device.projectPins.mapValues { .array($0.map { .string($0) }) }),
             "projectSorts": .object(device.projectSorts.mapValues { .string($0) }),                 // [project-sort]
+            "projectKeep": .object(device.projectKeep.mapValues { .bool($0) }),                      // [project-keep]
+            "projectAutoDone": .object(device.projectAutoDone.mapValues { .string($0) }),            // [project-auto-done]
+            "projectNotify": .object(device.projectNotify.mapValues { .string($0) }),                // [project-mute]
+            "projectNewChat": .object(device.projectNewChat.mapValues(\.json)),                      // [project-new-chat-model]
+            "projectLooks": .object(device.projectLooks.mapValues(\.json)),                          // [project-look]
+            "projectBranchRows": .object(device.projectBranchRows.mapValues { .bool($0) }),          // [project-branch-rows]
             "colors": .object(device.colors.mapValues { .number(Double($0)) }),
             "sortBy": .string(view.sortBy.rawValue),
             "groupBy": .string(view.groupBy.rawValue),
@@ -59,6 +65,25 @@ extension SessionStore: GatewaySynced {
             }
             for (key, raw) in value["projectPins"]?.object ?? [:] where device.projectPins[key] == nil {
                 if let rows = raw.array?.compactMap(\.string), !rows.isEmpty { device.projectPins[key] = rows }
+            }
+            // [project-settings] As the parts above: only what this device has not set comes in.
+            for (key, raw) in value["projectKeep"]?.object ?? [:] where device.projectKeep[key] == nil {
+                if let on = raw.bool { device.projectKeep[key] = on }
+            }
+            for (key, raw) in value["projectAutoDone"]?.object ?? [:] where device.projectAutoDone[key] == nil {
+                if let rule = raw.string { device.projectAutoDone[key] = rule }
+            }
+            for (key, raw) in value["projectNotify"]?.object ?? [:] where device.projectNotify[key] == nil {
+                if let level = raw.string { device.projectNotify[key] = level }
+            }
+            for (key, raw) in value["projectNewChat"]?.object ?? [:] where device.projectNewChat[key] == nil {
+                if raw.object != nil { device.projectNewChat[key] = ProjectNewChat(json: raw) }
+            }
+            for (key, raw) in value["projectLooks"]?.object ?? [:] where device.projectLooks[key] == nil {
+                if raw.object != nil { device.projectLooks[key] = ProjectLook(json: raw) }
+            }
+            for (key, raw) in value["projectBranchRows"]?.object ?? [:] where device.projectBranchRows[key] == nil {
+                if let on = raw.bool { device.projectBranchRows[key] = on }
             }
         } else {
             device.chatOrder = joined(strings("chatOrder"), device.chatOrder)
@@ -98,6 +123,37 @@ extension SessionStore: GatewaySynced {
                 var chosen = merge == .firstContact ? device.projectSorts : [:]
                 for (key, raw) in remote { if let sort = raw.string { chosen[key] = sort } }
                 device.projectSorts = chosen
+            }
+            // [project-settings] As Coding Project: a gateway copy without one of these parts leaves the device's own.
+            if let remote = value["projectKeep"]?.object {
+                var chosen = merge == .firstContact ? device.projectKeep : [:]
+                for (key, raw) in remote { if let on = raw.bool { chosen[key] = on } }
+                device.projectKeep = chosen
+            }
+            if let remote = value["projectAutoDone"]?.object {
+                var chosen = merge == .firstContact ? device.projectAutoDone : [:]
+                for (key, raw) in remote { if let rule = raw.string { chosen[key] = rule } }
+                device.projectAutoDone = chosen
+            }
+            if let remote = value["projectNotify"]?.object {
+                var chosen = merge == .firstContact ? device.projectNotify : [:]
+                for (key, raw) in remote { if let level = raw.string { chosen[key] = level } }
+                device.projectNotify = chosen
+            }
+            if let remote = value["projectNewChat"]?.object {
+                var chosen = merge == .firstContact ? device.projectNewChat : [:]
+                for (key, raw) in remote where raw.object != nil { chosen[key] = ProjectNewChat(json: raw) }
+                device.projectNewChat = chosen
+            }
+            if let remote = value["projectLooks"]?.object {
+                var chosen = merge == .firstContact ? device.projectLooks : [:]
+                for (key, raw) in remote where raw.object != nil { chosen[key] = ProjectLook(json: raw) }
+                device.projectLooks = chosen
+            }
+            if let remote = value["projectBranchRows"]?.object {
+                var chosen = merge == .firstContact ? device.projectBranchRows : [:]
+                for (key, raw) in remote { if let on = raw.bool { chosen[key] = on } }
+                device.projectBranchRows = chosen
             }
             var prefs = view
             if let raw = value["sortBy"]?.string, let sort = SessionSortBy(rawValue: raw) { prefs.sortBy = sort }

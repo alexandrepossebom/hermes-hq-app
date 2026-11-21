@@ -38,6 +38,8 @@ final class SessionsHeaderModel {
     /// lit one(s) (Filter › Project's picks).
     var pills: SessionPills = .bots
     var projects: [SessionProjectPill] = []
+    /// [project-look] The projects' own emoji and colour (key → look; only the ones that say something).
+    var projectLooks: [String: ProjectLook] = [:]
     var pickedProjects: Set<String> = []
     /// [project-pills] A bot picked another way (Filter › All Bots off) keeps All from lighting.
     var botPicked = false
@@ -735,12 +737,29 @@ struct ProjectPillMark: View {
     var state: SessionProjectState
     var archived: Bool
     var picked: Bool
+    /// [project-look] The project's own emoji and colour: they stand where the folder did, and a project that needs the
+    /// owner, has a new reply or is at work keeps that state's mark as a small badge on its corner.
+    var look = ProjectLook()
 
     var body: some View {
         let ink = picked ? Color.hqOnTint : Color.hqLabel
         Group {
             if archived {
                 Image(systemName: "archivebox").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium)).foregroundStyle(ink.opacity(0.7))
+            } else if !look.isEmpty {
+                // On a picked pill a colour would fight the tint: the folder takes the pill's ink (an emoji keeps its own).
+                ProjectLookMark(look: look, size: 15, ink: picked ? Color.hqOnTint : nil)
+                    .overlay(alignment: .topTrailing) {
+                        Group {
+                            switch state {
+                            case .needsYou: Circle().fill(picked ? Color.hqOnTint : Color.hqOrange).frame(width: 7, height: 7)
+                            case .ready: Circle().fill(picked ? Color.hqOnTint : Color.hqTint).frame(width: 7, height: 7)
+                            case .working: StatusChipMark(chip: .working, picked: picked).scaleEffect(0.7)
+                            case .quiet: EmptyView()
+                            }
+                        }
+                        .offset(x: 3, y: -3)
+                    }
             } else {
                 switch state {
                 case .needsYou: Circle().fill(picked ? Color.hqOnTint : Color.hqOrange).frame(width: 8, height: 8)

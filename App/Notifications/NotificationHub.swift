@@ -267,6 +267,11 @@ import UIKit
             AppLog.note("notify", "muted \(kind) \(AppLog.tag(session))")
             return false
         }
+        // [project-mute] The chat's project is on Only When It Needs Me or Mute: no alert and no peek for what it quiets.
+        guard ProjectMuteCenter.shared.allows(kind: kind, session: entry?.stored ?? session) else {
+            AppLog.note("notify", "project quiets \(kind) \(AppLog.tag(session))")
+            return false
+        }
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
             // No permission: inside the app a reply still peeks.
             AppLog.trace("notify", "\(kind) \(AppLog.tag(session)) skipped: not authorized")
@@ -421,6 +426,11 @@ import UIKit
         // Per-bot Mute: a muted bot's finished reply shows nothing while the app is open (the extension already made it quiet).
         if let profile = target?.profile ?? directory[session]?.profile, !BotMuteCenter.shared.allows(kind: muteKind, profile: profile) {
             AppLog.trace("notify", "incoming \(kind) \(AppLog.tag(session)) presented as nothing: bot muted")
+            return []
+        }
+        // [project-mute] As a muted bot's: the extension already made it quiet, and it shows nothing in the open app.
+        if !ProjectMuteCenter.shared.allows(kind: muteKind, session: session) {
+            AppLog.trace("notify", "incoming \(kind) \(AppLog.tag(session)) presented as nothing: project quiets it")
             return []
         }
         // [mac] Stress test 2026-10-28 #31: a Mac app runs while another app is in front, where the window (and a peek in

@@ -377,14 +377,17 @@ extension AppModel: SessionsServices {}
         let holders = store.projectHolders(key: key)
         let label = holders.first?.project.label ?? store.projectEntries().first { $0.key == key }?.label
             ?? (key as NSString).lastPathComponent
+        // [project-new-chat-model] Project Settings › New Chats: the model and reasoning the chat starts with (read as
+        // the chat starts, so a choice made a moment ago counts); nothing chosen adds nothing to `session.create`.
         let start: (String) -> Void = { [weak self] profile in
+            let chosen = self?.store?.projectNewChat(key).createParams ?? [:]
             if let held = holders.first(where: { $0.profile == profile }) {
-                self?.newChat(profile: profile, folder: held.project.root)
+                self?.newChat(profile: profile, folder: held.project.root, start: chosen)
             } else if !holders.isEmpty, holders.allSatisfy({ $0.project.isAuto == true }) {
                 // [own-folder] A folder Hermes found, saved by nobody: the chat starts there and no project is made.
-                self?.newChat(profile: profile, folder: key)
+                self?.newChat(profile: profile, folder: key, start: chosen)
             } else {
-                self?.addProjectThenChat(profile: profile, name: label, folder: key)
+                self?.addProjectThenChat(profile: profile, name: label, folder: key, start: chosen)
             }
         }
         // [sessions-ux] The chooser says which project the chat starts in, the project's own bots first (it read
@@ -417,7 +420,7 @@ extension AppModel: SessionsServices {}
 
     /// A bot without the project: `projects.create` for it with the project's name and folder, then the new chat there.
     /// A failure is said, not hidden: the chat never starts outside the project.
-    private func addProjectThenChat(profile: String, name: String, folder: String) {
+    private func addProjectThenChat(profile: String, name: String, folder: String, start: [String: JSONValue] = [:]) {
         guard let store else { return }
         let hud = slowHUD("Adding Project…")
         Task { [weak self] in
@@ -426,13 +429,13 @@ extension AppModel: SessionsServices {}
                 let project = try await store.createProject(name: name, folder: folder, profile: profile)
                 hud()
                 store.loadProjects(force: true, also: [profile])
-                self?.newChat(profile: profile, folder: project.root)
+                self?.newChat(profile: profile, folder: project.root, start: start)
             } catch is CancellationError {
             } catch {
                 guard let self else { return }
                 let reason = SessionActionText.reason(error)
                 let retry: (() -> Void)? = reason == SessionActionText.projectsUnsupported ? nil : { [weak self] in
-                    self?.addProjectThenChat(profile: profile, name: name, folder: folder)
+                    self?.addProjectThenChat(profile: profile, name: name, folder: folder, start: start)
                 }
                 FailureAlert.present(title: "Couldn’t Start a New Chat", reason: reason, detail: SessionActionText.detail(error),
                                      from: self.host, retry: retry)
@@ -485,15 +488,17 @@ extension AppModel: SessionsServices {}
     /// and writes its row only with the first prompt, so a stored id taken here and opened as a listed chat names a
     /// row that does not exist yet.
     /// `folder`: a project's root; the chat starts there.
-    func newChat(profile: String, folder: String? = nil) {
+    /// [project-new-chat-model] `start`: what the project's settings add to `session.create`.
+    func newChat(profile: String, folder: String? = nil, start: [String: JSONValue] = [:]) {
         Haptics.play(.soft)
         if let starter = services as? BotChatStarting, let bot = services.bots.first(where: { $0.id == profile }) {
-            host?.openChat(model: starter.newChat(for: bot, folder: folder), fresh: true)
+            let chat = start.isEmpty ? starter.newChat(for: bot, folder: folder) : starter.newChat(for: bot, folder: folder, start: start)
+            host?.openChat(model: chat, fresh: true)
             return
         }
         guard let store else { return }
         run("Couldn’t Start a New Chat", {
-            let made = try await store.newChat(profile: profile, folder: folder)
+            let made = try await store.newChat(profile: profile, folder: folder, start: start)
             let summary = SessionSummary(id: made.storedId, profile: made.profile, title: "New Chat", preview: nil, lastActive: Date(),
                                          source: nil, unread: false, isRunning: false)
             self.host?.openChat(summary, fresh: true)

@@ -314,9 +314,37 @@ private let noon = Date(timeIntervalSince1970: 1_791_720_000)
         return Data(base64Encoded: doc["key"] as? String ?? "") ?? Data()
     }
 
-    private static func process(_ name: String, mutes: [String: BotMute]) -> UNNotificationContent {
-        let env = NotificationOpener.Environment(keys: { [key] }, face: { _, _ in nil }, locked: { false }, record: { _ in }, mutes: { mutes })
+    private static func process(_ name: String, mutes: [String: BotMute], projects: ProjectMutes.Levels = [:]) -> UNNotificationContent {
+        let env = NotificationOpener.Environment(keys: { [key] }, face: { _, _ in nil }, locked: { false }, record: { _ in }, mutes: { mutes },
+                                                 projectLevels: { projects })
         return NotificationOpener.process(content(name), environment: env)
+    }
+
+    /// [project-mute] A push names its account and chat: a chat in a project on Only When It Needs Me or Mute gets its
+    /// finished reply quietly (words kept), an approval stays loud at either level, and another chat or another
+    /// gateway's chat of that id is untouched.
+    @Test func aQuietedProjectsReplyArrivesQuietlyAndApprovalsStillAlert() throws {
+        let open = Self.process("turnDone", mutes: [:])
+        let remote = try #require(open.userInfo["dispatch"] as? [String: Any])
+        let account = try #require(remote["account"] as? String), session = try #require(remote["session"] as? String)
+        #expect(!account.isEmpty && !session.isEmpty)
+        #expect(open.interruptionLevel != .passive && open.sound != nil)
+        for level in [ProjectNotify.needsMe, .mute] {
+            let levels: ProjectMutes.Levels = [account: [session: level]]
+            let quiet = Self.process("turnDone", mutes: [:], projects: levels)
+            #expect(quiet.interruptionLevel == .passive && quiet.sound == nil, "\(level): no sound, no banner")
+            #expect(quiet.body == open.body && quiet.threadIdentifier == open.threadIdentifier, "its words are kept for Notification Center")
+        }
+        let approvalRemote = try #require(Self.process("approval", mutes: [:]).userInfo["dispatch"] as? [String: Any])
+        let approvalSession = try #require(approvalRemote["session"] as? String)
+        for level in [ProjectNotify.needsMe, .mute] {
+            let approval = Self.process("approval", mutes: [:], projects: [account: [approvalSession: level]])
+            #expect(approval.interruptionLevel != .passive && approval.sound != nil, "\(level): an approval stays loud")
+            #expect(approval.categoryIdentifier == NotificationHub.approvalCategory)
+        }
+        #expect(Self.process("turnDone", mutes: [:], projects: [account: ["another-chat": .mute]]).interruptionLevel != .passive)
+        #expect(Self.process("turnDone", mutes: [:], projects: ["another-gateway": [session: .mute]]).interruptionLevel != .passive)
+        #expect(Self.process("turnDone", mutes: [:], projects: [account: [session: .all]]).interruptionLevel != .passive)
     }
 
     @Test func aMutedBotsReplyArrivesQuietlyAndApprovalsStillAlert() throws {

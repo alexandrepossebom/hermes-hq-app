@@ -24,13 +24,21 @@ extension SessionsTests {
         XCTAssertTrue(budget.waitForExistence(timeout: 6), "Quarterly budget is Website's")
         XCTAssertFalse(header(app, "Pinned").exists, "nothing pinned here yet")
 
+        // [project-settings] The switch is on the project's settings page now (⋯ › Project Settings…).
         let more = app.buttons["sessions.projectPage.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 5))
         more.tap()
-        let local = app.buttons["Pins Stay in Project"]
-        XCTAssertTrue(local.waitForExistence(timeout: 5), "the ⋯ has Pins Stay in Project")
+        let settings = app.buttons["Project Settings…"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5), "the ⋯ has Project Settings…")
+        XCTAssertFalse(app.buttons["Pins Stay in Project"].exists, "the switch left the ⋯")
         shot(app, "PP1-project-menu")
-        local.tap()
+        settings.tap()
+        let local = app.switches["sessions.projectPage.localPins"]
+        XCTAssertTrue(local.waitForExistence(timeout: 8), "Project Settings has Pins Stay in Project")
+        XCTAssertEqual(local.value as? String, "0", "off until turned on")
+        flipProjectSwitch(app, "sessions.projectPage.localPins", to: true)
+        shot(app, "PP1b-project-settings")
+        closeProjectSettings(app)
         Thread.sleep(forTimeInterval: 0.8)
 
         openMenu(app, budget, until: "Pin")

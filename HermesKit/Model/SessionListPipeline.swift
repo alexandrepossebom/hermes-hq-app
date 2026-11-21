@@ -81,6 +81,13 @@ nonisolated struct SessionListInput: Sendable {
     var projectPins: [String: Set<String>] = [:]
     /// [project-sort] Projects whose page lists Active newest first (no state order): project keys.
     var projectsByNewest: Set<String> = []
+    /// [project-keep] Projects whose chats stay on their own page (keys): out of Recent, the days, Group By Status and
+    /// Group By Bot, and the status chips; still in their project (its page, row and counts), in Pinned when pinned
+    /// everywhere, and in New for You and under the New chip while they wait on the owner.
+    var keptProjects: Set<String> = []
+    /// [project-auto-done] Move Quiet Chats to Done, per project key: on that project's page a quiet live chat past
+    /// the age (or whose pull request merged) is listed in Done. Display only.
+    var projectAutoDone: [String: ProjectAutoDone] = [:]
     /// Group By Bot's headers: each bot's display name by profile (missing: the profile).
     var botNames: [String: String] = [:]
     /// [sessions-fresh] The header's New or Working chip (in memory, as the bot chip).
@@ -154,13 +161,21 @@ nonisolated enum SessionListPipeline {
         var counts: [SessionStatusChip: Int] = [:]
         let picked = input.prefs.pills == .projects ? input.prefs.projectFilter.intersection(input.projects.map(\.key)) : []
         let hidden = hiddenProjects(input)
+        // [project-keep] As the chip's list: a kept project's chats count under New while they wait on the owner, and
+        // nowhere else (on the project's own page every one counts).
+        let kept = picked.isEmpty ? input.keptProjects : []
         for session in input.live where input.botFilter == nil || session.profile == input.botFilter {
-            if !picked.isEmpty || !hidden.isEmpty {
+            var away = false
+            if !picked.isEmpty || !hidden.isEmpty || !kept.isEmpty {
                 let found = SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: input.projectsByProfile)
                 if !picked.isEmpty, !picked.contains(found) { continue }
                 if picked.isEmpty, hidden.contains(found) { continue }
+                away = kept.contains(found)
             }
-            for chip in SessionStatusChip.allCases where matches(chip, session) { counts[chip, default: 0] += 1 }
+            for chip in SessionStatusChip.allCases where matches(chip, session) {
+                if away, !(chip == .new && session.status == .needsInput) { continue }
+                counts[chip, default: 0] += 1
+            }
         }
         return counts
     }
@@ -229,7 +244,10 @@ nonisolated enum SessionListPipeline {
         let isPage = prefs.pills == .projects && picked.count == 1 && !isFlat(prefs)
         if isPage, !prefs.showArchived { pool += input.archived }
         let hidden = picked.isEmpty ? hiddenProjects(input) : []
-        let needsProject = !picked.isEmpty || !hidden.isEmpty || isFresh(prefs) || (prefs.groupBy == .project && !isFlat(prefs))
+        // [project-keep] Owner 2026-11-20: a project's chats can stay on its page. A project picked by the filter is
+        // being looked at: nothing of it is kept away.
+        let kept = picked.isEmpty ? input.keptProjects : []
+        let needsProject = !picked.isEmpty || !hidden.isEmpty || !kept.isEmpty || isFresh(prefs) || (prefs.groupBy == .project && !isFlat(prefs))
         var projectOf: [String: String] = [:]
         func key(_ session: SessionSummary) -> String { session.profile + "\u{1F}" + session.id }
         func project(_ session: SessionSummary) -> String { projectOf[key(session)] ?? SessionProjects.homeKey }
@@ -263,9 +281,13 @@ nonisolated enum SessionListPipeline {
         if isPage, let key = picked.first {
             return projectPage(key, rows: rows, input: input)
         }
+        /// [project-keep] A kept project's chat: listed in its project alone. `asks`: it waits on the owner (an
+        /// approval, a question), which never hides.
+        func keptAway(_ session: SessionSummary) -> Bool { !kept.isEmpty && kept.contains(project(session)) }
+        func asks(_ session: SessionSummary) -> Bool { session.status == .needsInput }
         if let chip = input.statusChip {
             // [sessions-fresh] A status chip: its chats alone, newest first, in one run (Pinned's too).
-            let run = sort(rows.filter { matches(chip, $0, keep: input.keepNew) }, by: .updated)
+            let run = sort(rows.filter { matches(chip, $0, keep: input.keepNew) && (!keptAway($0) || (chip == .new && asks($0))) }, by: .updated)
             return run.isEmpty ? [] : [SessionGroup(id: chipId, title: "", sessions: run)]
         }
         let folders = foldersShown ? self.folders(input, skipping: seen) : []
@@ -280,16 +302,20 @@ nonisolated enum SessionListPipeline {
         let sorted = sort(rows, by: prefs.sortBy)
         // [sessions-layout] New for You lifts what waits on the user out of every group below it, as Pinned does.
         let lifts = !isFlat(prefs) && prefs.statusFilter.isEmpty && !isFresh(prefs)
-        let fresh = lifts ? sort(rows.filter { isNew($0, keep: input.keepNew) }, by: .updated) : []
+        // [project-keep] A kept project's chat is in New for You only while it waits on the owner (not for a reply
+        // not read yet).
+        let fresh = lifts ? sort(rows.filter { isNew($0, keep: input.keepNew) && (!keptAway($0) || asks($0)) }, by: .updated) : []
         let lifted = Set(fresh.map(key))
         let pinned = ranked(sorted.filter { $0.pinned && !lifted.contains(key($0)) })
         // A project keeps its new chats to count them (`folded` leaves them out of its rows).
         let keepsNew = prefs.groupBy == .project
         let rest = sorted.filter { !$0.pinned && (keepsNew || !lifted.contains(key($0))) }
+        // [project-keep] Every list below but a project's own leaves the kept projects' chats out.
+        let listedRest = kept.isEmpty ? rest : rest.filter { !keptAway($0) }
         var out = fresh.isEmpty ? [] : [SessionGroup(id: newId, title: newTitle, sessions: fresh)]
         if !pinned.isEmpty { out.append(SessionGroup(id: "pinned", title: "Pinned", sessions: pinned)) }
         if isFlat(prefs) {
-            return out + (rest.isEmpty ? [] : [SessionGroup(id: flatId, title: "", sessions: rest)]) + folders
+            return out + (listedRest.isEmpty ? [] : [SessionGroup(id: flatId, title: "", sessions: listedRest)]) + folders
         }
         // [pinned-in-project] Owner 2026-11-15 ("A"): a pinned chat shows in Pinned and stays inside its project, so
         // pinning a project's only chat no longer hides the project (and "See All" counts it). Home is no project: its
@@ -366,7 +392,7 @@ nonisolated enum SessionListPipeline {
                                             sessions: ranked(homeRows)))
                 }
             }
-            let recent = prefs.projectChatsInRecent ? rest : rest.filter { !shownProjects.contains(project($0)) }
+            let recent = prefs.projectChatsInRecent ? listedRest : listedRest.filter { !shownProjects.contains(project($0)) }
             // [sessions-shape] One long "Recent" had no landmarks: sorted by a date (Updated, Created) it is split by
             // the day, Today, Yesterday, This Week (the five days before) and Older; any other sort keeps one Recent.
             let sortedRecent = ranked(sort(recent, by: prefs.sortBy))
@@ -388,8 +414,8 @@ nonisolated enum SessionListPipeline {
                 out.append(SessionGroup(id: recentId, title: recentTitle, sessions: sortedRecent))
             }
         case .status:
-            let working = ranked(rest.filter { $0.status == .working || $0.status == .needsInput })
-            let done = ranked(rest.filter { $0.status != .working && $0.status != .needsInput })
+            let working = ranked(listedRest.filter { $0.status == .working || $0.status == .needsInput })
+            let done = ranked(listedRest.filter { $0.status != .working && $0.status != .needsInput })
             if !working.isEmpty { out.append(SessionGroup(id: "status-working", title: "Working", sessions: working)) }
             if !done.isEmpty { out.append(SessionGroup(id: "status-done", title: "Done", sessions: done)) }
         case .project:
@@ -417,7 +443,7 @@ nonisolated enum SessionListPipeline {
             }.map(\.element)
         case .bot:
             // [manual-order] One group per bot, the bot with the newest chat first, then the user's order.
-            var groups = bucketed(rest) { session in
+            var groups = bucketed(listedRest) { session in
                 (botPrefix + session.profile, input.botNames[session.profile] ?? session.profile)
             }
             let newest = Dictionary(groups.map { ($0.id, $0.sessions.map(recency).max() ?? -.infinity) }, uniquingKeysWith: { first, _ in first })
@@ -459,7 +485,18 @@ nonisolated enum SessionListPipeline {
             row.projectPinned = localPins.contains(Self.key(row))
             return row
         }
-        let done = marked.filter { $0.archived && state($0) == .quiet }
+        // [project-auto-done] Owner 2026-11-20: Move Quiet Chats to Done. A live chat that is quiet, not pinned (here
+        // or everywhere), not read since the page was last left, and older than the chosen age (or, in a coding
+        // project, whose pull request merged) is listed in Done with the archived ones. Nothing is archived or written.
+        let rule = input.projectAutoDone[key]
+        func movedToDone(_ session: SessionSummary) -> Bool {
+            guard let rule, !session.archived, !session.pinned, !session.projectPinned,
+                  !input.keepNew.contains(Self.key(session)) else { return false }
+            if rule.onMerge, session.pullRequest?.state == .merged { return true }
+            guard let days = rule.days, let last = session.lastActive ?? session.startedAt else { return false }
+            return input.now.timeIntervalSince(last) > Double(days) * 86_400
+        }
+        let done = marked.filter { state($0) == .quiet && ($0.archived || movedToDone($0)) }
         let doneKeys = Set(done.map(Self.key))
         let rows = done.isEmpty ? marked : marked.filter { !doneKeys.contains(Self.key($0)) }
         var buckets: [SessionProjectState: [SessionSummary]] = [:]

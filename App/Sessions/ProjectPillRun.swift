@@ -117,7 +117,8 @@ struct ProjectPillRun: View {
                     identifier: "sessions.chip.project.\(index)", hasFace: true, lead: 12, lifted: lifted) {
             if Date() >= noTapUntil { model.onPickProject(picked ? nil : project.key) }
         } face: {
-            ProjectPillMark(state: project.state, archived: project.archived, picked: picked)
+            ProjectPillMark(state: project.state, archived: project.archived, picked: picked,
+                            look: model.projectLooks[project.key] ?? ProjectLook())   // [project-look]
         }
         .opacity(project.archived && !picked ? 0.6 : 1)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths[project.key] = $0 }

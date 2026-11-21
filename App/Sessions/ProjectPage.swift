@@ -42,12 +42,14 @@ struct ProjectPageHeader: View {
     var selectedPR: SessionPRStatus.State? = nil
     var onPRPick: (SessionPRStatus.State) -> Void = { _ in }
     var onCodingChange: (Bool) -> Void = { _ in }
-    /// [project-pins] ⋯ › Pins Stay in Project: Pin on this page pins the chat here alone.
-    var localPins = false
     /// [project-sort] ⋯ › Sort.
     var sort: ProjectPageSort = .needsMeFirst
     var onSortChange: (ProjectPageSort) -> Void = { _ in }
-    var onLocalPinsChange: (Bool) -> Void = { _ in }
+    /// [project-settings] ⋯ › Project Settings…: the project's own settings, on one page (Pins Stay in Project moved
+    /// there from this menu).
+    var onSettings: () -> Void = {}
+    /// [project-look] The project's emoji and colour, before its name.
+    var look = ProjectLook()
     var onInfo: () -> Void = {}
     /// [pr-manage] The ⋯'s Repository… (the project's repository on the computer running Hermes); nil on a gateway
     /// that takes no links, and it shows only while Coding Project is on.
@@ -179,6 +181,11 @@ struct ProjectPageHeader: View {
             // away, starts the chat in this project (and says so: "New Chat in <project>"); the capsule beside the
             // name was a second button for the same thing.
             HStack(spacing: 4) {
+                if !look.isEmpty {
+                    ProjectLookMark(look: look, size: 18)
+                        .padding(.trailing, 2)
+                        .accessibilityIdentifier("sessions.projectPage.look")
+                }
                 Text(name)
                     .font(Font.hq(.title3).weight(.bold))
                     .foregroundStyle(Color.hqLabel)
@@ -243,16 +250,13 @@ struct ProjectPageHeader: View {
     private func moreButton(_ menu: BotMenu?) -> some View {
         HeaderMoreButton(label: "Actions for \(name)", identifier: "sessions.projectPage.more", glyph: Theme.isDesktop ? 14 : 17,
                          cap: 22, height: HQFont.scaled(carded ? 26 : 30), above: 8) {
+            Button(action: onSettings) { Label("Project Settings…", systemImage: "gearshape") }
+                .accessibilityIdentifier("sessions.projectPage.settings")
             Toggle(isOn: Binding(get: { coding }, set: onCodingChange)) {
                 Label("Coding Project", systemImage: "chevron.left.forwardslash.chevron.right")
             }
             .accessibilityHint("Shows pull request status instead of timestamps in this project")
             .accessibilityIdentifier("sessions.projectPage.coding")
-            Toggle(isOn: Binding(get: { localPins }, set: onLocalPinsChange)) {
-                Label("Pins Stay in Project", systemImage: "pin")
-            }
-            .accessibilityHint("Pinning a chat here pins it in this project only, not in your other lists")
-            .accessibilityIdentifier("sessions.projectPage.localPins")
             Picker(selection: Binding(get: { sort }, set: onSortChange)) {
                 ForEach(ProjectPageSort.allCases, id: \.self) { Text($0.title).tag($0) }
             } label: {
@@ -372,6 +376,26 @@ struct ProjectPageHeader: View {
 }
 
 extension SessionsViewController {
+    /// [project-settings] ⋯ › Project Settings…: the project's settings as a sheet titled with its name. The page
+    /// behind redraws as each setting changes.
+    func presentProjectSettings(_ key: String, name: String) {
+        guard let store else { return }
+        let usual = organizer?.projectDefaultBot(key: key) ?? store.projectHolders(key: key).first?.profile ?? "default"
+        let botName = owners[usual]?.name ?? Self.readableProfileName(usual)
+        let page = ProjectSettingsPage(project: key, store: store, bot: (usual, botName)) { [weak self] in
+            self?.reload(animated: false)
+        }
+        present(ChatSheet.wrap(UIHostingController(rootView: page), title: name, detents: [.large()]), animated: true)
+    }
+
+    /// [project-settings] What of a project's settings its page's header and rows draw (the header redraws when it
+    /// changes).
+    func projectSettingsSign(_ key: String) -> String {
+        guard let store else { return "" }
+        let look = store.projectLook(key)
+        return "\(look.emoji ?? "")/\(look.color.map(String.init) ?? "")/\(store.isProjectBranchRows(key))"
+    }
+
     /// Count the entire loaded project, not just the visible, folded, or filtered piles.
     func projectPRCounts(_ key: String) -> [SessionPRStatus.State: Int] {
         guard let store else { return [:] }
