@@ -90,7 +90,7 @@ extension PagesTests {
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
         let plus = app.buttons["tasks.new"].firstMatch
         XCTAssertTrue(plus.waitForExistence(timeout: 20))
-        app.buttons["tasks.view.inbox"].firstMatch.tap()
+        tapView("inbox")
         plus.tap()
         let title = app.textFields["tasks.new.title"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10))
@@ -118,7 +118,7 @@ extension PagesTests {
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
         let plus = app.buttons["tasks.new"].firstMatch
         XCTAssertTrue(plus.waitForExistence(timeout: 20))
-        app.buttons["tasks.view.inbox"].firstMatch.tap()
+        tapView("inbox")
         plus.tap()
         let title = app.textFields["tasks.new.title"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10))
