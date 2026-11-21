@@ -83,4 +83,47 @@ import Testing
         first.adoptSynced(["sortBy": "updated"], merge: .replace, base: nil)
         #expect(first.isCodingProject("/a"), "old sync documents do not erase the setting")
     }
+
+    /// [project-pins] Pins Stay in Project and its pins: kept per account, synced, and an old document erases neither.
+    @Test @MainActor func projectOnlyPinsPersistAndSync() throws {
+        let dir = BotsTest.tempDirectory()
+        func store() -> SessionStore {
+            SessionStore(client: BotsFakeGatewayClient(), account: .botsTestAccount, cacheDirectory: dir, timing: .fast, autoStart: false)
+        }
+        let chat = SessionSummary(id: "c1", profile: "default", title: "c1", preview: nil, lastActive: nil,
+                                  source: nil, unread: false, isRunning: false)
+        let first = store()
+        #expect(!first.isProjectPinsLocal("/a"))
+        first.setProjectPinsLocal("/a", true)
+        first.setProjectPinned(chat, project: "/a", true)
+        RosterDiskWriter.shared.flush()
+        let again = store()
+        #expect(again.isProjectPinsLocal("/a") && !again.isProjectPinsLocal("/b"))
+        #expect(again.projectPinKeys == ["/a": ["default\u{1F}c1"]])
+        let synced = first.syncValue()
+        #expect(synced["projectPinsLocal"]?["/a"]?.bool == true)
+        #expect(synced["projectPins"]?["/a"]?.array?.compactMap(\.string) == ["default\u{1F}c1"])
+        first.setProjectPinned(chat, project: "/a", false)
+        first.setProjectPinsLocal("/a", false)
+        #expect(first.projectPinKeys.isEmpty)
+        #expect(first.syncValue()["projectPinsLocal"]?["/a"]?.bool == false, "turning it off is carried")
+        first.adoptSynced(synced, merge: .replace, base: nil)
+        #expect(first.isProjectPinsLocal("/a") && first.projectPinKeys["/a"] == ["default\u{1F}c1"])
+        first.adoptSynced(["sortBy": "updated"], merge: .replace, base: nil)
+        #expect(first.isProjectPinsLocal("/a") && first.projectPinKeys["/a"] != nil, "old sync documents erase nothing")
+        let old = try JSONDecoder().decode(SessionsDeviceState.self, from: Data("{}".utf8))
+        #expect(old.projectPins.isEmpty && old.projectPinsLocal.isEmpty && old.projectSorts.isEmpty)
+        // [project-sort] Sort: kept, synced, an old document erases it not.
+        #expect(first.projectSort("/a") == .needsMeFirst)
+        first.setProjectSort("/a", .newest)
+        RosterDiskWriter.shared.flush()
+        #expect(store().projectSort("/a") == .newest)
+        let sorted = first.syncValue()
+        #expect(sorted["projectSorts"]?["/a"]?.string == "newest")
+        first.setProjectSort("/a", .needsMeFirst)
+        first.adoptSynced(sorted, merge: .replace, base: nil)
+        #expect(first.projectSort("/a") == .newest)
+        first.adoptSynced(["sortBy": "updated"], merge: .replace, base: nil)
+        #expect(first.projectSort("/a") == .newest)
+    }
 }

@@ -295,6 +295,22 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
   so the name keeps its room); a caption with a hold menu (a bot's under Group By Bot) has it at its end, after any +.
   Each is a 44 pt touch opening the same items as holding the header (`ProjectHeaderMenuItems`); a tap on the row
   still folds it, and VoiceOver finds the ⋯ as its own button, "Actions for <name>" (`sessions.header.menu`).
+- **DECISION (2026-11-20, owner): a project's pins can stay in the project** [project-pins]. The project page's ⋯
+  has Pins Stay in Project (`sessions.projectPage.localPins`, per project, off until turned on). On, Pin on that
+  page (row menu, swipe, the Mac's hover) pins the chat on that page alone: it joins the page's Pinned pile, its row
+  says "Pinned in project", and no `pinned` write reaches the gateway, so Pinned everywhere else is unchanged
+  (`SessionStore.setProjectPinned`, `SessionsOrganizer.pin`). Such a pin unpins on its page whatever the switch says;
+  a chat pinned everywhere still unpins everywhere. The switch and the pins (project key → row keys) are kept with
+  the hand-picked parts and synced in the "sessions" document (`projectPinsLocal`, `projectPins`); an older document
+  without them erases neither. Step 3 is unchanged for every other list: only `SessionListPipeline.projectPage` reads
+  `SessionListInput.projectPins`.
+- **DECISION (2026-11-21, owner): opening a chat does not move it on a project's page** [read-holds]. "Sessions here
+  move when you open them": Active orders Needs You, New, Working, then the rest, and reading a New chat dropped it to
+  the rest. A chat read since the page was last left (`keepNew`, the same hold New for You uses) keeps its New rank
+  until the page is left (another tab, the app in the background); the header's counts say what is.
+- **DECISION (2026-11-21, owner): a project's page has its own Sort** [project-sort]. ⋯ › Sort: Needs Me First (the
+  default, the order above) or Newest (one run by the list's sort; reading or a reply's New state moves nothing).
+  Kept per project and synced (`projectSorts`); an older document erases it not.
 - **DECISION (2026-11-19, a tester, then the owner): Home is on the Bots side** [bot-home]. Group By Recent with a
   project shown: "Projects" ends with a Home row (the house, its count), the chats in no project, pinned ones
   counted: every bot's under All (one bucket, as Hermes's own sidebar merges the profiles' Homes), the picked bot's

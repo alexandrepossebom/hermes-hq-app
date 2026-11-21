@@ -44,7 +44,7 @@ extension AppModel: SessionsServices {}
     /// Up / Move Down act in the group that row is in; nil is the chat's own row.
     func menuNodes(for session: SessionSummary, row: String? = nil) -> [BotMenuNode] {
         let tiles: [BotMenuNode] = [
-            .action(session.pinned ? "Unpin" : "Pin", session.pinned ? "pin.slash" : "pin") { [weak self] in self?.pin(session) },
+            .action(Self.pinned(session) ? "Unpin" : "Pin", Self.pinned(session) ? "pin.slash" : "pin") { [weak self] in self?.pin(session) },
             // UX study 2026-10-19 #35: a verb, as the Bots menus say it; "Mark Read" (not "Mark as Read") fits a third of
             // the tile row at Extra Large text. The swipe buttons keep their short titles.
             .action(Self.readTitle(unread: session.unread), session.unread ? "envelope.open" : "envelope.badge") { [weak self] in
@@ -177,11 +177,11 @@ extension AppModel: SessionsServices {}
         read.image = UIImage(systemName: session.unread ? "envelope.open.fill" : "envelope.badge.fill")
         read.backgroundColor = HQPalette.tint
         read.accessibilityLabel = session.unread ? "Mark as Read" : "Mark as Unread"
-        let pin = UIContextualAction(style: .normal, title: session.pinned ? "Unpin" : "Pin") { [weak self] _, _, done in
+        let pin = UIContextualAction(style: .normal, title: Self.pinned(session) ? "Unpin" : "Pin") { [weak self] _, _, done in
             self?.pin(session)
             done(true)
         }
-        pin.image = UIImage(systemName: session.pinned ? "pin.slash.fill" : "pin.fill")
+        pin.image = UIImage(systemName: Self.pinned(session) ? "pin.slash.fill" : "pin.fill")
         pin.backgroundColor = .systemOrange
         let actions = UISwipeActionsConfiguration(actions: [read, pin])
         actions.performsFirstActionWithFullSwipe = true
@@ -543,8 +543,20 @@ extension AppModel: SessionsServices {}
         run(closed ? "Couldn’t Mark as Closed" : "Couldn’t Reopen", owner: session.owner) { try await store.setPRClosed(session, closed) }
     }
 
+    /// [project-pins] Pinned as the row shows it: everywhere, or on this project's page alone.
+    static func pinned(_ session: SessionSummary) -> Bool { session.pinned || session.projectPinned }
+
     func pin(_ session: SessionSummary) {
         guard let store else { return }
+        // [project-pins] On a project's page: a chat pinned there alone unpins there; with Pins Stay in Project on, an
+        // unpinned chat pins there alone. A chat pinned everywhere still unpins everywhere (it says so wherever it is).
+        if onProjectPage, let key = host?.projectPageKey {
+            if session.projectPinned || (!session.pinned && store.isProjectPinsLocal(key)) {
+                Haptics.play(.selection)
+                store.setProjectPinned(session, project: key, !session.projectPinned)
+                return
+            }
+        }
         Haptics.play(.selection)
         let pinned = !session.pinned
         run(pinned ? "Couldn’t Pin Chat" : "Couldn’t Unpin Chat", owner: session.owner) { try await store.setPinned(session, pinned) }

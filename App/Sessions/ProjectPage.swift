@@ -42,6 +42,12 @@ struct ProjectPageHeader: View {
     var selectedPR: SessionPRStatus.State? = nil
     var onPRPick: (SessionPRStatus.State) -> Void = { _ in }
     var onCodingChange: (Bool) -> Void = { _ in }
+    /// [project-pins] ⋯ › Pins Stay in Project: Pin on this page pins the chat here alone.
+    var localPins = false
+    /// [project-sort] ⋯ › Sort.
+    var sort: ProjectPageSort = .needsMeFirst
+    var onSortChange: (ProjectPageSort) -> Void = { _ in }
+    var onLocalPinsChange: (Bool) -> Void = { _ in }
     var onInfo: () -> Void = {}
     /// [pr-manage] The ⋯'s Repository… (the project's repository on the computer running Hermes); nil on a gateway
     /// that takes no links, and it shows only while Coding Project is on.
@@ -242,6 +248,18 @@ struct ProjectPageHeader: View {
             }
             .accessibilityHint("Shows pull request status instead of timestamps in this project")
             .accessibilityIdentifier("sessions.projectPage.coding")
+            Toggle(isOn: Binding(get: { localPins }, set: onLocalPinsChange)) {
+                Label("Pins Stay in Project", systemImage: "pin")
+            }
+            .accessibilityHint("Pinning a chat here pins it in this project only, not in your other lists")
+            .accessibilityIdentifier("sessions.projectPage.localPins")
+            Picker(selection: Binding(get: { sort }, set: onSortChange)) {
+                ForEach(ProjectPageSort.allCases, id: \.self) { Text($0.title).tag($0) }
+            } label: {
+                Label("Sort", systemImage: "arrow.up.arrow.down")
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("sessions.projectPage.sort")
             if coding, let onRepository {
                 Button(action: onRepository) { Label("Repository…", systemImage: "arrow.triangle.branch") }
                     .accessibilityIdentifier("sessions.projectPage.repository")

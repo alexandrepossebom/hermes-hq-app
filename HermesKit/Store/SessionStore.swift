@@ -95,6 +95,13 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     var projectBots: [String: String] = [:]
     /// Explicit project designation; false is retained so sync can propagate turning it off.
     var codingProjects: [String: Bool] = [:]
+    /// [project-pins] Projects whose page pins stay on the page (key → on; false kept so sync carries turning it off):
+    /// Pin there marks the chat in that project only, not the gateway's Pinned every list shows.
+    var projectPinsLocal: [String: Bool] = [:]
+    /// [project-pins] The chats pinned on a project's page alone: project key → row keys (`SessionListPipeline.key`).
+    var projectPins: [String: [String]] = [:]
+    /// [project-sort] Each project page's Sort (key → `ProjectPageSort` raw); absent: Needs Me First.
+    var projectSorts: [String: String] = [:]
 
     init() {}
 
@@ -102,7 +109,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
         case chatOrder, projectOrder, projectPillOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
-        case projectBots, codingProjects
+        case projectBots, codingProjects, projectPinsLocal, projectPins, projectSorts
     }
 
     init(from decoder: Decoder) throws {
@@ -126,6 +133,9 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         botFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botFolders)) ?? [:]
         projectBots = (try? c.decodeIfPresent([String: String].self, forKey: .projectBots)) ?? [:]
         codingProjects = (try? c.decodeIfPresent([String: Bool].self, forKey: .codingProjects)) ?? [:]
+        projectPinsLocal = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectPinsLocal)) ?? [:]
+        projectPins = (try? c.decodeIfPresent([String: [String]].self, forKey: .projectPins)) ?? [:]
+        projectSorts = (try? c.decodeIfPresent([String: String].self, forKey: .projectSorts)) ?? [:]
     }
 }
 

@@ -105,6 +105,12 @@ nonisolated enum SessionProjects {
 
 /// [project-pills] Owner 2026-11-15 ("a way to manage coding projects"): a project's state comes from its chats, never
 /// set by hand (it would be stale the moment a bot finished); only Archive is the owner's. In rank order.
+/// [project-sort] A project page's ⋯ › Sort: what needs the owner first (the default), or newest first.
+nonisolated enum ProjectPageSort: String, Hashable, Sendable, CaseIterable {
+    case needsMeFirst = "needs-me-first", newest
+    var title: String { self == .newest ? "Newest" : "Needs Me First" }
+}
+
 nonisolated enum SessionProjectState: Int, Hashable, Sendable, CaseIterable {
     /// A bot waits on the owner there (an approval, a question).
     case needsYou

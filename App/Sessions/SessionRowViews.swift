@@ -435,7 +435,7 @@ struct SessionRowView: View {
         if busy {
             ProgressView().controlSize(.small).accessibilityLabel("Deleting")
         } else if showsHover, let hover {
-            SessionRowHoverButtons(hover: hover, pinned: session.pinned, archived: session.archived)   // [mac-pane]
+            SessionRowHoverButtons(hover: hover, pinned: session.pinned || session.projectPinned, archived: session.archived)   // [mac-pane]
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
                 if codingProject, let pr = session.pullRequest, pr.state != .none {   // no code changes: no pill
@@ -459,7 +459,7 @@ struct SessionRowView: View {
                     .accessibilityHidden(true)
                 }
                 if showsWorkingDots { workingDots }   // [working-ring]
-                if session.pinned && !compact && fresh != .pinned {   // [sessions-layout] Pinned's own rows need no pin
+                if (session.pinned || session.projectPinned) && !compact && fresh != .pinned {   // [sessions-layout] Pinned's own rows need no pin
                     Image(systemName: "pin.fill")
                         .font(Font.hq(.caption2))
                         .foregroundStyle(Color.hqLabel3)
@@ -565,7 +565,7 @@ struct SessionRowView: View {
             if detail.contains(.cost), let cost = SessionRowWords.cost(session.cost) { parts.append(cost) }
             if detail.contains(.time), !time.isEmpty { parts.append(time) }
             if session.unread { parts.append("Unread") }
-            if session.pinned { parts.append("Pinned") }
+            if session.pinned { parts.append("Pinned") } else if session.projectPinned { parts.append("Pinned in project") }
             if session.archived { parts.append("Archived") }
             if let pr = session.pullRequest { parts.append("Pull request: " + pr.summary) }
             if muted { parts.append("Muted") }

@@ -352,6 +352,9 @@ nonisolated struct SessionSummary: Identifiable, Hashable, Sendable {
     var isRunning: Bool
     /// Sessions row actions: pinned on the gateway (the list's Pinned group), archived (the Archived view's rows).
     var pinned: Bool = false
+    /// [project-pins] Pinned on its project's page alone (device-synced, never the gateway's flag): it sits in the
+    /// page's Pinned pile and nowhere else's. Set by `SessionListPipeline.projectPage` on that page's rows only.
+    var projectPinned: Bool = false
     var archived: Bool = false
     /// More › Color: one of `SessionColors` (device-local), nil for none.
     var color: Int? = nil

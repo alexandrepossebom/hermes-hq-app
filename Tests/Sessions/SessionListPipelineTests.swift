@@ -660,7 +660,9 @@ import Testing
         #expect(working[0].needs == 1 && working[0].ready == 1 && working[0].busy == 1 && working[0].total == 5)
         #expect(run { $0.statusChip = .new }.dropFirst().flatMap(\.sessions).map(\.id) == ["b", "c"])
         let kept = run { $0.statusChip = .new; $0.keepNew = [SessionListPipeline.key(branch)] }
-        #expect(kept.dropFirst().flatMap(\.sessions).map(\.id) == ["b", "c", "e"])
+        // [read-holds] Owner 2026-11-21: a chat read since the page was last left keeps New's place (among the New
+        // chats by time, "e" newer than "c"), no longer sinking to the end (before: ["b", "c", "e"]).
+        #expect(kept.dropFirst().flatMap(\.sessions).map(\.id) == ["b", "e", "c"])
         // A closed pile opens for its matches; a pill with no match leaves the header alone.
         #expect(run { $0.statusChip = .working; $0.collapsedGroups = ["state-active"] }[1].sessions.map(\.id) == ["a"])
         let quiet = Self.run([branch]) {
@@ -802,6 +804,58 @@ import Testing
         // A project filter naming no listed project narrows nothing, so it opens nothing either (C-07).
         groups = run { $0.prefs.projectFilter = ["/gone"] }
         #expect(groups.filter { $0.id != SessionListPipeline.newId }.allSatisfy { $0.collapsed })
+    }
+
+    /// [project-pins] Owner 2026-11-20: a chat pinned on a project's page alone is in that page's Pinned pile and in no
+    /// other list's Pinned (Recent, Group By Status, another project's page).
+    @Test func aProjectOnlyPinStaysOnItsProjectsPage() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        let rows = Self.projectRows(4) + [Self.chat("pin", ago: 10, pinned: true)]
+        let local = "default\u{1F}s2"
+        func page(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(rows) {
+                $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries
+                $0.prefs.projectFilter = ["/home/hermes/site"]
+                edit(&$0)
+            }
+        }
+        let before = page()
+        #expect(before.first { $0.id == "state-pinned" } == nil)
+        let pinned = page { $0.projectPins = ["/home/hermes/site": [local]] }
+        let pile = pinned.first { $0.id == "state-pinned" }
+        #expect(pile?.sessions.map(\.id) == ["s2"] && pile?.sessions.first?.projectPinned == true)
+        let active = pinned.first { $0.id == "state-active" }
+        #expect(active?.sessions.contains { $0.id == "s2" } == false && active?.sessions.allSatisfy { !$0.projectPinned } == true)
+        // Another project's pins leave this page alone.
+        #expect(page { $0.projectPins = ["/elsewhere": [local]] }.first { $0.id == "state-pinned" } == nil)
+        // Every other list: the global Pinned holds only the chat pinned everywhere.
+        for grouping in [SessionGroupBy.date, .status] {
+            let list = Self.run(rows) { $0.prefs.groupBy = grouping; $0.projectPins = ["/home/hermes/site": [local]] }
+            #expect(list.first { $0.id == "pinned" }?.sessions.map(\.id) == ["pin"])
+            #expect(list.flatMap(\.sessions).allSatisfy { !$0.projectPinned })
+        }
+    }
+
+    /// [read-holds] Owner 2026-11-21: opening a New chat on a project's page leaves it where it was until the page is
+    /// left (`keepNew`); [project-sort] Sort › Newest lists by time alone, so reading moves nothing.
+    @Test func readingAChatOnAProjectPageDoesNotMoveIt() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        var rows = Self.projectRows(4)   // s0 and s3 unread
+        func active(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [String] {
+            Self.run(rows) {
+                $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries
+                $0.prefs.projectFilter = ["/home/hermes/site"]
+                edit(&$0)
+            }.first { $0.id == "state-active" }?.sessions.map(\.id) ?? []
+        }
+        #expect(active() == ["s0", "s3", "s1", "s2"])
+        rows[3].unread = false; rows[3].status = .idle            // s3 opened and read
+        #expect(active { $0.keepNew = ["default\u{1F}s3"] } == ["s0", "s3", "s1", "s2"], "held while the page is on show")
+        #expect(active() == ["s0", "s1", "s2", "s3"], "the page left: back among the quiet ones")
+        #expect(active { $0.projectsByNewest = ["/home/hermes/site"] } == ["s0", "s1", "s2", "s3"])
+        rows[3].unread = true
+        #expect(active { $0.projectsByNewest = ["/home/hermes/site"] } == ["s0", "s1", "s2", "s3"], "Newest ignores New")
+        #expect(active { $0.projectsByNewest = ["/elsewhere"] } == ["s0", "s3", "s1", "s2"])
     }
 
     // MARK: New for You and folded projects (owner, 2026-10-31)

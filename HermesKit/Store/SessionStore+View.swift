@@ -153,6 +153,47 @@ extension SessionStore {
         onChange?()
     }
 
+    // MARK: - Project-only pins [project-pins]
+
+    /// Owner 2026-11-20: "if you pin a session in that view, the pin doesn't reflect everywhere else … just an internally
+    /// pinned session." A project's ⋯ › Pins Stay in Project: on, Pin on its page pins the chat there alone.
+    func isProjectPinsLocal(_ key: String) -> Bool { device.projectPinsLocal[key] ?? false }
+
+    func setProjectPinsLocal(_ key: String, _ on: Bool) {
+        guard isProjectPinsLocal(key) != on else { return }
+        device.projectPinsLocal[key] = on
+        AppLog.trace("sessions", "project pins \(on ? "stay in project" : "shared")")
+        persistState()
+        onChange?()
+    }
+
+    /// [project-sort] A project page's ⋯ › Sort.
+    func projectSort(_ key: String) -> ProjectPageSort { device.projectSorts[key].flatMap(ProjectPageSort.init(rawValue:)) ?? .needsMeFirst }
+
+    func setProjectSort(_ key: String, _ sort: ProjectPageSort) {
+        guard projectSort(key) != sort else { return }
+        device.projectSorts[key] = sort.rawValue
+        AppLog.trace("sessions", "project sort \(sort.rawValue)")
+        persistState()
+        onChange?()
+    }
+
+    /// The chats pinned on each project's page alone (project key → row keys), for the pipeline.
+    var projectPinKeys: [String: Set<String>] { device.projectPins.mapValues(Set.init) }
+
+    /// Pin or unpin `session` on project `key`'s page only; the gateway's Pinned is untouched. Stored newest first.
+    func setProjectPinned(_ session: SessionSummary, project key: String, _ pinned: Bool) {
+        let row = SessionListPipeline.key(session)
+        var keys = device.projectPins[key] ?? []
+        keys.removeAll { $0 == row }
+        if pinned { keys.insert(row, at: 0) }
+        guard keys != (device.projectPins[key] ?? []) else { return }
+        device.projectPins[key] = keys.isEmpty ? nil : keys
+        AppLog.trace("sessions", "\(pinned ? "pin" : "unpin") in project only (\(keys.count) there)")
+        persistState()
+        onChange?()
+    }
+
     /// [project-default-bot] Default Bot: `choice` is a bot's profile or `ProjectDefaultBot.ask`. Kept with the other
     /// hand-picked parts (synced).
     func setProjectBotChoice(_ key: String, _ choice: String) {
@@ -202,7 +243,8 @@ extension SessionStore {
                                                     expandedGroups: expandedGroups[groupScope] ?? [],
                                                     chatOrder: device.chatOrder, projectOrder: device.projectOrder,
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
-                                                    archivedProjects: archivedProjects,
+                                                    archivedProjects: archivedProjects, projectPins: projectPinKeys,
+                                                    projectsByNewest: Set(device.projectSorts.filter { $0.value == ProjectPageSort.newest.rawValue }.keys),
                                                     botNames: botNames, statusChip: statusChip,
                                                     projectPRState: projectPRFilter.flatMap { view.projectFilter == [$0.key] && isCodingProject($0.key) ? $0.state : nil },
                                                     liveUnderProjects: projectRowsOpenPages, now: now, calendar: calendar))

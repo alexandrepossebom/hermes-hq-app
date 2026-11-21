@@ -580,6 +580,18 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 onCodingChange: { [weak self] enabled in
                     self?.store?.setCodingProject(key, enabled)
                     self?.reload(animated: false)
+                },
+                localPins: self.store?.isProjectPinsLocal(key) ?? false,
+                sort: self.store?.projectSort(key) ?? .needsMeFirst,
+                onSortChange: { [weak self] sort in
+                    Haptics.play(.selection)
+                    self?.store?.setProjectSort(key, sort)
+                    self?.reload(animated: true)
+                },
+                onLocalPinsChange: { [weak self] on in
+                    Haptics.play(.selection)
+                    self?.store?.setProjectPinsLocal(key, on)
+                    self?.reload(animated: false)
                 }, onInfo: { [weak self] in
                     guard let self else { return }
                     let guide = ProjectIconGuide(coding: self.store?.isCodingProject(key) ?? false)
@@ -1588,7 +1600,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                     [SessionPRStatus.State.none, .draft, .open, .merged, .closed].map { "\(counts[$0, default: 0])" }.joined(separator: ",")
             } ?? ""
             let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","), usual,
-                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")", prSign].joined(separator: "|")
+                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")", prSign,
+                        "\(page.pageKey.map { store?.isProjectPinsLocal($0) ?? false } ?? false)",
+                        page.pageKey.map { store?.projectSort($0).rawValue ?? "" } ?? ""].joined(separator: "|")   // [project-pins]
             if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
             pageSign = sign
         }
@@ -2294,6 +2308,8 @@ extension SessionsViewController {
 
     /// A project's page is on show (the Projects side, one project picked).
     var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
+    /// [project-pins] The open project page's key (nil off a page).
+    var projectPageKey: String? { groups.first { $0.id == SessionListPipeline.pageId }?.pageKey }
     #if DEBUG
     /// [mac-scope-menu] The Mac's bot / project menu as it would open now (the tour draws it).
     func debugScopeMenu(dark: Bool) -> [UIMenuElement] { headerModel.scopeMenuElements(dark: dark, scale: 2) }

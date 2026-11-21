@@ -77,6 +77,10 @@ nonisolated struct SessionListInput: Sendable {
     /// [project-pills] Archived projects (keys): with project pills, their chats are off the list until Show › Archived
     /// (or the project is picked).
     var archivedProjects: Set<String> = []
+    /// [project-pins] The chats pinned on a project's page alone: project key → row keys.
+    var projectPins: [String: Set<String>] = [:]
+    /// [project-sort] Projects whose page lists Active newest first (no state order): project keys.
+    var projectsByNewest: Set<String> = []
     /// Group By Bot's headers: each bot's display name by profile (missing: the profile).
     var botNames: [String: String] = [:]
     /// [sessions-fresh] The header's New or Working chip (in memory, as the bot chip).
@@ -448,9 +452,16 @@ nonisolated enum SessionListPipeline {
         }
         // [three-piles] Done is the project's archived chats. One with a reply not read yet, or at work, is back among
         // the active ones until it is quiet again.
-        let done = rows.filter { $0.archived && state($0) == .quiet }
+        // [project-pins] A chat pinned on this page alone is in its Pinned pile here and nowhere else.
+        let localPins = input.projectPins[key] ?? []
+        let marked = localPins.isEmpty ? rows : rows.map { row -> SessionSummary in
+            var row = row
+            row.projectPinned = localPins.contains(Self.key(row))
+            return row
+        }
+        let done = marked.filter { $0.archived && state($0) == .quiet }
         let doneKeys = Set(done.map(Self.key))
-        let rows = done.isEmpty ? rows : rows.filter { !doneKeys.contains(Self.key($0)) }
+        let rows = done.isEmpty ? marked : marked.filter { !doneKeys.contains(Self.key($0)) }
         var buckets: [SessionProjectState: [SessionSummary]] = [:]
         for session in rows { buckets[state(session), default: []].append(session) }
         let label = input.projects.first { $0.key == key }?.label ?? key
@@ -472,8 +483,16 @@ nonisolated enum SessionListPipeline {
         // one run, what needs the owner first (Needs You, New, Working, then the quiet ones in the list's order), each
         // row saying its own state; Done, the archived ones, closed to its count until tapped.
         let byPref = input.prefs.sortBy == .manual ? SessionSortBy.updated : input.prefs.sortBy
-        let ordered = sort(rows, by: byPref).enumerated().sorted { a, b in
-            let ra = state(a.element).rawValue, rb = state(b.element).rawValue
+        // [read-holds] Owner 2026-11-21 ("sessions here move when you open them"): a chat read since the page was
+        // last left keeps the place its New (or Needs You) gave it, as New for You keeps it; the counts say what is.
+        func rank(_ session: SessionSummary) -> Int {
+            let now = state(session)
+            return now == .quiet && input.keepNew.contains(Self.key(session)) ? SessionProjectState.ready.rawValue : now.rawValue
+        }
+        // [project-sort] ⋯ › Sort › Newest: one run by the list's sort, reading moves nothing.
+        let byNewest = input.projectsByNewest.contains(key)
+        let ordered = byNewest ? sort(rows, by: byPref) : sort(rows, by: byPref).enumerated().sorted { a, b in
+            let ra = rank(a.element), rb = rank(b.element)
             return ra != rb ? ra < rb : a.offset < b.offset
         }.map(\.element)
         // [page-count-chips] Owner 2026-11-18 ("Now the Needs you, new, working pills don't do anything": they went to
@@ -495,7 +514,8 @@ nonisolated enum SessionListPipeline {
         let shown = statusShown.filter(underPR)
         let shownDone = done.filter(underPR)
         let sections: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] = [
-            ("pinned", "Pinned", shown.filter(\.pinned), false), ("active", "Active", shown.filter { !$0.pinned }, true),
+            ("pinned", "Pinned", shown.filter { $0.pinned || $0.projectPinned }, false),
+            ("active", "Active", shown.filter { !$0.pinned && !$0.projectPinned }, true),
             ("done", "Done", input.statusChip == nil ? sort(shownDone, by: .updated) : [], true)]
         // A status filter or pill shows every match (a closed section would hide what it was set to find).
         let filtered = !input.prefs.statusFilter.isEmpty || input.statusChip != nil || input.projectPRState != nil
@@ -832,7 +852,7 @@ nonisolated enum SessionRowWords {
         if detail.contains(.cost), let cost = cost(session.cost) { parts.append(cost) }
         if detail.contains(.time), !time.isEmpty { parts.append(time) }
         if session.unread { parts.append("Unread") }
-        if session.pinned { parts.append("Pinned") }
+        if session.pinned { parts.append("Pinned") } else if session.projectPinned { parts.append("Pinned in project") }   // [project-pins]
         if session.archived { parts.append("Archived") }
         if showPR, let pr = session.pullRequest { parts.append("Pull request: " + pr.summary) }
         if muted { parts.append("Muted") }              // UX study #248: the bot is muted on this iPhone

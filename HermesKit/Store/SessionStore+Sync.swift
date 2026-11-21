@@ -21,6 +21,9 @@ extension SessionStore: GatewaySynced {
             "archivedProjects": .array(device.archivedProjects.map { .string($0) }),       // [project-pills]
             "projectBots": .object(device.projectBots.mapValues { .string($0) }),          // [project-default-bot]
             "codingProjects": .object(device.codingProjects.mapValues { .bool($0) }),
+            "projectPinsLocal": .object(device.projectPinsLocal.mapValues { .bool($0) }),            // [project-pins]
+            "projectPins": .object(device.projectPins.mapValues { .array($0.map { .string($0) }) }),
+            "projectSorts": .object(device.projectSorts.mapValues { .string($0) }),                 // [project-sort]
             "colors": .object(device.colors.mapValues { .number(Double($0)) }),
             "sortBy": .string(view.sortBy.rawValue),
             "groupBy": .string(view.groupBy.rawValue),
@@ -48,6 +51,15 @@ extension SessionStore: GatewaySynced {
             for (key, raw) in value["codingProjects"]?.object ?? [:] where device.codingProjects[key] == nil {
                 if let enabled = raw.bool { device.codingProjects[key] = enabled }
             }
+            for (key, raw) in value["projectPinsLocal"]?.object ?? [:] where device.projectPinsLocal[key] == nil {
+                if let on = raw.bool { device.projectPinsLocal[key] = on }
+            }
+            for (key, raw) in value["projectSorts"]?.object ?? [:] where device.projectSorts[key] == nil {
+                if let sort = raw.string { device.projectSorts[key] = sort }
+            }
+            for (key, raw) in value["projectPins"]?.object ?? [:] where device.projectPins[key] == nil {
+                if let rows = raw.array?.compactMap(\.string), !rows.isEmpty { device.projectPins[key] = rows }
+            }
         } else {
             device.chatOrder = joined(strings("chatOrder"), device.chatOrder)
             device.projectOrder = joined(strings("projectOrder"), merge == .firstContact ? device.projectOrder : [])
@@ -67,6 +79,25 @@ extension SessionStore: GatewaySynced {
                 var chosen = merge == .firstContact ? device.codingProjects : [:]
                 for (key, raw) in remote { if let enabled = raw.bool { chosen[key] = enabled } }
                 device.codingProjects = chosen
+            }
+            // [project-pins] As Coding Project: a gateway copy without these parts leaves the device's own.
+            if let remote = value["projectPinsLocal"]?.object {
+                var chosen = merge == .firstContact ? device.projectPinsLocal : [:]
+                for (key, raw) in remote { if let on = raw.bool { chosen[key] = on } }
+                device.projectPinsLocal = chosen
+            }
+            if let remote = value["projectPins"]?.object {
+                var chosen = merge == .firstContact ? device.projectPins : [:]
+                for (key, raw) in remote {
+                    let rows = raw.array?.compactMap(\.string) ?? []
+                    chosen[key] = rows.isEmpty ? nil : rows
+                }
+                device.projectPins = chosen
+            }
+            if let remote = value["projectSorts"]?.object {
+                var chosen = merge == .firstContact ? device.projectSorts : [:]
+                for (key, raw) in remote { if let sort = raw.string { chosen[key] = sort } }
+                device.projectSorts = chosen
             }
             var prefs = view
             if let raw = value["sortBy"]?.string, let sort = SessionSortBy(rawValue: raw) { prefs.sortBy = sort }
