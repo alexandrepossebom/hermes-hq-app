@@ -185,7 +185,9 @@ final class SessionStripTests: XCTestCase {
         let garden = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Garden plan")).firstMatch
         let budget = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Quarterly budget")).firstMatch
         XCTAssertTrue(garden.exists && budget.exists)
-        XCTAssertGreaterThanOrEqual(garden.frame.height, 44)
+        // [compact-strip] A slim row (about 30 pt at the default text size) …
+        XCTAssertLessThanOrEqual(garden.frame.height, 32, "the row of names is slim")
+        XCTAssertLessThanOrEqual(all.frame.height, 32, "All is as slim as the names")
         shot(app, "03-live-tabs")
         all.tap()
         XCTAssertTrue(app.staticTexts["Launch notes"].waitForExistence(timeout: 8) || app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Launch notes")).firstMatch.exists)
@@ -193,8 +195,9 @@ final class SessionStripTests: XCTestCase {
         shot(app, "04-all-chats")
         let done = app.buttons["phone-bot-chats.done"]
         XCTAssertTrue(done.exists); done.tap()
-        budget.tap()
-        XCTAssertTrue(waitUntil(10) { !all.exists })
+        // … whose names still take a finger: a tap 10 pt below the drawn row opens the name above it.
+        budget.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1)).withOffset(CGVector(dx: 0, dy: 10)).tap()
+        XCTAssertTrue(waitUntil(10) { !all.exists }, "a tap just under a name opens that chat")
         shot(app, "05-chat-open")
         backToBot(app)
         shot(app, "06-back-at-bot")

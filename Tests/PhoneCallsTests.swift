@@ -455,7 +455,7 @@ nonisolated final class PhoneCallsTests: XCTestCase {
 
     @MainActor func testUSNumbersTypedWithoutThePlusAreDialable() {
         let from = "+16155550100"
-        for typed in ["2125550142", "212 555 0142", "212 555-0142", "212.555.0142", "12125550142", "+12125550142"] {
+        for typed in ["2125550142", "212 555 0142", "(212) 555-0142", "212.555.0142", "12125550142", "+12125550142"] {
             XCTAssertEqual(phoneDestination(typed, from: from), "+12125550142", typed)
         }
         XCTAssertEqual(phoneDestination("+44 20 7946 0958", from: from), "+442079460958")

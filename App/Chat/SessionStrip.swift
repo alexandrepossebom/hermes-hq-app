@@ -346,6 +346,19 @@ extension SessionStripRules {
 }
 
 /// The row of pills under the bar; 0 tall (and nothing drawn) while it is off or the bot has one chat to show.
+/// [compact-strip] The iPhone row is drawn slimmer than a finger: a touch up to `reach` below it still lands on the name
+/// above, so every name keeps a 44 pt tall target while the row gives that room back to the chat.
+private final class StripView: UIView {
+    var reach: CGFloat = 0
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.inset(by: UIEdgeInsets(top: 0, left: 0, bottom: -reach, right: 0)).contains(point)
+    }
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, isUserInteractionEnabled, alpha > 0.01, self.point(inside: point, with: event) else { return nil }
+        return super.hitTest(CGPoint(x: point.x, y: min(point.y, bounds.maxY - 1)), with: event)
+    }
+}
+
 final class SessionStripController: UIViewController, UIScrollViewDelegate {
     private weak var screen: ChatViewController?
     private weak var app: AppModel?
@@ -424,6 +437,7 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        if !tabs { (view as? StripView)?.reach = max(0, 44 - pillHeight) }   // follows Dynamic Type
         fitTabs()
         placeFade()
     }
@@ -465,8 +479,16 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         }
         for item in tabCaps where item.cap.constant != cap { item.cap.constant = cap }
     }
-    private var pillHeight: CGFloat { tabs ? max(34, ceil(font.lineHeight) + 18) : max(46, ceil(font.lineHeight) + 18) }
+    /// [compact-strip] Owner 2026-11-21 ("Entire little strip for the sessions is still too tall … taking up way too much
+    /// screen space"): the iPhone's row is as slim as its words; `StripView` keeps each name a 44 pt tap.
+    private var pillHeight: CGFloat { tabs ? max(34, ceil(font.lineHeight) + 18) : max(30, ceil(font.lineHeight) + 12) }
     private var stripHeight: CGFloat { pillHeight }
+
+    override func loadView() {
+        let strip = StripView()
+        if !tabs { strip.reach = max(0, 44 - pillHeight) }
+        view = strip
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -518,7 +540,7 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         allChats.setContentCompressionResistancePriority(.required, for: .horizontal)
         allChats.setContentHuggingPriority(.required, for: .horizontal)
         if !tabs {
-            allChats.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+            allChats.heightAnchor.constraint(equalToConstant: pillHeight).isActive = true
             allChats.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         }
         allChats.addAction(UIAction { [weak self] _ in self?.showAll() }, for: .primaryActionTriggered)

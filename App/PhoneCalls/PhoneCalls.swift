@@ -26,7 +26,7 @@ nonisolated func phoneIsE164(_ value: String) -> Bool {
 
 /// What the To field means as a dialable number. Spaces, dashes, dots and brackets are dropped. Calling from a +1
 /// (North American) number, a plain 10-digit number, or 11 digits starting with 1, is a +1 number (owner 2026-11-21:
-/// "2125550142" left Review Call greyed out). Anything else must be typed with its `+` country code.
+/// a 10-digit number left Review Call greyed out). Anything else must be typed with its `+` country code.
 nonisolated func phoneDestination(_ typed: String, from: String?) -> String {
     let kept = typed.filter { !$0.isWhitespace && !"-().".contains($0) }
     guard !kept.hasPrefix("+"), (from ?? "").hasPrefix("+1"), kept.allSatisfy({ ("0"..."9").contains($0) }) else { return kept }
