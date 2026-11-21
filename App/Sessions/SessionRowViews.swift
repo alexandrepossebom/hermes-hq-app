@@ -438,7 +438,7 @@ struct SessionRowView: View {
             SessionRowHoverButtons(hover: hover, pinned: session.pinned, archived: session.archived)   // [mac-pane]
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
-                if codingProject, let pr = session.pullRequest {
+                if codingProject, let pr = session.pullRequest, pr.state != .none {   // no code changes: no pill
                     // [pr-pill] The lead pull request as a tinted pill, its state's mark and number in its state's
                     // colour, then how many more (owner 2026-11-20 picked option C, "Tinted pills", over coloured
                     // numbers). The lead: not merged yet first, then unknown, merged, closed; newest first within each.
