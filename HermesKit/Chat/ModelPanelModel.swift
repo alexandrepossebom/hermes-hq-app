@@ -16,8 +16,17 @@ nonisolated struct ModelPanelState: Sendable, Equatable {
         var value: String
         var caption: String
         var spoken: String? = nil
+        /// [session-context] How full the chat's window is (0...1), drawn as a bar under the value; nil draws none.
+        var fill: Double? = nil
+        /// [session-context] The tokens the chat holds out of its window ("184K of 1M"), on the "Context used" fact.
+        var amount: String? = nil
+        /// [session-context] Times the chat's earlier messages were summarized to make room (0 or nil: never).
+        var summaries: Int? = nil
+        /// [session-context] How full a window reads as almost full: the bar turns orange and the card says so.
+        static let nearlyFull = 0.9
         /// The context window's fact, which opens Context Window.
         static let contextTitle = "Context window"
+        static let usedTitle = "Context used"
     }
 
     struct Row: Sendable, Equatable {
@@ -115,7 +124,7 @@ nonisolated enum ModelPanelModel {
     ///   - price: "Included", "Free" or "$5 in · $25 out".
     ///   - limit: "Weekly · 60% left".
     static func build(_ input: ModelMenuInput, contextMax: Int? = nil, contextUsed: Int? = nil, listedContext: Int? = nil,
-                      price: String? = nil, limit: String? = nil) -> ModelPanelState {
+                      compressions: Int? = nil, price: String? = nil, limit: String? = nil) -> ModelPanelState {
         let current = input.current
         let parts = ModelNames.modelDisplayParts(current.id.isEmpty ? current.name : current.id)
         let tags = parts.tag.split(separator: " ").map(String.init)
@@ -128,8 +137,11 @@ nonisolated enum ModelPanelModel {
             ?? listedContext.flatMap { $0 > 0 ? SessionInfoRows.count($0) : nil }
         if let window { facts.append(ModelPanelState.Fact(title: ModelPanelState.Fact.contextTitle, value: window, caption: "Context")) }
         if let max = contextMax, max > 0, let used = contextUsed, used > 0 {
-            let share = Int((Double(min(max, used)) / Double(max) * 100).rounded())
-            facts.append(ModelPanelState.Fact(title: "Context used", value: "\(share)%", caption: "Used"))
+            let fill = Double(min(max, used)) / Double(max)
+            let share = Int((fill * 100).rounded())
+            facts.append(ModelPanelState.Fact(title: ModelPanelState.Fact.usedTitle, value: "\(share)%", caption: "Used", fill: fill,
+                                              amount: "\(SessionInfoRows.count(min(max, used))) of \(SessionInfoRows.count(max))",
+                                              summaries: compressions.flatMap { $0 > 0 ? $0 : nil }))
         }
         if let price, !price.isEmpty { facts.append(priceFact(price)) }
         if let limit, !limit.isEmpty {
@@ -276,6 +288,39 @@ nonisolated extension ModelPanelModel {
         return ("For this chat only", "\(bot)’s default")
     }
 
+    /// [session-context] The chat's context on the card, a card of its own under Thinking and in its grammar: "Context"
+    /// with what the chat holds of the window beside it ("780K of 1M"), a bar of how full it is, and a line only when
+    /// there's something to know (earlier messages were summarized; almost full). nil until the chat has used some.
+    nonisolated struct Context: Sendable, Equatable {
+        var used: String
+        var window: String
+        var fill: Double
+        var note: String?
+        /// Almost full: the bar and the note turn orange.
+        var warn: Bool
+        var spoken: String
+    }
+
+    static func context(_ facts: [ModelPanelState.Fact]) -> Context? {
+        guard let fact = facts.first(where: { $0.title == ModelPanelState.Fact.usedTitle }), let fill = fact.fill,
+              let amount = fact.amount, let of = amount.range(of: " of ") else { return nil }
+        let used = String(amount[..<of.lowerBound]), window = String(amount[of.upperBound...])
+        let summaries = fact.summaries ?? 0, warn = fill >= ModelPanelState.Fact.nearlyFull
+        let times = summaries == 1 ? "once" : "\(summaries) times"
+        let note: String? = warn ? "Almost full · earlier messages get summarized next"
+            : summaries > 0 ? "Earlier messages summarized \(times) to make room" : nil
+        var spoken = "\(used) of \(window) tokens, \(fact.value) used"
+        if let note { spoken += ". " + note.replacingOccurrences(of: " · ", with: ". ") }
+        return Context(used: used, window: window, fill: min(1, max(0, fill)), note: note, warn: warn, spoken: spoken)
+    }
+
+    /// [session-context] The facts the tiles show under the context card: the window and its share are the card's,
+    /// so the tiles keep the rest (Price, the plan). Without a share the facts are as they are (the window's tile).
+    static func cardFacts(_ facts: [ModelPanelState.Fact]) -> [ModelPanelState.Fact] {
+        guard context(facts) != nil else { return facts }
+        return facts.filter { $0.title != ModelPanelState.Fact.usedTitle && $0.title != ModelPanelState.Fact.contextTitle }
+    }
+
     /// "Weekly · 62% left" reads "62% left" over "Weekly"; "Rate limited · back in 2 h" reads "Rate limited" over
     /// "Back in 2 h"; anything else whole over "Plan".
     static func planFact(_ limit: String) -> ModelPanelState.Fact {
@@ -349,6 +394,14 @@ extension ModelPanelModel {
         case "offline":
             var state = debugSample
             state.offline = true
+            return state
+        case "context-warm", "context-full":
+            // [session-context] The sample with the chat 78% full and summarized once, or 96% full and summarized twice.
+            let warm = name == "context-warm"
+            let opus = choice("claude-opus-5-5[1m]", "anthropic", "Anthropic")
+            var state = build(input(opus, favorites: [opus], fast: true), contextMax: 1_000_000, contextUsed: warm ? 780_000 : 962_000,
+                              compressions: warm ? 1 : 2, price: "Included", limit: "Weekly · 62% left")
+            state.approvalMode = "smart"
             return state
         case "yolo":
             var state = debugSample

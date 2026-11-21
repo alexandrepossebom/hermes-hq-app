@@ -26,6 +26,13 @@ import UIKit
             #expect(abs(own.close.midY - face.midY) < 1, "one line")
             #expect(own.thinkingCard.minY >= max(own.close.maxY, face.maxY), "Thinking's card is under the header")
             #expect(own.thinkingCard.contains(own.thinking), "the bar sits on its card")
+            // [session-context] Then the chat's context on its own card, as wide as Thinking's.
+            if let context = pieces["context"] {
+                #expect(context.minY >= own.thinkingCard.maxY && facts.minY >= context.maxY, "Thinking, then the context, at \(width)")
+                #expect(abs(context.minX - own.thinkingCard.minX) < 0.5 && abs(context.width - own.thinkingCard.width) < 0.5, "one column")
+            } else {
+                Issue.record("no context card at \(width)")
+            }
             #expect(facts.minY >= own.thinkingCard.maxY && settings.minY >= facts.maxY, "then the facts, then the rows")
             #expect(settings.maxY <= height && height < 620, "the page is the sheet's height (\(height) at \(width))")
             for frame in [own.thinkingCard, facts, settings] {
@@ -40,18 +47,19 @@ import UIKit
         let (panel, _) = ModelPanelView.debugSheet(ModelPanelModel.debugSample, width: 402) { $0.openContextWindow = {} }
         guard let strip = panel.debugPieces.first(where: { $0.name == "facts" })?.view else { Issue.record("no facts"); return }
         let tiles = strip.subviews.compactMap { $0 as? FactColumn }.sorted { $0.frame.minX < $1.frame.minX }
-        #expect(tiles.count == ModelPanelModel.debugSample.facts.count)
+        #expect(tiles.count == ModelPanelModel.cardFacts(ModelPanelModel.debugSample.facts).count)
         for (a, b) in zip(tiles, tiles.dropFirst()) where abs(a.frame.minY - b.frame.minY) < 1 {
             #expect(b.frame.minX - a.frame.maxX >= 8, "a gap between tiles")
         }
         #expect(tiles.allSatisfy { $0.frame.height >= 60 && $0.backgroundColor != nil && $0.backgroundColor != .clear })
         #expect(strip.backgroundColor == .clear, "no strip behind the tiles")
-        #expect(panel.debugFacts.first { $0.title == ModelPanelState.Fact.contextTitle }?.opens == true)
+        // [session-context] The window is on the context card now, and it opens Context Window.
+        #expect(tiles.count == 2 && panel.debugContext.opens && panel.debugContext.shown)
     }
 
     /// The hard states fit the page too: a long name, offline, a model with no thinking, the largest text.
     @Test func theHardStatesFit() {
-        for name in ["long", "bare", "onestop", "offline", "yolo", "bedrock", "custom"] {
+        for name in ["long", "bare", "onestop", "offline", "yolo", "bedrock", "custom", "context-warm", "context-full"] {
             guard let state = ModelPanelModel.debugCase(name) else { continue }
             for width in widths {
                 let (panel, height) = ModelPanelView.debugSheet(state, width: width)

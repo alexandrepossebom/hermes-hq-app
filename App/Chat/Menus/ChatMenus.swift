@@ -293,6 +293,7 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         let listed = ModelsDevCache.shared.stored()
         return ModelPanelModel.build(input, contextMax: live?.menus.usage?.contextMax, contextUsed: live?.menus.usage?.contextUsed,
                                      listedContext: listed?.contextWindow(provider: current.provider, model: current.id),
+                                     compressions: live?.menus.usage?.compressions,
                                      price: ModelPricesModel.menuSubtitle(options, model: current.id, provider: current.provider, fallback: listed),
                                      limit: UsageLimitsModel.menuSubtitle(options, provider: current.provider))
     }

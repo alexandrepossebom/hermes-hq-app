@@ -102,6 +102,8 @@ final class ModelPanelView: UIView {
     private let makerLabel = FitLabel()
     private let offlineLabel = FitLabel()
     private let factStrip = FactStrip()
+    /// [session-context] How full this chat's context window is, on a card of its own under Thinking.
+    private let contextCard = ContextCard()
     private let face: PanelFace
     private let thinking = ThinkingBar()
     /// [thinking-drive] Behind the card: the drive's starfield or glow.
@@ -313,6 +315,11 @@ final class ModelPanelView: UIView {
             opens[ModelPanelState.Fact.contextTitle] = ("Context Window", { [weak self] in self?.handOff(to: open) })
         }
         factStrip.opens = opens
+        if let open = actions.openContextWindow {
+            contextCard.addAction(UIAction { [weak self] _ in self?.handOff(to: open) }, for: .primaryActionTriggered)
+            contextCard.opens = true
+        }
+        contextCard.onSheet = style == .sheet
         if style == .sheet {
             nameLabel.textAlignment = .center
             makerLabel.textAlignment = .center
@@ -323,7 +330,7 @@ final class ModelPanelView: UIView {
             content.addSubview(closeButton)
             content.addSubview(thinkingCard)
         }
-        for view in [nameLabel, tagPill, makerLabel, switchChevrons, switchSpinner, switchButton, offlineLabel, face, factStrip, thinking, settings] as [UIView] {
+        for view in [nameLabel, tagPill, makerLabel, switchChevrons, switchSpinner, switchButton, offlineLabel, face, contextCard, factStrip, thinking, settings] as [UIView] {
             content.addSubview(view)
         }
         restyle()
@@ -373,8 +380,11 @@ final class ModelPanelView: UIView {
             tagPill.text = next.tag
             makerLabel.text = next.provider
             switchButton.accessibilityLabel = [next.name, next.tag, next.provider].compactMap { $0 }.joined(separator: ", ")
-            factStrip.facts = next.facts
-            factStrip.isHidden = next.facts.isEmpty
+            // [session-context] The chat's context on its own card; the tiles keep the rest.
+            contextCard.context = ModelPanelModel.context(next.facts)
+            contextCard.isHidden = contextCard.context == nil
+            factStrip.facts = ModelPanelModel.cardFacts(next.facts)
+            factStrip.isHidden = factStrip.facts.isEmpty
         }
         if animated && modelChanged {
             UIView.transition(with: content, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction], animations: changes)   // motion-ok: a cross-fade
@@ -395,9 +405,10 @@ final class ModelPanelView: UIView {
         switchChevrons.alpha = next.offline ? 0.45 : 1
         // Usage & Limits and Model Prices read the gateway: offline their facts open nothing.
         factStrip.isEnabled = !next.offline
+        contextCard.isEnabled = !next.offline
         blocks = style == .sheet
-            ? [[closeButton, nameLabel, makerLabel, switchChevrons, offlineLabel, face], [thinkingCard, thinking], [factStrip], [settings]]
-            : [[nameLabel, tagPill, makerLabel, switchChevrons, offlineLabel, face], [factStrip], [thinking], [settings]]
+            ? [[closeButton, nameLabel, makerLabel, switchChevrons, offlineLabel, face], [thinkingCard, thinking], [contextCard], [factStrip], [settings]]
+            : [[nameLabel, tagPill, makerLabel, switchChevrons, offlineLabel, face], [contextCard], [factStrip], [thinking], [settings]]
         setNeedsLayout()
     }
 
@@ -618,7 +629,12 @@ final class ModelPanelView: UIView {
             y += h + 8
         }
 
-        // The facts.
+        // [session-context] The chat's context, then the facts.
+        if !contextCard.isHidden {
+            let h = contextCard.preferredHeight(width: inner)
+            contextCard.frame = CGRect(x: pad, y: y, width: inner, height: h)
+            y += h + Self.blockGap
+        }
         if !factStrip.isHidden {
             let h = factStrip.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
             factStrip.frame = CGRect(x: pad, y: y, width: inner, height: h)
@@ -689,6 +705,12 @@ final class ModelPanelView: UIView {
         thinking.frame = CGRect(x: pad + inset.left, y: y + inset.top, width: inner - inset.left - inset.right, height: thinkingH)
         y += thinkingCard.frame.height + Self.blockGap
 
+        // [session-context] The chat's context on a card like Thinking's, then the tiles.
+        if !contextCard.isHidden {
+            let h = contextCard.preferredHeight(width: inner)
+            contextCard.frame = CGRect(x: pad, y: y, width: inner, height: h)
+            y += h + Self.blockGap
+        }
         if !factStrip.isHidden {
             let h = factStrip.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
             factStrip.frame = CGRect(x: pad, y: y, width: inner, height: h)
@@ -1096,7 +1118,7 @@ extension ModelPanelView {
     /// Tests: the pieces stacked down the panel, in order (each a frame in the content's space).
     var debugPieces: [(name: String, view: UIView)] {
         let pieces: [(String, UIView)] = [("name", nameLabel), ("tag", tagPill), ("maker", makerLabel), ("chevrons", switchChevrons),
-                                          ("offline", offlineLabel), ("face", face), ("facts", factStrip), ("thinking", thinking),
+                                          ("offline", offlineLabel), ("face", face), ("context", contextCard), ("facts", factStrip), ("thinking", thinking),
                                           ("settings", settings)]
         return pieces.filter { !$0.1.isHidden }
     }
@@ -1134,6 +1156,10 @@ extension ModelPanelView {
     func debugOpenApprovals() { Self.openMenu(of: approvalsTile) }
     /// Screenshots: a fact tapped ([context-window] the Context fact opens Context Window).
     func debugOpenFact(_ title: String) { factStrip.debugOpen(title) }
+    /// [session-context] Tests: what the context card says, and whether a tap on it opens Context Window.
+    var debugContext: (context: ModelPanelModel.Context?, opens: Bool, shown: Bool) {
+        (contextCard.context, contextCard.isUserInteractionEnabled, !contextCard.isHidden)
+    }
     /// Tests: a tap on YOLO.
     func debugTapSkip() { skipTapped() }
     /// Tests: what VoiceOver reads for the Approval Mode and YOLO rows.
@@ -2330,6 +2356,131 @@ final class FactColumn: UIControl {
         dot.frame = CGRect(x: x, y: (top + valueH / 2 - 4).rounded(), width: 8, height: 8)
         dot.layer.cornerRadius = 4
         valueLabel.frame = CGRect(x: x + 14, y: top, width: wordW, height: valueH)
+    }
+}
+
+/// [session-context] How full this chat's context window is, on a card in Thinking's grammar so the two read as a
+/// pair: "Context" leading, what the chat holds of the window trailing ("780K" over the window's quieter "of 1M"), a
+/// slim bar under them (no knob: it is read, not set), and a line under that only when there is something to know.
+/// The tint while there's room, orange from 90%. A tap opens Context Window where the bot's window can be changed.
+final class ContextCard: UIControl {
+    var context: ModelPanelModel.Context? { didSet { if context != oldValue { relabel() } } }
+    /// Whether a tap opens Context Window (a chevron ends the figure).
+    var opens = false { didSet { relabel() } }
+    /// The sheet's card (Thinking's fill and corners), else the iPad card's frosted strip.
+    var onSheet = false {
+        didSet {
+            backgroundColor = onSheet ? ModelCardSheet.cardFill : HQPalette.glassPane
+            layer.cornerRadius = onSheet ? ModelCardSheet.cardRadius : HQShape.radius(14, .card)
+            relabel()
+        }
+    }
+    private let titleLabel = FitLabel()
+    private let figureLabel = FitLabel()
+    private let noteLabel = FitLabel()
+    private let track = UIView()
+    private let bar = UIView()
+    private static let barHeight: CGFloat = 6
+
+    private var inset: UIEdgeInsets { onSheet ? ThinkingCard.inset : UIEdgeInsets(top: 11, left: 14, bottom: 13, right: 14) }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = HQPalette.glassPane
+        layer.cornerRadius = HQShape.radius(14, .card)
+        layer.cornerCurve = .continuous
+        hqGlassEdge()
+        titleLabel.text = "Context"
+        figureLabel.textAlignment = .right
+        noteLabel.maxLines = 2
+        for view in [titleLabel, figureLabel, noteLabel, track] as [UIView] {
+            view.isUserInteractionEnabled = false
+            addSubview(view)
+        }
+        track.addSubview(bar)
+        track.clipsToBounds = true
+        for piece in [track, bar] {
+            piece.layer.cornerRadius = Self.barHeight / 2
+            piece.layer.cornerCurve = .continuous
+        }
+        isAccessibilityElement = true
+        accessibilityLabel = "Context"
+        accessibilityIdentifier = "model.panel.context"
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self, UITraitPreferredContentSizeCategory.self]) { (card: ContextCard, _) in card.relabel() }
+        relabel()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isEnabled: Bool { didSet { if isEnabled != oldValue { relabel() } } }
+    override var isHighlighted: Bool {
+        didSet {
+            guard isHighlighted != oldValue, opens else { return }
+            HQMotion.animate(HQMotion.quick) { self.alpha = self.isHighlighted ? 0.5 : 1 }
+        }
+    }
+
+    private var tapOpens: Bool { opens && isEnabled }
+
+    private func relabel() {
+        let body = ModelPanelView.font(.subheadline, .semibold), quiet = ModelPanelView.font(.subheadline, .regular)
+        let accent = context?.warn == true ? ChatPalette.orange : ChatPalette.tint
+        titleLabel.font = body
+        titleLabel.textColor = ChatPalette.label
+        let figure = NSMutableAttributedString(string: context?.used ?? "", attributes: [.font: body, .foregroundColor: ChatPalette.label])
+        figure.append(NSAttributedString(string: " of \(context?.window ?? "")", attributes: [.font: quiet, .foregroundColor: ChatPalette.label2]))
+        if tapOpens, let chevron = UIImage(systemName: "chevron.forward", withConfiguration: UIImage.SymbolConfiguration(font: HQFont.system(ofSize: quiet.pointSize * 0.8, weight: .semibold))) {
+            figure.append(NSAttributedString(string: "\u{2009}\u{2009}"))
+            figure.append(NSAttributedString(attachment: NSTextAttachment(image: chevron.withTintColor(ChatPalette.label2, renderingMode: .alwaysOriginal))))
+        }
+        figureLabel.attributedText = figure
+        noteLabel.font = ModelPanelView.font(.footnote, .regular)
+        noteLabel.textColor = context?.warn == true ? ChatPalette.orange : ChatPalette.label2
+        noteLabel.text = context?.note
+        noteLabel.isHidden = context?.note == nil
+        track.backgroundColor = ChatPalette.label.withAlphaComponent(0.13)
+        bar.backgroundColor = accent
+        isUserInteractionEnabled = tapOpens
+        accessibilityValue = context?.spoken
+        accessibilityTraits = tapOpens ? .button : .staticText
+        accessibilityHint = tapOpens ? "Opens Context Window" : nil
+        setNeedsLayout()
+    }
+
+    private struct Metrics { var title = CGRect.zero, figure = CGRect.zero, track = CGRect.zero, note = CGRect.zero, height: CGFloat = 0 }
+
+    private func metrics(width: CGFloat) -> Metrics {
+        var m = Metrics()
+        let inner = max(0, width - inset.left - inset.right)
+        let titleW = min(inner, ceil(titleLabel.fittedWidth(width: inner)))
+        let room = max(0, inner - titleW - 12)
+        let titleH = titleLabel.fittedHeight(width: titleW), figureH = figureLabel.fittedHeight(width: room)
+        let rowH = max(titleH, figureH)
+        m.title = CGRect(x: inset.left, y: inset.top + ((rowH - titleH) / 2).rounded(), width: titleW, height: titleH)
+        m.figure = CGRect(x: width - inset.right - room, y: inset.top + ((rowH - figureH) / 2).rounded(), width: room, height: figureH)
+        var y = inset.top + rowH + 10
+        m.track = CGRect(x: inset.left, y: y, width: inner, height: Self.barHeight)
+        y += Self.barHeight
+        if !noteLabel.isHidden {
+            let noteH = noteLabel.fittedHeight(width: inner)
+            m.note = CGRect(x: inset.left, y: y + 9, width: inner, height: noteH)
+            y += 9 + noteH
+        }
+        m.height = ceil(y + inset.bottom)
+        return m
+    }
+
+    func preferredHeight(width: CGFloat) -> CGFloat { metrics(width: width).height }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let m = metrics(width: bounds.width)
+        titleLabel.frame = m.title
+        figureLabel.frame = m.figure
+        track.frame = m.track
+        noteLabel.frame = m.note
+        let share = CGFloat(context?.fill ?? 0)
+        bar.frame = CGRect(x: 0, y: 0, width: share > 0 ? max(Self.barHeight, (m.track.width * share).rounded()) : 0, height: Self.barHeight)
     }
 }
 
