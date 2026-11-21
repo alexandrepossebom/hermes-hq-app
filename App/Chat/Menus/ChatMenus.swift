@@ -65,6 +65,7 @@ final class ChatMenus: NSObject, ModelSwitchUI {
                 call.accessibilityIdentifier = "chat.phone-calls"
                 return [call]
             }
+            PhoneChatChip.install(on: screen, live: live)   // [phone-calls] a call on shows on the chat's shelf
             screen.composer.showsCommands = true   // [m9/ipad] D12: iPad has the same one composer, so ☰ shows there too
             screen.composer.onCommands = { [weak screen] in screen?.presentCommandsSheet() }
             // [composer-expand] The two-row bar's model chip; [model-panel] a tap opens the model panel.

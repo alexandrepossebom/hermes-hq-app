@@ -9,6 +9,11 @@ final class ActivityShelfView: UIView {
         return UIVisualEffectView(effect: effect)
     }()
     let summaryHeader = ShelfHeader()
+    /// [phone-calls] The folded pill's leading glyph while its tap opens one thing directly (a call on): the pill then
+    /// reads as that thing's button, with no ⌄.
+    var summaryIcon: (name: String, tint: UIColor)? {
+        didSet { if summaryIcon?.name != oldValue?.name || summaryIcon?.tint != oldValue?.tint { setNeedsLayout() } }
+    }
     private let overview = UIScrollView()
     private(set) var pieces: [ShelfPieceKind: ShelfPieceView] = [:]
     var onToggle: (() -> Void)?
@@ -167,6 +172,11 @@ final class ActivityShelfView: UIView {
         // Expanded, the words' own ⌃ moves to the trailing collapse-all button; a detail keeps its ‹ back.
         summaryHeader.chevronStyle = inDetail ? .back : expanded ? .hidden : .expand
         summaryHeader.reservesTrailingControl = expanded
+        let direct = expanded ? nil : summaryIcon   // [phone-calls]
+        summaryHeader.leadingIcon.image = direct.flatMap { UIImage(systemName: $0.name) }
+        summaryHeader.leadingIcon.tintColor = direct?.tint
+        summaryHeader.leadingIcon.isHidden = direct == nil
+        if direct != nil { summaryHeader.chevronStyle = .hidden }
         summaryHeader.requiresFullText = expanded && summary.needsAttention
         let color: UIColor? = summary.isRunning && !inDetail ? ChatPalette.label2 : nil
         let showsSummary = !inDetail || summary.needsAttention

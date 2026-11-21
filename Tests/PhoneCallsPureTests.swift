@@ -408,3 +408,31 @@ struct PhoneSetupCheckTests {
         #expect(Self.state(missing, "connection") == .fail && Self.state(missing, "assistant") == .fail, "a 404 is an answer")
     }
 }
+
+@Suite struct PhoneChatChipTests {
+    private func call(_ id: String, _ state: PhoneCallRecord.State) -> PhoneCallRecord {
+        var c = PhoneCallRecord(id: id, sessionID: "s", to: "+12125550142", purpose: "p", placedAt: Date(timeIntervalSince1970: 0),
+                                hangupCommandID: "h")
+        c.state = state
+        return c
+    }
+
+    @Test func theChipFollowsTheCallAndGoesWhenItEnds() {
+        #expect(phoneChipWords([]) == nil)
+        #expect(phoneChipWords([call("a", .ended)]) == nil, "an ended call shows nothing")
+        #expect(phoneChipWords([call("a", .calling)])?.words == "Calling +1 212 555 0142")
+        #expect(phoneChipWords([call("a", .ended), call("b", .live)])?.words == "On a call with +1 212 555 0142")
+        #expect(phoneChipWords([call("a", .ending)])?.words == "Ending the call to +1 212 555 0142")
+        var voicemail = call("a", .live); voicemail.voicemail = true
+        #expect(phoneChipWords([voicemail])?.words == "Voicemail answered +1 212 555 0142")
+        #expect(phoneChipWords([call("a", .live)])?.asking == false)
+    }
+
+    @Test func aQuestionTurnsItIntoAnAsk() {
+        var asking = call("a", .live)
+        asking.question = PhoneTranscript.Question(id: "q", text: "Tuesday or Friday?", choices: [])
+        let chip = phoneChipWords([asking])
+        #expect(chip?.words == "The call needs your answer")
+        #expect(chip?.asking == true)
+    }
+}

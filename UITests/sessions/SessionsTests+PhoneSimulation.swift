@@ -337,10 +337,22 @@ extension SessionsTests {
                        "one You line once the conversation returns it")
         XCTAssertEqual(try samplehost.control("/__fixture/state")["told"] as? [String], ["Ask for the earliest slot."])
         shot(app, "phone-tell")
+        // The chat says a call is on: closing the sheet leaves a notice above the composer, and one tap reopens it.
+        app.buttons["phone.close"].tap()
+        let notice = app.buttons["chat.shelf.summary"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "the chat shows the call while it is on")
+        shot(app, "phone-chat-notice")
+        // This scenario's assistant has asked its question by now, so the notice asks for the answer.
+        XCTAssertTrue(notice.label.contains("needs your answer"), notice.label)
+        notice.tap()
+        XCTAssertTrue(app.textFields["phone.tell"].waitForExistence(timeout: 10) || revealed(app, app.textFields["phone.tell"]),
+                      "one tap on the notice opens the call sheet")
         let hangup = app.buttons["Hang up"]
         for _ in 0..<3 where !hangup.isHittable { app.swipeUp() }
         hangup.tap()
         XCTAssertTrue(app.staticTexts["You hung up"].waitForExistence(timeout: 10))
+        app.buttons["phone.close"].tap()
+        XCTAssertTrue(notice.waitForNonExistence(timeout: 10), "the notice goes when the call ends")
         XCTAssertEqual(try samplehost.control("/__fixture/state")["problems"] as? [String], [])
         try assertKeyOnlyInHeader(samplehost)
     }

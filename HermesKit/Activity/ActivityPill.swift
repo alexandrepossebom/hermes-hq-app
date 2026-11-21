@@ -1,6 +1,6 @@
 // Presentation only: a plan is not evidence of live work. All categories stay available in the overview.
 nonisolated enum ShelfPieceKind: Int, CaseIterable, Hashable, Sendable {
-    case goal, tasks, subagents, background, previousTasks, browser
+    case goal, tasks, subagents, background, previousTasks, browser, phone
 }
 
 nonisolated struct ActivityPill: Equatable, Sendable {
