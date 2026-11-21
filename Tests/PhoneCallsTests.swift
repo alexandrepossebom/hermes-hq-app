@@ -133,6 +133,20 @@ nonisolated final class PhoneCallsTests: XCTestCase {
         XCTAssertEqual(samplehostStub.seen.first?.method, "GET")
     }
 
+    @MainActor func testCreatesTheAssistantWithRequiredFieldsAndAnIdempotencyKey() async throws {
+        samplehostStub.reset { _ in (200, ["id": "assistant-new", "name": "Hermes HQ Caller", "model": "default"]) }
+        let made = try await api().createAssistant(idempotencyKey: "op-1")
+        XCTAssertEqual(made, samplehostAssistant(id: "assistant-new", name: "Hermes HQ Caller"))
+        let seen = try XCTUnwrap(samplehostStub.seen.first)
+        XCTAssertEqual(seen.method, "POST")
+        XCTAssertEqual(seen.path, "/v2/ai/assistants")
+        XCTAssertEqual(seen.headers["Idempotency-Key"], "op-1")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: seen.body ?? Data()) as? [String: Any])
+        XCTAssertEqual(body["name"] as? String, "Hermes HQ Caller")
+        XCTAssertFalse((body["instructions"] as? String ?? "").isEmpty)
+        XCTAssertFalse(String(decoding: seen.body ?? Data(), as: UTF8.self).contains("KEYTEST"))
+    }
+
     @MainActor func testWrongKeyReadsAsBadKey() async {
         let script = Script()
         samplehostStub.reset(script.route)

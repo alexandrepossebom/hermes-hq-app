@@ -40,8 +40,8 @@ extension SessionsTests {
         XCTAssertTrue(app.staticTexts["phone.settings.status"].waitForExistence(timeout: 10))
     }
 
-    /// Types the synthetic key, connects, picks the assistant and saves. The number and its connection are preselected
-    /// (the fake has one number).
+    /// Types the synthetic key and connects. The fake account has one number (preselected) and no AI Assistant, so the
+    /// page offers Create Assistant; one tap makes it, selects it and saves (the owner's 2026-11-20 "I can't select an agent").
     @MainActor func connectsamplehost(_ app: XCUIApplication) {
         XCTAssertTrue(app.staticTexts["Not connected"].waitForExistence(timeout: 10))
         let key = app.secureTextFields["samplehost API key"]
@@ -53,8 +53,10 @@ extension SessionsTests {
         XCTAssertFalse(app.secureTextFields["samplehost API key"].exists, "the key is never shown again")
         XCTAssertTrue(app.buttons["From number, +15550100001"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Voice connection, Simulated connection"].exists)
-        app.buttons["AI Assistant, Select"].tap(); app.buttons["Simulated assistant"].tap()
-        app.buttons["Save"].tap()
+        let create = app.buttons["phone.settings.create-assistant"]
+        XCTAssertTrue(create.waitForExistence(timeout: 10), "an account with no assistant is offered one")
+        shot(app, "phone-no-assistant")
+        create.tap()
         XCTAssertTrue(app.staticTexts["Ready"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["Disconnect"].exists)
         shot(app, "phone-ready")
@@ -92,7 +94,9 @@ extension SessionsTests {
         openPhoneSettings(app)
         connectsamplehost(app)
         let setupRequests = try samplehostRequests(samplehost).map { "\($0["method"] ?? "") \($0["path"] ?? "")" }
-        XCTAssertEqual(Set(setupRequests), ["GET /v2/phone_numbers", "GET /v2/ai/assistants"], "setup only reads")
+        XCTAssertEqual(Set(setupRequests), ["GET /v2/phone_numbers", "GET /v2/ai/assistants", "POST /v2/ai/assistants"],
+                       "setup reads and creates only the assistant")
+        XCTAssertEqual(setupRequests.filter { $0 == "POST /v2/ai/assistants" }.count, 1, "one assistant made")
 
         app.tabBars.buttons["Sessions"].tap()
         XCTAssertTrue(garden.waitForExistence(timeout: 15)); garden.tap()

@@ -4,7 +4,8 @@
 The app's DEBUG build reaches it with the launch environment HQ_SAMPLEHOST_BASE_URL=https://127.0.0.1:<port>/v2.
 Answers only the requests Phone Calls makes, in the shapes samplehost documents:
   GET  /v2/phone_numbers                       list-phone-numbers
-  GET  /v2/ai/assistants                       list-assistants
+  GET  /v2/ai/assistants                       list-assistants (none until the app creates one)
+  POST /v2/ai/assistants                       create-an-assistant (checks name, instructions, Idempotency-Key)
   POST /v2/calls                               dial (checks connection_id/from/to/time_limit_secs/assistant/tools)
   GET  /v2/ai/conversations?metadata->call_control_id=eq.<id>   list-conversations
   GET  /v2/ai/conversations/<id>/messages      get-conversation-messages (an ask_owner tool call is scripted)
@@ -29,7 +30,7 @@ CONVERSATION = 'conv-sim-1'
 lock = threading.RLock()
 
 def empty():
-    return {'requests': [], 'problems': [], 'calls': [], 'answers': [], 'hangups': 0}
+    return {'requests': [], 'problems': [], 'calls': [], 'answers': [], 'hangups': 0, 'assistants': [], 'created_keys': []}
 state = empty()
 
 def stamp(n):
@@ -65,14 +66,22 @@ def check_dial(body):
                      ('ask_owner tool', webhook.get('name') == 'ask_owner' and webhook.get('url', '').endswith('.invalid/hermes-hq'))]:
         if not ok: problem('dial ' + name)
 
-def route(method, path, query, body):
+def route(method, path, query, body, headers=None):
     call = state['calls'][0] if state['calls'] else None
     if method == 'GET' and path == '/v2/phone_numbers':
         return 200, {'data': [{'id': '1293384261075731499', 'record_type': 'phone_number', 'phone_number': FROM, 'status': 'active',
                                'connection_id': CONNECTION, 'connection_name': 'Simulated connection'}],
                      'meta': {'total_pages': 1, 'total_results': 1, 'page_number': 1, 'page_size': 250}}
     if method == 'GET' and path == '/v2/ai/assistants':
-        return 200, {'data': [{'id': ASSISTANT, 'name': 'Simulated assistant', 'created_at': stamp(0)}]}
+        return 200, {'data': state['assistants']}
+    if method == 'POST' and path == '/v2/ai/assistants':
+        key = (headers or {}).get('Idempotency-Key') or ''
+        if not key: problem('create assistant Idempotency-Key')
+        if not (body or {}).get('name') or not (body or {}).get('instructions'): problem('create assistant required fields')
+        if key not in state['created_keys']:
+            state['created_keys'].append(key)
+            state['assistants'].append({'id': ASSISTANT, 'name': (body or {}).get('name'), 'created_at': stamp(0)})
+        return 200, dict(state['assistants'][-1], model='simulated-default')
     if method == 'POST' and path == '/v2/calls':
         check_dial(body or {})
         if call and call['command_id'] == (body or {}).get('command_id'):
@@ -132,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
                                       'key_in_body': KEY.encode() in raw})
             if not auth_ok:
                 return self.reply(*error(401, '10009', 'Authentication failed', 'Could not understand the provided credentials.'))
-            status, obj = route(method, path, parse_qs(u.query), body)
+            status, obj = route(method, path, parse_qs(u.query), body, {'Idempotency-Key': self.headers.get('Idempotency-Key')})
         return self.reply(status, obj)
     def do_GET(self): self.handle_any('GET')
     def do_POST(self): self.handle_any('POST')

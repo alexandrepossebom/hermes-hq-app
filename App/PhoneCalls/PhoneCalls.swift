@@ -319,6 +319,8 @@ struct PhoneSettingsView: View {
     @State private var error: String?
     @State private var busy = false
     @State private var loaded = false
+    /// One create-assistant operation per page visit: a retried tap reuses it, so samplehost never makes two.
+    @State private var createKey = UUID().uuidString
 
     private var store: PhoneKeyStore { .app }
     private var controller: PhoneCallController { .shared(for: accountID) }
@@ -373,6 +375,14 @@ struct PhoneSettingsView: View {
                 if numbers.isEmpty && loaded {
                     Section { Text("No active phone numbers on this samplehost account.").font(Font.hq(.footnote)) }
                 }
+                if assistants.isEmpty && loaded {
+                    Section {
+                        Text("This samplehost account has no AI Assistants yet. Hermes HQ can make one for you, named \(PhoneAskOwner.assistantName).")
+                            .font(Font.hq(.footnote))
+                        Button("Create Assistant") { createAssistant() }.disabled(busy)
+                            .accessibilityIdentifier("phone.settings.create-assistant")
+                    }
+                }
             }
             if let error { Section { Text(error).foregroundStyle(.red) } }
         }
@@ -389,6 +399,26 @@ struct PhoneSettingsView: View {
     private func fetch(_ api: samplehostAPI) async throws {
         numbers = try await api.phoneNumbers()
         assistants = try await api.assistants()
+        pickOnlyAssistant()
+    }
+
+    /// With exactly one assistant on the account there is nothing to choose: take it.
+    private func pickOnlyAssistant() {
+        if assistant.isEmpty, assistants.count == 1 { assistant = assistants[0].id }
+    }
+
+    private func createAssistant() {
+        guard !busy, let stored = setup else { return }
+        busy = true; error = nil
+        Task {
+            defer { busy = false }
+            do {
+                let made = try await samplehostAPI(key: stored.apiKey).createAssistant(idempotencyKey: createKey)
+                if !assistants.contains(made) { assistants.append(made) }
+                assistant = made.id
+                if !number.isEmpty, !connection.isEmpty { busy = false; save() }
+            } catch { self.error = phoneMessage(error) }
+        }
     }
 
     private func load() async {
@@ -414,6 +444,8 @@ struct PhoneSettingsView: View {
                 apply(fresh)
                 if numbers.count != 1 { number = ""; connection = "" }
                 assistants = try await api.assistants()
+                pickOnlyAssistant()
+                if fresh.ready == false, !number.isEmpty, !connection.isEmpty, !assistant.isEmpty { busy = false; save() }
             } catch {
                 self.error = (error as? PhoneKeyStoreError) != nil ? "Couldn't save the key in the Keychain." : phoneMessage(error)
             }

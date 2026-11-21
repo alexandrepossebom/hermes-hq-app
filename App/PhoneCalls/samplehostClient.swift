@@ -141,6 +141,11 @@ nonisolated enum PhoneLimits {
 nonisolated enum PhoneAskOwner {
     static let name = "ask_owner"
     static let answerPrefix = "The owner answered"
+    /// The assistant the app makes for an account that has none (Settings > Phone Calls > Create Assistant).
+    static let assistantName = "Hermes HQ Caller"
+    /// Its stored instructions; every call replaces them with `instructions(purpose:)`.
+    static let baseInstructions = "You are a polite voice assistant placing short phone calls on behalf of the owner of this "
+        + "account. Each call gives you its purpose. Be honest that you are an AI assistant if asked."
 
     static func instructions(purpose: String) -> String {
         """
@@ -232,6 +237,16 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
         try decode(DataList<samplehostAssistant>.self, try await send("GET", ["ai", "assistants"])).data
     }
 
+    /// create-an-assistant: `POST /v2/ai/assistants` with the two required fields (`name`, `instructions`; samplehost picks
+    /// the default model) and an `Idempotency-Key`, so a retried tap never makes a second one. Answers the Assistant.
+    func createAssistant(idempotencyKey: String) async throws -> samplehostAssistant {
+        let body: [String: Any] = ["name": PhoneAskOwner.assistantName, "instructions": PhoneAskOwner.baseInstructions]
+        let data = try await send("POST", ["ai", "assistants"], body: try JSONSerialization.data(withJSONObject: body),
+                                  headers: ["Idempotency-Key": idempotencyKey])
+        if let wrapped = try? JSONDecoder().decode(DataOne<samplehostAssistant>.self, from: data) { return wrapped.data }
+        return try decode(samplehostAssistant.self, data)
+    }
+
     /// dial: `POST /v2/calls` with `connection_id`, `from`, `to`, `timeout_secs`, `time_limit_secs`, `command_id` and
     /// `assistant` (CallAssistantRequest: `id`, `instructions`, `tools`). Answers `data.call_control_id`.
     func dial(_ request: PhoneDialRequest) async throws -> String {
@@ -314,13 +329,15 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
     private static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
     static func escape(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? "" }
 
-    private func send(_ method: String, _ segments: [String], query: [(String, String)] = [], body: Data? = nil) async throws -> Data {
+    private func send(_ method: String, _ segments: [String], query: [(String, String)] = [], body: Data? = nil,
+                      headers: [String: String] = [:]) async throws -> Data {
         guard let url = url(segments, query: query), samplehostEndpoint.allowed(url, base: base) else { throw samplehostError.refusedURL }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 20)
         request.httpMethod = method
         request.httpShouldHandleCookies = false
         request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
