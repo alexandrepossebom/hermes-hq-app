@@ -245,6 +245,12 @@ nonisolated struct SessionPRStatus: Hashable, Sendable {
     /// [pr-multi] Every pull request and branch of the chat's own the answer rests on, newest first (add-on 0.9.75).
     /// nil: an add-on that names only the one answer. Empty: a newer add-on with nothing of the chat's to list.
     var items: [SessionPRItem]? = nil
+    /// [pr-review-facts] The lead's review facts (HermesKit/Model/PullRequestFacts.swift); nil: not known (an add-on
+    /// before them, or not sent for this state). Never `checks.runs` here: those are on the lead's entry of `items`.
+    var size: SessionPRSize? = nil
+    var checks: SessionPRChecks? = nil
+    var title: String? = nil
+    var base: String? = nil
 
     /// The pull requests and branches not merged yet (draft or open); the one answer when nothing is listed.
     var waitingCount: Int {
@@ -327,10 +333,17 @@ nonisolated struct SessionPRItem: Hashable, Sendable {
     var number: Int? = nil
     var url: URL? = nil
     var source: Source = .git
+    /// [pr-review-facts] Its review facts; `files` and `checks.runs` only from a `detail: true` answer.
+    var size: SessionPRSize? = nil
+    var checks: SessionPRChecks? = nil
+    var title: String? = nil
+    var base: String? = nil
+    var files: [SessionPRFile]? = nil
 
     /// As one answer, for the marks and words a single status already has.
     var status: SessionPRStatus {
-        SessionPRStatus(state: state, repo: repo, branch: branch, number: number, url: url)
+        SessionPRStatus(state: state, repo: repo, branch: branch, number: number, url: url,
+                        size: size, checks: checks, title: title, base: base)
     }
 
     /// "Open #12", "Draft · feat/login", "Merged · fix/x".

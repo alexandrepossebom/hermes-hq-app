@@ -109,9 +109,11 @@ extension SessionsTests {
         let coding = app.buttons["Coding Project"].firstMatch
         XCTAssertTrue(coding.waitForExistence(timeout: 5))
         coding.tap()
-        XCTAssertTrue(app.buttons["sessions.projectPage.pr.merged"].waitForExistence(timeout: 10), "Website is a coding project")
+        // [coding-pr-review] Website's chats have no pull request, and a state at zero is not drawn (owner 2026-11-21):
+        // the coding-only rows below say it is a coding project now.
+        Thread.sleep(forTimeInterval: 1)
         openProjectSettings(app)
-        XCTAssertTrue(app.switches["sessions.projectSettings.autoDoneMerged"].waitForExistence(timeout: 5), "When the Pull Request Merges")
+        XCTAssertTrue(app.switches["sessions.projectSettings.autoDoneMerged"].waitForExistence(timeout: 5), "Website is a coding project: When the Pull Request Merges")
         XCTAssertTrue(projectSetting(app, "sessions.projectSettings.branchRows").exists, "Show Branch on Rows")
         shot(app, "PS0-page-coding")
         closeProjectSettings(app)
@@ -383,12 +385,9 @@ extension SessionsTests {
         let app = launch(projectPages: true)
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         openWebsitePage(app)
-        let more = app.buttons["sessions.projectPage.more"]
-        more.tap()
-        let coding = app.buttons["Coding Project"].firstMatch
-        XCTAssertTrue(coding.waitForExistence(timeout: 5))
-        coding.tap()
-        XCTAssertTrue(app.buttons["sessions.projectPage.pr.merged"].waitForExistence(timeout: 10), "Website is a coding project")
+        // [coding-pr-review] No PR here, and a zero count is not drawn (2026-11-21): the settings say it is coding.
+        setPageCoding(app, true)
+        XCTAssertTrue(pageIsCoding(app), "Website is a coding project")
         let copy = row(app, "s-copy"), plain = row(app, "s-plain")
         XCTAssertTrue(copy.waitForExistence(timeout: 8) && plain.exists)
         XCTAssertFalse(labelOf(copy).contains("feat/homepage-copy"), "off by default (\(labelOf(copy)))")
@@ -403,7 +402,8 @@ extension SessionsTests {
         XCTAssertEqual(labelOf(plain), plainBefore)
         shot(app, "PS6-on")
         // Not a coding project any more: the rows are the usual ones and the switch is gone.
-        more.tap()
+        app.buttons["sessions.projectPage.more"].tap()
+        let coding = app.buttons["Coding Project"].firstMatch
         XCTAssertTrue(coding.waitForExistence(timeout: 5))
         coding.tap()
         XCTAssertTrue(waitUntil(8) { !self.labelOf(copy).contains("Branch feat/homepage-copy") }, "only in a coding project (\(labelOf(copy)))")

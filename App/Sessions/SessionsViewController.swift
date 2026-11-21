@@ -139,6 +139,11 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// the bot works or waits on you), and Group By Recent's Pinned (`freshPinnedKeys`: never a second line).
     private var freshKeys: Set<String> = []
     private var freshPinnedKeys: Set<String> = []
+    /// [page-pinned-no-pin] A project page's Pinned pile: its rows draw no pin (the heading says it).
+    private var pagePinnedKeys: Set<String> = []
+    #if DEBUG
+    private var lastPinGlyphs: String?
+    #endif
     /// [mac-pane] The rows under the "Yesterday" heading: on the Mac they say the hour, not "Yesterday" again.
     private var yesterdayKeys: Set<String> = []
     private var backgroundObserver: NSObjectProtocol?
@@ -506,6 +511,10 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             // [sessions-fresh] Pinned's and Recent's one line, with or without the face (Show › Bot Faces, which only
             // Group By Recent offers; the cards follow it there too).
             let fresh: SessionRowView.Fresh? = self.freshPinnedKeys.contains(id) ? .pinned : self.freshKeys.contains(id) ? .recent : nil
+            let pinnedPile = self.pagePinnedKeys.contains(id)   // [page-pinned-no-pin]
+            // [coding-pr-review] A coding project's page: the row's PR mark opens the PR card.
+            let onPR: (() -> Void)? = coding && (session.pullRequest.map { $0.state != .none } ?? false)
+                ? { [weak self] in self?.presentPRCard(session) } : nil
             let faces = !(self.freshLayout || self.projectLayout) || (self.store?.view.botFaces ?? true)   // [projects-switch]
             // [mac-pane] The Mac: under the "Yesterday" heading a row says when ("5:31 PM"), not "Yesterday" again down
             // every row; and the pointer over a row swaps its time for Pin, Archive and More.
@@ -526,7 +535,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 SessionRowView(session: session, ownerName: owner.name, ownerHead: owner.head,
                                time: time, busy: busy, detail: detail, muted: muted,
                                origin: origin, compact: compact, shortPreview: short, card: card, fresh: fresh, faces: faces,
-                               recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, branchLead: branchLead, hover: hover)
+                               recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, branchLead: branchLead,
+                               pinnedPile: pinnedPile, onPR: onPR, hover: hover)
             }
             .margins(.all, 0)
             // [sessions-layout] A one-line row is as tall as it draws itself (44 pt), not the list's taller least row.
@@ -607,11 +617,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 },
                 onSettings: { [weak self] in self?.presentProjectSettings(key, name: group.latestTitle ?? key) },
                 look: self.store?.projectLook(key) ?? ProjectLook(),
-                onInfo: { [weak self] in
-                    guard let self else { return }
-                    let guide = ProjectIconGuide(coding: self.store?.isCodingProject(key) ?? false)
-                    self.present(ChatSheet.wrap(UIHostingController(rootView: guide), title: "Project Icons", detents: [.large()]), animated: true)
-                }, onRepository: self.store?.prManage == true ? { [weak self] in
+                onRepository: self.store?.prManage == true ? { [weak self] in
                     guard let self, let store = self.store else { return }
                     let page = ProjectRepositoryPage(project: key, store: store)
                     self.present(ChatSheet.wrap(UIHostingController(rootView: page), title: "Repository", detents: [.large()]), animated: true)
@@ -1569,6 +1575,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         compactKeys = fresh ? [] : pinnedKeys
         freshPinnedKeys = fresh ? pinnedKeys : []
         freshKeys = []
+        pagePinnedKeys = []
         yesterdayKeys = []
         shortKeys = searching ? [] : Set(groups.first { $0.id == SessionListPipeline.newId }?.sessions.map(Self.key) ?? [])
         cardKeys = [:]
@@ -1594,6 +1601,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 return key
             }
             if card { for item in items { cardKeys[item] = group.title } }
+            if !searching, group.id == SessionListPipeline.statePrefix + "pinned" { pagePinnedKeys.formUnion(items) }   // [page-pinned-no-pin]
             if !searching && ((fresh && recent) || group.id == SessionListPipeline.chipId || (projectLayout && !card)) { freshKeys.formUnion(items) }
             if !searching, DeviceWord.isMac, group.id == SessionListPipeline.recentId + "-yesterday" { yesterdayKeys.formUnion(items) }   // [mac-pane]
             snapshot.appendItems(items, toSection: section)
@@ -1650,6 +1658,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             hasher.combine(shortKeys.contains(id))                          // [sessions-layout] New for You's one line
             hasher.combine(freshKeys.contains(id))                          // [sessions-fresh] Fresh's rows
             hasher.combine(freshPinnedKeys.contains(id))
+            hasher.combine(pagePinnedKeys.contains(id))                     // [page-pinned-no-pin]
             hasher.combine(yesterdayKeys.contains(id))                      // [mac-pane] the hour under Yesterday
             hasher.combine(store?.view.botFaces)                            // [sessions-fresh] Show › Bot Faces
             next[id] = hasher.finalize()
@@ -1662,6 +1671,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         for group in groups where !group.collapsed && SessionListPipeline.isProject(group.id) {
             next[Self.newKey(group.id)] = newChatSign(group)
         }
+        #if DEBUG
+        recordPinGlyphs(snapshot.itemIdentifiers)
+        #endif
         let changed = columnFlipped ? snapshot.itemIdentifiers
             : snapshot.itemIdentifiers.filter { id in signatures[id].map { $0 != next[id] } ?? false }
         if !changed.isEmpty { snapshot.reconfigureItems(changed) }
@@ -1919,6 +1931,24 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
 
     /// A chat push is waiting for its first rows: further taps wait too.
     private var opening = false
+
+    #if DEBUG
+    /// [page-pinned-no-pin] UI tests read which listed rows draw a pin glyph (`-HQDebugTextOut`, pin-glyphs.txt: one
+    /// chat id per line, "none" when no row does), by the rule the row draws by.
+    private func recordPinGlyphs(_ items: [String]) {
+        let ids = items.compactMap { id -> String? in
+            guard let session = sessionsByID[id] else { return nil }
+            let fresh: SessionRowView.Fresh? = freshPinnedKeys.contains(id) ? .pinned : freshKeys.contains(id) ? .recent : nil
+            let draws = SessionRowView.drawsPin(pinned: session.pinned || session.projectPinned, compact: compactKeys.contains(id),
+                                                fresh: fresh, pinnedPile: pagePinnedKeys.contains(id))
+            return draws ? session.id : nil
+        }
+        let text = ids.isEmpty ? "none" : Set(ids).sorted().joined(separator: "\n")
+        guard text != lastPinGlyphs else { return }
+        lastPinGlyphs = text
+        DebugHooks.recordText(text, as: "pin-glyphs.txt")
+    }
+    #endif
 
     /// A row's identity: its profile and stored id. A cloned profile's chat keeps the stored id of the original
     /// (profile twins, fix161 D18/D22), so the id alone would drop the second row.

@@ -46,7 +46,8 @@ extension MacShots {
                 await wait(1.5)
                 snap("\(pass)c-project-page")
                 // [mac-coding-project] The same page as a Coding Project (the ⋯'s switch, set here as the menu sets
-                // it): the header's pull request counts and each row's mark; then the ⓘ's guide. Switched back off.
+                // it): the header's pull request counts and each row's mark; then the icon guide (Project Settings ›
+                // Icon Guide, here as a sheet of its own). Switched back off.
                 if let store = list.store {
                     let was = store.isCodingProject(key)
                     store.setCodingProject(key, true)
@@ -55,7 +56,7 @@ extension MacShots {
                     snap("\(pass)c2-project-page-coding")
                     log += "coding \(pass): \(list.debugProjectPRWords(key))\n"
                     if pass == 1 {
-                        let guide = ChatSheet.wrap(UIHostingController(rootView: ProjectIconGuide(coding: true)), title: "Project Icons", detents: [.large()])
+                        let guide = ChatSheet.wrap(UIHostingController(rootView: ProjectIconGuide(coding: true)), title: "Icon Guide", detents: [.large()])
                         list.present(guide, animated: false)
                         await wait(2)
                         // A Mac sheet is a window of its own.

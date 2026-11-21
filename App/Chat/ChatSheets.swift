@@ -339,12 +339,13 @@ private final class ChatInfoList: UITableViewController {
     private var rows: [SessionInfoRow]
     private var pullRequest: SessionPRStatus?
     /// [pr-multi] The rows under the info: the one answer, or each pull request and branch when there are several.
-    private var prRows: [(title: String, status: SessionPRStatus, label: String)] {
+    /// [coding-pr-review] `focus`: which the PR card opens on.
+    private var prRows: [(title: String, status: SessionPRStatus, label: String, focus: PullRequestCard.Focus)] {
         guard let pr = pullRequest else { return [] }
         let items = pr.items ?? []
-        guard items.count > 1 || (pr.manual && !items.isEmpty) else { return [("Pull Request", pr, pr.summary)] }
-        let listed = items.map { ($0.number == nil ? "Branch" : "Pull Request", $0.status, $0.label) }
-        return pr.manual ? [("Code Changes", pr, "Closed, marked by you")] + listed : listed
+        guard items.count > 1 || (pr.manual && !items.isEmpty) else { return [("Pull Request", pr, pr.summary, .lead)] }
+        let listed = items.enumerated().map { ($1.number == nil ? "Branch" : "Pull Request", $1.status, $1.label, PullRequestCard.Focus.item($0)) }
+        return pr.manual ? [("Code Changes", pr, "Closed, marked by you", .lead)] + listed : listed
     }
     private var ticker: Timer?
     /// The chat's running background commands (`process.list`), asked every 3 s while the sheet shows; the section is
@@ -676,7 +677,7 @@ private final class ChatInfoList: UITableViewController {
         }
         if indexPath.row >= rows.count, indexPath.row - rows.count < prRows.count {
             let index = indexPath.row - rows.count
-            let (title, pr, label) = prRows[index]
+            let (title, pr, label, _) = prRows[index]
             let cell = tableView.dequeueReusableCell(withIdentifier: "pull-request", for: indexPath)
             var content = UIListContentConfiguration.valueCell().hqScaled()
             content.text = title
@@ -746,7 +747,7 @@ private final class ChatInfoList: UITableViewController {
         if indexPath.section == commandSection { return }
         guard indexPath.section == 0 else { copyAll(); return }
         if indexPath.row >= rows.count, indexPath.row - rows.count < prRows.count {
-            showPullRequest(prRows[indexPath.row - rows.count].status)
+            showPullRequest(prRows[indexPath.row - rows.count].focus)
             return
         }
         let row = rows[indexPath.row]
@@ -758,23 +759,22 @@ private final class ChatInfoList: UITableViewController {
         Haptics.play(.success)
     }
 
-    private func showPullRequest(_ pr: SessionPRStatus) {
-        let explanation: String?
-        switch pr.state {
-        case .closed where pr.manual: explanation = "You marked this chat’s changes closed. Nothing changed on GitHub or in git."
-        case .closed: explanation = "Closed without merging."
-        case .draft where pr.number == nil: explanation = "On a branch that isn’t merged yet."
-        case .unknown: explanation = "HQ couldn’t verify the pull request for this session."
-        case .none: explanation = "No pull request was found for this branch."
-        default: explanation = nil
-        }
-        let lines = [explanation, pr.repo.map { "Repository: " + $0 }, pr.branch.map { "Branch: " + $0 }].compactMap { $0 }
-        let alert = UIAlertController(title: pr.label, message: lines.isEmpty ? nil : lines.joined(separator: "\n"), preferredStyle: .alert)
-        if let url = pr.url, ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
-            alert.addAction(UIAlertAction(title: "Open Pull Request", style: .default) { _ in UIApplication.shared.open(url) })
-        }
-        alert.addAction(UIAlertAction(title: "Done", style: .cancel))
-        present(alert, animated: true)
+    /// [coding-pr-review] A pull request row opens the PR card (it was an alert): one card, from the row's mark or here.
+    /// Ask to Merge closes this sheet and sends the words to the chat on show.
+    private func showPullRequest(_ focus: PullRequestCard.Focus) {
+        guard let chat = source.cardChat else { return }
+        let source = self.source
+        guard let sheet = PullRequestCardSheet.make(status: pullRequest, chat: chat, focus: focus, refresh: { [weak source] in
+            await source?.pullRequestDetail()
+        }, send: { [weak self] words in
+            let deliver = { PullRequestCardSheet.deliver(words, to: chat) {} }
+            if let presenter = self?.navigationController?.presentingViewController ?? self?.presentingViewController {
+                presenter.dismiss(animated: true, completion: deliver)
+            } else {
+                deliver()
+            }
+        }) else { return }
+        present(sheet, animated: true)
     }
 
     /// Copy Chat Info: every row as `Label: value (note)`, with the raw ids.

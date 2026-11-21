@@ -8,6 +8,7 @@
 //   Notifications   All, Only When It Needs Me, Mute [project-mute]
 //   New Chats       Model, Reasoning [project-new-chat-model]
 //   Look            Icon, Color [project-look]; a coding project: Show Branch on Rows [project-branch-rows]
+//   (last)          Icon Guide [coding-pr-review]: the marks the page draws (it was the header's ⓘ)
 //
 // Home (the chats in no project) has a page too: it keeps what makes sense there (its pins, Done, notifications).
 
@@ -20,6 +21,8 @@ struct ProjectSettingsPage: View {
     var bot: (id: String, name: String)? = nil
     /// The page behind redraws.
     var onChange: () -> Void = {}
+    /// [coding-pr-review] Icon Guide: the sheet pushes the project's icon guide (nil: no row).
+    var onIconGuide: (() -> Void)? = nil
 
     /// Bumped by every change: the page reads the store again.
     @State private var tick = 0
@@ -51,6 +54,7 @@ struct ProjectSettingsPage: View {
                 newChats
                 look
             }
+            iconGuide
         }.hqMacSettingsRowInsets() }
         .settingsList()
         .accessibilityIdentifier("sessions.projectSettings")
@@ -195,6 +199,19 @@ struct ProjectSettingsPage: View {
         guard let bot else { return start }
         if loaded, !any { return start + " \(bot)’s models couldn’t be listed." }
         return start + " The models are \(bot)’s."
+    }
+
+    // MARK: Icon Guide
+
+    /// [coding-pr-review] Owner 2026-11-21 (option B): the page's marks explained, one row in a last section (Home's
+    /// page too). It was the project header's ⓘ.
+    @ViewBuilder private var iconGuide: some View {
+        if let onIconGuide {
+            Section {
+                NavRow(title: "Icon Guide", action: onIconGuide)
+                    .accessibilityIdentifier("sessions.projectSettings.iconGuide")
+            }
+        }
     }
 
     // MARK: Look

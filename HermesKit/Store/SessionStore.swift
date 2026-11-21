@@ -176,6 +176,11 @@ nonisolated struct SessionMarksCacheFile: Codable, Sendable {
         var manual: Bool?
         /// [pr-multi] nil: an add-on that lists none (or a file from before 0.9.75).
         var items: [Item]?
+        /// [pr-review-facts] nil: not known, or a file from before them. Never files or check runs.
+        var size: SessionPRSize?
+        var checks: Checks?
+        var title: String?
+        var base: String?
         struct Item: Codable, Sendable {
             var state: String
             var repo: String?
@@ -183,6 +188,28 @@ nonisolated struct SessionMarksCacheFile: Codable, Sendable {
             var number: Int?
             var url: String?
             var source: String?
+            var size: SessionPRSize?
+            var checks: Checks?
+            var title: String?
+            var base: String?
+        }
+        /// [pr-review-facts] The counts of a checks answer, without its runs.
+        struct Checks: Codable, Sendable {
+            var state: String
+            var passed: Int
+            var failed: Int
+            var running: Int
+
+            init(_ checks: SessionPRChecks) {
+                state = checks.state.rawValue; passed = checks.passed; failed = checks.failed; running = checks.running
+            }
+
+            /// Read back as the wire's rules read it: an unknown state or a negative count is no answer.
+            var checks: SessionPRChecks? {
+                guard let state = SessionPRChecks.State(rawValue: state), passed >= 0, failed >= 0, running >= 0,
+                      passed + failed + running > 0 else { return nil }
+                return SessionPRChecks(state: state, passed: passed, failed: failed, running: running)
+            }
         }
     }
     var at: Double                   // ms since the epoch
@@ -519,7 +546,9 @@ final class SessionStore {
             guard let state = SessionPRStatus.State(rawValue: mark.state), state != .unknown else { continue }
             pullRequests[key] = SessionPRStatus(state: state, repo: mark.repo, branch: mark.branch, number: mark.number,
                                                 url: mark.url.flatMap(Self.validPRURL), manual: mark.manual ?? false,
-                                                items: mark.items.map { $0.compactMap(Self.prItem) })
+                                                items: mark.items.map { $0.compactMap(Self.prItem) },
+                                                size: Self.validSize(mark.size), checks: mark.checks?.checks,
+                                                title: Self.cachedWord(mark.title, limit: PRFacts.titleLimit), base: Self.cachedWord(mark.base))
         }
         if let cached = RosterDisk.read(SessionsCacheFile.self, from: cacheURL) {
             recents = cached.recents; cron = cached.cron; messaging = cached.messaging
@@ -1589,6 +1618,31 @@ final class SessionStore {
         }
     }
 
+    /// [pr-card-detail] The PR card's own ask: this one chat, fresh, with its files and check runs (`detail: true`).
+    /// The answer's facts, without files and runs, also update the chat's mark. nil: no answer for it.
+    func pullRequestDetail(profile: String, id: String) async -> SessionPRStatus? {
+        guard !prRouteMissing else { return nil }
+        let chat = SessionSummary(id: id, profile: profile, title: "", preview: nil, lastActive: nil, source: nil,
+                                  unread: false, isRunning: false)
+        let answer = await askPullRequests([chat], fresh: true, detail: true)
+        let key = Self.writeKey(id: id, profile: profile)
+        guard let status = answer.answers?[key] else { return nil }
+        var kept = status
+        kept.items = status.items?.map { item in
+            var item = item
+            item.files = nil
+            item.checks?.runs = nil
+            return item
+        }
+        prCheckedAt[key] = .now
+        if pullRequests[key] != kept {
+            pullRequests[key] = kept
+            rebuild()
+            saveMarks()
+        }
+        return status
+    }
+
     private struct PRChunkAnswer: Sendable {
         var keys: Set<String>
         /// nil: no answer (the request failed).
@@ -1597,10 +1651,13 @@ final class SessionStore {
         var missing: Bool
     }
 
-    private func askPullRequests(_ chunk: [SessionSummary], fresh: Bool = false) async -> PRChunkAnswer {
+    private func askPullRequests(_ chunk: [SessionSummary], fresh: Bool = false, detail: Bool = false) async -> PRChunkAnswer {
         let keys = Set(chunk.map { Self.writeKey(id: $0.id, profile: $0.profile) })
         var fields: [String: JSONValue] = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
         if fresh { fields["fresh"] = .bool(true) }   // an add-on before 0.9.75 ignores it
+        // [pr-review-facts] Files and check runs: only for the one chat whose PR card is open (the add-on honours it for
+        // 4 chats or fewer; an older one ignores it).
+        if detail && chunk.count <= 4 { fields["detail"] = .bool(true) }
         let body = JSONValue.object(fields)
         // The outcome is bound first and the answer built from it after (ChildTasks.swift: a value returned from
         // inside a `do` around `try await` can be lost in an optimized build).
@@ -1621,25 +1678,38 @@ final class SessionStore {
                 let key = Self.writeKey(id: id, profile: profile)
                 guard keys.contains(key) else { continue }
                 let state = item["state"]?.string.flatMap(SessionPRStatus.State.init(rawValue:)) ?? .unknown
-                answers[key] = SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
-                                               number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
-                                               manual: item["manual"]?.bool ?? false,
-                                               items: Self.prItems(item["items"]))
+                answers[key] = Self.prStatus(item, state: state, detail: detail)
             }
             answer.answers = answers
         }
         return answer
     }
 
-    /// [pr-instant] The answers as they stand, for the next launch.
+    /// One answer of `pr-status` (the wire contract: docs/spec/3x-sessions.md [pr-review-facts]). `detail`: a `detail: true`
+    /// answer, whose items' `files` and `checks.runs` are read too.
+    static func prStatus(_ item: JSONValue, state: SessionPRStatus.State, detail: Bool) -> SessionPRStatus {
+        SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
+                        number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
+                        manual: item["manual"]?.bool ?? false,
+                        items: Self.prItems(item["items"], detail: detail),
+                        size: PRFacts.size(item["size"]), checks: PRFacts.checks(item["checks"], runs: false),
+                        title: PRFacts.title(item["title"]), base: PRFacts.base(item["base"]))
+    }
+
+    /// [pr-instant] The answers as they stand, for the next launch. [pr-review-facts] With their size, checks (no
+    /// runs), title and base; never files.
     private func saveMarks() {
         let marks = pullRequests.filter { $0.value.state != .unknown }.mapValues {
             SessionMarksCacheFile.Mark(state: $0.state.rawValue, repo: $0.repo, branch: $0.branch, number: $0.number,
                                        url: $0.url?.absoluteString, manual: $0.manual ? true : nil,
                                        items: $0.items?.map {
                                            .init(state: $0.state.rawValue, repo: $0.repo, branch: $0.branch, number: $0.number,
-                                                 url: $0.url?.absoluteString, source: $0.source.rawValue)
-                                       })
+                                                 url: $0.url?.absoluteString, source: $0.source.rawValue,
+                                                 size: $0.size, checks: $0.checks.map(SessionMarksCacheFile.Mark.Checks.init),
+                                                 title: $0.title, base: $0.base)
+                                       },
+                                       size: $0.size, checks: $0.checks.map(SessionMarksCacheFile.Mark.Checks.init),
+                                       title: $0.title, base: $0.base)
         }
         RosterDisk.write(SessionMarksCacheFile(at: Date().timeIntervalSince1970 * 1000, marks: marks), to: marksURL,
                          keepNewest: (RosterDisk.sessionMarksKind, 3))
@@ -1663,18 +1733,40 @@ final class SessionStore {
 
     /// [pr-multi] The add-on's list (0.9.75), at most 12, each checked like the one answer. No list: nil (an add-on
     /// that names only the one answer, or a chat with nothing of its own to list).
-    static func prItems(_ value: JSONValue?) -> [SessionPRItem]? {
+    /// [pr-review-facts] Each entry's size, checks, title and base too; with `detail`, its files and check runs.
+    static func prItems(_ value: JSONValue?, detail: Bool = false) -> [SessionPRItem]? {
         guard let rows = value?.array else { return nil }
         return rows.prefix(12).compactMap { row in
-            Self.prItem(.init(state: row["state"]?.string ?? "", repo: row["repo"]?.string, branch: row["branch"]?.string,
-                              number: row["number"]?.int, url: row["url"]?.string, source: row["source"]?.string))
+            guard var item = Self.prItem(.init(state: row["state"]?.string ?? "", repo: row["repo"]?.string, branch: row["branch"]?.string,
+                                               number: row["number"]?.int, url: row["url"]?.string, source: row["source"]?.string))
+            else { return nil }
+            item.size = PRFacts.size(row["size"])
+            item.checks = PRFacts.checks(row["checks"], runs: detail)
+            item.title = PRFacts.title(row["title"])
+            item.base = PRFacts.base(row["base"])
+            if detail { item.files = PRFacts.files(row["files"]) }
+            return item
         }
     }
 
     static func prItem(_ item: SessionMarksCacheFile.Mark.Item) -> SessionPRItem? {
         guard let state = SessionPRStatus.State(rawValue: item.state) else { return nil }
         return SessionPRItem(state: state, repo: item.repo, branch: item.branch, number: item.number.flatMap { $0 > 0 ? $0 : nil },
-                             url: item.url.flatMap(validPRURL), source: item.source.flatMap(SessionPRItem.Source.init(rawValue:)) ?? .git)
+                             url: item.url.flatMap(validPRURL), source: item.source.flatMap(SessionPRItem.Source.init(rawValue:)) ?? .git,
+                             size: validSize(item.size), checks: item.checks?.checks,
+                             title: cachedWord(item.title, limit: PRFacts.titleLimit), base: cachedWord(item.base))
+    }
+
+    /// [pr-review-facts] A cached size read back as the wire's rule reads it: no negative count.
+    static func validSize(_ size: SessionPRSize?) -> SessionPRSize? {
+        guard let size, size.files >= 0, size.additions >= 0, size.deletions >= 0 else { return nil }
+        return size
+    }
+
+    /// [pr-review-facts] A cached title or base read back: trimmed, empty is none.
+    static func cachedWord(_ text: String?, limit: Int = 200) -> String? {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return String(text.prefix(limit))
     }
 
     private func schedulePRDiscovery() {

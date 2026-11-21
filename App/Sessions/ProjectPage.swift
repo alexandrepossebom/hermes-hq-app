@@ -50,7 +50,6 @@ struct ProjectPageHeader: View {
     var onSettings: () -> Void = {}
     /// [project-look] The project's emoji and colour, before its name.
     var look = ProjectLook()
-    var onInfo: () -> Void = {}
     /// [pr-manage] The ⋯'s Repository… (the project's repository on the computer running Hermes); nil on a gateway
     /// that takes no links, and it shows only while Coding Project is on.
     var onRepository: (() -> Void)? = nil
@@ -193,7 +192,6 @@ struct ProjectPageHeader: View {
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
                 moreButton(menu)
-                infoButton
             }
             .frame(height: HQFont.scaled(carded ? 26 : 30))
             if !meta.isEmpty {
@@ -213,7 +211,8 @@ struct ProjectPageHeader: View {
                 counts(words: false)
             }
             .padding(.top, carded ? 1 : 2)
-            if coding {
+            // [coding-pr-review] A state at zero is not drawn (unless picked); with none to draw, no line.
+            if coding, !Self.shownPRStates(prCounts, selected: selectedPR).isEmpty {
                 pullRequestCounts
             }
         }
@@ -230,26 +229,13 @@ struct ProjectPageHeader: View {
         .padding(.bottom, carded ? 0 : 6)
     }
 
-    /// Owner 2026-11-19: "The information icon needs to be on the right side and the three dots to the left." The ⓘ is
-    /// the header's last control: its glyph stands on the card's inner edge (as the ⋯'s did), its touch 44 pt across.
-    private var infoButton: some View {
-        Button(action: onInfo) {
-            Image(systemName: "info.circle")
-                .font(Font.hq(.body)).foregroundStyle(Color.hqLabel2)
-                .frame(width: DeviceWord.isMac ? 28 : 44, height: DeviceWord.isMac ? 24 : 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Project icon guide")
-        .accessibilityIdentifier("sessions.projectPage.info")
-        .help("Project icon guide")
-        .padding(.trailing, DeviceWord.isMac ? -6 : -12)
-    }
-
-    /// [project-default-bot] The ⋯ beside the name's end, left of the ⓘ; its touch 44 pt across.
+    /// [project-default-bot] The ⋯ at the name's end. [coding-pr-review] Owner 2026-11-21 (option B): the ⓘ left the
+    /// header (its icon guide is Project Settings' last row), so the ⋯ is the header's last control and stands where
+    /// the ⓘ stood: its glyph on the card's inner edge, its touch 44 pt on the iPhone (the Mac's smaller frame, as the
+    /// ⓘ had). This replaces the 2026-11-19 placement ("information icon on the right, three dots to the left").
     private func moreButton(_ menu: BotMenu?) -> some View {
         HeaderMoreButton(label: "Actions for \(name)", identifier: "sessions.projectPage.more", glyph: Theme.isDesktop ? 14 : 17,
-                         cap: 22, height: HQFont.scaled(carded ? 26 : 30), above: 8) {
+                         cap: 22, width: DeviceWord.isMac ? 28 : 44, height: DeviceWord.isMac ? 24 : 44) {
             Button(action: onSettings) { Label("Project Settings…", systemImage: "gearshape") }
                 .accessibilityIdentifier("sessions.projectPage.settings")
             Toggle(isOn: Binding(get: { coding }, set: onCodingChange)) {
@@ -281,18 +267,25 @@ struct ProjectPageHeader: View {
                 .accessibilityIdentifier("sessions.projectPage.defaultBot")
             }
         }
+        .padding(.trailing, DeviceWord.isMac ? -6 : -12)
     }
 
     static func prWord(_ state: SessionPRStatus.State) -> String {
         ["none": "No PR", "draft": "Draft", "open": "Open", "merged": "Merged", "closed": "Closed"][state.rawValue] ?? ""
     }
 
+    /// The count line's states, in order: [coding-pr-review] owner 2026-11-21 (option B), a state at zero is not drawn,
+    /// unless it is the picked one (lit at zero, so the filter can be cleared). Empty: the line is absent.
+    nonisolated static func shownPRStates(_ counts: [SessionPRStatus.State: Int], selected: SessionPRStatus.State?) -> [SessionPRStatus.State] {
+        [SessionPRStatus.State.none, .draft, .open, .merged, .closed].filter { counts[$0, default: 0] > 0 || $0 == selected }
+    }
+
     /// Owner 2026-11-19: the picked state says its name inside its ring ("58 Merged"), so the filter on screen reads
-    /// without the ⓘ guide; where the line runs out, the flow puts the last marks on a second line.
+    /// without a guide; where the line runs out, the flow puts the last marks on a second line.
     private var pullRequestCounts: some View {
         // A narrow sidebar or larger counts can push the last mark onto a second line.
         PagesFlowLayout(spacing: 12, lineSpacing: 0) {
-            ForEach([SessionPRStatus.State.none, .draft, .open, .merged, .closed], id: \.self) { state in
+            ForEach(Self.shownPRStates(prCounts, selected: selectedPR), id: \.self) { state in
                 let count = prCounts[state, default: 0]
                 let status = state == .none ? "No PR yet" : "\(SessionPRStatus(state: state).label) PR"
                 let label = "\(status), \(count) loaded \(count == 1 ? "chat" : "chats")"
@@ -312,8 +305,6 @@ struct ProjectPageHeader: View {
                 .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(count == 0 && selectedPR != state)
-                .opacity(count == 0 && selectedPR != state ? 0.45 : 1)
                 .accessibilityLabel(label)
                 .accessibilityHint(selectedPR == state ? "Clear pull request filter" : "Filter chats by pull request state")
                 .accessibilityAddTraits(selectedPR == state ? .isSelected : [])
@@ -382,10 +373,36 @@ extension SessionsViewController {
         guard let store else { return }
         let usual = organizer?.projectDefaultBot(key: key) ?? store.projectHolders(key: key).first?.profile ?? "default"
         let botName = owners[usual]?.name ?? Self.readableProfileName(usual)
-        let page = ProjectSettingsPage(project: key, store: store, bot: (usual, botName)) { [weak self] in
+        // [coding-pr-review] The icon guide is the page's last row (it left the header's ⓘ): pushed in this sheet.
+        weak var sheet: UINavigationController?
+        let page = ProjectSettingsPage(project: key, store: store, bot: (usual, botName), onChange: { [weak self] in
             self?.reload(animated: false)
-        }
-        present(ChatSheet.wrap(UIHostingController(rootView: page), title: name, detents: [.large()]), animated: true)
+        }, onIconGuide: { [weak store] in
+            let guide = UIHostingController(rootView: ProjectIconGuide(coding: store?.isCodingProject(key) ?? false))
+            guide.title = "Icon Guide"
+            guide.navigationItem.largeTitleDisplayMode = .never
+            sheet?.pushViewController(guide, animated: true)
+        })
+        let wrapped = ChatSheet.wrap(UIHostingController(rootView: page), title: name, detents: [.large()])
+        sheet = wrapped
+        present(wrapped, animated: true)
+    }
+
+    /// [coding-pr-review] A coding row's PR mark: the PR card for its chat (its lead first). Ask to Merge opens the
+    /// chat and sends the words there. [pr-card-detail] The card asks for this chat's checks and files as it opens.
+    func presentPRCard(_ session: SessionSummary) {
+        let chat = PullRequestCardSheet.Chat(profile: session.profile, id: session.id, title: SessionRowView.title(session),
+                                             botName: owner(of: session).name)
+        let profile = session.profile, id = session.id, store = self.store
+        let status = store?.pullRequest(profile: profile, id: id) ?? session.pullRequest
+        let key = Self.key(session)
+        guard let sheet = PullRequestCardSheet.make(status: status, chat: chat, refresh: { [weak store] in
+            await store?.pullRequestDetail(profile: profile, id: id)
+        }, send: { [weak self] words in
+            PullRequestCardSheet.deliver(words, to: chat) { self?.open(key) }
+        }) else { return }
+        Haptics.play(.selection)
+        present(sheet, animated: true)
     }
 
     /// [project-settings] What of a project's settings its page's header and rows draw (the header redraws when it

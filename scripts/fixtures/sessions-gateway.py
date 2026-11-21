@@ -790,12 +790,21 @@ def handler(gateway):
                 # Opt-in synthetic statuses; ordinary chats have no repo or branch and are not a "no PR" match.
                 statuses = MODE['prStatus']
                 results = []
-                for item in body.get('sessions', []):
-                    if not isinstance(item, dict): continue
+                asked = [item for item in body.get('sessions', []) if isinstance(item, dict)]
+                # [pr-review-facts] Each item's `files` and `checks.runs` only for `detail: true` naming 4 chats or
+                # fewer (the wire contract); the request itself is in the REST log (`body.detail`).
+                detail = body.get('detail') is True and len(asked) <= 4
+                for item in asked:
                     profile, sid = item.get('profile'), item.get('id')
                     details = statuses.get(profile + '/' + sid, {}) if isinstance(profile, str) and isinstance(sid, str) else {}
                     if details:
-                        results.append({'profile': profile, 'id': sid, **details})
+                        answer = json.loads(json.dumps(details))
+                        if not detail:
+                            for entry in answer.get('items') or []:
+                                if not isinstance(entry, dict): continue
+                                entry.pop('files', None)
+                                if isinstance(entry.get('checks'), dict): entry['checks'].pop('runs', None)
+                        results.append({'profile': profile, 'id': sid, **answer})
                 return 200, {'sessions': results}
             # [pr-manage] Opt-in (`/__fixture/mode {"prManage": true}`): the owner's closed mark and a project's
             # linked repository, kept in memory. A folder with "nope" in it is not a repository.

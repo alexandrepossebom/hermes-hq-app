@@ -11,6 +11,23 @@ extension SessionsTests {
         if captureMenu { shot(app, "project-card-coding-menu") }
         item.tap()
     }
+    /// [coding-pr-review] ⋯ › Project Settings… › Icon Guide (the header's ⓘ until 2026-11-21).
+    @MainActor func openIconGuide(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        openProjectSettings(app, file: file, line: line)
+        let row = projectSetting(app, "sessions.projectSettings.iconGuide")
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Project Settings' last row is Icon Guide", file: file, line: line)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Icon Guide"].waitForExistence(timeout: 5), "the guide opens", file: file, line: line)
+    }
+
+    /// Back from the guide to Project Settings, then the sheet closed.
+    @MainActor func closeIconGuide(_ app: XCUIApplication) {
+        app.navigationBars["Icon Guide"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(waitUntil(5) { !app.navigationBars["Icon Guide"].exists }, "back on Project Settings")
+        app.buttons["sheet.close"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(6) { !app.descendants(matching: .any)["sessions.projectSettings"].exists }, "the settings page closes")
+    }
+
     /// A waiting pinned chat, a finished reply, and a request without a reply have distinct coding subtitles.
     @MainActor func testCodingSessionSubtitles() throws {
         func reply(_ text: String) -> [[String: String]] { [["role": "assistant", "content": text]] }
@@ -39,7 +56,7 @@ extension SessionsTests {
         project.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
         let coding = app.buttons["sessions.projectPage.pr.merged"]
-        if coding.exists { toggleProjectCoding(app) }
+        setPageCoding(app, false)      // [coding-pr-review] a zero count is not drawn: the settings say it
         let sent = row(app, "s-shortcuts")
         XCTAssertTrue(sent.waitForExistence(timeout: 10))
         XCTAssertFalse(labelOf(sent).contains("No reply yet"))
@@ -85,7 +102,7 @@ extension SessionsTests {
         project.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
         let coding = app.buttons["sessions.projectPage.pr.open"]
-        if !coding.exists { toggleProjectCoding(app) }
+        setPageCoding(app, true)       // [coding-pr-review] a zero count is not drawn: the settings say it
         XCTAssertTrue(coding.waitForExistence(timeout: 10))
         openChat(app, "s-shortcuts")
         type(app, "Add Cmd-K for search", send: true)
@@ -123,33 +140,41 @@ extension SessionsTests {
         project.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.switches["sessions.projectPage.coding"].exists)
-        if app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        setPageCoding(app, false)      // [coding-pr-review] a zero count is not drawn: the settings say it
         shot(app, "project-card-coding-off")
-        let info = app.buttons["sessions.projectPage.info"]
         let note = app.staticTexts["Counts include only available PR statuses."]
-        // Owner 2026-11-19: the ⓘ is the card's last control, the ⋯ to its left; both whole on the card.
+        // [coding-pr-review] Owner 2026-11-21 (option B): no ⓘ in the header; the ⋯ is its last control, its glyph
+        // whole on the card.
+        XCTAssertFalse(app.buttons["sessions.projectPage.info"].exists, "the ⓘ left the header")
         let more = app.buttons["sessions.projectPage.more"]
-        XCTAssertGreaterThan(info.frame.midX, more.frame.midX, "the ⓘ is right of the ⋯")
-        XCTAssertLessThanOrEqual(info.frame.midX + 12, app.cells["sessions.projectPage"].frame.maxX, "the ⓘ's glyph is inside the card")
-        info.tap()
-        XCTAssertTrue(app.navigationBars["Project Icons"].waitForExistence(timeout: 5))
+        XCTAssertTrue(more.exists)
+        XCTAssertLessThanOrEqual(more.frame.midX + 12, app.cells["sessions.projectPage"].frame.maxX, "the ⋯'s glyph is inside the card")
+        XCTAssertGreaterThan(more.frame.midX, app.cells["sessions.projectPage"].frame.maxX - 50, "the ⋯ stands at the card's end")
+        // The guide is Project Settings' last row.
+        openIconGuide(app)
         XCTAssertFalse(note.exists)
-        app.buttons["sheet.close"].firstMatch.tap()
+        closeIconGuide(app)
         toggleProjectCoding(app, captureMenu: true)
         let merged = app.buttons["sessions.projectPage.pr.merged"]
         XCTAssertTrue(merged.waitForExistence(timeout: 10))
         shot(app, "project-card-coding-on")
         XCTAssertTrue(waitUntil(20) { merged.label.contains("2 loaded") }, merged.label)
+        // A state at zero is not drawn: no draft, open or closed chat here.
+        let none = app.buttons["sessions.projectPage.pr.none"]
+        XCTAssertTrue(waitUntil(10) { none.exists && none.label.contains("1 loaded chat") }, none.label)
+        for state in ["draft", "open", "closed"] {
+            XCTAssertFalse(app.buttons["sessions.projectPage.pr.\(state)"].exists, "\(state) at zero is absent")
+        }
+        XCTAssertLessThan(none.frame.midX, merged.frame.midX, "the order is unchanged")
         shot(app, "project-card-coding-on-loaded")
         XCTAssertFalse(note.exists)
-        info.tap()
-        XCTAssertTrue(app.navigationBars["Project Icons"].waitForExistence(timeout: 5))
+        openIconGuide(app)
         for state in ["none", "draft", "open", "merged", "closed", "unknown"] {
             XCTAssertTrue(app.descendants(matching: .any)["project.legend.\(state)"].firstMatch.exists, state)
         }
         XCTAssertTrue(note.exists)
         shot(app, "project-icon-guide")
-        app.buttons["sheet.close"].firstMatch.tap()
+        closeIconGuide(app)
         let plainWidth = merged.frame.width
         merged.tap()
         XCTAssertTrue(waitUntil(10) { merged.isSelected && self.row(app, "s-release").exists && self.row(app, "s-old").exists && !self.row(app, "s-garden").exists })
@@ -181,7 +206,7 @@ extension SessionsTests {
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
-        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        setPageCoding(app, true)       // [coding-pr-review] a zero count is not drawn: the settings say it
         XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-garden")).contains("Draft") }, labelOf(row(app, "s-garden")))
 
         // Mark as Closed, then Reopen. A merged chat offers neither.
@@ -259,7 +284,7 @@ extension SessionsTests {
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
-        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        setPageCoding(app, true)       // [coding-pr-review] a zero count is not drawn: the settings say it
         XCTAssertTrue(waitUntil(20) { self.labelOf(self.row(app, "s-release")).contains("Draft #42") }, labelOf(row(app, "s-release")))
         XCTAssertTrue(waitUntil(10) { self.labelOf(self.row(app, "s-garden")).contains("No PR yet") }, labelOf(row(app, "s-garden")))
         openChat(app, "s-release")
@@ -270,11 +295,15 @@ extension SessionsTests {
         XCTAssertTrue(pr.label.contains("Draft #42"), pr.label)
         shot(app, "pr-tracking-info")
         pr.tap()
-        let alert = app.alerts["Draft #42"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 5))
-        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "example/app")).firstMatch.exists)
-        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "feature/release")).firstMatch.exists)
-        XCTAssertTrue(alert.buttons["Open Pull Request"].exists)
+        // [coding-pr-review] The row opens the PR card (it was an alert): the same card as the row's mark.
+        XCTAssertTrue(app.navigationBars["Pull Request"].waitForExistence(timeout: 5), "the PR card")
+        let card = app.descendants(matching: .any)
+        XCTAssertTrue(card["prcard.state"].firstMatch.label.contains("Draft #42"), card["prcard.state"].firstMatch.label)
+        XCTAssertTrue(card["prcard.place"].firstMatch.label.contains("example/app"), card["prcard.place"].firstMatch.label)
+        XCTAssertTrue(card["prcard.place"].firstMatch.label.contains("feature/release"), card["prcard.place"].firstMatch.label)
+        XCTAssertTrue(app.buttons["prcard.openOnGitHub"].exists)
+        XCTAssertTrue(app.buttons["prcard.askToMerge"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists, "no alert")
         shot(app, "pr-tracking-details")
     }
     /// [pr-multi] Owner 2026-11-20: "How does it work with 2 PRs … 2 at the same time and only one merging". One chat
@@ -297,7 +326,7 @@ extension SessionsTests {
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
-        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        setPageCoding(app, true)       // [coding-pr-review] a zero count is not drawn: the settings say it
         let release = row(app, "s-release")
         XCTAssertTrue(waitUntil(20) { self.labelOf(release).contains("Open #44, 1 more not merged") }, labelOf(release))
         // [pr-pill] The green "#44" pill and "+2" on the right are drawn, not read (the row's words say it): the shot below.
@@ -321,9 +350,13 @@ extension SessionsTests {
         XCTAssertFalse(app.cells["info.pull-request.3"].exists)
         shot(app, "pr-several-info")
         third.tap()
-        let alert = app.alerts["Merged #40"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 5))
-        XCTAssertTrue(alert.buttons["Open Pull Request"].exists)
+        // [coding-pr-review] The PR card, on that pull request.
+        XCTAssertTrue(app.navigationBars["Pull Request"].waitForExistence(timeout: 5), "the PR card")
+        let card = app.descendants(matching: .any)
+        XCTAssertTrue(card["prcard.state"].firstMatch.label.contains("Merged #40"), card["prcard.state"].firstMatch.label)
+        XCTAssertTrue(app.buttons["prcard.openOnGitHub"].exists)
+        XCTAssertFalse(app.buttons["prcard.askToMerge"].exists, "merged: nothing to merge")
+        XCTAssertTrue(app.buttons["prcard.other.0"].exists && app.buttons["prcard.other.1"].exists, "Also in This Chat")
     }
     /// The gateway as the sheet names it: host and port.
     var gatewayHost: String {

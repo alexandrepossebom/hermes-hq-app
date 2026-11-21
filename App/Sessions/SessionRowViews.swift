@@ -44,6 +44,18 @@ struct SessionRowView: View {
         branch.count > 24 ? String(branch.prefix(11)) + "…" + String(branch.suffix(11)) : branch
     }
     enum Fresh { case pinned, recent }
+    /// [page-pinned-no-pin] A project page's Pinned pile: its heading says pinned, so the row draws no pin (owner
+    /// 2026-11-21). VoiceOver still says it.
+    var pinnedPile = false
+    /// [coding-pr-review] A coding project's page: a tap on the row's PR mark opens the PR card (nil: the mark is drawn
+    /// only). The row stays one element; VoiceOver has "Show Pull Request" among its actions.
+    var onPR: (() -> Void)? = nil
+    /// Whether a row draws its pin glyph: pinned (everywhere or in its project), and not in a Pinned whose heading
+    /// already says so (the main list's Pinned rows, compact or fresh, and a project page's Pinned pile). An archived
+    /// pinned chat listed in a page's Done keeps it: nothing else there says it is pinned.
+    nonisolated static func drawsPin(pinned: Bool, compact: Bool, fresh: Fresh?, pinnedPile: Bool) -> Bool {
+        pinned && !compact && fresh != .pinned && !pinnedPile
+    }
     /// [mac-pane] The Mac: the pointer over a row swaps its time for Pin, Archive and More (`SessionRowHover`). nil
     /// elsewhere (a finger has the swipes and the hold).
     var hover: SessionRowHover? = nil
@@ -73,7 +85,12 @@ struct SessionRowView: View {
     }
 
     var body: some View {
-        if hover != nil { rowBody.onHover { over = $0 } } else { rowBody }   // [mac-pane]
+        Group {
+            if hover != nil { rowBody.onHover { over = $0 } } else { rowBody }   // [mac-pane]
+        }
+        .accessibilityActions {
+            if let onPR { Button("Show Pull Request", action: onPR) }   // [coding-pr-review]
+        }
     }
 
     /// [mac-pane] Owner 2026-11-18 ("Are we separating them properly?"): the iOS look's one-line rows on the Mac stood a
@@ -263,6 +280,12 @@ struct SessionRowView: View {
         (session.isRunning || session.status == .working) && session.status != .needsInput && session.pending == nil
     }
 
+    /// The coding line's quiet ink (the finished summary's, and the verdict's).
+    private var quietInk: Color { Color.hqLabel2.opacity(subtitleContrast == .increased ? 1 : 0.78) }
+
+    /// [pr-verdict] What the row says about its lead pull request (draft or open): nil off a coding project's page.
+    private var codingVerdict: PRVerdict? { codingProject ? PRVerdict.of(session.pullRequest) : nil }
+
     @ViewBuilder private var codingSubtitle: some View {
         if let codingLine {
             HStack(spacing: 6) {
@@ -285,10 +308,15 @@ struct SessionRowView: View {
                 Text(codingLine)
                     .font(Font.hq(.footnote))
                     // Working reads in the tint a card's step line has; the finished summary goes quiet again.
-                    .foregroundStyle(codingWorking ? Color.hqTintText
-                                     : Color.hqLabel2.opacity(subtitleContrast == .increased ? 1 : 0.78))
+                    .foregroundStyle(codingWorking ? Color.hqTintText : quietInk)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                // [pr-verdict] The lead pull request's checks and size at the line's trailing end, under the mark, in
+                // the line's quiet ink; the words give way first. At the accessibility sizes it leaves the row.
+                if let verdict = codingVerdict, !large {
+                    Spacer(minLength: 6)
+                    PRVerdictView(verdict: verdict, ink: quietInk)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // The platform mark precedes the title, not the title's text.
@@ -449,35 +477,54 @@ struct SessionRowView: View {
         ring && (session.isRunning || session.status == .working) && session.status != .needsInput && !busy
     }
 
+    /// [pr-pill] The lead pull request as a tinted pill, its state's mark and number in its state's colour, then how
+    /// many more (owner 2026-11-20 picked option C, "Tinted pills", over coloured numbers). The lead: not merged yet
+    /// first, then unknown, merged, closed; newest first within each. The row's words say it all (summary).
+    @ViewBuilder private var prMark: some View {
+        if codingProject, let pr = session.pullRequest, pr.state != .none {   // no code changes: no pill
+            let tags = pr.tags(limit: 1)
+            let mark = HStack(spacing: 4) {
+                if let tag = tags.shown.first {
+                    SessionPRPill(tag: tag)
+                }
+                if tags.more > 0 {
+                    Text(verbatim: "+\(tags.more)")
+                        .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(Color.hqLabel3)
+                }
+            }
+            .lineLimit(1).fixedSize()
+            if let onPR {
+                // [coding-pr-review] The mark opens the PR card: the same drawing, its touch 44 pt reaching into the
+                // row's own padding (the row's height is unchanged); elsewhere the row opens the chat.
+                Button(action: onPR) { mark.contentShape(.interaction, AtLeastHitShape(side: 44)) }
+                    .buttonStyle(.plain)
+                    .help(pr.summary)
+                    .accessibilityIdentifier("session-row.pr")
+                    .accessibilityHidden(true)
+            } else {
+                mark
+                    .help(pr.summary)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
     @ViewBuilder private var trailingText: some View {
         if busy {
             ProgressView().controlSize(.small).accessibilityLabel("Deleting")
         } else if showsHover, let hover {
-            SessionRowHoverButtons(hover: hover, pinned: session.pinned || session.projectPinned, archived: session.archived)   // [mac-pane]
+            HStack(spacing: 6) {
+                // [coding-pr-review] The Mac: the PR mark stays a click target beside the hover buttons.
+                if onPR != nil { prMark }
+                SessionRowHoverButtons(hover: hover, pinned: session.pinned || session.projectPinned, archived: session.archived)   // [mac-pane]
+            }
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
-                if codingProject, let pr = session.pullRequest, pr.state != .none {   // no code changes: no pill
-                    // [pr-pill] The lead pull request as a tinted pill, its state's mark and number in its state's
-                    // colour, then how many more (owner 2026-11-20 picked option C, "Tinted pills", over coloured
-                    // numbers). The lead: not merged yet first, then unknown, merged, closed; newest first within each.
-                    // The row's words say it all (summary).
-                    let tags = pr.tags(limit: 1)
-                    HStack(spacing: 4) {
-                        if let tag = tags.shown.first {
-                            SessionPRPill(tag: tag)
-                        }
-                        if tags.more > 0 {
-                            Text(verbatim: "+\(tags.more)")
-                                .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
-                                .foregroundStyle(Color.hqLabel3)
-                        }
-                    }
-                    .lineLimit(1).fixedSize()
-                    .help(pr.summary)
-                    .accessibilityHidden(true)
-                }
+                prMark
                 if showsWorkingDots { workingDots }   // [working-ring]
-                if (session.pinned || session.projectPinned) && !compact && fresh != .pinned {   // [sessions-layout] Pinned's own rows need no pin
+                // [sessions-layout] Pinned's own rows need no pin; [page-pinned-no-pin] nor a project page's Pinned pile.
+                if Self.drawsPin(pinned: session.pinned || session.projectPinned, compact: compact, fresh: fresh, pinnedPile: pinnedPile) {
                     Image(systemName: "pin.fill")
                         .font(Font.hq(.caption2))
                         .foregroundStyle(Color.hqLabel3)
@@ -587,6 +634,7 @@ struct SessionRowView: View {
             if session.pinned { parts.append("Pinned") } else if session.projectPinned { parts.append("Pinned in project") }
             if session.archived { parts.append("Archived") }
             if let pr = session.pullRequest { parts.append("Pull request: " + pr.summary) }
+            if let verdict = codingVerdict { parts.append(verdict.spoken) }   // [pr-verdict]
             if muted { parts.append("Muted") }
             if let color = SessionColors.name(session.color), !color.isEmpty { parts.append("Color: " + color) }
             if busy { parts.append("Deleting") }
@@ -1116,6 +1164,15 @@ struct SessionSeeAll {
 
 /// A touch area reaching `above` over the view's top and no further down: a caption's tap takes the break above it,
 /// never the top of the row below (a separate cell).
+/// [coding-pr-review] A touch at least `side` across each way, centred on what is drawn (a small mark's 44 pt).
+nonisolated struct AtLeastHitShape: Shape {
+    var side: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let width = max(rect.width + 8, side), height = max(rect.height, side)
+        return Path(CGRect(x: rect.midX - width / 2, y: rect.midY - height / 2, width: width, height: height))
+    }
+}
+
 nonisolated struct RaisedHitShape: Shape {
     var above: CGFloat
     func path(in rect: CGRect) -> Path {

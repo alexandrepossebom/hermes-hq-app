@@ -158,16 +158,19 @@ nonisolated enum NewChatShortcutError: Error, LocalizedError, CustomLocalizedStr
             organizer.newChat(profile: profile)
             AppLog.note("intents", "new chat: opened")
         }
-        if let words = link.message { await deliver(words, send: link.send, root: root, replacing: before) }
+        if let words = link.message { await deliver(words, send: link.send, root: root) { $0 !== before } }
         return .opened
     }
 
     /// [shortcuts] The new chat's first message: sent as typed words are (or left in its box), once the chat is the
     /// one on show with its push finished: up to 8 s (a project the bot was given first takes a round trip).
-    private static func deliver(_ words: String, send: Bool, root: MainTabController, replacing before: ChatViewController?) async {
+    /// [coding-pr-review] Also the PR card's Ask to Merge: `wanted` picks the chat (the one it opened, by stored id).
+    /// Returns whether the chat came up.
+    @discardableResult
+    static func deliver(_ words: String, send: Bool, root: MainTabController, wanted: (ChatViewController) -> Bool) async -> Bool {
         for _ in 0..<80 {
             try? await Task.sleep(for: .milliseconds(100))
-            guard let chat = root.chatOnShow, chat !== before, chat.viewIfLoaded?.window != nil,
+            guard let chat = root.chatOnShow, wanted(chat), chat.viewIfLoaded?.window != nil,
                   chat.navigationController?.transitionCoordinator == nil else { continue }
             if send {
                 chat.sendFromCard(words, display: words)
@@ -176,9 +179,10 @@ nonisolated enum NewChatShortcutError: Error, LocalizedError, CustomLocalizedStr
                 chat.composer.text = words
                 AppLog.note("intents", "new chat: first message in the box (\(words.count) chars)")
             }
-            return
+            return true
         }
         AppLog.note("intents", "new chat: the chat never came up for its first message")
+        return false
     }
 
     /// [shortcuts] Talk to Bot: the tabs and the roster as a new chat waits for them, then the Talk tile's road.

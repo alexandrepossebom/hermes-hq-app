@@ -892,6 +892,7 @@ nonisolated enum SessionRowWords {
         if session.pinned { parts.append("Pinned") } else if session.projectPinned { parts.append("Pinned in project") }   // [project-pins]
         if session.archived { parts.append("Archived") }
         if showPR, let pr = session.pullRequest { parts.append("Pull request: " + pr.summary) }
+        if showPR, let verdict = PRVerdict.of(session.pullRequest) { parts.append(verdict.spoken) }   // [pr-verdict]
         if muted { parts.append("Muted") }              // UX study #248: the bot is muted on this iPhone
         if let colorName, !colorName.isEmpty { parts.append("Color: \(colorName)") }
         if busy { parts.append("Deleting") }

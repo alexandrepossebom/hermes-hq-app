@@ -364,6 +364,67 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
   Branch on Rows, in a coding project only, off until turned on (`projectBranchRows`). On its page a row's coding line
   starts with the chat's branch, cut in its middle when long, then " · " and the usual line
   (`SessionRowView.branchLead`); a chat without a branch is unchanged.
+- **DECISION (2026-11-21, owner): no pin in a project page's Pinned pile** [page-pinned-no-pin]. "The Pin icon can go
+  because if a session is pinned, it's always in the Pinned section … it feels redundant." On any project's page
+  (coding or not) a chat pinned everywhere or in the project is listed in the Pinned pile
+  (`SessionListPipeline.projectPage`), whose heading says it, so its row draws no `pin.fill`, as the main list's own
+  Pinned rows already don't (`SessionRowView.drawsPin`, `pinnedPile`; the list marks the pile's rows,
+  `SessionsViewController.pagePinnedKeys`). An archived pinned chat listed in Done keeps the glyph (nothing else says
+  it is pinned). VoiceOver still says "Pinned" / "Pinned in project"; the Mac's hover buttons are unchanged. Board:
+  `artifacts/coding-pr-review/mock1.html` (option B). UI test `test40r_PinnedPileDrawsNoPin` reads which rows draw a
+  pin through the DEBUG text-out `pin-glyphs.txt`.
+- **DECISION (2026-11-21, owner): a project page's header has no ⓘ; the icon guide is in Project Settings**
+  [page-header-guide]. This replaces the 2026-11-19 placement ("the information icon on the right, the three dots to
+  the left"). `ProjectPageHeader` draws no ⓘ; its ⋯ (`moreButton`, `HeaderMoreButton`) is the last control, where the
+  ⓘ stood: a 44 pt touch on the iPhone, a smaller frame on the Mac. Project Settings ends with an Icon Guide row
+  (`ProjectSettingsPage.iconGuide`, id `sessions.projectSettings.iconGuide`, a chevron), Home's too, which pushes
+  `ProjectIconGuide` inside the sheet (`presentProjectSettings`). The coding count line draws only the states with a
+  chat, plus a picked one so it can be cleared (`ProjectPageHeader.shownPRStates`); with nothing to draw the line is
+  absent. Board: `artifacts/coding-pr-review/mock1.html` (option B). UI tests `test40s_HeaderGuideInSettings`,
+  `testProjectPRCountFilter`.
+- **DECISION (2026-11-21, owner): a coding row's PR mark opens the PR card** [pr-card]. On a coding project's page the
+  mark is a button (`SessionRowView.onPR`, id `session-row.pr`, a 44 pt touch reaching into the row's padding,
+  `AtLeastHitShape`); the rest of the row still opens the chat, the row stays one VoiceOver element and gains the
+  custom action "Show Pull Request". The card (`PullRequestCard`, drawn by `PullRequestCardView`, a sheet from
+  `PullRequestCardSheet.make` through `ChatSheet.wrap`, titled "Pull Request" or "Branch", medium and large) is in the
+  settings list's look: the state line (glyph, words in the state's colour made readable), the name (bold, two
+  lines), one quiet line `repo · branch → base`; Actions: Open on GitHub (a link), Ask <bot> to Merge… (draft or
+  open, not marked closed by the owner); "Also in This Chat" when the chat lists more than one, each pushing its own
+  card. Ask to Merge shows its exact words ("Merge pull request #24.", else "Merge the branch <branch> into <base>." or
+  "Merge the branch <branch>.") with Cancel and Send; Send closes the card, opens that chat and posts the words as a
+  normal message (`PullRequestCardSheet.deliver`, the Shortcuts' first-message road `NewChatRouter.deliver` and
+  `ChatViewController.sendFromCard`). Session Info's pull request rows open the same card (it was an alert;
+  `ChatInfoList.showPullRequest`). Board: `artifacts/coding-pr-review/mock1.html` (option B, fourth column). Tests
+  `CodingPRReviewTests`, `test40t_PRCardFromTheMark`, `testPRTrackingEndToEnd`, `testPRSeveralInOneChat`.
+- **DECISION (2026-11-21, owner): `pr-status` carries review facts, and a coding row its verdict** [pr-review-facts]
+  [pr-verdict]. The wire (given whole to the app and the add-on): optional keys on each answer and each entry of
+  `items`: `size` `{files, additions, deletions}` (draft or open), `checks` `{state: passed|failed|running, passed,
+  failed, running}` (a GitHub pull request in draft or open with at least one run), `title` (at most 200), `base`; the
+  top level carries the lead's. With `detail: true` (4 chats or fewer) each draft or open entry may add `files` (at
+  most 50 of `{path, additions, deletions, binary?, patch?, patch_cut?}`) and `checks.runs` (at most 30 of `{name,
+  state}`). An absent key is "not known", never zero; a wrong type, a negative number or an unknown checks state drops
+  that one key, never the answer (`PRFacts`, HermesKit/Model/PullRequestFacts.swift; `SessionStore.prStatus`,
+  `prItems`). Kept in the marks cache without runs or files (`SessionMarksCacheFile.Mark.size/checks/title/base`; an
+  older file loads). On a coding project's page only, a draft or open lead (not marked closed by the owner) adds its
+  verdict at the trailing end of the row's one subtitle line, under the mark (`PRVerdict.of`, `PRVerdictView`): ✓ and
+  `+128 −12`; ✗ "2 checks failing" in the theme's red, the only colour; the Working quarter ring and "checks running";
+  `+212 −40` alone; ✓ alone; else nothing. The subtitle's quiet ink, caption, monospaced digits; the words truncate
+  first; gone at the accessibility sizes. Both spoken labels add it (`PRVerdict.spoken`: "Checks passed, 128 lines
+  added, 12 removed"). The card names the pull request's title and `branch → base`; Ask to Merge names the base.
+  Board: `artifacts/coding-pr-review/mock1.html` (option B). Tests `CodingPRReviewTests`, `test40u_VerdictOnRows`.
+- **DECISION (2026-11-21, owner): the PR card's Checks and Changes** [pr-card-detail]. As it opens the card asks
+  `pr-status` for that one chat with `detail: true` and `fresh: true` (`SessionStore.pullRequestDetail`, whose facts
+  without files and runs also update the chat's mark), shows what it has at once and fills in when the answer comes
+  (`PullRequestCardModel`; a quiet progress mark beside the state line meanwhile). Checks, only with `checks`: one row
+  ("5 checks passed" / "2 of 5 checks failing" / "3 of 5 checks running"), its mark as on the row, red only when
+  failing; with runs a chevron pushes them (`PullRequestRunsPage`). Changes, only with `files`: "Changes · 4 files ·
+  +128 −12" (from `size`), a row per file (its name in monospace, its folder quiet beneath, `+96 −8` trailing); a patch
+  pushes its diff in the steps sheet's own `DiffPanel(lines: StepRules.diffLines(…))` (`PullRequestDiffPage`);
+  "Binary file", "Too large to show here", then "and N more files" (`PullRequestCard.checksRow`, `fileRows`,
+  `moreFilesWords`, HermesKit/Model/PullRequestCardDetail.swift). While checks fail Actions adds "Ask <bot> to Fix
+  Checks…" ("The checks on pull request #24 are failing. Fix them."), confirmed and sent as Ask to Merge is. A gateway
+  that sends nothing new leaves the card as [pr-card] draws it. Board: `artifacts/coding-pr-review/mock1.html` (the PR
+  card column). Tests `CodingPRReviewTests`, `test40v_CardChecksAndChanges`.
 - **DECISION (2026-11-19, a tester, then the owner): Home is on the Bots side** [bot-home]. Group By Recent with a
   project shown: "Projects" ends with a Home row (the house, its count), the chats in no project, pinned ones
   counted: every bot's under All (one bucket, as Hermes's own sidebar merges the profiles' Homes), the picked bot's
