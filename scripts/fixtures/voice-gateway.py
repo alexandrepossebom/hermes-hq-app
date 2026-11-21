@@ -82,6 +82,31 @@ spec = importlib.util.spec_from_file_location('perf', REF / 'scripts/performance
 perf = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(perf)
 base = perf.base            # build47 module; base.voice = action-voice; base.voice.auth = fake-gateway
+
+
+def _rename_reference_bot(old='sam', new='ivy', shown=('Sam', 'Ivy')):
+    """The reference tree is read-only and predates the public scrub (e3ae2b82b): its second bot is still `sam`
+    ("Sam"), while every fixture and test here calls it `ivy` ("Ivy"). Rename it in place, keeping the order and the
+    stored chat id, in every per-bot table the reference modules built at import, and in the roster's display name."""
+    if old not in base.voice.SIDS: return
+    for table in (base.voice.SIDS, getattr(base, 'MESSAGES', {}), getattr(base, 'RUNNING', {}), getattr(base, 'CANCEL', {})):
+        if old in table:
+            items = [(new if k == old else k, v) for k, v in table.items()]
+            table.clear(); table.update(items)
+    inner = base.voice.rpc
+    def rpc(method, params):
+        out = inner(method, params)
+        if method == 'profiles.list' and isinstance(out, dict):
+            for row in out.get('profiles') or []:
+                meta = (row.get('ui_meta') or {}).get('hermes-bots') or {}
+                name = meta.get('display_name')
+                if row.get('name') == new and isinstance(name, str) and name.endswith(shown[0]):
+                    meta['display_name'] = name[:-len(shown[0])] + shown[1]
+        return out
+    base.voice.rpc = rpc
+
+
+_rename_reference_bot()
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import settings_config_data as cfg   # the settings fixture's record, schema and defaults (stdlib only)
 
