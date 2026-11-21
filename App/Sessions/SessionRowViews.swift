@@ -1295,12 +1295,10 @@ private struct SessionRowHoverButton: View {
     }
 }
 
-/// [pr-pill] A pull request as a tinted capsule, like a GitHub label: its state's mark and "#44" in the state's colour
+/// [pr-pill] A pull request as its state's mark and "#44" in the state's colour, with no capsule (owner 2026-11-21)
 /// on a soft wash of it (owner 2026-11-20, option C). Shared by the rows and the project guide.
 struct SessionPRPill: View {
     let tag: SessionPRStatus.Tag
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
         let tint = Color(uiColor: SessionPRGlyph.color(tag.state))
         HStack(spacing: 3) {
@@ -1310,9 +1308,8 @@ struct SessionPRPill: View {
             Text(verbatim: tag.pillText)
                 .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
         }
+        // Owner 2026-11-21: no capsule around it ("doesn't seem like it fits") — the mark and words in the state's color.
         .foregroundStyle(tint)
-        .padding(.leading, 5).padding(.trailing, 7).padding(.vertical, 2)
-        .background(Capsule().fill(tint.opacity(scheme == .dark ? 0.24 : 0.15)))
         .lineLimit(1).fixedSize()
     }
 }
