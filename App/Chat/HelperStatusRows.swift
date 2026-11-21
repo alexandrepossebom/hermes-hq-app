@@ -116,7 +116,7 @@ nonisolated enum HelperStatusRows {
                 for part in message.parts {
                     guard case .tool(let call) = part, call.name == "delegate_task", !call.id.isEmpty else { continue }
                     var goals = ToolCards.delegateGoals(.object(ToolArgs.parse(call.argsText)))
-                    if goals.isEmpty, case .delegate(let saved, _, _)? = call.card { goals = saved }
+                    if goals.isEmpty, case .delegate(let saved, _, _, _)? = call.card { goals = saved }
                     allGoals += goals.map { (message: index, goal: normalized($0)) }
                     guard let request else { continue }
                     let base = ToolCards.rows(goals: goals, card: call.card, hasResult: call.card != nil, toolCallId: call.id)
@@ -130,6 +130,9 @@ nonisolated enum HelperStatusRows {
                     calls[index, default: []].insert(call.id)
                     groups[g].span = groups[g].anchor...index
                     let end = nextBoundary[request].flatMap { messages[$0].timestamp }
+                    // A background dispatch names its delegation: its report (maybe after you moved on) finds it by that.
+                    var delegationID: String?
+                    if case .delegate(_, _, _, let id)? = call.card { delegationID = id }
                     for (task, row) in base.enumerated() {
                         let state: SubagentStatus
                         if call.state == .failed { state = .failed }
@@ -144,7 +147,8 @@ nonisolated enum HelperStatusRows {
                             }
                         }
                         let start = message.timestamp?.timeIntervalSince1970 ?? 0
-                        let helper = SubagentProgress(id: "delegate-tool:\(call.id):\(task)", goal: row.goal, model: row.model,
+                        let helper = SubagentProgress(id: "delegate-tool:\(call.id):\(task)", goal: row.goal, delegationId: delegationID,
+                                                      model: row.model,
                                                       status: state, taskCount: base.count, taskIndex: task,
                                                       startedAt: start, updatedAt: start, durationSeconds: row.durationSeconds,
                                                       summary: row.activity.isEmpty ? call.summary : row.activity.joined(separator: "\n"))

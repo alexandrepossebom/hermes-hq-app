@@ -13,7 +13,8 @@ nonisolated struct DelegateResult: Hashable, Sendable {
 
 /// What a finished card tool's result says, bounded (≤ 16 goals × 300 characters). Running calls have none.
 nonisolated enum ToolCard: Hashable, Sendable {
-    case delegate(goals: [String], results: [DelegateResult]?, dispatchedGoals: [String]?)
+    /// `delegationID`: a background dispatch's `delegation_id`, the one thing its later report is sure to name.
+    case delegate(goals: [String], results: [DelegateResult]?, dispatchedGoals: [String]?, delegationID: String? = nil)
     case image(path: String, aspect: String?, pixelWidth: Int?, pixelHeight: Int?)
     /// [tasks] `tasks_add`: the tasks a bot put on your list ("Added to Tasks" under the reply). Not a card tool: its
     /// step draws as any other; the card goes under the settled reply.
@@ -146,7 +147,9 @@ nonisolated enum ToolCards {
             if field(record, ["status"]) == "dispatched" {
                 dispatched = ActivityJSON.strings(record["goals"]).prefix(maxGoals).map(clip)
             }
-            return .delegate(goals: goals, results: results, dispatchedGoals: dispatched)
+            let delegation = field(record, ["delegation_id"])
+            return .delegate(goals: goals, results: results, dispatchedGoals: dispatched,
+                             delegationID: delegation.isEmpty ? nil : String(delegation.prefix(64)))
         case "image_generate":
             let record = ActivityJSON.object(result)
             if record["success"] == .bool(false) { return nil }
@@ -253,7 +256,7 @@ nonisolated enum ToolCards {
     static func rows(goals: [String], card: ToolCard?, hasResult: Bool, toolCallId: String) -> [DelegateRow] {
         var finished: [DelegateResult] = []
         var dispatched: [String] = []
-        if case .delegate(_, let results, let d)? = card {
+        if case .delegate(_, let results, let d, _)? = card {
             finished = results ?? []
             dispatched = d ?? []
         }
@@ -417,7 +420,7 @@ nonisolated enum ProviderWait {
 nonisolated extension ToolCard {
     var json: JSONValue {
         switch self {
-        case .delegate(let goals, let results, let dispatched):
+        case .delegate(let goals, let results, let dispatched, let delegationID):
             var o: [String: JSONValue] = ["kind": "delegate", "goals": .array(goals.map { .string($0) })]
             if let results {
                 o["results"] = .array(results.map { r in
@@ -429,6 +432,7 @@ nonisolated extension ToolCard {
                 })
             }
             if let dispatched { o["dispatched"] = .array(dispatched.map { .string($0) }) }
+            if let delegationID { o["delegation"] = .string(delegationID) }
             return .object(o)
         case .image(let path, let aspect, let w, let h):
             var o: [String: JSONValue] = ["kind": "image", "path": .string(path)]
@@ -458,7 +462,8 @@ nonisolated extension ToolCard {
                 }
             }
             let dispatched = json["dispatched"].map { ActivityJSON.strings($0) }
-            self = .delegate(goals: goals, results: results, dispatchedGoals: dispatched)
+            self = .delegate(goals: goals, results: results, dispatchedGoals: dispatched,
+                             delegationID: json["delegation"]?.nonEmptyString)
         case "image":
             guard let path = json["path"]?.string else { return nil }
             self = .image(path: path, aspect: json["aspect"]?.string, pixelWidth: ActivityJSON.int(json["w"]),

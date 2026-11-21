@@ -338,7 +338,7 @@ nonisolated enum ActivityRows {
         case "delegate_task":
             // Bounded per value at the source; a text cut short anyway still gives its goals (tolerant scan).
             var goals = ToolCards.delegateGoals(.object(ToolArgs.parse(call.argsText)))
-            if case .delegate(let cardGoals, _, _)? = call.card, goals.isEmpty { goals = cardGoals }
+            if case .delegate(let cardGoals, _, _, _)? = call.card, goals.isEmpty { goals = cardGoals }
             let base = ToolCards.rows(goals: goals, card: call.card, hasResult: call.card != nil, toolCallId: call.id)
             // The chat's live children belong to the running call or the latest turn's card; an earlier turn's card
             // (one task, done) would otherwise take a new single child by its index. Stand-ins match by id anywhere.
