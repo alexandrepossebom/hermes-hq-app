@@ -90,6 +90,9 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     /// [own-folder] Each bot's own folder (profile → the folder its own chat runs in), as last learned
     /// (SessionStore+OwnFolder.swift).
     var botFolders: [String: String] = [:]
+    /// [own-folder-everywhere] Each bot's `terminal.cwd` as last read (profile → folder), the other way its own folder is
+    /// known.
+    var botConfigFolders: [String: String] = [:]
     /// [project-default-bot] The bot each project's New Chat starts with (project key → profile, or
     /// `ProjectDefaultBot.ask`); a project not named has nothing chosen.
     var projectBots: [String: String] = [:]
@@ -122,7 +125,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
         case chatOrder, projectOrder, projectPillOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
-        case projectBots, codingProjects, projectPinsLocal, projectPins, projectSorts
+        case botConfigFolders, projectBots, codingProjects, projectPinsLocal, projectPins, projectSorts
         case projectKeep, projectAutoDone, projectNotify, projectNewChat, projectLooks, projectBranchRows
     }
 
@@ -145,6 +148,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         openGroups = (try? c.decodeIfPresent([String: [String]].self, forKey: .openGroups)) ?? [:]
         archivedProjects = (try? c.decodeIfPresent([String].self, forKey: .archivedProjects)) ?? []
         botFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botFolders)) ?? [:]
+        botConfigFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botConfigFolders)) ?? [:]
         projectBots = (try? c.decodeIfPresent([String: String].self, forKey: .projectBots)) ?? [:]
         codingProjects = (try? c.decodeIfPresent([String: Bool].self, forKey: .codingProjects)) ?? [:]
         projectPinsLocal = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectPinsLocal)) ?? [:]
@@ -506,7 +510,8 @@ final class SessionStore {
         showBackgroundRuns = device.showBackgroundRuns
         showOutsideChats = device.showOutsideChats
         view = device.view                              // [sessions-m9]
-        projectsByProfile = device.projects             // [sessions-m9]
+        // [sessions-m9] [own-folder-everywhere] As kept, less any group now known to be a bot's own folder.
+        projectsByProfile = SessionProjects.droppingOwnFolders(device.projects, ownFolders: ownFolders)
         // [pr-instant] The marks as last known, drawn at once; each is asked for again as its row shows.
         for (key, mark) in RosterDisk.read(SessionMarksCacheFile.self, from: marksURL)?.marks ?? [:] {
             guard let state = SessionPRStatus.State(rawValue: mark.state), state != .unknown else { continue }

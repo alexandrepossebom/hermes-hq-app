@@ -34,7 +34,8 @@ Filter & Sort, chips, Session Info and the reconnect probe (docs/spec/3x-session
                           {"projectsHold":true} (the same for projects.tree; other calls on the socket go on),
                           {"prompts":"hold"|"reply"|"reject"} (a prompt starts a turn that never ends | is answered |
                           is refused, the default), {"bots":40} (the roster grows to that many bots; 1 leaves Hermes alone),
-                          {"projects":"empty"|"odd"|"null"|"many"|"long"|"found"} (projects.tree answers), {"usage":{…}} (every session.usage),
+                          {"projects":"empty"|"odd"|"null"|"many"|"long"|"found"|"configured"} (projects.tree answers;
+                          "configured": as "found", but no Bot Chat records a folder and each bot's terminal.cwd names it), {"usage":{…}} (every session.usage),
                           {"down":8} (as a stopped gateway for that many seconds: sockets close, every request is
                           cut off unanswered; the test hooks still answer)
                           {"prStatus":{"default/s-garden":{"state":"none","repo":"example/garden","branch":"work"}}}
@@ -495,7 +496,7 @@ def tree(profile):
     if odd == 'many':     # nine more: the New Chat sheet lists five and All Projects
         projects += [{'id': f'p_many_{n.lower()}', 'label': n, 'path': f'{HOME}/many/{n.lower()}', 'repos': []}
                      for n in ['Budget', 'Fitness', 'Garden', 'Kitchen', 'Newsletter', 'Photos', 'Recipes', 'Travel', 'Zebra']]
-    if odd == 'found':    # what Hermes finds by itself: the bot's own working folder (its Bot Chat runs there) and a checkout
+    if odd in ('found', 'configured'):    # what Hermes finds by itself: the bot's own working folder and a checkout
         projects += [{'id': f'{HOME}/bots/{profile}', 'label': profile, 'path': f'{HOME}/bots/{profile}', 'isAuto': True, 'repos': []},
                      {'id': f'{HOME}/code/checkout', 'label': 'checkout', 'path': f'{HOME}/code/checkout', 'isAuto': True, 'repos': []}]
     if odd == 'long':     # very long names, with and without spaces, among enough projects for All Projects
@@ -831,6 +832,8 @@ def handler(gateway):
                      'models': ['claude-sonnet-5-5', 'claude-haiku-5-5']},
                     {'slug': 'openrouter', 'name': 'OpenRouter', 'authenticated': True, 'models': ['example/large-1']},
                     {'slug': 'signedout', 'name': 'Signed Out', 'authenticated': False, 'models': ['signedout-only-1']}]}
+            if path == '/api/config' and method == 'GET' and MODE.get('projects') == 'configured':   # [own-folder-everywhere]
+                return 200, {'terminal': {'cwd': f"{HOME}/bots/{one('profile') or 'default'}", 'backend': 'local'}}
             if path == '/api/files/mkdir' and method == 'POST':     # New Project with no folder typed: ~ is HOME
                 made = str((body or {}).get('path') or '')
                 if not made: return 400, {'detail': 'path is required'}

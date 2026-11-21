@@ -402,9 +402,12 @@ extension SessionStore {
         if !refresh, let cached = projectsByProfile[profile] { return cached }
         do {
             let answer = try await client.call("projects.tree", ["preview_limit": 3, "profile": .string(profile)], timeout: .seconds(20))
-            let projects = SessionProject.decodeTree(answer)
+            let found = SessionProject.decodeTree(answer)
+            // [own-folder] [own-folder-everywhere] Where the bot works is read first, so that no group on a bot's own
+            // folder is ever kept as one of its projects, not even for a moment.
+            if found.contains(where: { $0.isAuto == true }) { await learnBotFolder(profile) }
+            let projects = found.filter { !SessionProjects.isOwnFolderGroup($0, ownFolders: ownFolders) }
             projectsByProfile[profile] = projects
-            if projects.contains(where: { $0.isAuto == true }) { await learnBotFolder(profile) }   // [own-folder]
             return projects
         } catch let error as RPCError where error.code == -32601 {
             projectsByProfile[profile] = []

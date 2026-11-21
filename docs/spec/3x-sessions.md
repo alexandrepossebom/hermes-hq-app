@@ -235,6 +235,13 @@ chat is whatever the rules above make it.
   menu opens or Group By Project is on, then at most once a minute per bot, and again after a project is created.
 - A chat's project is `SessionProject.owner(of: cwd, in: projects)` (the existing longest-folder match). No folder, or no
   match: no project.
+- **DECISION (a bot's own folder is no project; a tester, issue #64, 2026-11-14 and 2026-11-21):** a group Hermes found by
+  itself (`isAuto`) whose folder is any bot's own folder (its `terminal.cwd` from `GET /api/config?profile=`, or the
+  folder its own chat runs in) or any bot's home (`~/.hermes`, `~/.hermes/profiles/<name>`) is dropped from every bot's
+  projects as they are read and kept (`SessionProjects.droppingOwnFolders`, `NAT/HermesKit/Store/SessionStore+OwnFolder.swift`).
+  So it is in no Project submenu, Group By Project group, project pill, Move to Project list or New Chat list, and its
+  chats sit under Home with the chats that have no folder (one bot's chats are no longer split by whether their cwd was
+  recorded). A project someone saved on that folder stays. Nothing on the gateway is changed.
 - **DECISION (project identity across bots):** under All, two bots can each have a project on the same folder. A
   project's key is its folder (`root`, standardised, no trailing slash); a project without a folder uses
   `"id:" + profile + "/" + id`. One entry per key, labelled by the first bot's label in chip order. The key for "no
