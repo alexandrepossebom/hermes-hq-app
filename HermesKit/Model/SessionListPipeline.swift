@@ -488,8 +488,12 @@ nonisolated enum SessionListPipeline {
                 }
             }
         } ?? ordered
-        let shown = statusShown.filter { input.projectPRState == nil || $0.pullRequest?.state == input.projectPRState }
-        let shownDone = done.filter { input.projectPRState == nil || $0.pullRequest?.state == input.projectPRState }
+        // [pr-multi] A chat is under every state one of its pull requests or branches is in, as the counts are.
+        let underPR = { (row: SessionSummary) in
+            input.projectPRState.map { row.pullRequest?.countedStates.contains($0) == true } ?? true
+        }
+        let shown = statusShown.filter(underPR)
+        let shownDone = done.filter(underPR)
         let sections: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] = [
             ("pinned", "Pinned", shown.filter(\.pinned), false), ("active", "Active", shown.filter { !$0.pinned }, true),
             ("done", "Done", input.statusChip == nil ? sort(shownDone, by: .updated) : [], true)]
@@ -830,7 +834,7 @@ nonisolated enum SessionRowWords {
         if session.unread { parts.append("Unread") }
         if session.pinned { parts.append("Pinned") }
         if session.archived { parts.append("Archived") }
-        if showPR, let pr = session.pullRequest { parts.append("Pull request: " + pr.label) }
+        if showPR, let pr = session.pullRequest { parts.append("Pull request: " + pr.summary) }
         if muted { parts.append("Muted") }              // UX study #248: the bot is muted on this iPhone
         if let colorName, !colorName.isEmpty { parts.append("Color: \(colorName)") }
         if busy { parts.append("Deleting") }

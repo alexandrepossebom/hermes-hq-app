@@ -439,11 +439,24 @@ struct SessionRowView: View {
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
                 if codingProject, let pr = session.pullRequest {
-                    Image(uiImage: SessionPRGlyph.image(pr.state))
-                        .renderingMode(.template)
-                        .foregroundStyle(Color(uiColor: SessionPRGlyph.color(pr.state)))
-                        .help(pr.label)
-                        .accessibilityHidden(true)
+                    // [pr-pill] The lead pull request as a tinted pill, its state's mark and number in its state's
+                    // colour, then how many more (owner 2026-11-20 picked option C, "Tinted pills", over coloured
+                    // numbers). The lead: not merged yet first, then unknown, merged, closed; newest first within each.
+                    // The row's words say it all (summary).
+                    let tags = pr.tags(limit: 1)
+                    HStack(spacing: 4) {
+                        if let tag = tags.shown.first {
+                            SessionPRPill(tag: tag)
+                        }
+                        if tags.more > 0 {
+                            Text(verbatim: "+\(tags.more)")
+                                .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
+                                .foregroundStyle(Color.hqLabel3)
+                        }
+                    }
+                    .lineLimit(1).fixedSize()
+                    .help(pr.summary)
+                    .accessibilityHidden(true)
                 }
                 if showsWorkingDots { workingDots }   // [working-ring]
                 if session.pinned && !compact && fresh != .pinned {   // [sessions-layout] Pinned's own rows need no pin
@@ -554,7 +567,7 @@ struct SessionRowView: View {
             if session.unread { parts.append("Unread") }
             if session.pinned { parts.append("Pinned") }
             if session.archived { parts.append("Archived") }
-            if let pr = session.pullRequest { parts.append("Pull request: " + pr.label) }
+            if let pr = session.pullRequest { parts.append("Pull request: " + pr.summary) }
             if muted { parts.append("Muted") }
             if let color = SessionColors.name(session.color), !color.isEmpty { parts.append("Color: " + color) }
             if busy { parts.append("Deleting") }
@@ -1279,5 +1292,27 @@ private struct SessionRowHoverButton: View {
         .help(words)
         .accessibilityLabel(words)
         .accessibilityIdentifier("session-row.hover.\(id)")
+    }
+}
+
+/// [pr-pill] A pull request as a tinted capsule, like a GitHub label: its state's mark and "#44" in the state's colour
+/// on a soft wash of it (owner 2026-11-20, option C). Shared by the rows and the project guide.
+struct SessionPRPill: View {
+    let tag: SessionPRStatus.Tag
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let tint = Color(uiColor: SessionPRGlyph.color(tag.state))
+        HStack(spacing: 3) {
+            Image(uiImage: SessionPRGlyph.image(tag.state)).renderingMode(.template)
+                .resizable().scaledToFit()
+                .frame(width: HQFont.scaled(12), height: HQFont.scaled(12))
+            Text(verbatim: tag.pillText)
+                .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
+        }
+        .foregroundStyle(tint)
+        .padding(.leading, 5).padding(.trailing, 7).padding(.vertical, 2)
+        .background(Capsule().fill(tint.opacity(scheme == .dark ? 0.24 : 0.15)))
+        .lineLimit(1).fixedSize()
     }
 }

@@ -336,7 +336,7 @@ final class ChatTitleView: UIView {
     }
 
     private func updateLabel() {
-        accessibilityLabel = [title, pullRequest.map { "Pull request: " + $0.label }, muted ? "Muted" : nil, subtitle].compactMap { $0 }.joined(separator: ", ")
+        accessibilityLabel = [title, pullRequest.map { "Pull request: " + $0.summary }, muted ? "Muted" : nil, subtitle].compactMap { $0 }.joined(separator: ", ")
     }
 
     /// The name with the muted bell after it (Desktop Look draws its capitals in `applyLook`, on every layout).

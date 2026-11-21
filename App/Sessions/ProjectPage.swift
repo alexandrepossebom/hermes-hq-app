@@ -77,16 +77,18 @@ struct ProjectPageHeader: View {
         return [shortFolder(folder), branch ?? "", who].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    /// Count verified answers once per project chat, including archived chats.
+    /// Count verified answers once per project chat, including archived chats. [pr-multi] A chat counts under each
+    /// state one of its pull requests or branches is in (a merged one and an open one: under both), so two waiting
+    /// in one chat never hide behind one mark; the counts stay counts of chats, as the filter they pick shows chats.
     static func pullRequestCounts(_ rows: [SessionSummary], project: String,
                                   projects: [String: [SessionProject]]) -> [SessionPRStatus.State: Int] {
         var seen = Set<String>()
         var counts: [SessionPRStatus.State: Int] = [:]
         for row in rows {
             guard SessionProjects.key(cwd: row.cwd, profile: row.profile, projectsByProfile: projects) == project,
-                  let state = row.pullRequest?.state, state != .unknown,
+                  let states = row.pullRequest?.countedStates, !states.isEmpty,
                   seen.insert(SessionListPipeline.key(row)).inserted else { continue }
-            counts[state, default: 0] += 1
+            for state in states { counts[state, default: 0] += 1 }
         }
         return counts
     }

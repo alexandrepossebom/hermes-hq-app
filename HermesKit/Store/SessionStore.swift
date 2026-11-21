@@ -140,6 +140,16 @@ nonisolated struct SessionMarksCacheFile: Codable, Sendable {
         var number: Int?
         var url: String?
         var manual: Bool?
+        /// [pr-multi] nil: an add-on that lists none (or a file from before 0.9.75).
+        var items: [Item]?
+        struct Item: Codable, Sendable {
+            var state: String
+            var repo: String?
+            var branch: String?
+            var number: Int?
+            var url: String?
+            var source: String?
+        }
     }
     var at: Double                   // ms since the epoch
     var marks: [String: Mark]
@@ -471,7 +481,8 @@ final class SessionStore {
         for (key, mark) in RosterDisk.read(SessionMarksCacheFile.self, from: marksURL)?.marks ?? [:] {
             guard let state = SessionPRStatus.State(rawValue: mark.state), state != .unknown else { continue }
             pullRequests[key] = SessionPRStatus(state: state, repo: mark.repo, branch: mark.branch, number: mark.number,
-                                                url: mark.url.flatMap(Self.validPRURL), manual: mark.manual ?? false)
+                                                url: mark.url.flatMap(Self.validPRURL), manual: mark.manual ?? false,
+                                                items: mark.items.map { $0.compactMap(Self.prItem) })
         }
         if let cached = RosterDisk.read(SessionsCacheFile.self, from: cacheURL) {
             recents = cached.recents; cron = cached.cron; messaging = cached.messaging
@@ -606,6 +617,7 @@ final class SessionStore {
         onScreenSessionId = id
         if let id, prFocusedRow?.id != id { prFocusedRow = nil }
         schedulePRDiscovery()
+        if let id { refreshOpenedChatPullRequest(id) }
         shareOnScreenRead()
         rebuild()
     }
@@ -1428,6 +1440,15 @@ final class SessionStore {
         await refreshPullRequests(for: [row])
     }
 
+    /// [pr-multi] A coding chat came on screen: where its code stands is asked again at once, fresh from GitHub, so a
+    /// pull request merged a minute ago shows merged in the chat (the list's own pass may be up to a minute away).
+    private func refreshOpenedChatPullRequest(_ id: String) {
+        guard started, !stopped, appActive, !prRouteMissing, device.codingProjects.values.contains(true),
+              let row = (sessions + cronSessions + messagingSessions + archivedSessions).first(where: { $0.id == id }),
+              isCodingSession(profile: row.profile, cwd: row.cwd) else { return }
+        Task { [weak self] in await self?.refreshPullRequests(for: [row], force: true) }
+    }
+
     /// Invalidate responses already in flight as well as cached values when project eligibility changes.
     func codingProjectsChanged() {
         prGeneration &+= 1
@@ -1456,6 +1477,9 @@ final class SessionStore {
         prInFlight.formUnion(reserved)
         let generation = prGeneration
         defer { if generation == prGeneration { prInFlight.subtract(reserved) } }
+        // [pr-multi] Asked for by hand (a chat opened, a mark set): its waiting pull requests are asked of GitHub again
+        // rather than read from the add-on's three-minute cache, so a merge shows in seconds. Never a whole list.
+        let fresh = force && unique.count <= 4
         // [pr-instant] The chunks are asked for together (three at a time) and each is drawn as it answers: a
         // project of 80 chats took three answers one after another (owner's phone 2026-11-19: 6.6 s, 5.7 s, 1.8 s).
         var changed = false
@@ -1464,7 +1488,7 @@ final class SessionStore {
             var waiting = chunks.makeIterator()
             for _ in 0..<3 {
                 guard let chunk = waiting.next() else { break }
-                group.addTask { [weak self] in await self?.askPullRequests(chunk) ?? PRChunkAnswer(keys: [], answers: nil, missing: false) }
+                group.addTask { [weak self] in await self?.askPullRequests(chunk, fresh: fresh) ?? PRChunkAnswer(keys: [], answers: nil, missing: false) }
             }
             while let answer = await group.next() {
                 if answer.missing { prRouteMissingSince = .now }
@@ -1516,9 +1540,11 @@ final class SessionStore {
         var missing: Bool
     }
 
-    private func askPullRequests(_ chunk: [SessionSummary]) async -> PRChunkAnswer {
+    private func askPullRequests(_ chunk: [SessionSummary], fresh: Bool = false) async -> PRChunkAnswer {
         let keys = Set(chunk.map { Self.writeKey(id: $0.id, profile: $0.profile) })
-        let body: JSONValue = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
+        var fields: [String: JSONValue] = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
+        if fresh { fields["fresh"] = .bool(true) }   // an add-on before 0.9.75 ignores it
+        let body = JSONValue.object(fields)
         // The outcome is bound first and the answer built from it after (ChildTasks.swift: a value returned from
         // inside a `do` around `try await` can be lost in an optimized build).
         let client = self.client
@@ -1540,7 +1566,8 @@ final class SessionStore {
                 let state = item["state"]?.string.flatMap(SessionPRStatus.State.init(rawValue:)) ?? .unknown
                 answers[key] = SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
                                                number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
-                                               manual: item["manual"]?.bool ?? false)
+                                               manual: item["manual"]?.bool ?? false,
+                                               items: Self.prItems(item["items"]))
             }
             answer.answers = answers
         }
@@ -1551,7 +1578,11 @@ final class SessionStore {
     private func saveMarks() {
         let marks = pullRequests.filter { $0.value.state != .unknown }.mapValues {
             SessionMarksCacheFile.Mark(state: $0.state.rawValue, repo: $0.repo, branch: $0.branch, number: $0.number,
-                                       url: $0.url?.absoluteString, manual: $0.manual ? true : nil)
+                                       url: $0.url?.absoluteString, manual: $0.manual ? true : nil,
+                                       items: $0.items?.map {
+                                           .init(state: $0.state.rawValue, repo: $0.repo, branch: $0.branch, number: $0.number,
+                                                 url: $0.url?.absoluteString, source: $0.source.rawValue)
+                                       })
         }
         RosterDisk.write(SessionMarksCacheFile(at: Date().timeIntervalSince1970 * 1000, marks: marks), to: marksURL,
                          keepNewest: (RosterDisk.sessionMarksKind, 3))
@@ -1571,6 +1602,22 @@ final class SessionStore {
               path[2].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }),
               path[2] != ".", path[2] != ".." else { return nil }
         return parts.url
+    }
+
+    /// [pr-multi] The add-on's list (0.9.75), at most 12, each checked like the one answer. No list: nil (an add-on
+    /// that names only the one answer, or a chat with nothing of its own to list).
+    static func prItems(_ value: JSONValue?) -> [SessionPRItem]? {
+        guard let rows = value?.array else { return nil }
+        return rows.prefix(12).compactMap { row in
+            Self.prItem(.init(state: row["state"]?.string ?? "", repo: row["repo"]?.string, branch: row["branch"]?.string,
+                              number: row["number"]?.int, url: row["url"]?.string, source: row["source"]?.string))
+        }
+    }
+
+    static func prItem(_ item: SessionMarksCacheFile.Mark.Item) -> SessionPRItem? {
+        guard let state = SessionPRStatus.State(rawValue: item.state) else { return nil }
+        return SessionPRItem(state: state, repo: item.repo, branch: item.branch, number: item.number.flatMap { $0 > 0 ? $0 : nil },
+                             url: item.url.flatMap(validPRURL), source: item.source.flatMap(SessionPRItem.Source.init(rawValue:)) ?? .git)
     }
 
     private func schedulePRDiscovery() {

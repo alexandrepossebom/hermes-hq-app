@@ -530,7 +530,9 @@ extension AppModel: SessionsServices {}
             return [BotMenuNode(title: "Reopen", image: "arrow.uturn.backward.circle", identifier: "sessions.row.prReopen",
                                 kind: .action({ [weak self] in self?.markPRClosed(session, false) }))]
         }
-        guard let state = status?.state, [.draft, .none, .unknown].contains(state) else { return [] }
+        // [pr-multi] An add-on that lists items (0.9.75) labels an open pull request too; an older one doesn't.
+        let marks: Set<SessionPRStatus.State> = status?.items != nil ? [.draft, .open, .none, .unknown] : [.draft, .none, .unknown]
+        guard let state = status?.state, marks.contains(state) else { return [] }
         return [BotMenuNode(title: "Mark as Closed", image: "xmark.circle", identifier: "sessions.row.prClose",
                             kind: .action({ [weak self] in self?.markPRClosed(session, true) }))]
     }

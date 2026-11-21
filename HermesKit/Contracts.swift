@@ -242,6 +242,31 @@ nonisolated struct SessionPRStatus: Hashable, Sendable {
     var number: Int? = nil
     var url: URL? = nil
     var manual = false
+    /// [pr-multi] Every pull request and branch of the chat's own the answer rests on, newest first (add-on 0.9.75).
+    /// nil: an add-on that names only the one answer. Empty: a newer add-on with nothing of the chat's to list.
+    var items: [SessionPRItem]? = nil
+
+    /// The pull requests and branches not merged yet (draft or open); the one answer when nothing is listed.
+    var waitingCount: Int {
+        guard let items else { return [.draft, .open].contains(state) ? 1 : 0 }
+        return items.filter { [.draft, .open].contains($0.state) }.count
+    }
+
+    /// The states a project's counts and filter find this chat under: each listed item's (a chat with a merged PR
+    /// and an open one is under both), else the one answer. The owner's own Closed mark stands alone: they said the
+    /// chat is done, so an item still open on GitHub doesn't count it as open. Unknown is never counted.
+    var countedStates: Set<State> {
+        if manual || items?.isEmpty != false { return state == .unknown ? [] : [state] }
+        return Set(items?.map(\.state) ?? []).subtracting([.unknown, .none])
+    }
+
+    /// The one answer, and how many more are still waiting ("Open #12, 1 more not merged"; under the owner's own
+    /// Closed mark, "Closed, 1 not merged").
+    var summary: String {
+        let waiting = waitingCount
+        if [.draft, .open].contains(state) && !manual { return waiting > 1 ? "\(label), \(waiting - 1) more not merged" : label }
+        return waiting > 0 ? "\(label), \(waiting) not merged" : label
+    }
 
     var label: String {
         let name: String
@@ -254,6 +279,65 @@ nonisolated struct SessionPRStatus: Hashable, Sendable {
         case .unknown: return "PR status unknown"
         }
         return number.map { "\(name) #\($0)" } ?? name
+    }
+
+    /// One thing the row's right side shows: a pull request's number, or a branch's mark when it has none.
+    struct Tag: Hashable, Sendable {
+        var state: State
+        var number: Int? = nil
+
+        /// [pr-pill] The row's pill: "#44", or for work with no pull request, "Branch" (not merged yet) or its state.
+        var pillText: String {
+            if let number { return "#\(number)" }
+            switch state {
+            case .none, .draft: return "Branch"
+            case .open: return "Open"
+            case .merged: return "Merged"
+            case .closed: return "Closed"
+            case .unknown: return "Unknown"
+            }
+        }
+    }
+
+    /// [pr-numbers] The row's right side: each pull request's number in its state's colour (owner 2026-11-20: "I want
+    /// the pr # listed somehow with the session page in the color of its status … on the right side in place of the
+    /// current identifiers"). Not merged yet first, then unknown, merged, closed; newest first within each. At most
+    /// `limit`, and how many more. The owner's own Closed mark, or an add-on that names one answer: that one.
+    func tags(limit: Int = 2) -> (shown: [Tag], more: Int) {
+        guard !manual, let items, !items.isEmpty else { return ([Tag(state: state, number: number)], 0) }
+        let rank: [State: Int] = [.open: 0, .draft: 0, .unknown: 1, .merged: 2, .closed: 3]
+        var seen = Set<Int>(), all: [Tag] = []
+        for item in items.enumerated().sorted(by: { (rank[$0.element.state] ?? 4, $0.offset) < (rank[$1.element.state] ?? 4, $1.offset) })
+        where item.element.state != .none {
+            if let n = item.element.number, !seen.insert(n).inserted { continue }
+            all.append(Tag(state: item.element.state, number: item.element.number))
+        }
+        if all.isEmpty { return ([Tag(state: state, number: number)], 0) }
+        let shown = Array(all.prefix(max(1, limit)))
+        return (shown, all.count - shown.count)
+    }
+}
+
+/// [pr-multi] One pull request (GitHub's word) or branch (git's) of a chat's own, as the add-on lists it.
+nonisolated struct SessionPRItem: Hashable, Sendable {
+    enum Source: String, Hashable, Sendable { case github, git }
+    var state: SessionPRStatus.State
+    var repo: String? = nil
+    var branch: String? = nil
+    var number: Int? = nil
+    var url: URL? = nil
+    var source: Source = .git
+
+    /// As one answer, for the marks and words a single status already has.
+    var status: SessionPRStatus {
+        SessionPRStatus(state: state, repo: repo, branch: branch, number: number, url: url)
+    }
+
+    /// "Open #12", "Draft · feat/login", "Merged · fix/x".
+    var label: String {
+        if number != nil { return status.label }
+        let word = state == .unknown ? "Unknown" : status.label
+        return branch.map { "\(word) · \($0)" } ?? word
     }
 }
 

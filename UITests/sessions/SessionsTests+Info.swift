@@ -277,6 +277,54 @@ extension SessionsTests {
         XCTAssertTrue(alert.buttons["Open Pull Request"].exists)
         shot(app, "pr-tracking-details")
     }
+    /// [pr-multi] Owner 2026-11-20: "How does it work with 2 PRs … 2 at the same time and only one merging". One chat
+    /// with two pull requests still open and one merged: one mark with a 2 beside it, counted under Open and Merged,
+    /// and Session Info lists each one.
+    @MainActor func testPRSeveralInOneChat() throws {
+        let link = { (n: Int) in "https://github.com/example/app/pull/\(n)" }
+        fixture("/__fixture/mode", ["prStatus": [
+            "deploys/s-release": ["state": "open", "repo": "example/app", "number": 44, "url": link(44), "items": [
+                ["state": "open", "repo": "example/app", "number": 44, "url": link(44), "source": "github"],
+                ["state": "draft", "branch": "feature/release-notes", "source": "git"],
+                ["state": "merged", "repo": "example/app", "number": 40, "url": link(40), "source": "github"]]],
+            "deploys/s-old": ["state": "merged", "repo": "example/app", "number": 41, "url": link(41), "items": [
+                ["state": "merged", "repo": "example/app", "number": 41, "url": link(41), "source": "github"]]]
+        ]])
+        let app = launch(projectPages: true)
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        app.buttons["sessions.pills.projects"].tap()
+        let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.tap()
+        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 10))
+        if !app.buttons["sessions.projectPage.pr.merged"].exists { toggleProjectCoding(app) }
+        let release = row(app, "s-release")
+        XCTAssertTrue(waitUntil(20) { self.labelOf(release).contains("Open #44, 1 more not merged") }, labelOf(release))
+        // [pr-pill] The green "#44" pill and "+2" on the right are drawn, not read (the row's words say it): the shot below.
+        XCTAssertFalse(labelOf(row(app, "s-old")).contains("not merged"), labelOf(row(app, "s-old")))
+        let open = app.buttons["sessions.projectPage.pr.open"], merged = app.buttons["sessions.projectPage.pr.merged"]
+        XCTAssertTrue(waitUntil(20) { open.label.contains("1 loaded chat") && merged.label.contains("2 loaded") },
+                      "\(open.label) / \(merged.label)")      // chats, under each state they have
+        shot(app, "pr-several-in-one-chat")
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { merged.isSelected && self.row(app, "s-release").exists && self.row(app, "s-old").exists })
+        merged.tap()
+        XCTAssertTrue(waitUntil(10) { !merged.isSelected })
+        openChat(app, "s-release")
+        openSessionInfo(app)
+        let first = app.cells["info.pull-request"], second = app.cells["info.pull-request.1"], third = app.cells["info.pull-request.2"]
+        for _ in 0..<5 where !third.isHittable { app.tables["info.list"].swipeUp() }
+        XCTAssertTrue(third.waitForExistence(timeout: 8), "Session Info lists each one")
+        XCTAssertTrue(first.label.contains("Open #44"), first.label)
+        XCTAssertTrue(second.label.contains("Branch") && second.label.contains("Draft · feature/release-notes"), second.label)
+        XCTAssertTrue(third.label.contains("Merged #40"), third.label)
+        XCTAssertFalse(app.cells["info.pull-request.3"].exists)
+        shot(app, "pr-several-info")
+        third.tap()
+        let alert = app.alerts["Merged #40"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.buttons["Open Pull Request"].exists)
+    }
     /// The gateway as the sheet names it: host and port.
     var gatewayHost: String {
         guard let url = URL(string: account.url), let host = url.host else { return account.url }

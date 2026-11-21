@@ -338,6 +338,14 @@ private final class ChatInfoList: UITableViewController {
     var inSheet = false
     private var rows: [SessionInfoRow]
     private var pullRequest: SessionPRStatus?
+    /// [pr-multi] The rows under the info: the one answer, or each pull request and branch when there are several.
+    private var prRows: [(title: String, status: SessionPRStatus, label: String)] {
+        guard let pr = pullRequest else { return [] }
+        let items = pr.items ?? []
+        guard items.count > 1 || (pr.manual && !items.isEmpty) else { return [("Pull Request", pr, pr.summary)] }
+        let listed = items.map { ($0.number == nil ? "Branch" : "Pull Request", $0.status, $0.label) }
+        return pr.manual ? [("Code Changes", pr, "Closed, marked by you")] + listed : listed
+    }
     private var ticker: Timer?
     /// The chat's running background commands (`process.list`), asked every 3 s while the sheet shows; the section is
     /// left out while there are none.
@@ -593,7 +601,7 @@ private final class ChatInfoList: UITableViewController {
     override func numberOfSections(in tableView: UITableView) -> Int { (commands.isEmpty ? 2 : 3) - (DeviceWord.isMac ? 1 : 0) }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if section == 0 { return rows.count + (pullRequest == nil ? 0 : 1) }
+        if section == 0 { return rows.count + prRows.count }
         return section == commandSection ? commands.count : 1
     }
 
@@ -666,18 +674,20 @@ private final class ChatInfoList: UITableViewController {
             cell.accessibilityIdentifier = "info.copy-all"
             return cell
         }
-        if indexPath.row == rows.count, let pr = pullRequest {
+        if indexPath.row >= rows.count, indexPath.row - rows.count < prRows.count {
+            let index = indexPath.row - rows.count
+            let (title, pr, label) = prRows[index]
             let cell = tableView.dequeueReusableCell(withIdentifier: "pull-request", for: indexPath)
             var content = UIListContentConfiguration.valueCell().hqScaled()
-            content.text = "Pull Request"
-            content.secondaryText = pr.label
+            content.text = title
+            content.secondaryText = label
             content.image = SessionPRGlyph.image(pr.state)
             content.imageProperties.tintColor = SessionPRGlyph.color(pr.state)
             cell.contentConfiguration = content
             cell.accessoryType = .disclosureIndicator
             cell.selectionStyle = .default
-            cell.accessibilityIdentifier = "info.pull-request"
-            cell.accessibilityLabel = "Pull request, " + pr.label
+            cell.accessibilityIdentifier = index == 0 ? "info.pull-request" : "info.pull-request.\(index)"
+            cell.accessibilityLabel = "\(title), " + label
             cell.accessibilityHint = "Shows pull request details"
             return cell
         }
@@ -735,8 +745,8 @@ private final class ChatInfoList: UITableViewController {
         tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.section == commandSection { return }
         guard indexPath.section == 0 else { copyAll(); return }
-        if indexPath.row == rows.count, let pr = pullRequest {
-            showPullRequest(pr)
+        if indexPath.row >= rows.count, indexPath.row - rows.count < prRows.count {
+            showPullRequest(prRows[indexPath.row - rows.count].status)
             return
         }
         let row = rows[indexPath.row]
@@ -751,7 +761,9 @@ private final class ChatInfoList: UITableViewController {
     private func showPullRequest(_ pr: SessionPRStatus) {
         let explanation: String?
         switch pr.state {
+        case .closed where pr.manual: explanation = "You marked this chat’s changes closed. Nothing changed on GitHub or in git."
         case .closed: explanation = "Closed without merging."
+        case .draft where pr.number == nil: explanation = "On a branch that isn’t merged yet."
         case .unknown: explanation = "HQ couldn’t verify the pull request for this session."
         case .none: explanation = "No pull request was found for this branch."
         default: explanation = nil
