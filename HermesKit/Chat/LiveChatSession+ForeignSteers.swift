@@ -85,7 +85,7 @@ extension LiveChatSession {
                 turn.openPart = nil
                 localCounter += 1
                 let id = "local-user-correction-\(localCounter)"
-                appendMessage(ChatMessage(id: id, role: .user, parts: [.text(text)], timestamp: Date(), rowId: nil))
+                appendMessage(ChatMessage(id: id, role: .user, parts: [.text(PhoneChatText.shown(text))], timestamp: Date(), rowId: nil))
                 turn.correctionIds.insert(id)
                 added += 1
             }
@@ -95,7 +95,7 @@ extension LiveChatSession {
            !queuedMessages.contains(where: { Hydration.userDisplayKey($0.text) == Hydration.userDisplayKey(queued) }),
            !messages.suffix(4).contains(where: { $0.role == .user && Hydration.userDisplayKey($0.plainText) == Hydration.userDisplayKey(queued) }) {
             localCounter += 1
-            appendMessage(ChatMessage(id: "local-user-queued-\(localCounter)", role: .user, parts: [.text(queued)], timestamp: Date(), rowId: nil))
+            appendMessage(ChatMessage(id: "local-user-queued-\(localCounter)", role: .user, parts: [.text(PhoneChatText.shown(queued))], timestamp: Date(), rowId: nil))
             added += 1
         }
         guard added > 0 else { return }

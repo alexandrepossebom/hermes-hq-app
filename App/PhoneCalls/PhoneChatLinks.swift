@@ -103,6 +103,13 @@ nonisolated enum PhoneChatText {
     static func bubble(forStored text: String) -> String? {
         PhoneResultMessage.bubble(forStored: text) ?? PhoneChatNote.stripped(text)
     }
+    /// What a stored user text shows as in the chat: itself, unless it is a call result or carries the call note.
+    /// Every place that draws or matches a user message Hermes hands back (a queued prompt, a steer, the running
+    /// turn's prompt) goes through this, so the long text never shows beside its own short bubble (owner 2026-11-21:
+    /// a result sent while a reply ran showed twice, once as its short line and once as the whole text).
+    static func shown(_ stored: String) -> String {
+        rewrites(stored) ? bubble(forStored: stored) ?? stored : stored
+    }
     /// Cheap check before any message is rewritten.
     static func rewrites(_ text: String) -> Bool {
         text.hasPrefix(PhoneResultMessage.header) || text.contains("://phone-call?to=")
