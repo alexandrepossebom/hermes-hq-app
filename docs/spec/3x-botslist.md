@@ -836,8 +836,9 @@ line says what the pick applies to (`SettingsWords` "Model scope", `ModelPanelMo
   plus "Other bots keep their own in Bot Info › Brain." when the roster has more.
 - Settings › Model › Main Model: footer and chooser note "Applies to <default bot> only. [Other bots keep their own in
   Bot Info › Brain.] A chat can still switch its own model."; Defaults (Reasoning Effort, Fast Mode) footer ends
-  "Applies to <default bot> only. A chat can still change its own." Mixture of Agents' footer and slot choosers:
-  "Applies to <default bot> only." (the default profile's `/api/model/moa`; no other bot has the page).
+  "Applies to <default bot> only. A chat can still change its own." Mixture of Agents' switch footer (its words:
+  3x-settings DECISION 18.4) and slot choosers end "Applies to <default bot> only." (the default profile's
+  `/api/model/moa`; no other bot has the page).
 - Settings › Providers › a custom provider: "New chats with <default bot> use this provider’s default model." / Make
   Default's footer "Makes <model> from <provider> the default model. Applies to <default bot> only. A chat can still
   switch its own model." (`…/activate` writes the default profile).

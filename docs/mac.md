@@ -373,7 +373,8 @@ fixed on the owner's "yes to all, go". Commits end "(Mac polish #N)". What chang
   Nov 7).
 - **Notices** under a chat's bar (the voice banner, "Switching to …") sit on a page-coloured backing that fades out
   below them, so no half-covered line shows beside them. **Mixture of Agents** adds and removes models with + and −
-  under the list, as Fallback Models does. **Marketplace's** featured picture shows whole (owner, Nov 7).
+  under the list, as Fallback Models does (the − waits while a preset has one model left); its preset's New Preset…,
+  Make Default and Delete Preset… are one row of push buttons under the Preset pop-up (owner, Nov 21). **Marketplace's** featured picture shows whole (owner, Nov 7).
 - **Settings from the window** (owner, Nov 7 evening: "I don't see where I can access More or Settings"): a gear at
   the sidebar's foot (beside the +; above the toggle when folded) opens the Settings window, where More's setup pages
   are (Bots & Tools). **Usage** is one of the Tools again. The Update Add-on and Update Hermes sheets are the other

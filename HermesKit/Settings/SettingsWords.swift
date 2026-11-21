@@ -199,8 +199,11 @@ nonisolated enum SettingsWords {
     }
 
     /// Settings › Model › Mixture of Agents (`/api/model/moa`: the default profile's presets; no other bot has the page).
-    static func moaFooter(defaultBot: String?) -> String {
-        "Several models answer each turn, and an aggregator model writes the reply from their answers. \(appliesOnly(to: defaultBot))"
+    /// [moa-setup] Under its switch: how a chat comes to use it (nothing on the page does that), or that it is off.
+    static func moaFooter(defaultBot: String?, on: Bool = true) -> String {
+        let what = on ? "To use it, pick Mixture of Agents in a chat’s model menu, or send /moa with a message."
+                      : "Off, it is in no model menu."
+        return "\(what) \(appliesOnly(to: defaultBot))"
     }
 
     /// A custom provider's Make Default: it becomes the default bot's model (`/api/providers/custom-endpoints/<id>/activate`

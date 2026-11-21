@@ -613,6 +613,14 @@ private struct ProviderSelectBar: View {
 @MainActor enum ProviderPages {
     static func open(_ id: String, model: ProvidersModel, router: SettingsRouter) {
         guard let row = model.row(id) else { return }
+        // [moa-setup] Owner 2026-11-21 ("The mixture of agents setup page… basically not usable"): Mixture of Agents'
+        // row opened the page every provider gets, where its presets were "models" with Show switches, Add Model…
+        // asked for a typed model ID that names nothing, and Default Model was another provider's. It opens the
+        // Mixture of Agents page (Settings › Model's), which sets it up; the list reads its presets again on the way back.
+        if id == MixtureRecord.provider {
+            router.push(row.name(model.prefs), MixtureOfAgentsView(router: router)) { Task { await model.catalog.load() } }
+            return
+        }
         router.push(row.name(model.prefs), ProviderPageView(id: id, model: model, router: router))
     }
 
