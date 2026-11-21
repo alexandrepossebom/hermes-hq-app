@@ -217,17 +217,24 @@ struct SessionsHeaderView: View {
         }
         .frame(height: SessionsMacControl.height)
         .padding(.leading, Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead)   // the project header's edge
-        .padding(.trailing, (Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead) - 6)   // a count's text ends where the rows' times do (its 6 pt padding)
+        // A count's text ends where the rows' times do (its 6 pt padding). [popup-room] With no counts after it, the menu's
+        // box is the last thing on the row: its edge sits as far in as the switch's on the left.
+        .padding(.trailing, (Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead) - (menuEndsRow ? 0 : 6))
         .padding(.top, Theme.isDesktop ? 6 : 4)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// [popup-room] The menu's box ends the row (no New / Working counts after it).
+    private var menuEndsRow: Bool { model.hasPills && (model.onPage || model.shownStatus.isEmpty) }
+
     private func macRowContent(switchIcons: Bool, countWords: Bool, menuPicture: Bool = true) -> some View {
         HStack(spacing: countWords ? 8 : 6) {
             if model.showsSwitch { SessionsPillsSwitch(model: model, macIcons: switchIcons).fixedSize() }
-            if model.hasPills { scopeMenu(picture: menuPicture).layoutPriority(1) }
+            // [popup-room] Owner 2026-11-21: "the project dropdown should be right aligned": the switch keeps the left,
+            // the menu (and the counts after it) the right.
             Spacer(minLength: 0)
+            if model.hasPills { scopeMenu(picture: menuPicture).layoutPriority(1) }
             if !model.onPage {
                 ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip, words: countWords) }
             }
@@ -280,11 +287,16 @@ struct SessionsHeaderView: View {
             Image(systemName: "chevron.down").font(Font.hqSystem(size: HQFont.scaled(9), weight: .bold))
                 .foregroundStyle(Color.hqLabel2)
                 .fixedSize()
+                .padding(.leading, MacPopUpInsets.chevronGap - 6)
         }
         .font(SessionsMacControl.font)
         .foregroundStyle(Color.hqLabel)
-        .padding(.leading, picture ? 5 : 8).padding(.trailing, 8)
-        .frame(minWidth: 64, maxHeight: SessionsMacControl.height)   // [mac-top] never just its arrows
+        // [popup-room] Owner 2026-11-21 ("the box needs to be properly sized. It has not room to breathe"): the shared
+        // pop-up inset (a picture needs a little less: its own box has air in it), and the switch's full height. It had
+        // been `maxHeight` under a vertical `fixedSize`, which sized the box to the words, shorter than the switch.
+        .padding(.leading, picture ? MacPopUpInsets.leading - 3 : MacPopUpInsets.leading).padding(.trailing, MacPopUpInsets.trailing)
+        .frame(minWidth: 64)   // [mac-top] never just its arrows
+        .frame(height: SessionsMacControl.height)
         .background {
             let shape = RoundedRectangle(cornerRadius: SessionsMacControl.radius, style: .continuous)
             shape.fill(scopeHover ? Color.hqLabel.opacity(0.16) : Color.clear)
