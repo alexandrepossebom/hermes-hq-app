@@ -529,6 +529,10 @@ final class TileMaker {
         }
         watching = false
         rememberChat()
+        // [tile-chats] The tile's Open Chat goes to the chat its bot last worked on it in (a Change… is a new chat).
+        if let changing, let stored = (chat as? LiveChatSession)?.storedSessionId, !stored.isEmpty {
+            ArtifactPins.of(accountId: accountId).noteChat(id: changing.id, sessionId: stored, title: chat.title)
+        }
         defer {
             Self.active.removeAll { $0 === self }
             NotificationCenter.default.post(name: Self.changed, object: nil)

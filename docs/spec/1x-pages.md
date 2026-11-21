@@ -830,6 +830,19 @@ Tab root (or More page) on the page colour; bar title "Artifacts", integrated se
 (`bubble.left`), **Share…** (`square.and.arrow.up`, not for unavailable files), **Copy Path** / **Copy Link**
 (`doc.on.doc`; HUD "Copied"). Show in Chat pushes the session's chat (§1.3.2) using
 `SessionSummary(id: sessionId, profile: profile ?? "default", title: sessionTitle)`.
+
+**DECISION [tile-chats]** (owner 2026-11-21: "an easy way to be able to open the session attached to a Tile and I need to
+be sure that Tile sessions are hidden from everywhere else"). A tile's chats (New Tile, Change…, a tile's button or a
+roll back with no chat yet) are made with `session.create {hidden: true}` (`AppModel.tileChat`), as a task's own chat
+is: no list on any device, the desktop app's sidebar or search shows them. Tile chats an older app made in the open are
+known by how the app's ask begins (`TileChats.openings`): every list drops them (`SessionRules.isBotChat`) and the
+Sessions store hides each on the gateway once (`PATCH /api/sessions/{id} {hidden: true}`, `SessionStore.hideTileChats`;
+not on a read-only gateway). A page tile opens its chat from a chat button on the opened tile's bar
+(`tile.chat.button`, `bubble.left.and.bubble.right`, where Comment was: a tile with it has **Comment on the Page** first
+under ⋯, checked while commenting, so the bar keeps the tile's name — owner 2026-11-21: "Comment moves under ⋯") and from **Open Chat** second in its hold menu (`tile.open-chat`,
+in place of Show in Chat): the chat its bot last worked on it in (a finished Change… moves the pin's `sessionId` there,
+`ArtifactPins.noteChat`, and an older listed chat naming the file doesn't take it back), or while its bot works on it,
+that chat.
 **Remove** (`trash`, destructive, last; also a pin's menu, and a trailing swipe on file/link rows and pinned rows):
 hides it from Artifacts, Bot Info › Artifacts and Pinned (a pinned one is unpinned), in every chat that names it — the
 key is the pin's (`profile` + value). Kept on the device per account, `Application Support/pages/hidden/<account

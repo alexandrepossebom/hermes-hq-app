@@ -230,6 +230,12 @@ final class AppModel: AppServices {
         freshChat(for: bot, folder: folder, shownTitle: "New Chat", extra: start, created: nil)
     }
 
+    /// [tile-chats] A tile's own chat (New Tile, Change…, a tile's button with no chat yet): born hidden, as a task's
+    /// is, so no list on any device nor the desktop app's sidebar shows it; the tile opens it (owner 2026-11-21).
+    func tileChat(for bot: Bot) -> ChatSessionModel {
+        freshChat(for: bot, folder: nil, shownTitle: "New Chat", extra: ["hidden": true], created: nil)
+    }
+
     /// [tasks] A task's own chat: born hidden (never in Sessions, nor the desktop app's sidebar) under `sessionTitle`,
     /// headed `shownTitle` here; `created` gets the stored id once the gateway made it, so the task can keep it.
     func taskChat(for bot: Bot, sessionTitle: String, shownTitle: String,

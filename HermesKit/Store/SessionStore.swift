@@ -335,6 +335,8 @@ final class SessionStore {
     /// Stored ids of chats where a prompt waits for the user.
     @ObservationIgnored var needsInput: Set<String> = []
     @ObservationIgnored var inputDetails: [String: String] = [:]
+    /// [tile-chats] Tile chats this run has asked the gateway to hide (write keys): each is asked once.
+    @ObservationIgnored var tileChatsHiding: Set<String> = []
     /// When each bot's projects were last asked for, and the asks in the air.
     @ObservationIgnored var projectsReadAt: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored var projectReads: Set<String> = []
@@ -748,6 +750,25 @@ final class SessionStore {
         }
         if device.unread.owed?.isEmpty == true { device.unread.owed = nil }
         if device.unread.owed != owed { persistState() }
+    }
+
+    /// [tile-chats] Tile chats the gateway still lists (an older app made them in the open): each is hidden there once
+    /// (`PATCH {hidden: true}`, as Hermes's own hide does), so no other device, the desktop app or search shows it
+    /// either. The lists here already leave them out (`SessionRules.isBotChat`). A refused write is asked again next run.
+    private func hideTileChats(_ rows: [SidebarSessionRow]) {
+        guard !readOnlyGateway, !stopped else { return }
+        let owed = TileChats.toHide(rows).filter { tileChatsHiding.insert(Self.writeKey(id: $0.id, profile: $0.profile)).inserted }
+        guard !owed.isEmpty else { return }
+        AppLog.note("sessions", "hiding \(owed.count) tile chat(s) the gateway still lists")
+        let client = self.client
+        Task {
+            var failed = 0
+            for row in owed {
+                let outcome = await Result.of { try await SessionWrite.patch(client, id: row.id, profile: row.profile, ["hidden": .bool(true)]) }
+                if case .failure = outcome { failed += 1 }
+            }
+            if failed > 0 { AppLog.note("sessions", "\(failed) of \(owed.count) tile chat(s) couldn’t be hidden") }
+        }
     }
 
     /// [toolnow] The running chats' newest steps by stored id: a row names its step instead of "Working…".
@@ -1358,6 +1379,7 @@ final class SessionStore {
         absorbSelected()
         shareOnScreenRead()
         sendOwedReads()
+        hideTileChats(recents + messaging)
         let rowsMoved = recents != prior.recents || cron != prior.cron || messaging != prior.messaging
         // [diagnostics] Added/removed/changed per list, keyed by (id, profile): what the read actually moved.
         func diff(_ old: [SidebarSessionRow], _ new: [SidebarSessionRow]) -> String {
