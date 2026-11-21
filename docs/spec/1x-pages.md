@@ -856,6 +856,14 @@ hash>.json` (`HermesKit/Pages/ArtifactHidden.swift`); nothing on the bot's compu
   (`S/artifact-text-sheet.tsx:150-155`).
 - Share: a gateway file is downloaded then shared as a file; a link is shared as its URL (`S/artifact-open.tsx:57-75`).
 - The text viewer never edits (the web's spot editor writes files; §8).
+- A page a bot makes (the live page sheet, a tile, a tile's picture) keeps its words readable whatever its own
+  styles say (`App/Chat/Viewer/PageLegibility.swift`, owner 2026-11-21: a page written for white, shown on the dark
+  app, was navy on near-black). Each run of words is judged against what is painted behind it, the app's page colour
+  under everything. On the app's dark page the floor is WCAG's 4.5:1 (3:1 for large words); on a background the page
+  painted itself, and on the app's light page, only words under 3:1 are touched. Their lightness moves toward white
+  or black, hue kept; words lost outright on the app's page get the contrast they had on white. A drawing whose words
+  and lines were both made for white gets a white card instead. Left as drawn: words over a picture, video, canvas
+  or frame, what a canvas draws, shapes with no words, and anything inside a frame.
 - Run-output documents from Jobs use the same viewer, read-only, Back named for the job (§3.7).
 
 ### 5.7 States

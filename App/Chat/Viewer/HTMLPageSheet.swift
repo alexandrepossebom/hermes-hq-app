@@ -1064,7 +1064,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         r.setProperty('--muted-foreground',light?'rgba(60,60,67,0.75)':'rgba(235,235,245,0.7)')}}}\
         document.addEventListener('DOMContentLoaded',function(){fit();scheme();new MutationObserver(fit).observe(document.body,\
         {subtree:true,childList:true,attributes:true,attributeFilter:['width','height']})});})();
-        """
+        """ + PageLegibility.script(traits)   // after `scheme`, so it reads the inks that left
     }
 }
 
