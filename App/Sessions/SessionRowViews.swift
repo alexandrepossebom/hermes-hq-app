@@ -251,17 +251,30 @@ struct SessionRowView: View {
     /// Coding project rows always use the same quiet, one-line status, independent of Preview.
     @Environment(\.colorSchemeContrast) private var subtitleContrast
     private var codingLine: String? { CodingSessionSubtitle.line(session) }
+    /// The subtitle names a live step: running, not waiting on you, nothing unsent.
+    private var codingWorking: Bool {
+        (session.isRunning || session.status == .working) && session.status != .needsInput && session.pending == nil
+    }
 
     @ViewBuilder private var codingSubtitle: some View {
         if let codingLine {
-            Text(codingLine)
-                .font(Font.hq(.footnote))
-                .foregroundStyle(Color.hqLabel2.opacity(subtitleContrast == .increased ? 1 : 0.78))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // The platform mark precedes the title, not the title's text.
-                .padding(.leading, origin == nil ? 0 : (desk ? 14 : 16) + 6)
+            HStack(spacing: 6) {
+                // While the turn runs, the same small spinner a Recent row's step line has (owner, 2026-11-20).
+                if codingWorking {
+                    ProgressView().controlSize(.mini).tint(Color.hqLabel2)
+                        .accessibilityHidden(true)
+                }
+                Text(codingLine)
+                    .font(Font.hq(.footnote))
+                    // Working reads in the tint a card's step line has; the finished summary goes quiet again.
+                    .foregroundStyle(codingWorking ? Color.hqTintText
+                                     : Color.hqLabel2.opacity(subtitleContrast == .increased ? 1 : 0.78))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The platform mark precedes the title, not the title's text.
+            .padding(.leading, origin == nil ? 0 : (desk ? 14 : 16) + 6)
         }
     }
 
