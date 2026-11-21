@@ -62,12 +62,15 @@ nonisolated enum ProjectShortcutCatalog {
     }
 }
 
-/// `<scheme>://new-chat?bot=<profile>&project=<folder or name>`: a new chat with that bot, in that project (no
-/// project: the bot's own folder, as a plain New Chat).
+/// `<scheme>://new-chat?bot=<profile>&project=<folder or name>&message=<words>&send=0|1`: a new chat with that bot, in
+/// that project (no project: the bot's own folder, as a plain New Chat). `message`: its first message, sent at once
+/// (`send=0`: left in the message box to send yourself).
 nonisolated struct NewChatLink: Equatable, Sendable {
     static let kind = "new-chat"
     var bot: String
     var project: String?
+    var message: String? = nil
+    var send = true
 
     /// nil for any other link, or one without a bot.
     static func parse(_ link: DeepLink?) -> NewChatLink? {
@@ -76,14 +79,25 @@ nonisolated struct NewChatLink: Equatable, Sendable {
             params.last { $0.key == key }?.value.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         }
         guard let bot = value("bot") else { return nil }
-        return NewChatLink(bot: bot, project: value("project"))
+        // The words as written (a leading space is theirs); only a message of blanks is none.
+        let message = params.last { $0.key == "message" }?.value
+        let send = value("send").map { !["0", "false", "no"].contains($0.lowercased()) } ?? true
+        return NewChatLink(bot: bot, project: value("project"),
+                           message: message?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? message : nil, send: send)
     }
 
     func url(scheme: String) -> URL? {
         var parts = URLComponents()
         parts.scheme = scheme
         parts.host = Self.kind
-        parts.queryItems = [URLQueryItem(name: "bot", value: bot)] + (project.map { [URLQueryItem(name: "project", value: $0)] } ?? [])
+        let items = [URLQueryItem(name: "bot", value: bot)] + (project.map { [URLQueryItem(name: "project", value: $0)] } ?? [])
+            + (message.map { [URLQueryItem(name: "message", value: $0)] + (send ? [] : [URLQueryItem(name: "send", value: "0")]) } ?? [])
+        // A value's own "&", "=", "+" and "#" are escaped too (URLComponents leaves them, splitting a message).
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#?")
+        parts.percentEncodedQueryItems = items.map {
+            URLQueryItem(name: $0.name, value: $0.value?.addingPercentEncoding(withAllowedCharacters: allowed))
+        }
         return parts.url
     }
 }

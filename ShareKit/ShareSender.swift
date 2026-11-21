@@ -37,6 +37,13 @@ nonisolated struct ShareRequest: Sendable {
 
 nonisolated enum ShareStep: Equatable, Sendable { case connecting, uploading(Int, Int), sending }
 
+/// [shortcuts] What `ShareSender.rest` got back.
+nonisolated struct ShareRESTAnswer: Equatable, Sendable {
+    let status: Int
+    let data: Data
+    var ok: Bool { (200..<300).contains(status) }
+}
+
 nonisolated struct ShareResult: Equatable, Sendable {
     /// The stored id of the chat the share went to.
     let session: String
@@ -141,6 +148,49 @@ nonisolated final class ShareSender: NSObject, URLSessionTaskDelegate, @unchecke
         } catch {
             throw ShareFailure.transport(error)
         }
+    }
+
+    /// [shortcuts] One REST request for a Shortcuts action that runs with no app (Add Task, Run Job): a share's account
+    /// checks and session renewal, then `method path?query` with a JSON body. Answers the status and the body (a
+    /// refusal is the caller's to word); a session Hermes refused throws `sessionEnded`.
+    @concurrent
+    func rest(_ method: String, _ path: String, query: [URLQueryItem] = [], json body: Data? = nil, roster: ShareRoster?,
+              timeout: TimeInterval = 30) async throws -> ShareRESTAnswer {
+        defer { finish() }
+        do {
+            return try await restRun(method, path, query: query, body: body, roster: roster, timeout: timeout)
+        } catch let failure as ShareFailure {
+            throw failure
+        } catch is CancellationError {
+            throw ShareFailure.cancelled
+        } catch {
+            throw ShareFailure.transport(error)
+        }
+    }
+
+    private func restRun(_ method: String, _ path: String, query: [URLQueryItem], body: Data?, roster: ShareRoster?,
+                         timeout: TimeInterval) async throws -> ShareRESTAnswer {
+        let account = try Self.account(keychain: keychain, roster: roster)
+        try live()
+        self.account = account
+        persisted = account.cookies
+        nous = account.nous
+        guard ShareReach.reachable(url: account.url, interfaces: interfaces) else { throw ShareFailure.tailscaleOff }
+        if nous == nil { install(account.cookies) }
+        if nous?.needsRenewal() == true { try await renewNous() }
+        try await verifySession()
+        try live()
+        var parts = URLComponents()
+        parts.queryItems = query.isEmpty ? nil : query
+        var request = URLRequest(url: try endpoint(path + (parts.percentEncodedQuery.map { "?" + $0 } ?? "")))
+        request.httpMethod = method
+        request.httpBody = body
+        request.timeoutInterval = timeout
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        let (data, response) = try await self.data(request)
+        persistRenewed()
+        if [401, 403].contains(response.statusCode), GatewayRefusal.isHermes(data) { throw ShareFailure.sessionEnded }
+        return ShareRESTAnswer(status: response.statusCode, data: data)
     }
 
     private func run(_ request: ShareRequest, roster: ShareRoster?) async throws -> ShareResult {

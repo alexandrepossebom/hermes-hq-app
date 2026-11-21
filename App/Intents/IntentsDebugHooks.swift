@@ -135,6 +135,37 @@ import UIKit
                 intent.bot = entity
                 Task { do { _ = try await intent.perform() } catch { record("error " + describe(error)) } }
             }
+        case "shortcut-task":
+            // [shortcuts] `shortcut-task:<profile or ->:<who>:<title>`: the real Add Task intent.
+            let bits = value.split(separator: ":", maxSplits: 2).map(String.init)
+            guard bits.count == 3 else { record("error shortcut-task needs profile:who:title"); return }
+            let intent = AddTaskIntent()
+            intent.taskTitle = bits[2]
+            intent.who = ShortcutTaskWho(rawValue: bits[1]) ?? .together
+            if bits[0] != "-" {
+                let account = knownAccount ?? "", key = VoiceBotCatalog.key(profile: bits[0])
+                intent.bot = VoiceNoteBot(id: VoiceBotCatalog.id(account: account, key: key), name: bits[0], key: key, account: account)
+            }
+            intent.notes = "From a shortcut"
+            Task {
+                do { _ = try await intent.perform(); record("shortcut-task added") } catch { record("error " + describe(error)) }
+            }
+        case "shortcut-job":
+            // [shortcuts] `shortcut-job:<owner|id>`: the real Run Job intent, waiting for its result.
+            let intent = RunJobIntent()
+            guard let record = JobShortcutCatalog.jobs().first(where: { $0.key == value }) else {
+                Self.record("error shortcut-job not in the catalog (\(JobShortcutCatalog.jobs().count))"); return
+            }
+            intent.job = ShortcutJob(record)
+            intent.waitForResult = true
+            Task {
+                do { _ = try await intent.perform(); Self.record("shortcut-job ran") } catch { Self.record("error " + describe(error)) }
+            }
+        case "shortcut-talk":
+            let account = knownAccount ?? "", key = VoiceBotCatalog.key(profile: value)
+            let intent = TalkToBotIntent()
+            intent.bot = VoiceNoteBot(id: VoiceBotCatalog.id(account: account, key: key), name: value, key: key, account: account)
+            Task { do { _ = try await intent.perform() } catch { record("error " + describe(error)) } }
         case "voice-note-foreign":
             VoiceNoteRequestStore(defaults: .standard).enqueue(account: "http://other.invalid\nsomeone", key: VoiceBotCatalog.key(profile: value),
                                                                name: displayName(value))

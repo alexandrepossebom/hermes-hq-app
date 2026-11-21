@@ -123,6 +123,19 @@ nonisolated struct HQAppShortcuts: AppShortcutsProvider {
                     phrases: ["Start a new chat in \(.applicationName)",
                               "Start a new chat with \(\.$bot) in \(.applicationName)"],
                     shortTitle: "New Chat", systemImageName: "square.and.pencil")
+        // [shortcuts] Owner 2026-11-20 picked these from the shortcut ideas.
+        AppShortcut(intent: TalkToBotIntent(),
+                    phrases: ["Talk to a bot in \(.applicationName)",
+                              "Talk to \(\.$bot) in \(.applicationName)"],
+                    shortTitle: "Talk to Bot", systemImageName: "waveform")
+        AppShortcut(intent: AddTaskIntent(),
+                    phrases: ["Add a task in \(.applicationName)",
+                              "Add a task for \(\.$bot) in \(.applicationName)"],
+                    shortTitle: "Add Task", systemImageName: "checklist")
+        AppShortcut(intent: RunJobIntent(),
+                    phrases: ["Run a job in \(.applicationName)",
+                              "Run \(\.$job) in \(.applicationName)"],
+                    shortTitle: "Run Job", systemImageName: "bolt.fill")
     }
 }
 

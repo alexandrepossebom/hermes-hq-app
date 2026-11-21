@@ -326,6 +326,20 @@ extension SessionsTests {
             self.rpc("session.create").dropFirst(before).contains { $0["profile"] as? String == "deploys" && $0["cwd_explicit"] as? Bool != true }
         }, "session.create for Deploys (\(rpc("session.create")))")
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+        // [shortcuts] A first message: the new chat sends it, "&" and all.
+        let created = rpc("session.create").count
+        openLink("bot=research&project=website&message=Check%20the%20build%20%26%20report")
+        XCTAssertTrue(waitUntil(10) { self.rpc("session.create").count > created }, "a new chat for the message")
+        XCTAssertTrue(waitUntil(15) {
+            self.rpc("prompt.submit").contains { ($0["text"] as? String) == "Check the build & report" }
+        }, "prompt.submit with the link's words (\(rpc("prompt.submit")))")
+        shot(app, "shortcut-new-chat-first-message")
+        // send=0: the words wait in the message box, nothing sent.
+        let sent = rpc("prompt.submit").count
+        openLink("bot=Deploys&message=Draft%20only&send=0")
+        let box = app.textViews["composer.text"]
+        XCTAssertTrue(waitUntil(10) { (box.value as? String) == "Draft only" }, "the words are in the box (\(String(describing: box.value)))")
+        XCTAssertEqual(rpc("prompt.submit").count, sent, "nothing sent")
     }
 
     /// [project-cards] A bot in New Chat's menu (not the bot's chip, which has the same name).

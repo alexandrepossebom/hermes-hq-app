@@ -157,7 +157,11 @@ final class JobsStore {
         casing = JobWords.knownWordCasing(list.map(JobWords.jobTitle))
         let titled = list.map { ($0, JobWords.humanJobTitle(JobWords.jobTitle($0), casing: casing)) }
         jobs = titled.sorted { $0.1.localizedStandardCompare($1.1) == .orderedAscending }.map(\.0)
+        Self.onListed?()   // [shortcuts] the Run Job action's jobs follow the list
     }
+
+    /// [shortcuts] Called whenever the list is set (the app's intents keep the Run Job picker from it).
+    static var onListed: (() -> Void)?
 
     func title(_ job: CronJob) -> String { JobWords.humanJobTitle(JobWords.jobTitle(job), casing: casing) }
 

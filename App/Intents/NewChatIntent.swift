@@ -51,8 +51,16 @@ struct NewChatIntent: AppIntent {
 
     @Parameter(title: "Bot") var bot: VoiceNoteBot
     @Parameter(title: "Project") var project: ShortcutProject?
+    // [shortcuts] Owner 2026-11-20 picked "First message for New Chat": the chat opens with these words sent.
+    @Parameter(title: "Message", inputOptions: String.IntentInputOptions(multiline: true)) var message: String?
+    @Parameter(title: "Send Message", default: true) var sendMessage: Bool
 
-    static var parameterSummary: some ParameterSummary { Summary("New chat with \(\.$bot) in \(\.$project)") }
+    static var parameterSummary: some ParameterSummary {
+        Summary("New chat with \(\.$bot) in \(\.$project)") {
+            \.$message
+            \.$sendMessage
+        }
+    }
 
     @MainActor func perform() async throws -> some IntentResult {
         IntentsEvents.note("perform NewChatIntent " + (VoiceBotCatalog.profile(key: bot.key) ?? bot.key))
@@ -64,10 +72,35 @@ struct NewChatIntent: AppIntent {
             AppLog.note("intents", "New Chat shortcut: project not in the catalog")
             throw NewChatShortcutError.unavailableProject
         }
-        let link = NewChatLink(bot: profile, project: project?.id)
+        let words = message?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? message : nil
+        let link = NewChatLink(bot: profile, project: project?.id, message: words, send: sendMessage)
         // The app comes forward first (a cold launch has no tabs yet): the chat opens once they are up.
         Task { @MainActor in await NewChatRouter.open(link) }
         AppLog.note("intents", "New Chat shortcut: queued\(project == nil ? "" : " in a project")")
+        return .result()
+    }
+}
+
+/// [shortcuts] "Talk to Bot" (owner 2026-11-20 picked "Talk to a bot"): the bot's chat opens and a hands-free
+/// conversation starts there, as the bot's Talk tile does (`TalkWiring.startTalking`).
+struct TalkToBotIntent: AppIntent {
+    static let title: LocalizedStringResource = "Talk to Bot"
+    static let description: IntentDescription? = IntentDescription("Open your selected bot’s chat and start a hands-free voice conversation.",
+                                                                   categoryName: "Chat")
+    static let supportedModes: IntentModes = .foreground(.immediate)
+
+    @Parameter(title: "Bot") var bot: VoiceNoteBot
+
+    static var parameterSummary: some ParameterSummary { Summary("Talk to \(\.$bot)") }
+
+    @MainActor func perform() async throws -> some IntentResult {
+        IntentsEvents.note("perform TalkToBotIntent " + (VoiceBotCatalog.profile(key: bot.key) ?? bot.key))
+        guard let selected = VoiceBotCatalog.resolve(id: bot.id), let profile = VoiceBotCatalog.profile(key: selected.key) else {
+            AppLog.note("intents", "Talk to Bot shortcut: bot not in the catalog")
+            throw VoiceNoteError.unavailableBot
+        }
+        Task { @MainActor in await NewChatRouter.talk(profile) }
+        AppLog.note("intents", "Talk to Bot shortcut: queued")
         return .result()
     }
 }
@@ -82,7 +115,15 @@ nonisolated enum NewChatShortcutError: Error, LocalizedError, CustomLocalizedStr
 @MainActor enum NewChatRouter {
     /// A `new-chat` link. False: not one.
     static func handle(_ url: URL) -> Bool {
-        guard let link = NewChatLink.parse(DeepLink.parse(url, scheme: AppIdentity.current.urlScheme)) else { return false }
+        let parsed = DeepLink.parse(url, scheme: AppIdentity.current.urlScheme)
+        // [shortcuts] <scheme>://talk?bot=<profile or name>: Talk to Bot as a link.
+        if case .other(kind: "talk", _, let params)? = parsed,
+           let bot = params.last(where: { $0.key == "bot" })?.value.trimmingCharacters(in: .whitespacesAndNewlines), !bot.isEmpty {
+            AppLog.note("link", "talk")
+            Task { await talk(bot) }
+            return true
+        }
+        guard let link = NewChatLink.parse(parsed) else { return false }
         AppLog.note("link", "new chat")
         Task { await open(link) }
         return true
@@ -108,14 +149,52 @@ nonisolated enum NewChatShortcutError: Error, LocalizedError, CustomLocalizedStr
         let sessions = root.sessionsViewController
         sessions.loadViewIfNeeded()
         guard let organizer = sessions.organizer else { return .noTabs }
-        guard let wanted = link.project else {
+        let before = root.chatOnShow
+        if let wanted = link.project {
+            let key = await projectKey(wanted, profile: profile, organizer: organizer)
+            organizer.newChat(inProject: key, profile: profile)
+            AppLog.note("intents", "new chat: opened in a project")
+        } else {
             organizer.newChat(profile: profile)
             AppLog.note("intents", "new chat: opened")
-            return .opened
         }
-        let key = await projectKey(wanted, profile: profile, organizer: organizer)
-        organizer.newChat(inProject: key, profile: profile)
-        AppLog.note("intents", "new chat: opened in a project")
+        if let words = link.message { await deliver(words, send: link.send, root: root, replacing: before) }
+        return .opened
+    }
+
+    /// [shortcuts] The new chat's first message: sent as typed words are (or left in its box), once the chat is the
+    /// one on show with its push finished: up to 8 s (a project the bot was given first takes a round trip).
+    private static func deliver(_ words: String, send: Bool, root: MainTabController, replacing before: ChatViewController?) async {
+        for _ in 0..<80 {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard let chat = root.chatOnShow, chat !== before, chat.viewIfLoaded?.window != nil,
+                  chat.navigationController?.transitionCoordinator == nil else { continue }
+            if send {
+                chat.sendFromCard(words, display: words)
+                AppLog.note("intents", "new chat: first message sent (\(words.count) chars)")
+            } else {
+                chat.composer.text = words
+                AppLog.note("intents", "new chat: first message in the box (\(words.count) chars)")
+            }
+            return
+        }
+        AppLog.note("intents", "new chat: the chat never came up for its first message")
+    }
+
+    /// [shortcuts] Talk to Bot: the tabs and the roster as a new chat waits for them, then the Talk tile's road.
+    @discardableResult static func talk(_ wanted: String) async -> Outcome {
+        guard let root = await tabs() else { return .noTabs }
+        MainTabController.launchRestorePending = false
+        root.launchChatWatch = nil
+        guard let profile = await bot(wanted, root: root), let bot = root.services.bots.first(where: { $0.id == profile }) else {
+            notice("Hermes HQ has no bot named “\(wanted)”.", root: root)
+            return .noBot
+        }
+        guard await root.clearForRoute() else { return .kept }
+        root.select(.bots)
+        root.botsViewController.navigationController?.popToRootViewController(animated: false)
+        TalkWiring.startTalking(with: bot, from: root.botsViewController)
+        AppLog.note("intents", "talk: started")
         return .opened
     }
 
