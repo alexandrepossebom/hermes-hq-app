@@ -336,7 +336,7 @@ final class ChatTextSelector: NSObject, UIGestureRecognizerDelegate {
     /// ⌘C and ⌘A: the cell takes the keyboard unless a text field (the composer) has it; then ⌘C comes up that
     /// field's responder chain to the chat instead.
     private func takeKeyboard() {
-        guard let owner, !owner.isFirstResponder, !(ChatFirstResponder.current() is UITextInput) else { return }
+        guard let owner, !owner.isFirstResponder, !(ChatFirstResponder.current()?.hqTypingInput is UITextInput) else { return }
         owner.becomeFirstResponder()
     }
 
