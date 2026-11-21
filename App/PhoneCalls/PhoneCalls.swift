@@ -371,11 +371,12 @@ struct PhoneSettingsView: View {
                     Text("The voice connection must be the Call Control application your number uses. Each call gives your assistant this call's purpose and an ask_owner tool; its stored settings aren't changed. Calls end after \(PhoneLimits.callSeconds) seconds.")
                 }
                 if numbers.isEmpty && loaded {
-                    Section { Text("No active phone numbers on this samplehost account.").font(.footnote) }
+                    Section { Text("No active phone numbers on this samplehost account.").font(Font.hq(.footnote)) }
                 }
             }
             if let error { Section { Text(error).foregroundStyle(.red) } }
         }
+        .hqGroupedPage()   // [desktoplook] the page follows the skin
         .task { await load() }
         .onDisappear { key = "" }
     }
@@ -478,6 +479,7 @@ struct PhoneCallView: View {
                 ForEach(controller.calls(for: sessionID).reversed()) { call in callSection(call) }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
             }
+            .hqGroupedPage()   // [desktoplook] the page follows the skin
             .navigationTitle("Phone Calls")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() }.accessibilityIdentifier("phone.close") } }
             .confirmationDialog("Call \(destination)?", isPresented: $confirming, titleVisibility: .visible) {
@@ -492,18 +494,18 @@ struct PhoneCallView: View {
 
     @ViewBuilder private func callSection(_ call: PhoneCallRecord) -> some View {
         Section {
-            Text(call.statusText).font(.headline).accessibilityIdentifier("phone.call.status")
-            Text(call.purpose).font(.callout).foregroundStyle(.secondary)
+            Text(call.statusText).font(Font.hq(.headline)).accessibilityIdentifier("phone.call.status")
+            Text(call.purpose).font(Font.hq(.callout)).foregroundStyle(Color.hqLabel2)
             ForEach(call.lines) { line in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(line.speaker == .assistant ? "Assistant" : "Them").font(.caption).foregroundStyle(.secondary)
+                    Text(line.speaker == .assistant ? "Assistant" : "Them").font(Font.hq(.caption)).foregroundStyle(Color.hqLabel2)
                     Text(line.text)
                 }
             }
             if let question = call.question, call.active {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("The assistant asks you").font(.caption).foregroundStyle(.secondary)
-                    Text(question.text).font(.body.weight(.semibold))
+                    Text("The assistant asks you").font(Font.hq(.caption)).foregroundStyle(Color.hqLabel2)
+                    Text(question.text).font(Font.hq(.body).weight(.semibold))
                 }
                 if call.sendingAnswer == question.id {
                     Text("Sending your answer…")
@@ -517,8 +519,8 @@ struct PhoneCallView: View {
                         .disabled((answers[call.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            if let last = call.lastAnswer { Text("You answered: \(last)").font(.footnote) }
-            if let issue = call.issue { Text(issue).font(.footnote).foregroundStyle(.red) }
+            if let last = call.lastAnswer { Text("You answered: \(last)").font(Font.hq(.footnote)) }
+            if let issue = call.issue { Text(issue).font(Font.hq(.footnote)).foregroundStyle(.red) }
             if call.active {
                 Button("Hang up", role: .destructive) { Task { await controller.hangup(call.id) } }
                     .disabled(call.state == .ending)
