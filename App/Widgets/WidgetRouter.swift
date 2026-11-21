@@ -56,9 +56,7 @@ import UIKit
             guard account == TileWidgetWriter.shared.accountKey else { TasksHub.showPage(); return }
             TasksHub.open(taskID: id)
         case .newTask:
-            guard let page = TasksHub.showPage() else { return }
-            page.loadViewIfNeeded()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { page.newTask() }
+            TasksHub.newTask()
         case .open:
             break
         }

@@ -11,9 +11,13 @@
 // - `-HQDebugIntent open-bot:<profile>`             `DispatchOpenBotIntent`
 // - `-HQDebugIntent voice-note-foreign:<profile>`   a request whose account is "http://other.invalid\nsomeone"
 // - `-HQDebugIntent voice-note-request:<profile>`   a request for the signed-in account without consulting the catalog
-// - `-HQDebugQuickAction memo | open:<0|1> | search | stale`   the matching current Home Screen item through
-//                                                   `QuickActions.perform` (`stale`: the first item, wrong epoch);
-//                                                   URL form `quick:<word>`
+// - `-HQDebugQuickAction memo | open:<0|1> | search | actions | stale`   the matching current Home Screen item through
+//                                                   `QuickActions.perform` (`stale`: the first item with an id, wrong
+//                                                   epoch; `actions`: Quick Actions); URL form `quick:<word>`
+// - [quick-actions] `-HQDebugIntent quick-actions-intent`   perform `OpenQuickActionsIntent`
+// - [quick-actions] URL only: `quick-tile-add:<kind>:<value>`   a tile added to the page's stored list: `new-chat:<profile>`,
+//                                                   `run-job:<owner|id>`, `send:<profile>`, `page:<row id>`
+// - [quick-actions] `-HQDebugResetQuickActions YES`  clear the Quick Actions list (and its seeded flag) before launch
 // - `-HQDebugVoiceNote seed-pending:<profile>`      a 4 s synthetic WAV under Application Support/HermesAttachments and
 //   `seed-pending-foreign:` / `seed-pending-missing:`  a matching saved older-build note (another account / no file)
 // - `-HQDebugContinueChat <stored id>`              `continueConversation(id)`; URL form `continue:<id>`
@@ -61,6 +65,10 @@ import UIKit
             for key in [VoiceBotCatalog.botsKey, VoiceNoteRequestStore.storageKey, VoiceBotCatalog.pendingKey, ShortcutPolicy.catalogKey,
                         ShortcutPolicy.accountKey, ShortcutPolicy.epochKey, IntentsRuntime.foreignNoteSaidKey] { defaults.removeObject(forKey: key) }
             UIApplication.shared.shortcutItems = []
+        }
+        if defaults.bool(forKey: "HQDebugResetQuickActions") {   // [quick-actions]
+            defaults.removeObject(forKey: QuickTileStore.key)
+            defaults.removeObject(forKey: QuickTileStore.unreadableKey)
         }
         guard folder != nil else { return }
         IntentsEvents.sink = { record($0) }
@@ -176,6 +184,10 @@ import UIKit
             IntentsRuntime.shared.kick()
         case "quick":
             quickAction(value)
+        case "quick-actions-intent":
+            Task { do { _ = try await OpenQuickActionsIntent().perform() } catch { record("error " + describe(error)) } }
+        case "quick-tile-add":
+            quickTile(value)
         case "seed-pending", "seed-pending-foreign", "seed-pending-missing":
             seed(profile: value, foreign: name == "seed-pending-foreign", missing: name == "seed-pending-missing")
         case "continue":
@@ -237,12 +249,14 @@ import UIKit
         switch word {
         case "memo": item = items.first { $0.type == "dispatch.memo" }
         case "search": item = items.first { $0.type == "dispatch.search" }
+        case "actions": item = items.first { $0.type == "dispatch." + QuickActions.quickActionsAction }
         case "open:0", "open:1":
             let opens = items.filter { $0.type == "dispatch.open" }
             let index = word == "open:0" ? 0 : 1
             item = index < opens.count ? opens[index] : nil
         case "stale":
-            item = items.first.map { first in
+            // [quick-actions] The first item with an id (Quick Actions, first now, has none to be stale).
+            item = items.first { !($0.userInfo?["id"] as? String ?? "").isEmpty }.map { first in
                 UIApplicationShortcutItem(type: first.type, localizedTitle: first.localizedTitle, localizedSubtitle: nil, icon: nil,
                                           userInfo: ["id": (first.userInfo?["id"] as? String ?? "") as NSString,
                                                      "epoch": "an-earlier-sign-in" as NSString])
@@ -254,6 +268,37 @@ import UIKit
             return
         }
         record("quick action result " + (QuickActions.perform(item) ? "true" : "false"))
+    }
+
+    /// [quick-actions] `<kind>:<value>`: one tile added to the stored list (a test's starting point).
+    private static func quickTile(_ value: String) {
+        let parts = value.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let kind = QuickTileKind(rawValue: parts[0]) else { record("error quick-tile-add " + value); return }
+        var tile = QuickTile(id: "debug-\(kind.rawValue)-\(parts[1])", kind: kind)
+        switch kind {
+        case .runJob:
+            let job = JobShortcutCatalog.jobs().first { $0.key == parts[1] }
+            tile.job = parts[1]
+            tile.jobName = job?.name ?? parts[1]
+            tile.name = tile.jobName ?? tile.name
+        case .page:
+            tile.page = parts[1]
+            tile.pageName = parts[1]
+            tile.name = parts[1]
+        case .send:
+            tile.bot = parts[1]
+            tile.botName = displayName(parts[1])
+            tile.message = "Hello from a quick action"
+            tile.flag = false
+        default:
+            tile.bot = parts[1]
+            tile.botName = displayName(parts[1])
+            if kind == .newChat { tile.flag = true }
+        }
+        var list = QuickTileStore.load()
+        list.replace(tile)
+        QuickTileStore.save(list)
+        record("quick tile added " + tile.id)
     }
 
     // MARK: A saved older-build note
@@ -342,7 +387,11 @@ import UIKit
             "events": events,
             "times": times,
             "busy": IntentsRuntime.shared.busy,
-            "account": model?.intentsAccount ?? ""
+            "account": model?.intentsAccount ?? "",
+            // [quick-actions] The page's stored tiles and whether its sheet is up.
+            "quickTiles": QuickTileStore.load().tiles.map { ["id": $0.id, "kind": $0.kind, "name": $0.name, "wide": $0.wide] as [String: Any] },
+            "quickTilesSeeded": QuickTileStore.load().seeded,
+            "quickActionsShown": QuickActionsRouter.isShown
         ]
         if let pending = VoiceBotCatalog.pendingNote() { state["pendingNotePath"] = pending.path }
         guard let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]), data != lastWritten else { return }

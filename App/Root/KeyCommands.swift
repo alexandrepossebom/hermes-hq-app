@@ -35,6 +35,8 @@ extension MoreViewController: KeySearchable {}
     // [mac] Stress test 2026-10-28: More's search (sessions, pages, actions) from anywhere, the caret into the message
     // field, and Archive as Messages' ⌘⌫.
     static let openQuickly = #selector(AppDelegate.hqOpenQuickly(_:))
+    /// [quick-actions] DECISION I22: the Quick Actions page as a sheet (⇧⌘K, beside Open Quickly's ⌘K).
+    static let quickActions = #selector(AppDelegate.hqQuickActions(_:))
     static let messageField = #selector(AppDelegate.hqMessageField(_:))
     static let archiveChat = #selector(AppDelegate.hqArchiveChat(_:))
     /// [mac] Tester 2026-11-09: "Cmd+Delete currently archives the conversation. On Mac this shortcut usually means
@@ -121,11 +123,13 @@ extension MoreViewController: KeySearchable {}
         return [UIMenu(title: "", options: .displayInline, children: [command("Find…", find, "f", .command)] + steps),
                 UIMenu(title: "", options: .displayInline, children: [
                     command("Search Sessions", searchSessions, "f", [.command, .shift]),
-                    command("Open Quickly…", openQuickly, "k", .command)])]
+                    command("Open Quickly…", openQuickly, "k", .command),
+                    command("Quick Actions…", quickActions, "k", [.command, .shift])])]
         #else
         return [command("Find", find, "f", .command)] + steps + [
          command("Search Sessions", searchSessions, "f", [.command, .shift]),
-         command("Open Quickly…", openQuickly, "k", .command)] + chatItems()
+         command("Open Quickly…", openQuickly, "k", .command),
+         command("Quick Actions…", quickActions, "k", [.command, .shift])] + chatItems()
         #endif
     }
 
@@ -952,6 +956,8 @@ extension AppDelegate {
             enabled = enabled && root.chatOnShow != nil
         case KeyCommands.openQuickly:
             enabled = enabled && root.pages?.more != nil
+        case KeyCommands.quickActions:
+            break
         case KeyCommands.messageField:
             enabled = enabled && root.chatOnShow.map { !$0.composer.textView.isFirstResponder } == true
             #if targetEnvironment(macCatalyst)
@@ -1010,7 +1016,7 @@ extension AppDelegate {
         KeyCommands.newChat, KeyCommands.newChatWith, KeyCommands.newChatHere, KeyCommands.closeChat, KeyCommands.find, KeyCommands.searchSessions, KeyCommands.nextChat,
         KeyCommands.previousChat, KeyCommands.selectTab, KeyCommands.settings, KeyCommands.refresh, KeyCommands.escape, KeyCommands.send,
         KeyCommands.messageActions, KeyCommands.back, KeyCommands.closeWindow, KeyCommands.openQuickly,
-        KeyCommands.messageField, KeyCommands.archiveChat, KeyCommands.deleteChat,
+        KeyCommands.quickActions, KeyCommands.messageField, KeyCommands.archiveChat, KeyCommands.deleteChat,
         ]
         #if !targetEnvironment(macCatalyst)
         actions.insert(KeyCommands.toggleList)   // [ipad-polish]
@@ -1055,7 +1061,7 @@ extension AppDelegate {
     /// dimmed while Settings was in front. The rest (the chat on show's, the sidebar's) stay off there.
     static let bringsMainForward: Set<Selector> = [
         KeyCommands.newChat, KeyCommands.newChatWith, KeyCommands.newChatHere, KeyCommands.selectTab,
-        KeyCommands.searchSessions, KeyCommands.openQuickly,
+        KeyCommands.searchSessions, KeyCommands.openQuickly, KeyCommands.quickActions,
     ]
 
     /// The main window to the front when another of the app's windows (Settings, a file) is (`bringsMainForward`).
@@ -1426,6 +1432,15 @@ extension AppDelegate {
         root.sessionsViewController.navigationController?.popToRootViewController(animated: false)
         root.sessionsViewController.loadViewIfNeeded()
         KeyCommands.openSearch(root.sessionsViewController)
+    }
+
+    /// [quick-actions] ⇧⌘K: the Quick Actions page as a sheet, as every shortcut opens it (DECISION I22).
+    @objc func hqQuickActions(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()
+        #endif
+        AppLog.note("keys", "quick actions")
+        Task { await QuickActionsRouter.present(from: "keys") }
     }
 
     /// ⌘K: More's search, which finds sessions, pages and actions, opened with the caret in it.

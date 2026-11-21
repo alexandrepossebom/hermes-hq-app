@@ -587,6 +587,22 @@ final class PagesTabs {
         }
     }
 
+    /// [quick-actions] More › Quick Actions (docs/spec/3x-morepages.md §25): the same page the shortcut opens, on
+    /// More's stack.
+    func makeQuickActions() -> UIViewController {
+        QuickActionsViewController(inSheet: false)
+    }
+
+    /// [quick-actions] Every page a Quick Actions tile can open: More's rows in More's groups (Favorites included),
+    /// without the gateway card, Quick Actions itself, or a row listed twice.
+    func quickActionChoices() -> [MoreSection] {
+        var seen: Set<String> = [QuickTileStore.rowID]
+        return moreSections().compactMap { section in
+            let rows = section.rows().filter { $0.card == nil && seen.insert($0.id).inserted }
+            return rows.isEmpty ? nil : MoreSection(id: section.id, header: section.header) { rows }
+        }
+    }
+
     // MARK: More
 
     /// Every More row, the ones that are tabs now too (More search, Settings › Tabs).
@@ -624,9 +640,12 @@ final class PagesTabs {
         if services != nil {
             let favorites = MoreRow(id: FavoritePages.rowID, title: "Favorites", symbol: "star.fill", image: nil,
                                     tile: UIColor(red: 1, green: 0xB3 / 255, blue: 0, alpha: 1)) { [weak self] in self?.makeFavorites() }
+            // [quick-actions] The page the Quick Actions shortcut opens, beside Favorites (§25 Q11).
+            let quick = MoreRow(id: QuickTileStore.rowID, title: "Quick Actions", symbol: "square.grid.2x2.fill", image: nil,
+                                tile: UIColor(red: 0x5E / 255, green: 0x5C / 255, blue: 0xE6 / 255, alpha: 1)) { [weak self] in self?.makeQuickActions() }
             // One group with Settings, above it (two lone rows read as two stray cards).
             let settings = all["settings"]
-            all["settings"] = MoreSection(id: "settings", header: settings?.header) { [favorites] + (settings?.rows() ?? []) }
+            all["settings"] = MoreSection(id: "settings", header: settings?.header) { [favorites, quick] + (settings?.rows() ?? []) }
         }
         #endif
         // [more-bots] A tester, 2026-11-14: a hidden Bots tab is a page in More too, first under Bots (above

@@ -128,6 +128,13 @@ enum TasksHub {
     /// A task's alert or a chat card's row: the page, then that task's sheet (`atReply`: at its chat's newest end, for a
     /// reply's alert). False when there is no Tasks page to show.
     @discardableResult
+    /// The New Task sheet over the Tasks page: a widget's New Task, and [quick-actions] an Add Task tile (its bot chosen).
+    static func newTask(bot: String? = nil) {
+        guard let page = showPage() else { return }
+        page.loadViewIfNeeded()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { page.newTask(bot: bot) }
+    }
+
     static func open(taskID: String?, atReply: Bool = false) -> Bool {
         guard let page = showPage() else { return false }
         guard let taskID else { return true }

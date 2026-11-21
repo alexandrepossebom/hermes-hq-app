@@ -64,6 +64,9 @@ extension AppModel {
             if !projects.isEmpty, ProjectShortcutCatalog.store(projects) { AppLog.note("intents", "shortcut projects: \(projects.count)") }
         }
         intentsJobsChanged()
+        // [quick-actions] The Home Screen items follow the lists whether or not this gateway has jobs (since 226190bb8
+        // the only call sat behind `intentsJobsChanged`'s guard, so a gateway with no jobs never got its items).
+        QuickActions.schedule()
     }
 
     /// [shortcuts] The Run Job action's jobs: the Jobs list as last read (every bot's when the list shows all of them;

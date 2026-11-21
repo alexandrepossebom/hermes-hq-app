@@ -162,6 +162,26 @@ nonisolated enum NewChatShortcutError: Error, LocalizedError, CustomLocalizedStr
         return .opened
     }
 
+    /// [quick-actions] A Send a Message tile with Open the Chat on (DECISION I22): the bot's own chat through Open Bot
+    /// Chat's opener (`IntentsHost.openBotChat`), then the words sent as typed words are, as New Chat's first message.
+    @discardableResult static func send(_ words: String, inBotChatOf wanted: String) async -> Outcome {
+        guard let root = await tabs() else { return .noTabs }
+        MainTabController.launchRestorePending = false
+        root.launchChatWatch = nil
+        guard let profile = await bot(wanted, root: root), let bot = root.services.bots.first(where: { $0.id == profile }) else {
+            notice("Hermes HQ has no bot named “\(wanted)”.", root: root)
+            return .noBot
+        }
+        let opened = await Result.of { try await IntentsRuntime.shared.host?.openBotChat(bot) }
+        guard case .success(.some(_)) = opened else {
+            if case .failure(let error) = opened, error is IntentsKept { return .kept }
+            AppLog.note("intents", "send in bot chat: the chat didn’t open")
+            return .noTabs
+        }
+        await deliver(words, send: true, root: root) { LiveIntentsChat.botProfile($0) == profile }
+        return .opened
+    }
+
     /// [shortcuts] The new chat's first message: sent as typed words are (or left in its box), once the chat is the
     /// one on show with its push finished: up to 8 s (a project the bot was given first takes a round trip).
     /// [coding-pr-review] Also the PR card's Ask to Merge: `wanted` picks the chat (the one it opened, by stored id).
@@ -238,8 +258,8 @@ nonisolated enum NewChatShortcutError: Error, LocalizedError, CustomLocalizedStr
         (FailureAlert.topmost(root) ?? root).present(alert, animated: true)
     }
 
-    /// The tabs once they are on screen: up to 10 s (as `WidgetRouter`).
-    private static func tabs() async -> MainTabController? {
+    /// The tabs once they are on screen: up to 10 s (as `WidgetRouter`). [quick-actions] The page's opener waits the same.
+    static func tabs() async -> MainTabController? {
         for _ in 0..<50 {
             if let root = MainTabController.current, root.view.window != nil { return root }
             try? await Task.sleep(for: .milliseconds(200))

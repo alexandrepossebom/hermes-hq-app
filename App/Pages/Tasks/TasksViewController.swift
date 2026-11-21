@@ -1156,13 +1156,16 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     }
 
     /// A new task starts where you are: in the list on show, due today on Today.
-    func newTask() {
+    /// `bot`: [quick-actions] the bot an Add Task tile names, chosen in the sheet (else the page's own scope decides).
+    func newTask(bot: String? = nil) {
         guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
-        if current == .goals, !searching, store.goalsNeedAddOn { updateAddOn(); return }   // [goals-addon] no goals to make yet
-        if current == .goals, !searching { newGoal(); return }   // [goals] the bar's + makes a goal in the Goals view
+        if bot == nil, current == .goals, !searching, store.goalsNeedAddOn { updateAddOn(); return }   // [goals-addon] no goals to make yet
+        if bot == nil, current == .goals, !searching { newGoal(); return }   // [goals] the bar's + makes a goal in the Goals view
         PagesHaptics.selection()
         let scoped = scope.effective(bots: bots)
-        let sheet = NewTodoSheet.make(store: store, bots: bots, preferredBot: scoped == PagesScope.all || scoped == PagesScope.me ? nil : scoped,
+        let preferred = bot.flatMap { id in bots.contains { $0.id == id } ? id : nil }
+            ?? (scoped == PagesScope.all || scoped == PagesScope.me ? nil : scoped)
+        let sheet = NewTodoSheet.make(store: store, bots: bots, preferredBot: preferred,
                                       section: currentList, dueDay: newTaskDay) { [weak self] task in
             guard let self, let task else { return }
             self.reload(animated: true)

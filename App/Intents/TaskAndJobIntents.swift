@@ -137,6 +137,14 @@ struct RunJobIntent: AppIntent {
         guard let record = JobShortcutCatalog.jobs().first(where: { $0.key == job.id }) else {
             throw AskBotError.message("That job isn’t in Hermes HQ any more. Open Jobs so the list updates, then pick it again.")
         }
+        let ran = try await Self.run(record, wait: waitForResult)
+        return .result(value: ran.value, dialog: IntentDialog(stringLiteral: ran.said))
+    }
+
+    /// [quick-actions] Run Now's calls for `record`: this intent's road, and a Quick Actions Run Job tile's (I22, no
+    /// wait). `value` is the run's words for a shortcut's next step (empty without waiting); `said` is the sentence. A
+    /// refusal throws the gateway's own words (`ShortcutGateway.refusal`).
+    static func run(_ record: JobShortcutRecord, wait: Bool) async throws -> (value: String, said: String) {
         let path = CronRunOnce.jobPath(record.id)
         let owner = [URLQueryItem(name: "profile", value: record.owner)]
         let before = try await ShortcutGateway.send("GET", path, query: owner, what: "the job")
@@ -145,7 +153,7 @@ struct RunJobIntent: AppIntent {
         let started = Date().timeIntervalSince1970
         let trigger = await Result.of {
             try await ShortcutGateway.send("POST", path + "/trigger", query: owner, what: "the job",
-                                           timeout: waitForResult ? Self.runWait : 15)
+                                           timeout: wait ? Self.runWait : 15)
         }
         // Run Now's rule: a paused job runs once and stays paused.
         if paused { _ = try? await ShortcutGateway.send("POST", path + "/pause", query: owner, what: "the job") }
@@ -153,21 +161,19 @@ struct RunJobIntent: AppIntent {
         case .success:
             break
         case .failure(let error):
-            if case ShareFailure.timedOut = error, waitForResult {
+            if case ShareFailure.timedOut = error, wait {
                 AppLog.note("intents", "Run Job shortcut: still running")
-                return .result(value: "", dialog: IntentDialog(stringLiteral: "“\(record.name)” is still running. Its result will be in Jobs."))
+                return ("", "“\(record.name)” is still running. Its result will be in Jobs.")
             }
-            if !waitForResult, case ShareFailure.timedOut = error {
-                return .result(value: "", dialog: IntentDialog(stringLiteral: "Started “\(record.name)”."))
-            }
+            if !wait, case ShareFailure.timedOut = error { return ("", "Started “\(record.name)”.") }
             throw error
         }
         AppLog.note("intents", "Run Job shortcut: ran")
-        guard waitForResult else { return .result(value: "", dialog: IntentDialog(stringLiteral: "Started “\(record.name)”.")) }
+        guard wait else { return ("", "Started “\(record.name)”.") }
         let runs = try? await ShortcutGateway.send("GET", path + "/runs", query: owner + [URLQueryItem(name: "limit", value: "5")], what: "the job")
         let list = runs.flatMap { try? JSONValue.parse($0.data) }.map(CronRun.list) ?? []
         let text = JobShortcutCatalog.resultText(runs: list, startedAfter: started, job: record.name)
-        return .result(value: text, dialog: IntentDialog(stringLiteral: text))
+        return (text, text)
     }
 }
 

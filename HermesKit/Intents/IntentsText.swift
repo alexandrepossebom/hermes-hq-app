@@ -48,6 +48,8 @@ nonisolated enum IntentsText {
     static func newMemo(_ bot: String) -> String { "New Voice Memo for " + bot }
     static func open(_ name: String) -> String { "Open " + name }
     static let searchChats = "Search Chats"
+    /// [quick-actions] DECISION I22: the Home Screen's first item, the App Shortcut's short title and the page's title.
+    static let quickActions = "Quick Actions"
     static let untitledChat = "Chat"
     static let shortcutTitle = "Shortcut Unavailable"
     static let shortcutUnknownTitle = "That shortcut is unavailable."
@@ -72,7 +74,7 @@ nonisolated enum IntentsText {
         [refreshBots(app: app), legacyUnavailable(app: app), voiceNoteTitle, ok, otherAccount, botUnavailable(bot), botChatDidNotOpen,
          botChatChanged, finishCurrent, canceledRunAgain, canceled, fieldNotReady, couldNotStart, savedNoteTitle, savedNoteWaiting(bot),
          openChat, discardAndRecord, cancel, recoverRecording, discardRecording, noteOtherAccount, noteStillSaved, noteNotSaved, newMemo(bot), open(bot),
-         searchChats, untitledChat, shortcutTitle, shortcutUnknownTitle, openAppFirst(app: app), notReady(app: app), previousSignIn, chatGone(app: app),
+         searchChats, quickActions, untitledChat, shortcutTitle, shortcutUnknownTitle, openAppFirst(app: app), notReady(app: app), previousSignIn, chatGone(app: app),
          memoNeedsBot, botNotOnRoster, chatDidNotOpen, roomGone, busy(app: app)]
     }
 }

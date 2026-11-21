@@ -46,6 +46,7 @@ nonisolated enum MoreSearch {
     static let pageKeywords: [String: [String]] = [
         "files": ["files", "browse", "folder", "documents"],
         "favorites": ["favorites", "favourites", "starred", "shortcuts", "pinned pages", "quick access"],   // [favorites]
+        "quick-actions": ["quick actions", "shortcuts", "launcher", "action button"],   // [quick-actions]
         "review": ["review", "changes", "diff", "git"],
         "command-center": ["command center", "system", "status", "maintenance"],
         "usage": ["usage", "tokens", "cost"],

@@ -60,7 +60,9 @@ import Testing
 
     @Test func favoritesCanBeATabWithItsOwnTag() {
         #expect(TabChoice(key: "page.favorites") == .page(FavoritePages.rowID))
-        #expect(TabChoice.pageIDs.last == FavoritePages.rowID)   // new pages go at the end: the others keep their tags
+        // New pages go at the end: the others keep their tags ([quick-actions] Quick Actions came after Favorites).
+        #expect(TabChoice.page(FavoritePages.rowID).tag == 121)
+        #expect(TabChoice.pageIDs.firstIndex(of: FavoritePages.rowID).map { $0 + 1 } == TabChoice.pageIDs.firstIndex(of: QuickTileStore.rowID))
         #expect(TabOrderPage.fallback(FavoritePages.rowID).title == "Favorites")
         #expect(MoreSearch.pageKeywords[FavoritePages.rowID]?.contains("starred") == true)
     }

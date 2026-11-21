@@ -66,6 +66,7 @@ Every place where the web's behaviour does not map onto a native app, or where t
 | I19 | Can New Chat's shortcut send a first message? | Yes (owner 2026-11-20 picked "First message for New Chat"): `NewChatIntent` adds `message` (optional, multi-line) and `sendMessage` (default on). Once the new chat is the one on show (up to 8 s), `NewChatRouter.deliver` sends it as typed words are (`sendFromCard`), or with Send Message off leaves it in the message box. Link form `&message=<words>&send=0`; a link's message is one line (DeepLink refuses control characters). | Native addition. |
 | I20 | Can a shortcut start Talk with a bot? | Yes (owner 2026-11-20 picked "Talk to a bot"): `TalkToBotIntent` "Talk to Bot", parameter `bot` (`VoiceNoteBot`), `.foreground(.immediate)`; `NewChatRouter.talk` takes the Bots tab's Talk tile road (`TalkWiring.startTalking`, its first-time intro included). Link `<scheme>://talk?bot=<profile or name>`. App Shortcut short title Talk to Bot, `waveform`. | Native addition. |
 | I21 | Can a shortcut add a task or run a job without opening the app? | Yes (owner 2026-11-20 picked "Add a task" and "Run a job"), both `.background` and connecting as the Share extension does (`ShareSender.rest`, the Keychain's sign-in, `AskRoster`'s account). `AddTaskIntent` "Add Task": title, optional bot, who (You and the Bot / The Bot), due (+ whether the time matters), notes; the New Task sheet's body (`TodoWire.newTask`, `ShortcutTaskBody`) to POST `/api/plugins/hermes-hq-push/tasks`; returns the title. `RunJobIntent` "Run Job": a `ShortcutJob` from `JobShortcutCatalog` (key `hq.intents.jobs`, the Jobs list as last read via `JobsStore.onListed`, cleared at sign-out and on another account) and Wait for Result (default on); Run Now's calls (GET the job, POST `/trigger?profile=<owner>`, a paused job paused again), then the newest run's preview or title from `/runs` as its result (the gateway keeps previews only). A refusal is the gateway's own `detail` (`ShortcutGateway.refusal`). | Native addition. |
+| I22 | Can one shortcut open a page of the owner's own actions? | Yes (owner 2026-11-21: "I want everyone to be able to build a custom quick action page so every thing they would need is one click away after triggering the shortcut to open the quick action"; the owner picked its own page, opened by the shortcut, with tiles; Favorites stays as it is). `OpenQuickActionsIntent` "Open Quick Actions" (`HomeWidgetsKit/OpenQuickActionsIntent.swift`, `.foreground(.immediate)`, no parameters) presents the Quick Actions page as a sheet over whatever is on top (`QuickActionsRouter.present`); a cold launch does not restore the last chat under it. App Shortcut "Open quick actions in `<App>`" / "Show quick actions in `<App>`", short title Quick Actions, `square.grid.2x2.fill`. The same page from the link `<scheme>://quick-actions`, the Home Screen menu's first item, Quick Actions (then the memo, one recent chat, Search Chats: four in all), More › Quick Actions, a tab of its own, the Mac Dock menu and ⌘⇧K. Tiles route through the twins of I17–I21 (`NewChatRouter`, `RecordVoiceNoteIntent.queue`, `AskBotIntent.send`, `RunJobIntent.run`, `TasksHub.newTask`); nothing new reaches the gateway. No Control Center control: one was built in the widget extension, but the simulator's control gallery never listed it ("No Results"), so it was left out unverified rather than shipped. Rules: 3x-morepages §25. | Native addition. |
 
 ### 0.2 Rows to sections
 
@@ -635,9 +636,15 @@ the items:
 
 | Order | Title | Symbol | `type` | `userInfo` |
 |---|---|---|---|---|
-| 1, when there is a bot | New Voice Memo for `<first bot's name>` | `mic` | `dispatch.memo` | `{id, epoch}` |
-| 2–3 | Open `<name>` for the first two targets | `bubble.left` | `dispatch.open` | `{id, epoch}` |
+| 1 | Quick Actions (DECISION I22) | `square.grid.2x2` | `dispatch.quick-actions` | none |
+| 2, when there is a bot | New Voice Memo for `<first bot's name>` | `mic` | `dispatch.memo` | `{id, epoch}` |
+| 3 | Open `<name>` for the first target | `bubble.left` | `dispatch.open` | `{id, epoch}` |
 | last | Search Chats | `magnifyingglass` | `dispatch.search` | none |
+
+**Amended 2026-11-21 (DECISION I22):** iOS shows four items at most, so Quick Actions took the second "Open …" slot. Its
+symbol is `square.grid.2x2`, not the App Shortcut's `.fill`: with that one Springboard labelled the item "Large Grid" for
+VoiceOver, whatever its title. The items follow the roster and the Sessions list whether or not the gateway has jobs (`intentsListsChanged`
+calls `QuickActions.schedule()` itself again; from 226190bb8 until 2026-11-21 a gateway with no jobs never got them).
 
 An empty `safe` → `shortcutItems = []` (no lone "Search Chats"). `QuickActions.enabled == false` → always `[]`.
 `ShortcutPolicy.catalog` and `permits` are copied line for line from `W:HermesUIPages.swift:201-217`.

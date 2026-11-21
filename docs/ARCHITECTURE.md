@@ -384,11 +384,27 @@ merged here; their reports and the merge log are in `docs/m2-stream-reports.md`.
   (`IntentsAway`), and a sign-out mid-delivery ends it silently (`signIns`).
 - **The saved older-build note**: with a request for the same account waiting, the "Saved voice note" alert (Open chat
   / Discard and record / Cancel); otherwise the note quietly becomes its bot chat's memo draft. It is never sent.
-- **Quick actions** (`QuickActions`): "New memo to <bot>", two "Open …", "Search Chats"; rebuilt 0.5 s after the lists
+- **Quick actions** (`QuickActions`): "Quick Actions" (the page below), "New memo to <bot>", one "Open …", "Search
+  Chats" (iOS shows four); rebuilt 0.5 s after the lists
   or the last visit change; each item carries the sign-in epoch and is refused after a sign-out or under another
   account. An "Open …" whose chat the gateway no longer has is closed again and said (`IntentsSessionOpen.gone`).
   "Search Chats" opens the Sessions search and gives it the keyboard only once the scene is active
   (`LiveIntentsHost.focusSearch`): asked earlier, the field opens with no keyboard.
+- **Quick Actions page** (DECISION I22, `docs/spec/3x-morepages.md` §25): a grid of tiles the owner builds, opened in
+  one step by `OpenQuickActionsIntent` (App Shortcut "Open quick actions in …"), `<scheme>://quick-actions`, the first
+  Home Screen item, More, a tab, the Mac Dock menu and ⌘⇧K. `QuickActionsRouter.present` is
+  the one way in: it waits for the tabs, cancels the cold launch's chat restore, and presents the page as a sheet over
+  whatever is on top (or pops an open one back to its grid). A tile routes through the Shortcuts twins (New Chat,
+  Talk, memo, Ask Bot, Add Task, Run Job, a page, Search Chats), so nothing new reaches the gateway; Run Job and a
+  background Send keep the page and say "✓ …". The list is this device's `hqn.quickActions` (versioned; tiles a build
+  can't read are kept; a list it can't read is set aside, never wiped); a starter set for the first bot is offered
+  once. Files: `HermesKit/Intents/QuickTiles.swift` (model, store, rules, routes, grid rows; pure, unit-tested),
+  `App/QuickActions/QuickActionsViewController.swift` (grid, edit mode, menus, drag), `QuickActionSetup.swift` (Add
+  Action and Set Up), `QuickTileLook.swift` (colours, symbols, the tile face), `QuickActionsRouter.swift`,
+  `HomeWidgetsKit/OpenQuickActionsIntent.swift` (in the app and the widget extension; the app installs the opener);
+  no Control Center control (not listed by the simulator's gallery, so left out); one-liners tagged `// [quick-actions]` in `AppDelegate`,
+  `QuickActions`, `PagesTabs`, `TabOrder`, `MoreSearch`, `MacDockMenu`, `KeyCommands`, `IntentsDebugHooks`
+  (`-HQDebugResetQuickActions`, `quick-tile-add:<kind>:<value>`, `quick-actions-intent`).
 - **Parameter refreshes are rationed by iOS** (`linkd` logs "Donation quota exceeded" and drops the call), so
   `IntentsCatalogSync` writes the pickers' bots, and calls `HQAppShortcuts.updateAppShortcutParameters()`, only when
   a bot was added, removed or renamed: never for the roster's order, which follows activity.

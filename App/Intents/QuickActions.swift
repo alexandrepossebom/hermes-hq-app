@@ -1,7 +1,7 @@
 // Home Screen quick actions: press and hold the app's icon (docs/spec/3x-intents.md §9; a port of build 240's
-// `DispatchShortcuts`, W:ios/App/App/HermesUIPages.swift:218-276, where they were switched off). "New memo to <bot>",
-// "Open <chat>" for the two most recent, "Search Chats". Every item carries the sign-in epoch: one captured before a
-// sign-out or a gateway switch is refused.
+// `DispatchShortcuts`, W:ios/App/App/HermesUIPages.swift:218-276, where they were switched off). [quick-actions]
+// "Quick Actions" (DECISION I22), "New memo to <bot>", "Open <chat>" for the most recent, "Search Chats". Every item
+// carries the sign-in epoch: one captured before a sign-out or a gateway switch is refused.
 
 import UIKit
 
@@ -9,15 +9,22 @@ import UIKit
     /// DECISION I5: on. When false the app shows none, as build 240 did.
     nonisolated static let enabled = true
     nonisolated static let typePrefix = "dispatch."
+    /// [quick-actions] The Home Screen item that opens the Quick Actions page (DECISION I22).
+    nonisolated static let quickActionsAction = "quick-actions"
+    /// Its symbol. Not `square.grid.2x2.fill` (the App Shortcut's): Springboard labelled the item with that symbol
+    /// "Large Grid" for VoiceOver, whatever its title.
+    nonisolated static let quickActionsSymbol = "square.grid.2x2"
 
     /// What the stored catalog shows on the Home Screen. Pure (the tests read it).
+    /// [quick-actions] DECISION I22: Quick Actions comes first. iOS shows four at most, so the second recent chat went:
+    /// Quick Actions, New Voice Memo, the most recent chat, Search Chats.
     nonisolated static func plan(_ safe: [ShortcutTarget], enabled: Bool = QuickActions.enabled) -> [Planned] {
         guard enabled, !safe.isEmpty else { return [] }                 // never a lone "Search Chats"
-        var items: [Planned] = []
+        var items = [Planned(action: quickActionsAction, title: IntentsText.quickActions, symbol: quickActionsSymbol, id: nil)]
         if let bot = safe.first(where: { $0.kind == "bot" }) {
             items.append(Planned(action: "memo", title: IntentsText.newMemo(bot.name), symbol: "mic", id: bot.id))
         }
-        for target in safe.prefix(2) {
+        for target in safe.prefix(1) {
             items.append(Planned(action: "open", title: IntentsText.open(target.name), symbol: target.kind == "room" ? "person.2" : "bubble.left",
                                  id: target.id))
         }
@@ -121,6 +128,11 @@ import UIKit
             return false
         }
         IntentsEvents.note("quick action " + action)
+        if action == quickActionsAction {
+            // [quick-actions] The page over whatever is on top, as the intent and the link open it.
+            Task { await QuickActionsRouter.present(from: "home screen") }
+            return true
+        }
         Task { await IntentsRuntime.shared.route(action, id: id, epoch: current) }
         return true
     }
