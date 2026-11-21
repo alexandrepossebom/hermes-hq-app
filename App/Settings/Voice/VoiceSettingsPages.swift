@@ -82,10 +82,7 @@ struct VoiceSectionView: View {
                     ValueRow(title: page.title, value: nil, systemImage: page.symbol) { ConfigScreens.open(page: page, router: router) }
                         .accessibilityIdentifier("config-page.\(page.key)")
                 }
-            } footer: { HQSectionFooter {
-                // UX study 2026-10-21 #50: Voice sits under On Your Gateway, so this says which parts are this device's.
-                Text("Talking with your bots, and the voices that listen and answer. Speech to Text and Text to Speech are saved on \(HostWord.phrase); Voice Conversation, Read Replies Aloud and the \(DeviceWord.name)’s own voice are kept on this \(DeviceWord.name).")
-            } }
+            }
         }.hqMacSettingsRowInsets() }
         .settingsList().hqMacSettingsRows()
         // [mac] Stress test 2026-10-28 #98: the Voice Model header sat 9 pt under the Desktop Look bar.

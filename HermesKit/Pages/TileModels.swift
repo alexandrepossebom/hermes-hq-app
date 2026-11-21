@@ -244,7 +244,7 @@ nonisolated enum TileModels {
     static let eachBotsModel = "Each Bot’s Own Model"
     static let eachBotsFallback = "Each Bot’s Own Fallback"
     /// Under Default Model: the tiles' model is apart from the model a bot chats with.
-    static let defaultFooter = "Separate from the model your bots chat with. Tile updates are short and run often, so a cheaper, faster model usually does them well while your bots keep their powerful one."
+    static let defaultFooter = "Separate from your bots’ chat model. A cheaper, faster model usually handles tile updates well."
 
     static func defaultValue(_ chosen: TileModelPick?) -> String { chosen.map(name) ?? eachBotsModel }
     static func fallbackValue(_ chosen: TileModelPick?) -> String { chosen.map(name) ?? eachBotsFallback }

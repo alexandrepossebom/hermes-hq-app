@@ -382,10 +382,7 @@ struct CompletionSoundPicker: View {
                         }
                     }
                 }
-            } footer: { HQSectionFooter {
-                Text(DeviceWord.isMac ? "Plays when a bot’s reply finishes. Click one to choose and hear it, or its play button only to hear it."
-                     : "Plays when a bot’s reply finishes. \(DeviceWord.Tap) one to hear it.")
-            } }
+            }
         }.hqMacSettingsRowInsets() }
         .settingsList().hqMacSettingsRows()
     }

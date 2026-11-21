@@ -220,12 +220,7 @@ struct AppearanceSections: View {
             chatBubblesRow(state)
             backgroundsRow(state)
             macThinkingBarRow
-        } header: { header(.chats) } footer: {
-            if DeviceWord.isMac && model.thinkingBarShown { HQSectionFooter {
-                // [macpass-settings r2] Mac words: the bar is moved with the pointer or the arrow keys, not dragged up.
-                Text("Thinking Bar is how the model panel’s thinking bar looks as you raise the thinking level.")
-            } }
-        }
+        } header: { header(.chats) }
     }
 
     /// In the Desktop Look the page holds that look's own Corners and Text Box.

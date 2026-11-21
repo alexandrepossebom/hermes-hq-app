@@ -256,7 +256,7 @@ struct CustomProviderEditor: View {
             if let problem = draft.addressProblem {
                 Text(problem).foregroundStyle(Color.hqRed).accessibilityIdentifier("custom-provider.address-problem")
             } else {
-                Text("The name is what model menus show, here and in the Hermes desktop app. The address usually ends in /v1.")
+                Text("The address usually ends in /v1.")
             }
         } }
         .disabled(locked)

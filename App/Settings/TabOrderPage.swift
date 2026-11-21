@@ -250,8 +250,8 @@ struct TabOrderPage: View {
 
     private var barFooter: String {
         var words = DeviceWord.isMac
-            ? "Drag a row by its handle, or in the sidebar itself, to move it. Bots or Sessions always stays: chats open there."
-            : "Drag a tab by its handle to move it. More always stays last. Bots or Sessions always stays: chats open there."
+            ? "Bots or Sessions always stays: chats open there."
+            : "More always stays last. Bots or Sessions always stays: chats open there."
         // [more-bots] The Mac has no More: its list of bots is the first of the sidebar's Tools then.
         if !shown.contains(.main(.bots)) {
             words += DeviceWord.isMac ? " With Bots hidden, the list is under Tools, and a bot’s chat opens on Sessions."
