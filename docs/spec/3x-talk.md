@@ -1489,6 +1489,33 @@ The test take is recorded with `TalkCapturing` (so it tests the engine a convers
 
 ---
 
+### 9.5 Live voices, and each bot's own voice ([voice picker], [bot voices])
+
+The owner, 2026-11-04: "It'd be nice if I could very easily like change the voices." The owner, 2026-11-21: "I'd like
+to be able to choose a voice for each bot so that when you talk to them they can have different voices if you want them
+to." A bot's voice had been pickable only in its chat's hold menu, and a pick in Settings wrote over it for every bot
+without a word.
+
+GPT-Live and Grok Live read their voice from the bot's own `config.yaml` when a conversation starts:
+`voice.gpt_live.voice` (Hermes' default `marin`) and `voice.grok_live.voice` (the add-on's default `eve`). The lists,
+the keys and the sparse patch are `HermesKit/Voice/LiveVoices.swift`; every voice has a recorded sample in the app
+(`App/Resources/VoiceSamples`), so hearing one costs nothing. Standard speaks with the bot's Text to Speech voice.
+
+| # | Rule | Code |
+|---|---|---|
+| BV1 | **Bot Info › Settings › Talk › Voice** (`bot-info.voice`) names this bot's voice for the engine Talk would start with here: this device's Voice Model, else the bot's own `voice.voice_chat_mode`. For Standard the value is "Text to Speech". Shown whenever the bot's settings can be read; dimmed offline. | `BotInfoModel.voiceValue`, `LiveVoices.engine(chosen:config:)` |
+| BV2 | The row opens **Voice**, pushed inside the sheet: the engine's voices with a ▶ sample each, this bot's ticked (`bot-voice.<id>`, `bot-voice.<id>.play`). A pick is saved at once for this bot alone (`PUT /api/config?profile=`, only the one key) and is heard on the next conversation. A voice written by hand that the list does not know is shown ticked and kept until another is picked. For Standard the row opens this bot's own Text to Speech page instead. | `BotVoicePage`, `BotModelPages.openVoice` |
+| BV3 | The page edits the config store the sheet read as it opened, so the row names the new voice as the page closes. The default bot's store is Settings' own: its voice is the one Settings › Voice shows. | `BotInfoModel.contextStore` |
+| BV4 | **Settings › Voice › Voice Conversation** still picks one voice for all bots. Before saving, it reads every other bot's own config. A bot has a voice of its own when one is written there and it is neither the voice Settings showed before the pick nor the one being picked; a missing key is nobody's choice (`GET /api/config` fills in Hermes' defaults, which hold no live voice). | `LiveVoices.written`, `LiveVoices.ownVoices`, `LiveVoiceSaver.otherBots` |
+| BV5 | When any bot has a voice of its own the pick asks first: **Change Every Bot’s Voice?** / "<Bot> (<Voice>) has a voice of its own." (three names, then "N more") / **Change All Bots** · **Keep Its Own Voice** (Keep Their Own Voices) · **Cancel**. Nothing is saved before the answer. Keep saves for every other bot; Cancel puts the tick back. With nothing to lose there is no question. The question is a UIKit alert from the page: the list builds its rows and footer only as they scroll into view, so a SwiftUI alert hung on one of them is not there to be shown. | `LiveVoiceSection.ask`, `LiveVoices.ownVoicesMessage` |
+| BV6 | The chat's hold menu keeps **Voice ▸** (Voice with <Bot> › Voice): the same per-bot save, from inside the chat. | `TalkMenus.voiceNode` |
+| BV7 | Footers (under DECISION 18.3 of `3x-settings.md`: when a change is heard, and a step on another page). Settings: "Heard the next time you talk. A bot can have a voice of its own: Bot Info › Settings › Voice." Bot Info: "Heard the next time you talk with <Bot>. Your other bots keep their voices." | `LiveVoices.sharedFooter`, `LiveVoices.botFooter` |
+
+Tests: `Tests/Talk/LiveVoicesTests.swift` (what counts as a bot's own voice, the engine, the question's words), `E30`
+(the lists, samples, a pick for all bots, the chat's Voice ▸) and `E31` (Bot Info's row and page, a pick that is the
+bot's alone, Settings asking, each of the three answers) in `UITests/talk/`. The stand-in gateway keeps one record for
+every bot unless `botConfigs` is a dict, which gives each bot its own (§12.1).
+
 ## 10. Audio session and keep awake (rows L544, L1010, L1012)
 
 ### 10.1 Audio session (row L1010)
@@ -1925,7 +1952,7 @@ menu · `E14a–f` dictation · `E15a–d` Read Aloud · `E16a–c` Read Replies
 diagnostics · `E19a–d` failures (Speech to Text off, denied, three failed transcriptions, unplayable voice) · `E20`
 a question during a conversation (question dock wins, conversation muted, back to Listening after the answer) ·
 `E21` keep awake · `E22` audio preview · `E23` accessibility sizes · `E24` relaunch · `E25` hidden engine and wake
-word.
+word · `E30` picking a live voice · `E31` a bot's own voice (§9.5).
 
 Every test signs in once with the fixture's invented credentials, uses launch arguments from §14.3, attaches a
 screenshot at each named state, and reads the fixture's ledger over `http://127.0.0.1:<port>/__fixture/voice-state`.

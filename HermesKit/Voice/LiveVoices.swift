@@ -96,3 +96,62 @@ nonisolated enum LiveVoices {
         bundle.url(forResource: sampleName(engine, id), withExtension: "m4a")
     }
 }
+
+// MARK: - [bot voices] Each bot's own voice
+
+// Owner 2026-11-21: "I'd like to be able to choose a voice for each bot so that when you talk to them they can have
+// different voices if you want them to." The choice was only in a chat's hold menu (Voice with … › Voice), and a pick in
+// Settings › Voice wrote over it for every bot without a word. A bot's voice is now a row of its Bot Info › Settings, and
+// Settings asks before it takes a bot's own voice away.
+
+/// One bot's voice as its own config.yaml has it written. `voice` nil: none written, so it speaks the engine's default
+/// and has no voice of its own to keep.
+nonisolated struct BotVoice: Sendable, Equatable {
+    var id: String
+    var name: String
+    var voice: String?
+}
+
+nonisolated extension LiveVoices {
+    /// The voice a bot's own config names (lower case); nil when it names none. `GET /api/config` fills in Hermes'
+    /// defaults, and those hold no live voice, so a missing key is a voice nobody picked.
+    static func written(_ engine: TalkEngine, config: JSONValue?) -> String? {
+        guard let key = key(engine) else { return nil }
+        let text = ConfigText.text(config.flatMap { ConfigPath.get($0, key) }).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text.lowercased()
+    }
+
+    /// The engine Talk would start with for a bot, as far as its settings say: this device's choice, else the bot's own
+    /// `voice.voice_chat_mode`. (Whether the gateway can start it is asked when a conversation begins.)
+    static func engine(chosen: TalkEngine?, config: JSONValue?) -> TalkEngine {
+        chosen ?? TalkEngine(mode: ConfigText.text(config.flatMap { ConfigPath.get($0, "voice.voice_chat_mode") }))
+    }
+
+    /// The bots a pick for all bots would take a voice of their own away from: a voice is written in their config, and
+    /// it is neither the one Settings showed before the pick (`shared`, the default bot's) nor the one being picked.
+    static func ownVoices(shared: String, picking: String, bots: [BotVoice]) -> [BotVoice] {
+        bots.filter { bot in
+            guard let voice = bot.voice else { return false }
+            return voice != shared && voice != picking
+        }
+    }
+
+    /// The question's second line: who would lose a voice. Three names at most, then a count.
+    static func ownVoicesMessage(_ bots: [BotVoice], _ engine: TalkEngine) -> String {
+        let named = bots.prefix(3).map { "\($0.name) (\(name($0.voice ?? "", engine)))" }
+        let rest = bots.count - named.count
+        let list = ListFormatter.localizedString(byJoining: named + (rest > 0 ? ["\(rest) more"] : []))
+        return bots.count == 1 ? "\(list) has a voice of its own." : "\(list) have voices of their own."
+    }
+
+    static func keepOwnTitle(_ count: Int) -> String { count == 1 ? "Keep Its Own Voice" : "Keep Their Own Voices" }
+
+    /// Settings' footer under the list.
+    static let sharedFooter = "Heard the next time you talk. A bot can have a voice of its own: Bot Info › Settings › Voice."
+
+    /// Bot Info's page footer under the list.
+    static func botFooter(_ bot: String) -> String { "Heard the next time you talk with \(bot). Your other bots keep their voices." }
+
+    /// Bot Info's row for a bot Talk would use Standard with: its voice is its Text to Speech voice.
+    static let standardValue = "Text to Speech"
+}

@@ -43,7 +43,10 @@ Live voice (docs/spec/3x-talk.md §12; ports 9900-9909):
   GET    /api/audio/elevenlabs/voices       two invented voices (elevenVoices: ok, unavailable, fail)
   GET    /api/config, /api/config/schema, /api/config/defaults;  PUT /api/config {config}
                                             the settings fixture's record plus the voice keys (voiceConfig,
-                                            schemaVoice, configPutFail)
+                                            schemaVoice, configPutFail). One record for every bot, unless
+                                            botConfigs is a dict {profile: patch}: then each bot has its own record
+                                            (its patch over voiceConfig) and a PUT changes only its own, as Hermes'
+                                            profiles do ([bot voices])
   transcribe                                also: transcripts (a queue), transcribeFailTimes, transcribeRaw
   socket                                    {"dropSocket": true} closes every /api/ws client once;
                                             {"refuseSocketFor": seconds} refuses new sockets that long
@@ -132,6 +135,7 @@ DEFAULTS = {'filesStatus': None, 'uploadStatus': None, 'uploadDelay': 0, 'attach
             'wordsMode': 'ok', 'wordsScript': 'Synthetic live transcript of what was said.', 'wordsFinal': None,
             'wordsPace': 0.25, 'wordsDropAfterMs': 500, 'wordsFinalDelay': 0,
             'leaseFail': False, 'elevenVoices': 'ok', 'voiceConfig': {}, 'schemaVoice': True, 'configPutFail': None,
+            'botConfigs': None,
             # GPT-Live (3x-gpt-live §3.1): status only; a session is refused as the real gateway does with no key
             'liveAvailable': False,
             # Grok Live (3x-grok-live §3.1): status only; the session is refused with no credentials
@@ -143,7 +147,7 @@ def empty_ledger():
             'configPuts': [], 'configPutProfiles': [], 'forbidden': [], 'socketDrops': 0, 'liveStatus': 0, 'liveSessions': 0,
             'grokStatus': 0, 'grokSessions': 0}
 LEDGER = empty_ledger()
-STORED = {'config': {}, 'refuseSocketUntil': 0.0}     # what PUT /api/config changed; when new sockets are let in again
+STORED = {'config': {}, 'profiles': {}, 'refuseSocketUntil': 0.0}     # what PUT /api/config changed (`profiles`: per bot, under botConfigs); when new sockets are let in again
 
 VOICE_DEFAULTS = {
     'stt': {'enabled': True, 'provider': 'local', 'echo_transcripts': False, 'streaming': False,
@@ -242,7 +246,12 @@ def config_record(profile):
         else:
             stt = CONTROLS['stt']
             if not stt.get(profile, stt.get('default', True)): record['stt'] = {'enabled': False}
-        cfg.deep_merge(record, STORED['config'])
+        own = CONTROLS['botConfigs']
+        if isinstance(own, dict):   # [bot voices] each bot's own record
+            if isinstance(own.get(profile), dict): cfg.deep_merge(record, copy.deepcopy(own[profile]))
+            cfg.deep_merge(record, copy.deepcopy(STORED['profiles'].get(profile, {})))
+        else:
+            cfg.deep_merge(record, STORED['config'])
     return record
 
 
@@ -827,7 +836,7 @@ def handler(gateway):
                     if payload.pop('reset', False):
                         CONTROLS.clear(); CONTROLS.update(json.loads(json.dumps(DEFAULTS)))
                         LEDGER.clear(); LEDGER.update(empty_ledger())
-                        STORED['config'] = {}; STORED['refuseSocketUntil'] = 0.0
+                        STORED['config'] = {}; STORED['profiles'] = {}; STORED['refuseSocketUntil'] = 0.0
                     if 'refuseSocketFor' in payload:
                         STORED['refuseSocketUntil'] = time.time() + float(payload.pop('refuseSocketFor') or 0)
                     drop = payload.pop('dropSocket', False)
@@ -949,7 +958,10 @@ def handler(gateway):
                 if fail:
                     fail = fail if isinstance(fail, dict) else {}
                     return self.reply(int(fail.get('status', 500)), {'detail': fail.get('detail', 'Synthetic save failure')})
-                cfg.deep_merge(STORED['config'], payload['config'])
+                if isinstance(CONTROLS['botConfigs'], dict):
+                    cfg.deep_merge(STORED['profiles'].setdefault(self.query().get('profile') or 'default', {}), payload['config'])
+                else:
+                    cfg.deep_merge(STORED['config'], payload['config'])
             return self.reply(200, {'ok': True})
 
         def speak(self, raw):
