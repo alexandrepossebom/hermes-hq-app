@@ -599,7 +599,9 @@ extension PhoneCallRecord {
 /// runs out, and the watch resumes when the app is opened again.
 @MainActor enum PhoneBackgroundWatch {
     private static var installed = false
-    private static var task: UIBackgroundTaskIdentifier = .invalid
+    /// `BackgroundTime` always ends the task: here, or when iOS takes the time back (it stays set until the app
+    /// is opened again, so one stretch in the background asks once).
+    private static var time: BackgroundTime?
 
     static func install() {
         guard !installed else { return }
@@ -614,30 +616,26 @@ extension PhoneCallRecord {
     }
 
     private static func begin() {
-        guard task == .invalid, PhoneCallController.all.contains(where: \.watching) else { return }
+        guard time == nil, PhoneCallController.all.contains(where: \.watching) else { return }
         AppLog.note("phone", "background watch began")
-        task = UIApplication.shared.beginBackgroundTask(withName: "hq.phone-call") {
-            MainActor.assumeIsolated {
-                AppLog.note("phone", "background time ran out")
-                for controller in PhoneCallController.all {
-                    guard let call = controller.calls.first(where: \.active) else { continue }
-                    controller.alert(.stillGoing(account: controller.accountID, session: call.sessionID,
-                                                 profile: call.profile, call: call.id))
-                }
-                end()
+        time = BackgroundTime.begin("hq.phone-call") {
+            AppLog.note("phone", "background time ran out")
+            for controller in PhoneCallController.all {
+                guard let call = controller.calls.first(where: \.active) else { continue }
+                controller.alert(.stillGoing(account: controller.accountID, session: call.sessionID,
+                                             profile: call.profile, call: call.id))
             }
         }
     }
 
     /// Ends the background time once nothing is watched any more.
     static func update() {
-        guard task != .invalid, !PhoneCallController.all.contains(where: \.watching) else { return }
+        guard time != nil, !PhoneCallController.all.contains(where: \.watching) else { return }
         end()
     }
 
     private static func end() {
-        guard task != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(task)
-        task = .invalid
+        time?.end()
+        time = nil
     }
 }
