@@ -359,7 +359,8 @@ struct TabOrderPage: View {
                                                   "connectors": ("Connectors", "powerplug"), "artifacts": ("Artifacts", "photo.on.rectangle"),
                                                   "kanban": ("Kanban", "rectangle.split.3x1"), "pinned": ("Tiles", "rectangle.3.group"),
                                                   "marketplace": ("Marketplace", "bag"), "passwords": ("Passwords", "key"),
-                                                  ComposioRow.id: (ComposioRow.title, ComposioRow.outline)]
+                                                  ComposioRow.id: (ComposioRow.title, ComposioRow.outline),
+                                                  FavoritePages.rowID: ("Favorites", "star")]   // [favorites]
         let (title, symbol) = known[id] ?? (id.capitalized, "square.dashed")
         return PageChoice(id: id, title: title, symbol: symbol)
     }

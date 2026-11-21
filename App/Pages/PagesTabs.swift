@@ -206,6 +206,9 @@ final class PagesTabs {
         if UserDefaults.standard.bool(forKey: "HQDebugForgetKanbanTip") {
             for key in [Self.overrideKey(account), Self.kanbanTabTipKey(account)] { UserDefaults.standard.removeObject(forKey: key) }
         }
+        // [favorites] `-HQDebugResetFavorites YES`: UI tests start with an empty Favorites they can still change (a
+        // `-hqn.favorites` launch argument would outrank every later write).
+        if UserDefaults.standard.bool(forKey: "HQDebugResetFavorites") { UserDefaults.standard.removeObject(forKey: FavoritePages.key) }
         #endif
         let current = scope.effective(bots: pages.bots)
         let jobs = JobsStore(client: client, account: account, directory: directory, scope: current)
@@ -535,6 +538,21 @@ final class PagesTabs {
         return ArtifactsViewController(store: artifactsStore, scope: scope, services: services, pinnedOnly: true, makeChat: makeChat)
     }
 
+    /// [favorites] More › Favorites: the pages you chose, each opening on the Favorites page's own stack.
+    func makeFavorites() -> UIViewController {
+        FavoritesViewController(pages: { [weak self] in self?.favoriteChoices() ?? [] })
+    }
+
+    /// [favorites] Every page Favorites can list, in More's groups and order: More's rows (those that are tabs now
+    /// too), without the gateway card, Favorites itself, or a row listed twice.
+    func favoriteChoices() -> [MoreSection] {
+        var seen: Set<String> = [FavoritePages.rowID]
+        return moreSections().compactMap { section in
+            let rows = section.rows().filter { $0.card == nil && seen.insert($0.id).inserted }
+            return rows.isEmpty ? nil : MoreSection(id: section.id, header: section.header) { rows }
+        }
+    }
+
     // MARK: More
 
     /// Every More row, the ones that are tabs now too (More search, Settings › Tabs).
@@ -566,6 +584,17 @@ final class PagesTabs {
             sections["workspace"] = MoreSection(id: "workspace", header: "Workspace") { (extra?.rows() ?? []) + workspace }
         }
         var all = Self.merged(sections)   // [morepages] appended rows
+        #if !targetEnvironment(macCatalyst)
+        // [favorites] The pages you chose, first in More (over Settings, under the gateway card). The Mac's sidebar is
+        // already that list (any page can be a place there), so it has no Favorites page.
+        if services != nil {
+            let favorites = MoreRow(id: FavoritePages.rowID, title: "Favorites", symbol: "star.fill", image: nil,
+                                    tile: UIColor(red: 1, green: 0xB3 / 255, blue: 0, alpha: 1)) { [weak self] in self?.makeFavorites() }
+            // One group with Settings, above it (two lone rows read as two stray cards).
+            let settings = all["settings"]
+            all["settings"] = MoreSection(id: "settings", header: settings?.header) { [favorites] + (settings?.rows() ?? []) }
+        }
+        #endif
         // [more-bots] A tester, 2026-11-14: a hidden Bots tab is a page in More too, first under Bots (above
         // Bot Profiles). [mac] The owner, 2026-11-15: "it needs to be on the Mac build too in some way". The Mac has no
         // More, and with Bots off its sidebar loses the bots: there the row is the first of the sidebar's Tools

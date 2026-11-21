@@ -125,7 +125,10 @@ final class ImportSessionsUITests: MorePagesCase {
 
         // The preview shows the turns and the footnote.
         let target = row(7)
-        for _ in 0..<10 where !target.exists || !target.isHittable { app.swipeUp(velocity: .slow) }
+        // Clear of the floating tab bar too: a row under it is "hittable", and the tap lands on Bots.
+        let bar = app.tabBars.firstMatch
+        func clear() -> Bool { target.exists && target.isHittable && (!bar.exists || target.frame.maxY < bar.frame.minY - 8) }
+        for _ in 0..<10 where !clear() { app.swipeUp(velocity: .slow) }
         target.tap()
         XCTAssertTrue(app.buttons["import-sessions.import"].waitForExistence(timeout: 15), "Import in the bar")
         XCTAssertEqual(app.buttons["import-sessions.import"].label, "Import")

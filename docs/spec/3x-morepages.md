@@ -1211,3 +1211,22 @@ gains an optional trailing `value` string and `valueIsIssue` flag, unused by thi
 - Wording for Messaging, Status & Maintenance and Import Sessions was taken from the vendored English strings
   (`V/i18n/en.ts`) and turned into the app's Title Case plain language; a builder must check each page's block in
   `B/fe-pages-gates.ts` for a phone rewrite of the same string and prefer it.
+
+## 24. Favorites ([favorites])
+
+A tester (a tester, 2026-11-20) asked for one place holding the pages she uses most, since they sit under More and she
+scrolls past the same rows each time. The owner chose (2026-11-20) one Favorites page you fill yourself from a list of
+every page — not a star on each page, and not a list that learns from use.
+
+| Rule | Behaviour | Code |
+|---|---|---|
+| F1 | Favorites is More's first row on the iPhone and iPad, in one group with Settings, under the gateway card. The Mac has none: any page can already be a sidebar place there. | `PagesTabs.moreSections` |
+| F2 | The page lists the chosen pages in the chosen order, each drawn as its More row (`MoreViewController.rowContent`) and opening on the Favorites page's own stack. | `FavoritesViewController` |
+| F3 | + opens Add Pages: every More row in More's groups and order, without the gateway card or Favorites itself. A tap adds the page at the end, or takes it off; a tick marks the chosen ones. | `FavoritesPickerViewController`, `PagesTabs.favoriteChoices` |
+| F4 | Edit shows a delete and a drag handle on each row; a row also swipes to Remove, and holding it offers Remove from Favorites. Edit is hidden while the list is empty. | `FavoritesViewController` |
+| F5 | Empty: "No Favorites", a line on what it is for, and an Add Pages button. | `FavoritesViewController.updateContentUnavailableConfiguration` |
+| F6 | The choice is this device's (`hqn.favorites`, as `hqn.tabOrder`). A chosen page this gateway lacks stays chosen and unlisted, and keeps its slot when the others are dragged. | `HermesKit/Settings/FavoritePages.swift` |
+| F7 | Favorites is a More page that can be a tab (`TabChoice.pageIDs`, last, so the other pages keep their tags); as a tab it leaves More. More search finds it ("favorites", "starred", "shortcuts"). | `TabOrder.swift`, `MoreSearch.pageKeywords` |
+
+Tests: `Tests/Settings/FavoritePagesTests.swift`; `UITests/morepages/FavoritesUITests.swift`
+(`HQN_MOREPAGES_ONLY=FavoritesUITests scripts/e2e-morepages.sh <udid>`).

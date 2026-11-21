@@ -55,7 +55,8 @@ nonisolated enum TabChoice: Hashable, Sendable {
                           "marketplace",   // [marketplace-row]
                           "usage",
                           "passwords",   // [passwords-page]
-                          "composio"]   // [composio-row]   // Usage, a page of its own since Command Center split: never a Mac Tool without it (owner 2026-11-07)
+                          "composio",   // [composio-row]   // Usage, a page of its own since Command Center split: never a Mac Tool without it (owner 2026-11-07)
+                          "favorites"]   // [favorites]
     static let firstPageTag = 100
 
     var key: String {
