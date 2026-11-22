@@ -29,7 +29,7 @@ import UIKit
         }
         guard await root.clearForRoute() else { return }
         let page = QuickActionsViewController(inSheet: true)
-        let navigation = ChatSheet.wrap(page, title: "Quick Actions", detents: [.medium(), .large()])
+        let navigation = ChatSheet.wrap(page, title: IntentsText.quickActions, detents: [.medium(), .large()])
         navigation.sheetPresentationController?.selectedDetentIdentifier = .large
         navigation.view.accessibilityIdentifier = "quick-actions.sheet"
         sheet = navigation
@@ -122,7 +122,7 @@ import UIKit
     /// A foreground route: the page's sheet goes first (the route's own clearing then has nothing to ask about).
     private static func go(_ route: QuickTileRoute, tile: QuickTile, from page: QuickActionsViewController,
                            root: MainTabController?, say: @escaping (Said) -> Void) async {
-        // A page tile pushed on the page's own stack (the page is a tab or a More page): it opens there, as Favorites'.
+        // A page tile pushed on the page's own stack (the page is a tab or a More page): it opens there.
         if case .page(let id) = route, !page.inSheet {
             guard let row = row(id, root: root), let next = row.make() else { return say(.failed(missingPage(tile))) }
             page.navigationController?.pushViewController(next, animated: true)
@@ -175,7 +175,7 @@ import UIKit
         root?.pages?.quickActionChoices().flatMap { $0.rows() }.first { $0.id == id }
     }
 
-    /// A More page, as Favorites and ⌘, open one: its own tab when Settings › Tabs gave it one, else More's row.
+    /// A More page, as ⌘, opens one: its own tab when Settings › Tabs gave it one, else More's row.
     @discardableResult static func openPage(_ id: String, root: MainTabController) -> Bool {
         if TabChoice.pageIDs.contains(id), let tab = root.placedTab(tagged: TabChoice.page(id).tag) {
             root.show(tab)
@@ -187,7 +187,7 @@ import UIKit
         stack.popToRootViewController(animated: false)
         more.loadViewIfNeeded()
         if more.open(rowId: id) != nil { return true }
-        // A page More lists under another row (Favorites' own choices): pushed on More's stack.
+        // A page More lists under another row: pushed on More's stack.
         guard let next = row(id, root: root)?.make() else { return false }
         stack.pushViewController(next, animated: true)
         return true

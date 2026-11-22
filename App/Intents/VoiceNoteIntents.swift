@@ -136,9 +136,11 @@ nonisolated struct HQAppShortcuts: AppShortcutsProvider {
                     shortTitle: "New Chat", systemImageName: "square.and.pencil")
         // [quick-actions] DECISION I22 (owner 2026-11-21): the Quick Actions page, from the Action Button, Siri, Spotlight.
         AppShortcut(intent: OpenQuickActionsIntent(),
-                    phrases: ["Open quick actions in \(.applicationName)",
+                    phrases: ["Open favorites in \(.applicationName)",
+                              "Show favorites in \(.applicationName)",
+                              "Open quick actions in \(.applicationName)",   // [favorites-name] its old name still works
                               "Show quick actions in \(.applicationName)"],
-                    shortTitle: "Quick Actions", systemImageName: "square.grid.2x2.fill")
+                    shortTitle: "Favorites", systemImageName: "star.circle.fill")
         // [shortcuts] Owner 2026-11-20 picked these from the shortcut ideas.
         AppShortcut(intent: TalkToBotIntent(),
                     phrases: ["Talk to a bot in \(.applicationName)",

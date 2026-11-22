@@ -196,7 +196,10 @@ final class PagesTabs {
         }
         self.account = account
         self.client = client
-        savedTab = UserDefaults.standard.object(forKey: Self.tabKey(account)) as? Int
+        // [favorites-retired] A retired page's saved tag reads as the tag of the page that replaced it.
+        savedTab = (UserDefaults.standard.object(forKey: Self.tabKey(account)) as? Int).map { tag in
+            tag >= TabChoice.firstPageTag ? TabChoice(tag: tag)?.tag ?? tag : tag
+        }
         let directory = PagesCache.directory(for: account)
         self.directory = directory
         let scope = PagesScope(account: account)
@@ -208,9 +211,6 @@ final class PagesTabs {
         if UserDefaults.standard.bool(forKey: "HQDebugForgetKanbanTip") {
             for key in [Self.overrideKey(account), Self.kanbanTabTipKey(account)] { UserDefaults.standard.removeObject(forKey: key) }
         }
-        // [favorites] `-HQDebugResetFavorites YES`: UI tests start with an empty Favorites they can still change (a
-        // `-hqn.favorites` launch argument would outrank every later write).
-        if UserDefaults.standard.bool(forKey: "HQDebugResetFavorites") { UserDefaults.standard.removeObject(forKey: FavoritePages.key) }
         #endif
         let current = scope.effective(bots: pages.bots)
         let jobs = JobsStore(client: client, account: account, directory: directory, scope: current)
@@ -572,29 +572,14 @@ final class PagesTabs {
         return ArtifactsViewController(store: artifactsStore, scope: scope, services: services, pinnedOnly: true, makeChat: makeChat)
     }
 
-    /// [favorites] More › Favorites: the pages you chose, each opening on the Favorites page's own stack.
-    func makeFavorites() -> UIViewController {
-        FavoritesViewController(pages: { [weak self] in self?.favoriteChoices() ?? [] })
-    }
-
-    /// [favorites] Every page Favorites can list, in More's groups and order: More's rows (those that are tabs now
-    /// too), without the gateway card, Favorites itself, or a row listed twice.
-    func favoriteChoices() -> [MoreSection] {
-        var seen: Set<String> = [FavoritePages.rowID]
-        return moreSections().compactMap { section in
-            let rows = section.rows().filter { $0.card == nil && seen.insert($0.id).inserted }
-            return rows.isEmpty ? nil : MoreSection(id: section.id, header: section.header) { rows }
-        }
-    }
-
     /// [quick-actions] More › Quick Actions (docs/spec/3x-morepages.md §25): the same page the shortcut opens, on
     /// More's stack.
     func makeQuickActions() -> UIViewController {
         QuickActionsViewController(inSheet: false)
     }
 
-    /// [quick-actions] Every page a Quick Actions tile can open: More's rows in More's groups (Favorites included),
-    /// without the gateway card, Quick Actions itself, or a row listed twice.
+    /// [quick-actions] Every page a Quick Actions tile can open: More's rows in More's groups (those that are tabs now
+    /// too), without the gateway card, Quick Actions itself, or a row listed twice.
     func quickActionChoices() -> [MoreSection] {
         var seen: Set<String> = [QuickTileStore.rowID]
         return moreSections().compactMap { section in
@@ -635,17 +620,17 @@ final class PagesTabs {
         }
         var all = Self.merged(sections)   // [morepages] appended rows
         #if !targetEnvironment(macCatalyst)
-        // [favorites] The pages you chose, first in More (over Settings, under the gateway card). The Mac's sidebar is
-        // already that list (any page can be a place there), so it has no Favorites page.
+        // [quick-actions] The page the Quick Actions shortcut opens, first in More (over Settings, under the gateway
+        // card), where Favorites was (§25 Q11; owner 2026-11-22: Quick Actions replaces Favorites). Not on the Mac:
+        // its sidebar is already a list of places (any page can be one there).
         if services != nil {
-            let favorites = MoreRow(id: FavoritePages.rowID, title: "Favorites", symbol: "star.fill", image: nil,
-                                    tile: UIColor(red: 1, green: 0xB3 / 255, blue: 0, alpha: 1)) { [weak self] in self?.makeFavorites() }
-            // [quick-actions] The page the Quick Actions shortcut opens, beside Favorites (§25 Q11).
-            let quick = MoreRow(id: QuickTileStore.rowID, title: "Quick Actions", symbol: "square.grid.2x2.fill", image: nil,
-                                tile: UIColor(red: 0x5E / 255, green: 0x5C / 255, blue: 0xE6 / 255, alpha: 1)) { [weak self] in self?.makeQuickActions() }
-            // One group with Settings, above it (two lone rows read as two stray cards).
+            // [favorites-name] Owner 2026-11-22: "Icon should be a star and it needs to animate like all of others" (the
+            // star's tab motion: `TabMotion.favorite`). Yellow, as the retired Favorites row was.
+            let quick = MoreRow(id: QuickTileStore.rowID, title: IntentsText.quickActions, symbol: "star.circle.fill", image: nil,
+                                tile: UIColor(red: 1, green: 0xB3 / 255, blue: 0, alpha: 1)) { [weak self] in self?.makeQuickActions() }
+            // One group with Settings, above it (a lone row reads as a stray card).
             let settings = all["settings"]
-            all["settings"] = MoreSection(id: "settings", header: settings?.header) { [favorites, quick] + (settings?.rows() ?? []) }
+            all["settings"] = MoreSection(id: "settings", header: settings?.header) { [quick] + (settings?.rows() ?? []) }
         }
         #endif
         // [more-bots] A tester, 2026-11-14: a hidden Bots tab is a page in More too, first under Bots (above

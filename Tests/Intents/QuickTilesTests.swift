@@ -247,10 +247,20 @@ private func tile(_ kind: QuickTileKind, id: String = UUID().uuidString, bot: St
     @MainActor @Test func quickActionsIsAPageATabAndASearchWord() {
         #expect(TabChoice(key: "page.quick-actions") == .page(QuickTileStore.rowID))
         #expect(TabChoice.pageIDs.last == QuickTileStore.rowID)   // new pages go at the end: the others keep their tags
-        #expect(TabOrderPage.fallback(QuickTileStore.rowID).title == "Quick Actions")
+        #expect(TabOrderPage.fallback(QuickTileStore.rowID).title == "Favorites")
         for word in ["quick actions", "shortcuts", "launcher"] {
             #expect(MoreSearch.pageKeywords[QuickTileStore.rowID]?.contains(word) == true)
         }
-        #expect(IntentsText.quickActions == "Quick Actions")
+        #expect(IntentsText.quickActions == "Favorites")
+    }
+
+    // [favorites-name] Owner 2026-11-22: the star, "and we can't reuse a symbol used by something else in the app".
+    @MainActor @Test func favoritesHasAStarNoOtherPageUses() {
+        let mine = TabOrderPage.fallback(QuickTileStore.rowID).symbol
+        #expect(mine == "star.circle")
+        #expect(QuickActions.quickActionsSymbol == "star.circle")
+        let others = TabChoice.pageIDs.filter { $0 != QuickTileStore.rowID }.map { TabOrderPage.fallback($0).symbol }
+        #expect(!others.contains(mine), "another page's tab shows the same symbol")
+        #expect(!["star", "star.fill"].contains(mine), "the plain star is Star Map's (Mac) and the favourite toggles'")
     }
 }

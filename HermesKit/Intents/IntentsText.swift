@@ -49,7 +49,8 @@ nonisolated enum IntentsText {
     static func open(_ name: String) -> String { "Open " + name }
     static let searchChats = "Search Chats"
     /// [quick-actions] DECISION I22: the Home Screen's first item, the App Shortcut's short title and the page's title.
-    static let quickActions = "Quick Actions"
+    /// [favorites-name] Owner 2026-11-22: "Now I want to rename Quick Actions to Favorites."
+    static let quickActions = "Favorites"
     static let untitledChat = "Chat"
     static let shortcutTitle = "Shortcut Unavailable"
     static let shortcutUnknownTitle = "That shortcut is unavailable."

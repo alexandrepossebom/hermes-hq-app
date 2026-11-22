@@ -45,8 +45,8 @@ nonisolated enum MoreSearch {
     /// Command Center words split between Status & Maintenance (its old name still finds it) and Usage.
     static let pageKeywords: [String: [String]] = [
         "files": ["files", "browse", "folder", "documents"],
-        "favorites": ["favorites", "favourites", "starred", "shortcuts", "pinned pages", "quick access"],   // [favorites]
-        "quick-actions": ["quick actions", "shortcuts", "launcher", "action button"],   // [quick-actions]
+        // [quick-actions] [favorites-retired] Favorites' words find the page that replaced it.
+        "quick-actions": ["quick actions", "shortcuts", "launcher", "action button", "favorites", "favourites", "quick access"],
         "review": ["review", "changes", "diff", "git"],
         "command-center": ["command center", "system", "status", "maintenance"],
         "usage": ["usage", "tokens", "cost"],

@@ -3,8 +3,7 @@
 // one click away after triggering the shortcut to open the quick action." Its own page, opened by the shortcut, with
 // actions and pages as tiles.
 //
-// Pure: what a tile is, how the page's tiles are stored on this device (`hqn.quickActions`, versioned, like
-// `hqn.favorites`), the starter set, what a tile says under its name, and which existing route a tap takes
+// Pure: what a tile is, how the page's tiles are stored on this device (`hqn.quickActions`, versioned), the starter set, what a tile says under its name, and which existing route a tap takes
 // (`QuickTileRoute`). The app runs the route through the same handler its Shortcuts twin uses (App/QuickActions).
 
 import Foundation
@@ -233,7 +232,7 @@ nonisolated enum QuickTileRoute: Equatable, Sendable {
     case newTask(bot: String?)
     /// `RunJobIntent`'s calls, no wait.
     case runJob(key: String, name: String)
-    /// A More page, opened as Favorites opens one.
+    /// A More page, opened on the page's own stack (or its tab).
     case page(id: String)
     /// The Home Screen item's Search Chats (DECISION I6).
     case search
@@ -334,6 +333,25 @@ nonisolated struct QuickTileList: Equatable, Sendable {
         var next = order.compactMap { byID.removeValue(forKey: $0) }
         next += tiles.filter { byID[$0.id] != nil }
         tiles = next
+    }
+
+    /// [favorites-retired] The pages chosen on the retired Favorites page (`FavoritePages.ids`) become page tiles at the
+    /// end, in Favorites' order: those on this gateway (`pages`: id → title and icon), and not already a tile. A tile
+    /// that opened Favorites itself goes (this page is what replaced it). Answers whether the list changed.
+    @discardableResult
+    mutating func absorbFavorites(_ ids: [String], pages: [String: (title: String, symbol: String)]) -> Bool {
+        let before = tiles
+        tiles.removeAll { $0.known == .page && $0.page == FavoritePages.rowID }
+        var have = Set(tiles.compactMap { $0.known == .page ? $0.page : nil })
+        for id in ids where id != FavoritePages.rowID && id != QuickTileStore.rowID && !have.contains(id) {
+            guard let page = pages[id] else { continue }
+            var tile = QuickTile(id: "favorite-" + id, kind: .page, name: page.title, symbol: page.symbol)
+            tile.page = id
+            tile.pageName = page.title
+            tiles.append(tile)
+            have.insert(id)
+        }
+        return tiles != before
     }
 }
 

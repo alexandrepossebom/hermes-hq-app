@@ -33,9 +33,9 @@ final class QuickActionsUITests: MorePagesCase {
     @MainActor func testQuickActions_AddRenameWideReorderRemoveKeep() throws {
         launchSignedIn(["-HQDebugResetQuickActions", "YES"])
         tab("More")
-        XCTAssertTrue(revealMore("quick-actions").exists, "Quick Actions is in More, beside Favorites")
+        XCTAssertTrue(revealMore("quick-actions").exists, "Quick Actions is in More")
         openMore("quick-actions")
-        XCTAssertTrue(app.navigationBars["Quick Actions"].waitForExistence(timeout: 10), "More › Quick Actions opens its page")
+        XCTAssertTrue(app.navigationBars["Favorites"].waitForExistence(timeout: 10), "More › Quick Actions opens its page")
         // The starter set, from the roster's first bot.
         XCTAssertTrue(tile("starter-memo").waitForExistence(timeout: 10), "the starter set")
         XCTAssertEqual(shownIDs, ["starter-memo", "starter-talk", "starter-new-chat", "starter-add-task", "starter-search"])
@@ -205,9 +205,27 @@ final class QuickActionsUITests: MorePagesCase {
     /// Settings › Tabs can make Quick Actions a tab of its own; it then leaves More.
     @MainActor func testQuickActions_AsATab() throws {
         launchSignedIn(["-HQDebugResetQuickActions", "YES", "-hqn.tabOrder", "(bots, sessions, \"page.quick-actions\")"])
-        tab("Quick Actions")
+        tab("Favorites")
         XCTAssertTrue(tile("starter-memo").waitForExistence(timeout: 10), "the tab shows the page")
         tab("More")
         XCTAssertFalse(app.cells["more-row-quick-actions"].waitForExistence(timeout: 2), "as a tab it leaves More")
+    }
+
+    /// [favorites-retired] Owner 2026-11-22: Quick Actions replaces Favorites. More has no Favorites row; the pages a
+    /// person chose there are page tiles after the starter set; and a Favorites tab is the Quick Actions tab. (The
+    /// launch arguments seed what a build with Favorites stored.)
+    @MainActor func testQuickActions_ReplacesFavorites() throws {
+        launchSignedIn(["-HQDebugResetQuickActions", "YES", "-hqn.favorites", "(review, webhooks)",
+                        "-hqn.tabOrder", "(bots, sessions, \"page.favorites\")"])
+        tab("Favorites")
+        XCTAssertTrue(tile("starter-memo").waitForExistence(timeout: 10), "the Favorites tab is the Quick Actions tab")
+        XCTAssertTrue(tile("favorite-review").waitForExistence(timeout: 10), "a chosen page is a tile")
+        XCTAssertTrue(tile("favorite-webhooks").exists, "every chosen page is a tile")
+        XCTAssertEqual(Array(shownIDs.suffix(2)), ["favorite-review", "favorite-webhooks"], "after the starter set, in Favorites' order")
+        shot("quick-actions-took-in-favorites")
+        tile("favorite-review").tap()
+        XCTAssertTrue(app.navigationBars["Changes"].waitForExistence(timeout: 10), "the page tile opens its page")
+        tab("More")
+        XCTAssertFalse(revealMore("favorites", timeout: 3).exists, "More has no Favorites row")
     }
 }

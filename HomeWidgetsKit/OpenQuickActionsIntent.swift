@@ -29,9 +29,9 @@ import Foundation
 
 // A plain `struct` for the reason given at `RecordVoiceNoteIntent`.
 struct OpenQuickActionsIntent: AppIntent {
-    static let title: LocalizedStringResource = "Open Quick Actions"
+    static let title: LocalizedStringResource = "Open Favorites"
     static let description: IntentDescription? = IntentDescription(
-        "Open your Quick Actions page: the actions and pages you put there, one tap each.", categoryName: "Chat")
+        "Open your Favorites page: the actions and pages you put there, one tap each.", categoryName: "Chat")
     /// DECISION I2's rule: the app comes forward at once.
     static let supportedModes: IntentModes = .foreground(.immediate)
     static let isDiscoverable = true

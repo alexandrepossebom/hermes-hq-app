@@ -485,14 +485,14 @@ nonisolated private func intentsOnMainThread() -> Bool { Thread.isMainThread }
     // second recent chat made room for it; the Home Screen shows four).
     @Test func quickActionsThenMemoToTheMostRecentBotTheMostRecentChatThenSearch() {
         let plan = QuickActions.plan(safe, enabled: true)
-        #expect(plan.map(\.title) == ["Quick Actions", "New Voice Memo for Ivy", "Open Trip plan", "Search Chats"])
-        #expect(plan.map(\.symbol) == ["square.grid.2x2", "mic", "bubble.left", "magnifyingglass"])
+        #expect(plan.map(\.title) == ["Favorites", "New Voice Memo for Ivy", "Open Trip plan", "Search Chats"])
+        #expect(plan.map(\.symbol) == ["star.circle", "mic", "bubble.left", "magnifyingglass"])
         #expect(plan.map(\.type) == ["dispatch.quick-actions", "dispatch.memo", "dispatch.open", "dispatch.search"])
         #expect(plan.map(\.id) == [nil, "E:bot:ios-direct::ivy", "E:session:s1", nil])
     }
 
     @Test func noBotsNoMemoAndNeverALoneSearch() {
-        #expect(QuickActions.plan([safe[0]], enabled: true).map(\.title) == ["Quick Actions", "Open Trip plan", "Search Chats"])
+        #expect(QuickActions.plan([safe[0]], enabled: true).map(\.title) == ["Favorites", "Open Trip plan", "Search Chats"])
         #expect(QuickActions.plan([], enabled: true).isEmpty)
     }
 

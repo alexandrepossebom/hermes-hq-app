@@ -25,9 +25,9 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
     init(inSheet: Bool) {
         self.inSheet = inSheet
         super.init(nibName: nil, bundle: nil)
-        title = "Quick Actions"
+        title = IntentsText.quickActions
         navigationItem.largeTitleDisplayMode = .never
-        if !inSheet { PageChrome.applyListHeader(to: self, title: "Quick Actions") }
+        if !inSheet { PageChrome.applyListHeader(to: self, title: IntentsText.quickActions) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -121,7 +121,7 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
     /// its way: up to 6 s).
     private func loadList() {
         list = QuickTileStore.load()
-        guard list.tiles.isEmpty, !list.seeded else { return reload() }
+        guard list.tiles.isEmpty, !list.seeded else { absorbFavorites(); return reload() }
         seeding = true
         reload()
         seedWait = Task { [weak self] in
@@ -131,8 +131,29 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
                 try? await Task.sleep(for: .milliseconds(200))
             }
             self?.seeding = false
+            self?.absorbFavorites()
             self?.reload()
         }
+    }
+
+    /// [favorites-retired] Owner 2026-11-22: Quick Actions replaces the Favorites page. The pages chosen there join
+    /// this page once, as page tiles after the rest (after the starter set on a first open); Favorites' list is then
+    /// cleared. Waits while the starter set or More's pages aren't there yet (it is tried on every open).
+    private func absorbFavorites() {
+        var next = QuickTileStore.load()
+        let ids = FavoritePages.ids()
+        let rows = pageChoices().flatMap { $0.rows() }
+        guard next.seeded, !rows.isEmpty else { return }
+        defer { FavoritePages.clear() }
+        guard !ids.isEmpty || next.tiles.contains(where: { $0.page == FavoritePages.rowID }) else { return }
+        var pages: [String: (title: String, symbol: String)] = [:]
+        for row in rows where pages[row.id] == nil {
+            pages[row.id] = (row.title, QuickTileLook.symbol(row.symbol ?? QuickTileKind.page.defaultLook.symbol))
+        }
+        guard next.absorbFavorites(ids, pages: pages) else { return }
+        list = next
+        QuickTileStore.save(list)
+        AppLog.note("quick-actions", "took in \(ids.count) Favorites page(s)")
     }
 
     /// Seeds from the roster's first bot once it is known. True: done (seeded, or nothing to seed).
@@ -173,7 +194,7 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
 
     override func updateContentUnavailableConfiguration(using state: UIContentUnavailableConfigurationState) {
         guard list.tiles.isEmpty, !seeding else { contentUnavailableConfiguration = nil; return }
-        var empty = PageStates.empty(symbol: "square.grid.2x2", title: "No Quick Actions",
+        var empty = PageStates.empty(symbol: "star.circle", title: "No Favorites",
                                      text: "Add the actions and pages you use most.")
         if traitCollection.preferredContentSizeCategory.isAccessibilityCategory { empty.image = nil }
         var button = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)
@@ -192,7 +213,7 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         moveHold.isEnabled = editing
         reload()
         for cell in collectionView.visibleCells { (cell as? QuickTileCell)?.setWiggling(editing) }
-        HQAnnounce.say(editing ? "Editing Quick Actions" : nil)
+        HQAnnounce.say(editing ? "Editing Favorites" : nil)
     }
 
     private func remove(_ id: String) {
@@ -479,7 +500,7 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         present(setup, animated: true)
     }
 
-    /// Every page a tile can open (Favorites' choices, Favorites included).
+    /// Every page a tile can open.
     private func pageChoices() -> [MoreSection] {
         MainTabController.current?.pages?.quickActionChoices() ?? []
     }

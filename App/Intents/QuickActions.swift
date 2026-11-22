@@ -11,9 +11,9 @@ import UIKit
     nonisolated static let typePrefix = "dispatch."
     /// [quick-actions] The Home Screen item that opens the Quick Actions page (DECISION I22).
     nonisolated static let quickActionsAction = "quick-actions"
-    /// Its symbol. Not `square.grid.2x2.fill` (the App Shortcut's): Springboard labelled the item with that symbol
-    /// "Large Grid" for VoiceOver, whatever its title.
-    nonisolated static let quickActionsSymbol = "square.grid.2x2"
+    /// Its symbol, the outline (the Home Screen's items are): [favorites-name] the starred circle, as the page's row and tab (its own: the plain star is Star Map's on the Mac and the favourite toggle's).
+    /// (When it was the grid, the `.fill` symbol had Springboard label the item "Large Grid" for VoiceOver.)
+    nonisolated static let quickActionsSymbol = "star.circle"
 
     /// What the stored catalog shows on the Home Screen. Pure (the tests read it).
     /// [quick-actions] DECISION I22: Quick Actions comes first. iOS shows four at most, so the second recent chat went:

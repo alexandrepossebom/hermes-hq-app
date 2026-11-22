@@ -131,7 +131,7 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
         installObservers()
     }
 
-    /// [favorites] A group's name as More draws it (the Favorites page and its Add Pages list use it too).
+    /// A group's name as More draws it.
     static func headerContent(_ text: String?) -> UIContentConfiguration {
         var content = UIListContentConfiguration.header().hqScaled()
         content.text = text
@@ -141,8 +141,7 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
         return content.hqMacSectionHeader()   // [mac] Stress test 2026-10-28 #52
     }
 
-    /// [favorites] A row's tile (or glyph), title and status as More draws them in the current skin: one look for More,
-    /// the Favorites page and its Add Pages list.
+    /// A row's tile (or glyph), title and status as More draws them in the current skin.
     static func rowContent(_ row: MoreRow, status: MoreRowStatus?) -> UIListContentConfiguration {
         // [capabilities] a row with a status is a value cell: the value sits before the chevron, red for an issue,
         // and wraps under the title at accessibility sizes (the system's own stacked layout).

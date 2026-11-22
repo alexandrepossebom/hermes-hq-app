@@ -614,7 +614,7 @@ final class IntentsEndToEndTests: XCTestCase {
         var state = try waitState("four items") { self.actions($0).count == 4 }
         var items = actions(state)
         // [quick-actions] DECISION I22: Quick Actions first; one recent chat made room for it.
-        XCTAssertTrue(items[0].title == "Quick Actions" && items[0].symbol == "square.grid.2x2" && items[0].type == "dispatch.quick-actions", "\(items[0])")
+        XCTAssertTrue(items[0].title == "Favorites" && items[0].symbol == "star.circle" && items[0].type == "dispatch.quick-actions", "\(items[0])")
         XCTAssertTrue(items[1].title.hasPrefix("New Voice Memo for ") && items[1].symbol == "mic" && items[1].type == "dispatch.memo", "\(items[1])")
         XCTAssertTrue(items[2].title.hasPrefix("Open ") && items[2].symbol == "bubble.left" && items[2].type == "dispatch.open", "\(items[2])")
         XCTAssertTrue(items[3].title == "Search Chats" && items[3].symbol == "magnifyingglass" && items[3].type == "dispatch.search", "\(items[3])")
@@ -650,7 +650,7 @@ final class IntentsEndToEndTests: XCTestCase {
         openSession("s-reading")
         state = try waitState("a listed chat too") { self.actions($0).count == 4 && self.actions($0)[2].title == "Open Anything worth reading?" }
         XCTAssertEqual(actions(state)[1].title, "New Voice Memo for Finance", "a listed chat is not a memo target")
-        XCTAssertEqual(actions(state)[0].title, "Quick Actions", "Quick Actions stays first")
+        XCTAssertEqual(actions(state)[0].title, "Favorites", "Quick Actions stays first")
     }
 
     @MainActor func testA37_TheHomeScreenMenuShowsTheItemsAndSearchChatsOpensSearch() throws {
@@ -774,7 +774,7 @@ final class IntentsEndToEndTests: XCTestCase {
     @MainActor func testA39_NewMemoQuickActionStartsTheRecorder() throws {
         launch()
         let items = actions(try waitState("four items") { self.actions($0).count == 4 })
-        XCTAssertEqual(items.map(\.title), ["Quick Actions", "New Voice Memo for Hermes", "Open Hermes", "Search Chats"])
+        XCTAssertEqual(items.map(\.title), ["Favorites", "New Voice Memo for Hermes", "Open Hermes", "Search Chats"])
         app.tabBars.buttons["Sessions"].tap()
         trigger("quick:memo")
         XCTAssertTrue(app.buttons["memo.stop"].waitForExistence(timeout: 20), "the locked recorder shows")
@@ -1103,7 +1103,7 @@ final class IntentsEndToEndTests: XCTestCase {
         XCTAssertEqual(tileNames(state), ["Memo", "Talk", "New Chat", "Add Task", "Search Chats"])
         XCTAssertTrue(events(state).contains("quick-actions open link"))
         XCTAssertTrue(app.cells["quick-tile-starter-memo"].exists && app.cells["quick-tile-starter-search"].exists)
-        XCTAssertTrue(app.navigationBars["Quick Actions"].exists, "titled Quick Actions")
+        XCTAssertTrue(app.navigationBars["Favorites"].exists, "titled Quick Actions")
         shots("A49-quick-actions-seeded")
         app.buttons["sheet.close"].tap()
         XCTAssertTrue(waitUntil(timeout: 5) { !grid.exists }, "Close closes it")
@@ -1177,10 +1177,10 @@ final class IntentsEndToEndTests: XCTestCase {
         launch(as: pages)
         let items = actions(try waitState("four items") { self.actions($0).count == 4 })
         XCTAssertEqual(items.map(\.type), ["dispatch.quick-actions", "dispatch.memo", "dispatch.open", "dispatch.search"])
-        XCTAssertEqual(items[0].title, "Quick Actions")
-        XCTAssertEqual(items[0].symbol, "square.grid.2x2")
+        XCTAssertEqual(items[0].title, "Favorites")
+        XCTAssertEqual(items[0].symbol, "star.circle")
         openIconMenu()
-        let item = iconMenuItem("Quick Actions")
+        let item = iconMenuItem("Favorites")
         XCTAssertTrue(item.exists, "the menu shows Quick Actions")
         save(XCUIScreen.main.screenshot(), "A52-home-screen-menu-" + Self.deviceLook)
         item.tap()
@@ -1215,7 +1215,7 @@ final class IntentsEndToEndTests: XCTestCase {
             return nil
         }
         let named = NSPredicate(format: "label CONTAINS[c] %@", Self.appName)
-        let quick = NSPredicate(format: "label ==[c] %@", "Quick Actions")
+        let quick = NSPredicate(format: "label ==[c] %@", "Favorites")
         if seen(quick) == nil {
             var row = seen(named)
             for title in ["Shortcuts", "Library", "Back"] where row == nil {

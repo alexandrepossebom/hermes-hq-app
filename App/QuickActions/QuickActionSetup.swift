@@ -36,7 +36,7 @@ struct QuickActionChoice: Identifiable {
                           color: QuickTileLook.color(kind.defaultLook.color))
     }
 
-    /// Every page (Favorites' choices), then Search Chats.
+    /// Every page (`PagesTabs.quickActionChoices`), then Search Chats.
     static func pages(_ sections: [MoreSection]) -> [QuickActionChoice] {
         var out: [QuickActionChoice] = []
         for section in sections {

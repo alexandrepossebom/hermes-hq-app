@@ -333,7 +333,7 @@ import UIKit
     @Test func everyShortcutHasATitleAndAnAction() {
         let items = KeyCommands.fileItems() + KeyCommands.editItems() + [KeyCommands.settingsItem()]
         let titles = items.compactMap { ($0 as? UIKeyCommand)?.title }
-        #expect(titles == ["New Chat", "New Chat Here", "New Chat With…", "Close Chat", "Archive Chat", "Find", "Search Sessions", "Open Quickly…", "Quick Actions…",
+        #expect(titles == ["New Chat", "New Chat Here", "New Chat With…", "Close Chat", "Archive Chat", "Find", "Search Sessions", "Open Quickly…", "Favorites…",
                            "Go to Message Field",
                            "Send", "Message Actions", "Settings"])
         for case let command as UIKeyCommand in items {

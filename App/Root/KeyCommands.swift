@@ -124,12 +124,12 @@ extension MoreViewController: KeySearchable {}
                 UIMenu(title: "", options: .displayInline, children: [
                     command("Search Sessions", searchSessions, "f", [.command, .shift]),
                     command("Open Quickly…", openQuickly, "k", .command),
-                    command("Quick Actions…", quickActions, "k", [.command, .shift])])]
+                    command(IntentsText.quickActions + "…", quickActions, "k", [.command, .shift])])]
         #else
         return [command("Find", find, "f", .command)] + steps + [
          command("Search Sessions", searchSessions, "f", [.command, .shift]),
          command("Open Quickly…", openQuickly, "k", .command),
-         command("Quick Actions…", quickActions, "k", [.command, .shift])] + chatItems()
+         command(IntentsText.quickActions + "…", quickActions, "k", [.command, .shift])] + chatItems()
         #endif
     }
 
