@@ -1,7 +1,7 @@
 // [quick-actions] The Quick Actions page (docs/spec/3x-morepages.md §25; owner 2026-11-21: "I want everyone to be able
 // to build a custom quick action page so every thing they would need is one click away after triggering the shortcut
 // to open the quick action"). Tiles in two columns, Small or Wide; one tap runs one (`QuickActionsRouter.run`). Edit
-// removes (−), reorders (drag) and adds (＋ Add Action); holding a tile out of Edit offers Small, Wide, Edit… and Remove.
+// removes (−), resizes (the corner arrows), reorders (drag) and adds (＋ Add Action); holding a tile out of Edit offers Small, Wide, Edit… and Remove.
 // The list is this device's (`QuickTileStore`, `hqn.quickActions`). Opened as a sheet by every shortcut and link, and
 // pushed from More › Quick Actions or shown as a tab.
 
@@ -281,6 +281,9 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         cell.accessibilityCustomActions = accessibilityActions(tile)
         cell.onRemove = isEditing ? { [weak self] in self?.remove(tile.id) } : nil
         cell.badgeLabel = "Remove \(tile.name)"
+        // A single-column page (largest text) draws every tile full width, so its size can't show: no size button.
+        cell.onResize = isEditing && !stacked ? { [weak self] in self?.setWide(tile.id, !tile.wide) } : nil
+        cell.setResize(wide: tile.wide, name: tile.name)
         cell.setWiggling(isEditing)
     }
 
@@ -438,7 +441,11 @@ final class QuickTileCell: UICollectionViewCell {
     static let radius: CGFloat = 18
     var onRemove: (() -> Void)? { didSet { badge.isHidden = onRemove == nil } }
     var badgeLabel: String? { didSet { badge.accessibilityLabel = badgeLabel } }
+    /// [quick-actions] Owner 2026-11-21: "There isn't a way to change the size of the card." Edit's corner button
+    /// flips a tile between Small and Wide (the hold menu out of Edit was the only way, and nothing showed it).
+    var onResize: (() -> Void)? { didSet { resize.isHidden = onResize == nil } }
     private let badge = UIButton(type: .system)
+    private let resize = UIButton(type: .system)
     private let dash = CAShapeLayer()
 
     override init(frame: CGRect) {
@@ -463,6 +470,24 @@ final class QuickTileCell: UICollectionViewCell {
             badge.widthAnchor.constraint(equalToConstant: 24),
             badge.heightAnchor.constraint(equalToConstant: 24),
         ])
+        var sizeConfig = UIButton.Configuration.filled()
+        sizeConfig.cornerStyle = .capsule
+        sizeConfig.baseBackgroundColor = HQPalette.tint
+        sizeConfig.baseForegroundColor = HQPalette.onTint
+        sizeConfig.contentInsets = .zero
+        resize.configuration = sizeConfig
+        resize.isHidden = true
+        resize.accessibilityIdentifier = "quick-tile.resize"
+        resize.addAction(UIAction { [weak self] _ in self?.onResize?() }, for: .primaryActionTriggered)
+        resize.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(resize)
+        NSLayoutConstraint.activate([
+            // Bottom-right: at the top, a left tile's button sat against its neighbour's − badge across the gap.
+            resize.centerXAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            resize.centerYAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            resize.widthAnchor.constraint(equalToConstant: 24),
+            resize.heightAnchor.constraint(equalToConstant: 24),
+        ])
         dash.fillColor = UIColor.clear.cgColor
         dash.lineWidth = 1.5
         dash.lineDashPattern = [6, 4]
@@ -470,6 +495,14 @@ final class QuickTileCell: UICollectionViewCell {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Edit's size button: arrows out on a Small tile (make it Wide), arrows in on a Wide one.
+    func setResize(wide: Bool, name: String) {
+        resize.configuration?.image = UIImage(systemName: wide ? "arrow.right.and.line.vertical.and.arrow.left"
+                                                               : "arrow.left.and.line.vertical.and.arrow.right",
+                                              withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .bold))
+        resize.accessibilityLabel = wide ? "Make \(name) Small" : "Make \(name) Wide"
+    }
 
     /// The card: the sheet's card in the page's sheet, the page's card when pushed; outlined in the Desktop Look. The
     /// ＋ tile is a dashed outline on nothing.
@@ -488,6 +521,7 @@ final class QuickTileCell: UICollectionViewCell {
         dash.isHidden = !dashed
         dash.strokeColor = HQPalette.tint.resolvedColor(with: traitCollection).cgColor
         bringSubviewToFront(badge)
+        bringSubviewToFront(resize)
         setNeedsLayout()
     }
 
@@ -519,11 +553,13 @@ final class QuickTileCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         onRemove = nil
+        onResize = nil
         layer.removeAnimation(forKey: "wiggle")
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         if !badge.isHidden, badge.frame.insetBy(dx: -8, dy: -8).contains(point) { return true }
+        if !resize.isHidden, resize.frame.insetBy(dx: -8, dy: -8).contains(point) { return true }
         return super.point(inside: point, with: event)
     }
 }

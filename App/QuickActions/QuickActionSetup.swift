@@ -473,6 +473,16 @@ struct QuickActionSetupView: View {
                         .multilineTextAlignment(.trailing)
                         .accessibilityIdentifier("quick.setup.name")
                 }
+                // [quick-actions] Owner 2026-11-21: "There isn't a way to change the size of the card."
+                LabeledContent("Size") {
+                    Picker("Size", selection: $draft.tile.wide) {
+                        Text("Small").tag(false)
+                        Text("Wide").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    .accessibilityIdentifier("quick.setup.size")
+                }
             } header: { HQSectionLabel { Text("Look") } }
             .hqSheetRows()
             Section {

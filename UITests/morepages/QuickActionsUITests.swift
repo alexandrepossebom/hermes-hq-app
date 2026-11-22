@@ -92,8 +92,22 @@ final class QuickActionsUITests: MorePagesCase {
         if app.menuItems["Select All"].waitForExistence(timeout: 2) { app.menuItems["Select All"].tap() }
         rename.typeText(XCUIKeyboardKey.delete.rawValue)
         rename.typeText("Talk Now")
+        // Size (owner 2026-11-21: "There isn't a way to change the size of the card."): Set Up's Size picks Wide.
+        let size = app.segmentedControls["quick.setup.size"]
+        for _ in 0..<5 where !size.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(size.isHittable, "Set Up shows Size")
+        size.buttons["Wide"].tap()
+        shot("quick-actions-setup-size")
         app.buttons["quick.setup.save"].tap()
         XCTAssertTrue(waitUntil(5) { self.tile("starter-talk").label == "Talk Now, with Hermes" }, tile("starter-talk").label)
+        XCTAssertTrue(waitUntil(5) { self.tile("starter-talk").frame.width > self.tile("starter-memo").frame.width * 1.6 },
+                      "Size › Wide makes Talk Wide")
+        shot("quick-actions-editing-resize")
+        // Edit's corner arrows (bottom right) flip it back to Small.
+        let talk = tile("starter-talk")
+        talk.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -6, dy: -6)).tap()
+        XCTAssertTrue(waitUntil(5) { abs(self.tile("starter-talk").frame.width - self.tile("starter-memo").frame.width) < 2 },
+                      "the corner arrows make Talk Small again")
 
         // Reorder: Search Chats dragged to the front.
         tile("starter-search").press(forDuration: 0.9, thenDragTo: tile("starter-memo"))
