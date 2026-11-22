@@ -52,7 +52,7 @@ Each is marked **DECISION** where it is applied. Summary:
 
 | # | Decision | Why |
 |---|---|---|
-| D1 | Port the app-run engine of build 240. Do **not** call the gateway's newer `groups.*` hosted rooms (`H/groups_bot_relay.py`). | The owner's desktop app and the web phone app keep rooms in `ui_meta["hermes-bots-groups"]` and bot `groups`. A room made through `groups.*` would not show on those, and theirs would not show here. `groups.*` is also missing on older gateways. Recorded as a later option in §11. |
+| D1 | Port the app-run engine of build 240. Do **not** call the gateway's newer `groups.*` hosted rooms (`H/groups_bot_relay.py`). | The owner's desktop app and the web phone app keep rooms in `ui_meta["hermes-bots-groups"]` and bot `groups`. A room made through `groups.*` would not show on those, and theirs would not show here. `groups.*` is also missing on older gateways. Recorded as a later option in §11. **Reversed for new rooms (owner decision, 2026-11-22):** Hermes Desktop now makes every new group chat on the gateway and no longer runs a room found in the mirror (it opens one as "Desktop ran this group chat itself"; a tester's report). The app has listed and driven gateway rooms since 2026-11-13 (`HostedRooms`), and New Group Chat now makes one when the gateway can run it (§7.5). The app-run engine stays for rooms that already exist, for a group of one, and for gateways that cannot host. |
 | D2 | Rooms are for the gateway in use. A member that another device marked as living on a different gateway (`sourceScoped: true`) is listed but never sent a turn from this iPhone. | Native shows one gateway at a time (no All Gateways), and the web's `connectionId` is a per-device id that native cannot map. |
 | D3 | The full room record lives on the device (Application Support, per account). The gateway mirror stays the bounded 16-message copy, wire-identical to the web's. | Same split as the web (`HB/group-chat.ts:270-278`). |
 | D4 | One flat timeline. A plain send starts a new thread (as the web does); touch-and-hold › **Reply** puts the next send in that bubble's thread, shown by a chip over the composer. | Build 240 ships with `PHONE_ROOM_THREADS` off (`S/ui-chat/flags.ts:41`), which leaves the upstream thread reply boxes on screen. The chip is the web's own phone design for the same thing (`S/ui-chat/room-reply.tsx:4-5`) and needs no desktop-style boxes. |
@@ -807,6 +807,24 @@ names it and its members). On failure of any membership write: the writes alread
 from those bots' `groups`), the sheet stays with its picks, and the failure alert reads `Couldn’t Create <name>` with
 the reason and **Try Again**.
 
+**[hosted] Made on the gateway when it can run the room** (owner decision 2026-11-22, reversing D1 for new rooms;
+`HostedRooms.create`, `GroupStore.create`). Before the writes above, the app asks the default profile
+`groups.capabilities`. When the answer has `driver: true`, lists `groups.create` (if it lists methods) and can seat
+every picked bot (if it gives `seatable_profiles`), the app sends `groups.create` with a new room id, the name and
+each bot as `{member_id, profile, handle, target: {kind: "local", profile}}` in roster order (Hermes Desktop's
+`rosterEntry`). The room is then a gateway room (`gw:<owner>/<room id>`): no `groups` write on any bot, never in the
+mirror, its bots fixed (Edit Bots is disabled, as for a room made in Hermes Desktop), its photo kept on this device.
+It shows in Hermes Desktop and its rounds run with the app closed.
+
+| Gateway's answer | What the app does |
+|---|---|
+| No `groups.capabilities` (older Hermes), `driver` not true, a picked bot not seatable, handles the gateway would refuse | The app-run room of the paragraph above |
+| `groups.create` refused (any gateway error) | The app-run room; the refusal is logged |
+| No answer to either call (offline, socket closed, timeout) | `Couldn’t Create <name>` with **Try Again**; no app-run room is made beside a room the gateway may have made, and Try Again sends the same room id, so the room is never made twice |
+
+A listing that was asked for before the room was made does not remove it. A group of one (Create & join, §7.7) is
+always app-run: the gateway takes 2 to 6 bots.
+
 **Edit mode** (Group Info › Edit Bots…): title `<group>`, line `Pick 2–6 bots for “<group>”. The group chat and its
 history stay as they are.`, bar **Cancel** / **Save**. The room's current members start
 picked; a member cannot be unpicked while only 2 remain (its checkmark is locked and the footer of §7.2 shows).
@@ -1508,9 +1526,9 @@ outcome for L372 and L467 is "not done", with rooms readable (steps 2–6) and t
 (§4), nothing is needed from the push relay, and no plugin is changed. `docs/owner-todo/groups.md` is therefore not
 created.
 
-One thing only the owner can decide later, not needed now: moving rooms to the gateway's hosted rooms (`groups.*`,
-`H/groups_bot_relay.py`). That would let rounds run with the app closed and would retire the app-run engine, but the
-desktop app and the web phone app would have to move at the same time (D1), so it is a product decision, not a patch.
+Decided 2026-11-22: new rooms are made on the gateway when it can run them (§7.5, D1's provenance). Still open, not
+needed now: moving the rooms the app already runs over to the gateway (the gateway has no import of a room's history),
+and retiring the app-run engine once no supported gateway lacks `groups.*`.
 
 ---
 

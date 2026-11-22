@@ -133,6 +133,8 @@ nonisolated final class HostedFakeGateway: @unchecked Sendable {
         let store: GroupStore
         let engine: GroupEngine
         let hosted: HostedRooms
+        /// The bots' `ui_meta` as the gateway keeps it (the app-run room's writes land here).
+        let meta: GroupsFakeMeta
     }
 
     private func world() async throws -> World {
@@ -142,6 +144,7 @@ nonisolated final class HostedFakeGateway: @unchecked Sendable {
         let client = BotsFakeGatewayClient(account: account)
         let roster = BotsTest.profilesResult(["default", "otto", "ivy"].map { BotsTest.row($0, display: $0 == "default" ? "Hermes" : $0.capitalized, meta: [:]) })
         client.on("profiles.list") { _ in roster }
+        let meta = GroupsFakeMeta(["default", "otto", "ivy"], groups: [])
         let gateway = HostedFakeGateway()
         gateway.install(on: client)
         let bots = BotStore(client: client, account: account, cacheDirectory: directory, timing: .fast)
@@ -151,7 +154,7 @@ nonisolated final class HostedFakeGateway: @unchecked Sendable {
         let hosted = HostedRooms(store: store, client: client)
         hosted.pollEvery = 0.05
         store.hostedRooms = hosted
-        return World(client: client, gateway: gateway, bots: bots, store: store, engine: engine, hosted: hosted)
+        return World(client: client, gateway: gateway, bots: bots, store: store, engine: engine, hosted: hosted, meta: meta)
     }
 
     @Test func aRoomMadeInHermesDesktopIsListedAndRead() async throws {
@@ -253,6 +256,162 @@ nonisolated final class HostedFakeGateway: @unchecked Sendable {
         try? await Task.sleep(for: .milliseconds(200))
         #expect(w.client.calls("groups.list").count == 3)
         #expect(w.store.rooms.isEmpty)
+    }
+
+    // MARK: New Group Chat on the gateway
+
+    /// The gateway takes `groups.create` (and lists what it made); returns the calls' room ids as they came.
+    private func hostCreates(_ w: World, capabilities: JSONValue = ["driver": true, "persistent_process": true,
+                                                                    "methods": ["groups.list", "groups.create"]]) {
+        let rooms = Mutex<[JSONValue]>([])
+        w.client.on("groups.capabilities") { _ in capabilities }
+        w.client.on("groups.create") { params in
+            let room: JSONValue = ["room_id": params["room_id"] ?? "", "name": params["name"] ?? "", "members": params["members"] ?? [],
+                                   "revision": 1, "latest_seq": 0]
+            rooms.withLock { made in if !made.contains(where: { $0["room_id"] == room["room_id"] }) { made.append(room) } }
+            return ["room": room]
+        }
+        w.client.on("groups.list") { params in
+            params["profile"]?.string == "default" ? ["rooms": .array(rooms.withLock { $0 })] : ["rooms": []]
+        }
+    }
+
+    @Test func theRosterIsEachBotUnderItsOwnHandle() throws {
+        let roster = try #require(HostedRoomLog.roster([GroupMember(name: "default"), GroupMember(name: "otto", handle: "otto")]))
+        #expect(roster == [
+            ["member_id": "default", "profile": "default", "handle": "hermes", "target": ["kind": "local", "profile": "default"]],
+            ["member_id": "otto", "profile": "otto", "handle": "otto", "target": ["kind": "local", "profile": "otto"]],
+        ])
+        #expect(HostedRoomLog.roster([GroupMember(name: "otto")]) == nil, "one bot is not a gateway room")
+        #expect(HostedRoomLog.roster((1...7).map { GroupMember(name: "b\($0)") }) == nil, "six at most")
+        #expect(HostedRoomLog.roster([GroupMember(name: "otto"), GroupMember(name: "ivy", handle: "Otto")]) == nil, "handles are distinct")
+        #expect(HostedRoomLog.roster([GroupMember(name: "otto"), GroupMember(name: "ivy", handle: "everyone")]) == nil, "@everyone is reserved")
+        #expect(HostedRoomLog.roster([GroupMember(name: "otto"), GroupMember(name: "my bot")]) == nil, "not a gateway identifier")
+    }
+
+    @Test func aGatewayHostsOnlyWithItsDriverUpAndEveryBotSeatable() {
+        #expect(HostedRoomLog.canHost(["driver": true], profiles: ["otto", "ivy"]))
+        #expect(!HostedRoomLog.canHost(["driver": false, "persistent_process": true], profiles: ["otto", "ivy"]))
+        #expect(!HostedRoomLog.canHost(["driver": true, "methods": ["groups.list"]], profiles: ["otto", "ivy"]))
+        #expect(HostedRoomLog.canHost(["driver": true, "seatable_profiles": ["ivy", "otto", "default"]], profiles: ["otto", "ivy"]))
+        #expect(!HostedRoomLog.canHost(["driver": true, "seatable_profiles": ["otto"]], profiles: ["otto", "ivy"]))
+    }
+
+    @Test func aNewGroupChatIsMadeOnTheGateway() async throws {
+        let w = try await world()
+        hostCreates(w)
+        let key = try await w.store.create(name: "Trip", members: ["ivy", "otto"], image: "data:image/png;base64,AAAA")
+        let create = try #require(w.client.calls("groups.create").first)
+        let roomId = try #require(create.params["room_id"]?.string)
+        #expect(key == "gw:default/\(roomId)")
+        #expect(create.params["profile"] == "default" && create.params["name"] == "Trip")
+        // In roster order, each its own profile.
+        #expect(create.params["members"] == [
+            ["member_id": "otto", "profile": "otto", "handle": "otto", "target": ["kind": "local", "profile": "otto"]],
+            ["member_id": "ivy", "profile": "ivy", "handle": "ivy", "target": ["kind": "local", "profile": "ivy"]],
+        ])
+        let room = try #require(w.store.room(key))
+        #expect(room.isHosted && room.name == "Trip" && room.members.map(\.name) == ["otto", "ivy"])
+        #expect(room.image == "data:image/png;base64,AAAA", "the photo is kept on this device")
+        #expect(w.client.calls("profiles.configure").isEmpty, "nothing is written to the bots: the app does not run this room")
+        #expect(GroupSnapshot.local(rooms: w.store.rooms, tombstones: [:]).rooms.isEmpty, "never in the mirror")
+        // A listing that follows keeps it.
+        w.hosted.refresh(force: true)
+        #expect(await BotsTest.waitUntil { w.client.calls("groups.list").count >= 3 })
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(w.store.room(key) != nil)
+        w.hosted.shutdown()
+    }
+
+    @Test func aListingAskedBeforeTheRoomWasMadeDoesNotRemoveIt() async throws {
+        let w = try await world()
+        hostCreates(w)
+        let release = Mutex(false)
+        // The listing in flight answers without the new room, after the room is made.
+        w.client.on("groups.list") { _ in
+            while !release.withLock({ $0 }) { try? await Task.sleep(for: .milliseconds(10)) }
+            return ["rooms": []]
+        }
+        w.hosted.refresh(force: true)
+        #expect(await BotsTest.waitUntil { w.client.calls("groups.list").count >= 1 })
+        let key = try await w.store.create(name: "Trip", members: ["ivy", "otto"], image: nil)
+        release.withLock { $0 = true }
+        #expect(await BotsTest.waitUntil { w.client.calls("groups.list").count == 3 })
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(w.store.room(key) != nil)
+        w.hosted.shutdown()
+    }
+
+    /// The app-run room: `groups` written on each bot, the room in the mirror.
+    private func expectAppRun(_ w: World, _ key: String) {
+        #expect(key.hasPrefix("id:"), "the app's own room: \(key)")
+        #expect(w.store.room(key)?.isHosted == false)
+        #expect(w.client.calls("groups.create").isEmpty)
+        #expect(w.meta.groups(of: "otto") == ["Trip"] && w.meta.groups(of: "ivy") == ["Trip"], "each bot's groups is written")
+    }
+
+    @Test func anOlderHermesKeepsTheRoomTheAppRuns() async throws {
+        let w = try await world()
+        w.meta.install(on: w.client)
+        let key = try await w.store.create(name: "Trip", members: ["ivy", "otto"], image: nil)   // no groups.capabilities: -32601
+        #expect(w.client.calls("groups.capabilities").count == 1)
+        expectAppRun(w, key)
+    }
+
+    @Test func aGatewayWithNoRoomDriverOrThatCannotSeatABotKeepsTheRoomTheAppRuns() async throws {
+        for capabilities: JSONValue in [["driver": false, "persistent_process": true, "methods": ["groups.create"]],
+                                        ["driver": true, "methods": ["groups.create"], "seatable_profiles": ["default", "otto"]]] {
+            let w = try await world()
+            hostCreates(w, capabilities: capabilities)
+            w.meta.install(on: w.client)
+            let key = try await w.store.create(name: "Trip", members: ["ivy", "otto"], image: nil)
+            expectAppRun(w, key)
+        }
+    }
+
+    @Test func aRefusedCreateKeepsTheRoomTheAppRuns() async throws {
+        let w = try await world()
+        hostCreates(w)
+        w.client.on("groups.create") { _ in throw RPCError(code: 4110, message: "invalid_params", data: ["field": "members"]) }
+        w.meta.install(on: w.client)
+        let key = try await w.store.create(name: "Trip", members: ["ivy", "otto"], image: nil)
+        #expect(w.client.calls("groups.create").count == 1)
+        #expect(key.hasPrefix("id:") && w.store.room(key)?.isHosted == false && w.meta.groups(of: "ivy") == ["Trip"])
+    }
+
+    @Test func aCreateWithNoAnswerFailsAndTryAgainAsksForTheSameRoom() async throws {
+        let w = try await world()
+        hostCreates(w)
+        let made = Mutex<JSONValue?>(nil)
+        let lose = Mutex(true)
+        w.client.on("groups.create") { params in
+            let room: JSONValue = ["room_id": params["room_id"] ?? "", "name": params["name"] ?? "", "members": params["members"] ?? [], "latest_seq": 0]
+            made.withLock { $0 = room }
+            // The gateway made it; the answer never arrived.
+            if lose.withLock({ $0 }) { throw RPCError(code: RPCError.connectionLostCode, message: "connection lost", data: nil) }
+            return ["room": room]
+        }
+        w.client.on("groups.list") { params in
+            params["profile"]?.string == "default" ? ["rooms": .array(made.withLock { $0.map { [$0] } ?? [] })] : ["rooms": []]
+        }
+        await #expect(throws: BotWriteError.self) { try await w.store.create(name: "Trip", members: ["ivy", "otto"], image: nil) }
+        #expect(w.client.calls("profiles.configure").isEmpty, "no app-run room beside one the gateway may have made")
+        #expect(w.store.rooms.allSatisfy { $0.name != "Trip" || $0.isHosted })
+        lose.withLock { $0 = false }
+        let key = try await w.store.create(name: "Trip", members: ["ivy", "otto"], image: nil)
+        let ids = w.client.calls("groups.create").compactMap { $0.params["room_id"]?.string }
+        #expect(ids.count == 2 && ids[0] == ids[1], "the same room, not a second one")
+        #expect(key == "gw:default/\(ids[0])" && w.store.rooms.filter { $0.name == "Trip" }.count == 1)
+        w.hosted.shutdown()
+    }
+
+    @Test func aGroupOfOneStaysWithTheApp() async throws {
+        let w = try await world()
+        hostCreates(w)
+        w.meta.install(on: w.client)
+        let key = try await w.store.createSolo(name: "Solo", profile: "otto", botName: "Otto")
+        #expect(w.client.calls("groups.capabilities").isEmpty && w.client.calls("groups.create").isEmpty)
+        #expect(w.store.room(key)?.isHosted == false)
     }
 }
 
