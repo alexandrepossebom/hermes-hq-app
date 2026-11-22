@@ -107,10 +107,15 @@ private struct PhoneNewCallView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            PhoneScreenHeader(title: "New call", back: back, close: close)
+            // [phone-review] Owner 2026-11-22: "That little pop up to confirm is awful ux." Review is a step of this
+            // screen: the call laid out as it will be placed, a green Place call, and Edit to go back.
+            PhoneScreenHeader(title: confirming ? "Review call" : "New call",
+                              back: confirming ? { confirming = false } : back, close: confirming ? nil : close)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if controller.ready {
+                    if controller.ready, confirming {
+                        review
+                    } else if controller.ready {
                         fields
                         Text("From \(controller.setup?.fromNumber ?? "your samplehost number"). \(PhoneLimits.stayCopy) Calls are billed to your samplehost account.")
                             .font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
@@ -129,7 +134,7 @@ private struct PhoneNewCallView: View {
                     } else {
                         Text("Connect samplehost in Settings › Phone Calls (Beta) to place calls.")
                     }
-                    if !recent.isEmpty {
+                    if !recent.isEmpty, !confirming {
                         Text("Recent").font(Font.hq(.headline)).padding(.top, 10).accessibilityAddTraits(.isHeader)
                         ForEach(recent) { call in
                             Button { open(call.id) } label: {
@@ -146,12 +151,57 @@ private struct PhoneNewCallView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .phonePage()
-        .confirmationDialog("Call \(destination)?", isPresented: $confirming, titleVisibility: .visible) {
-            Button("Place call (billed to samplehost)") { start() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Purpose: \(purpose)\nFrom: \(controller.setup?.fromNumber ?? "")\nIf voicemail answers: \(voicemail.title)\n\(controller.setup?.records == true ? "This call is recorded." : "Not recorded.")\nAn AI assistant talks for you. \(PhoneLimits.stayCopy) Only call people who expect it.")
+    }
+
+    /// The review step: who, why, and what the call will do, then the one button that dials.
+    private var review: some View {
+        let who = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 6) {
+                PhoneMarkView(mark: .proposal, size: 54)
+                Text(who.isEmpty ? phoneShown(destination) : who).font(Font.hq(.title2).weight(.bold))
+                    .multilineTextAlignment(.center)
+                if !who.isEmpty { Text(phoneShown(destination)).font(Font.hq(.subheadline)).foregroundStyle(Color.hqLabel2) }
+            }
+            .frame(maxWidth: .infinity).padding(18).phoneCard(radius: 22)
+            .accessibilityElement(children: .combine).accessibilityIdentifier("phone.review.who")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("GOAL").font(Font.hq(.caption).weight(.semibold)).foregroundStyle(Color.hqLabel2)
+                Text(purpose).fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14).phoneCard(radius: 18)
+            .accessibilityElement(children: .combine).accessibilityIdentifier("phone.review.goal")
+            VStack(spacing: 8) {
+                reviewRow("From", phoneShown(controller.setup?.fromNumber ?? ""))
+                reviewRow("If voicemail answers", voicemail.title)
+                reviewRow("Recording", controller.setup?.records == true ? "On" : "Off")
+                reviewRow("Billed to", "Your samplehost account")
+            }
+            .padding(14).phoneCard(radius: 18)
+            Text("An AI assistant talks for you. \(PhoneLimits.stayCopy) Only call people who expect it.")
+                .font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
+            if let error { Text(error).foregroundStyle(Color.hqRed).accessibilityIdentifier("phone.error") }
+            Button { start() } label: {
+                Label(busy ? "Placing call…" : "Place call", systemImage: "phone.fill")
+            }
+            .buttonStyle(PhoneActionStyle(fill: Color.hqGreen, ink: Color(uiColor: PhoneCardColors.ink(on: PhoneMark.phone.uiColor, minimum: 3)),
+                                          radius: 16, minHeight: 54))
+            .disabled(busy || controller.hasActiveCall)
+            .accessibilityIdentifier("phone.place")
+            Button("Edit") { confirming = false }
+                .buttonStyle(PhoneActionStyle())
+                .disabled(busy)
+                .accessibilityIdentifier("phone.review.edit")
         }
+    }
+
+    private func reviewRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+            Spacer(minLength: 12)
+            Text(value).foregroundStyle(Color.hqLabel2).multilineTextAlignment(.trailing)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var fields: some View {

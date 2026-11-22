@@ -112,7 +112,7 @@ extension SessionsTests {
         purpose.tap(); purpose.typeText(goal)
         if shotForm { shot(app, "phone-call-form") }
         app.buttons["Review call"].tap()
-        let confirm = app.buttons["Place call (billed to samplehost)"]
+        let confirm = app.buttons["phone.place"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
         XCTAssertEqual((try samplehost.control("/__fixture/state")["calls"] as? [[String: Any]])?.count, previousCalls, "review alone must not dial")
         shot(app, "phone-confirm")
@@ -461,7 +461,7 @@ extension SessionsTests {
         shot(app, "phone-proposal-sheet")
         XCTAssertTrue(try samplehostRequests(samplehost).allSatisfy { ($0["path"] as? String) != "/v2/calls" }, "a tap never dials")
         app.buttons["Review call"].tap()
-        let confirm = app.buttons["Place call (billed to samplehost)"]
+        let confirm = app.buttons["phone.place"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10)); confirm.tap()
         XCTAssertTrue(statusText(app, prefix: "Busy").waitForExistence(timeout: 40))
         let dial = try XCTUnwrap((try samplehost.control("/__fixture/state")["dials"] as? [[String: Any]])?.first)
@@ -539,7 +539,7 @@ extension SessionsTests {
         shot(app, "phone-new-call-\(mode)")
         try samplehost.control("/__fixture/scenario", ["name": "design", "summary_delay": 5])
         app.buttons["Review call"].tap()
-        let confirm = app.buttons["Place call (billed to samplehost)"]
+        let confirm = app.buttons["phone.place"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
         XCTAssertEqual((try samplehost.control("/__fixture/state")["dials"] as? [[String: Any]])?.count, 1)
         confirm.tap()
