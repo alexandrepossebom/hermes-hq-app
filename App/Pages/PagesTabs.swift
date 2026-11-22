@@ -494,6 +494,8 @@ final class PagesTabs {
         // Then Marketplace and the plugin pages (Mac polish #33).
         // [more-bots] Bots, while it is no place: the list of bots, first of the Tools (the sidebar has no bots then).
         var tools: [String] = rows[Self.botsRowID] == nil ? [] : [Self.botsRowID]
+        // [mac-favorites] Favorites next, first of the pages as it is first in the iPhone's More.
+        if rows[QuickTileStore.rowID] != nil, !chosen.contains(QuickTileStore.rowID) { tools.append(QuickTileStore.rowID) }
         tools += sections.filter { Self.toolSections.contains($0.id) }.flatMap { $0.rows() }
             .filter { $0.card == nil && TabChoice.pageIDs.contains($0.id) && !chosen.contains($0.id) }.map(\.id)
         tools += Self.toolPages.filter { rows[$0] != nil && !chosen.contains($0) }
@@ -619,10 +621,10 @@ final class PagesTabs {
             sections["workspace"] = MoreSection(id: "workspace", header: "Workspace") { (extra?.rows() ?? []) + workspace }
         }
         var all = Self.merged(sections)   // [morepages] appended rows
-        #if !targetEnvironment(macCatalyst)
         // [quick-actions] The page the Quick Actions shortcut opens, first in More (over Settings, under the gateway
-        // card), where Favorites was (§25 Q11; owner 2026-11-22: Quick Actions replaces Favorites). Not on the Mac:
-        // its sidebar is already a list of places (any page can be one there).
+        // card), where Favorites was (§25 Q11; owner 2026-11-22: Quick Actions replaces Favorites). [mac-favorites]
+        // On the Mac too (owner 2026-11-22: "I don't see the Favorites page as an option"): its tiles are actions, not
+        // a list of places the sidebar already is, so there it is the first of the sidebar's Tools (`pageTabs`).
         if services != nil {
             // [favorites-name] Owner 2026-11-22: "Icon should be a star and it needs to animate like all of others" (the
             // star's tab motion: `TabMotion.favorite`). Yellow, as the retired Favorites row was.
@@ -632,7 +634,6 @@ final class PagesTabs {
             let settings = all["settings"]
             all["settings"] = MoreSection(id: "settings", header: settings?.header) { [quick] + (settings?.rows() ?? []) }
         }
-        #endif
         // [more-bots] A tester, 2026-11-14: a hidden Bots tab is a page in More too, first under Bots (above
         // Bot Profiles). [mac] The owner, 2026-11-15: "it needs to be on the Mac build too in some way". The Mac has no
         // More, and with Bots off its sidebar loses the bots: there the row is the first of the sidebar's Tools
