@@ -94,7 +94,7 @@ final class AppModel: AppServices {
     /// [live-status] The gateway's own word on which chats work and which wait on a person (chats not open here too).
     private var liveStatus: LiveStatusWatch?
     /// [questions] The requests this device holds, by the runtime id they wait in.
-    private var waitingRuntimes: [String: (profile: String, storedId: String?, kind: NeedsInput)] = [:]
+    private var waitingRuntimes: [String: (profile: String, storedId: String?, kind: NeedsInput, detail: String?)] = [:]
     /// [working-ledger] The app is in front (the ledger is read only then).
     private var ledgerAppActive = true
     /// [toolnow] Each heard chat's newest step (LiveSteps): the Bots and Sessions rows name it instead of "Working…".
@@ -160,6 +160,12 @@ final class AppModel: AppServices {
 
     var bots: [Bot] { botStore?.bots ?? [] }
     var sessions: [SessionSummary] { sessionStore?.sessions ?? [] }
+    var sessionsOutsideKeptProjects: [SessionSummary] { sessionStore?.sessionsOutsideKeptProjects() ?? [] }
+
+    /// [project-keep] The lists beside a chat: `sessions` less a kept project's chats, the chat on screen kept.
+    func sessionsOutsideKeptProjects(keeping id: String?) -> [SessionSummary] {
+        sessionStore?.sessionsOutsideKeptProjects(keeping: id) ?? []
+    }
 
     func refreshBots() {
         guard let botStore else { return }
@@ -224,6 +230,18 @@ final class AppModel: AppServices {
         freshChat(for: bot, folder: folder, shownTitle: "New Chat", extra: [:], created: nil)
     }
 
+    /// [project-new-chat-model] A project's New Chat: `start` is what its settings add to `session.create` (`model` and
+    /// `provider`, `reasoning_effort`); empty, the call is the one above exactly.
+    func newChat(for bot: Bot, folder: String?, start: [String: JSONValue]) -> ChatSessionModel {
+        freshChat(for: bot, folder: folder, shownTitle: "New Chat", extra: start, created: nil)
+    }
+
+    /// [tile-chats] A tile's own chat (New Tile, Change…, a tile's button with no chat yet): born hidden, as a task's
+    /// is, so no list on any device nor the desktop app's sidebar shows it; the tile opens it (owner 2026-11-21).
+    func tileChat(for bot: Bot) -> ChatSessionModel {
+        freshChat(for: bot, folder: nil, shownTitle: "New Chat", extra: ["hidden": true], created: nil)
+    }
+
     /// [tasks] A task's own chat: born hidden (never in Sessions, nor the desktop app's sidebar) under `sessionTitle`,
     /// headed `shownTitle` here; `created` gets the stored id once the gateway made it, so the task can keep it.
     func taskChat(for bot: Bot, sessionTitle: String, shownTitle: String,
@@ -257,7 +275,8 @@ final class AppModel: AppServices {
                                        return stored
                                    }, startsNew: true)
         chat.botName = bot.name
-        chat.modelName = botStore.profile(named: profile)?.model
+        chat.modelName = extra["model"]?.string ?? botStore.profile(named: profile)?.model   // [project-new-chat-model] the project's own
+        chat.listsWhenStarted = extra["hidden"]?.bool != true   // [#440] a task's or a tile's chat stays off the lists
         chat.activityLink.store = activityStore       // [activity]
         wire(chat)
         chat.keepQueue()
@@ -306,7 +325,7 @@ final class AppModel: AppServices {
     /// [live-status] The gateway's word changed: the Sessions rows and the bots follow.
     private func liveStatusChanged() {
         pushRunning()
-        sessionStore?.setNeedsInput(needsInputSessions.union(liveStatus?.waiting ?? []))
+        pushWaiting()
         botStore?.setLiveStatus(working: liveStatus?.working ?? [], waiting: liveStatus?.waiting ?? [])
     }
 
@@ -431,8 +450,8 @@ final class AppModel: AppServices {
         if ServerRequestsSwitch.enabled {
             let center = ServerRequestCenter(client: client)
             let sheets = PromptSheetStore()
-            center.onNeedsInput = { [weak self] runtime, profile, storedId, kind in
-                self?.needsInputChanged(runtime, profile, storedId, kind)
+            center.onNeedsInput = { [weak self] runtime, profile, storedId, kind, detail in
+                self?.needsInputChanged(runtime, profile, storedId, kind, detail)
             }
             center.onRemoved = { [weak sheets] ids in
                 sheets?.drop(ids)
@@ -505,6 +524,7 @@ final class AppModel: AppServices {
             sessions.resetGroupFolds()
             sessions.resetOrders()                 // [manual-order]
             sessions.resetProjectBotChoices()      // [project-default-bot]
+            sessions.resetProjectSettings()        // [project-settings]
             LostSends.shared.purge(accountId: accountId)
             attachments.debugReset()
         }
@@ -532,6 +552,7 @@ final class AppModel: AppServices {
             NotificationCenter.default.post(name: SessionStrip.listChanged, object: nil)   // [session-strip]
             self?.onLaunchListsChange?()              // [restore]
             self?.refreshNotificationDirectory()      // [notifications]
+            if let sessions = self?.sessionStore { ProjectMuteCenter.shared.update(sessions.projectMuteLevels) }   // [project-mute]
             self?.intentsListsChanged()               // [intents]
         }
         botStore = bots
@@ -563,6 +584,7 @@ final class AppModel: AppServices {
         if UserDefaults.standard.bool(forKey: "HQDebugNoWarmer") { self.warmer = nil }
         #endif
         sessions.profileDisplayNames = Self.displayNames(bots.bots)
+        sessions.projectBots = Self.projectBots(bots.bots)
         bots.setListVisible(true)
         sessions.setListVisible(sessionsListShown)
         bots.start()
@@ -586,6 +608,7 @@ final class AppModel: AppServices {
         notificationsDidActivate(account, client: client)   // [notifications]
         shareActivated(account)                       // [share] roster for the sheet; a share made while away opens its chat
         intentsDidActivate(account)                   // [intents]
+        _ = PhoneCallController.shared(for: account.id)   // [phone-calls] calls left unfinished are checked again
         groupsHub.activated(self, account: account, client: client, bots: bots)   // [groups]
         syncHub.activated(account: account, client: client, bots: bots, sessions: sessions)   // [sync]
         offlineHub.activated(account, label: signIn.store.stored(account)?.label)   // [offline]
@@ -739,6 +762,7 @@ final class AppModel: AppServices {
 
     private func botsChanged() {
         sessionStore?.profileDisplayNames = Self.displayNames(bots)
+        sessionStore?.projectBots = Self.projectBots(bots)
         warmer?.rosterChanged(bots)
         refreshOpenChatIdentities()
         presence?.botsChanged()                       // [presence] a bot came, went or was renamed: its browser line follows
@@ -790,6 +814,9 @@ final class AppModel: AppServices {
     private static func displayNames(_ bots: [Bot]) -> [String: String] {
         Dictionary(bots.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
+
+    /// [projects-all-bots] The bots whose projects the Sessions list reads: every shown bot on the gateway.
+    private static func projectBots(_ bots: [Bot]) -> [String] { bots.filter { !$0.hidden }.map(\.id) }
 
     private func connectionChanged(_ state: ConnectionState) {
         guard state != connection else { return }
@@ -872,7 +899,7 @@ final class AppModel: AppServices {
         // The reply landed while its chat was off screen: the row says so now (and gets its dot).
         // [botsaid] Only the reply's words are known here, not whether it was written to another bot: the row reads the chat.
         if let reply { botStore?.noteChatActivity(profile: tracked.profile, sessionId: tracked.storedId, preview: reply, at: Date(), unseen: true, said: false) }
-        if let reply, let id = tracked.storedId { sessionStore?.noteLatest(profile: tracked.profile, sessionId: id, text: reply) }
+        if let reply, let id = tracked.storedId { sessionStore?.noteLatest(profile: tracked.profile, sessionId: id, text: reply, role: "assistant") }
     }
 
     /// Turns running off screen that no chat on this socket hears: when a socket drops, the gateway parks each session's
@@ -960,11 +987,20 @@ final class AppModel: AppServices {
     /// row when it is the bot's own chat. Kept by runtime id: a bot's wait ends when the chat that asked stops waiting,
     /// whatever id it went by when it began (a chat that got its stored id while waiting used to leave its bot
     /// "waiting" for good, or never mark its Sessions row).
-    private func needsInputChanged(_ runtime: String, _ profile: String, _ storedId: String?, _ kind: NeedsInput?) {
-        if let kind { waitingRuntimes[runtime] = (profile, storedId, kind) } else { waitingRuntimes[runtime] = nil }
+    private func pushWaiting() {
+        var details: [String: String] = [:]
+        for wait in waitingRuntimes.values {
+            guard let id = wait.storedId, let detail = wait.detail else { continue }
+            details[SessionStore.writeKey(id: id, profile: wait.profile)] = detail
+        }
+        sessionStore?.setNeedsInput(needsInputSessions.union(liveStatus?.waiting ?? []), details: details)
+    }
+
+    private func needsInputChanged(_ runtime: String, _ profile: String, _ storedId: String?, _ kind: NeedsInput?, _ detail: String?) {
+        if let kind { waitingRuntimes[runtime] = (profile, storedId, kind, detail) } else { waitingRuntimes[runtime] = nil }
         // [sessions-m9] Any chat that waits says so on its Sessions row and counts under Status › Needs Input.
         needsInputSessions = Set(waitingRuntimes.values.compactMap(\.storedId))
-        sessionStore?.setNeedsInput(needsInputSessions.union(liveStatus?.waiting ?? []))
+        pushWaiting()
         let mine = waitingRuntimes.values.filter { $0.profile == profile }
         BotMoods.shared.setAsking(profile, !mine.isEmpty)   // [moods] its face looks at you and hops
         guard let botStore, botStore.bot(named: profile) != nil else { return }
@@ -1049,6 +1085,10 @@ final class AppModel: AppServices {
         if seconds > 0 { chat.resumeTimeout = .milliseconds(Int(seconds * 1000)) }
         #endif
         chat.lostSends = LostSends.shared               // [sessions-m9] a send that may not have arrived names itself on its row
+        chat.notesTypedSend = { [weak chat] typed in   // [phone-calls] item 13a: the agent learns it can propose a call
+            guard let chat else { return nil }
+            return PhoneChatNote.note(for: typed, ready: PhoneCallController.shared(for: chat.client.account.id).ready)
+        }
         chat.onObservingChange = { [weak self, weak chat] observing in
             guard let self, let chat else { return }
             if observing { self.chatCameOnScreen(chat) } else { self.chatLeft(chat) }
@@ -1072,8 +1112,12 @@ final class AppModel: AppServices {
                 self.workingLedger?.turnEnded(id)
                 self.liveStatus?.turnEnded(id)            // [live-status]
             }
+            if running { self.listStartedChat(chat) }       // [#440] before Working…, which names its row
             self.setWorking(profile: chat.profile, storedId: chat.storedSessionId, running || chat.externalWorking)
             if !running { self.turnSeenEnding(chat) }       // [read-sync]
+            if !running, chat.startsNew, let id = chat.storedSessionId {   // [#440]
+                self.sessionStore?.startedChatSettled(id: id, profile: chat.profile)
+            }
         }
         // [external-turn] Another Hermes process's turn in the open chat: its bot and Sessions rows say Working… too.
         chat.onExternalWorkChange = { [weak self, weak chat] working in
@@ -1088,6 +1132,7 @@ final class AppModel: AppServices {
             guard let self, let chat else { return }
             // [read-sync] A chat started here is read on the gateway from the start, so every device's dot agrees.
             if chat.startsNew { self.sessionStore?.trackStartedChat(id: id, profile: chat.profile) }
+            if chat.reportsRunning { self.listStartedChat(chat) }   // [#440] its first message went out before the id came
             guard chat.reportsRunning || chat.externalWorking else { return }
             if let rid = chat.runtimeSessionId, let tracked = self.runningChats[rid], tracked.storedId == nil {
                 self.runningChats[rid] = (tracked.profile, id)
@@ -1127,6 +1172,16 @@ final class AppModel: AppServices {
                 self.sessionStore?.shareRead(id: id, profile: chat.profile, through: seen.timeIntervalSince1970)
             }
         }
+    }
+
+    /// [#440] A New Chat's first message went out: its row is on the lists at once (Sessions, and the chats under its bot
+    /// on the Bots page and the Mac's sidebar), named by that message until the gateway names it. Before this it waited
+    /// for the next list read: up to 150 s with the Bots page beside the chat, 45 s back on the phone's Bots page.
+    private func listStartedChat(_ chat: LiveChatSession) {
+        guard chat.startsNew, chat.listsWhenStarted, let id = chat.storedSessionId else { return }
+        let first = chat.messages.first { $0.role == .user && !$0.plainText.isEmpty }?.plainText
+        let named = ShortTitle.genericTitles.contains(ShortTitle.normalized(chat.title)) ? nil : chat.title
+        sessionStore?.listStartedChat(id: id, profile: chat.profile, title: named, firstMessage: first, cwd: chat.menus.cwd)
     }
 
     /// [read-sync] A turn ended in the chat in front of the person, with the app in front: its reply is read, and the
@@ -1169,6 +1224,7 @@ final class AppModel: AppServices {
     /// for a bot's chat, the bot is read.
     private func chatOpened(_ chat: LiveChatSession, fresh: Bool) {
         intentsVisited(chat)                          // [intents]
+        PhoneChatDelivery.chatReady(chat)             // [phone-calls] a call result waiting for this chat goes in
         botStore?.noteChatOpening(false)
         if chat.menus.isBotChat { botStore?.noteBotOpening(chat.profile, false) }   // [botslist]
         if let runtime = chat.runtimeSessionId { screenSessionOwners[runtime] = chat.profile }   // [screen]
@@ -1212,7 +1268,7 @@ final class AppModel: AppServices {
                     ?? DeliveryMessages.Seat(profile: chat.profile, name: chat.title, head: chat.head)
                 let said = BotSaidRules.shown(Array(chat.messages.suffix(BotSaidRules.deepTail)), own: own, seats: seats)
                 botStore?.noteChatActivity(profile: chat.profile, sessionId: id, preview: said.text, at: seen, unseen: false)
-                sessionStore?.noteLatest(profile: chat.profile, sessionId: id, text: last.plainText)
+                sessionStore?.noteLatest(profile: chat.profile, sessionId: id, text: last.plainText, role: last.role.rawValue)
             }
         }
         // A turn still running is tracked under the id it runs by now, whatever id it started under.

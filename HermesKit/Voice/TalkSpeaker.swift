@@ -11,7 +11,8 @@
 // error answer from the speech routes, or no audio at all `VoiceWire.phoneVoiceAfter` after the reply is complete), the
 // session goes on with the iPhone's own voice (`TalkPhoneVoice.swift`) from the sentence that failed, through the same
 // output. An error answer is remembered per gateway and profile for 30 minutes, so later replies start on the iPhone's
-// voice at once; a slow computer is never remembered. The explicit "iPhone Voice" choice starts there always.
+// voice at once; a slow computer is never remembered, nor a clip of a playable kind that would not play here (a busy
+// output, #412). The explicit "iPhone Voice" choice starts there always.
 
 import AVFAudio
 import QuartzCore
@@ -506,23 +507,37 @@ nonisolated enum PhoneVoiceStart: Sendable, Equatable { case gateway, chosen, re
                 try? await Task.sleep(for: .milliseconds(50))
                 continue
             }
+            let clip: SpeechClip
             do {
-                let clip = try await current.clip.value
-                guard mode == .clips else { return }
-                becomeAudible()
-                try await output?.playClip(clip)
-                guard mode == .clips else { return }
-                asked.removeFirst()
+                clip = try await current.clip.value
             } catch {
+                // An error answer from the clip route (provider error, 4xx/5xx, a kind no player here reads).
                 guard mode == .clips else { return }
-                let failure = VoiceWire.failure(error, doing: "speak the reply")
-                if phoneAllowed {
-                    takePhoneVoice(after: failure, remember: true, tell: true)
-                } else {
-                    complete(.failed(reason: failure.reason, fatal: failure.detail == "unplayable"))
-                }
+                clipFailed(VoiceWire.failure(error, doing: "speak the reply"), remember: true)
                 return
             }
+            guard mode == .clips else { return }
+            becomeAudible()
+            do {
+                try await output?.playClip(clip)
+            } catch {
+                // The clip came and would not play here (#412): remembered only when its bytes are a kind no player
+                // here reads; a busy output, a lost session or a bad clip is this reply's alone.
+                guard mode == .clips else { return }
+                let failure = VoiceWire.failure(error, doing: "speak the reply")
+                clipFailed(failure, remember: failure.detail == "unplayable")
+                return
+            }
+            guard mode == .clips else { return }
+            asked.removeFirst()
+        }
+    }
+
+    private func clipFailed(_ failure: VoiceFailure, remember: Bool) {
+        if phoneAllowed {
+            takePhoneVoice(after: failure, remember: remember, tell: true)
+        } else {
+            complete(.failed(reason: failure.reason, fatal: failure.detail == "unplayable"))
         }
     }
 
@@ -747,6 +762,8 @@ nonisolated enum PCMCarry {
     private var clipDelegate: ClipDelegate?
     private var clipWaiter: CheckedContinuation<Void, Never>?
     private var clipStarted: CFTimeInterval = 0
+    /// Counts `stop()`s: a clip still being started when one comes is not started another way.
+    private var clipGeneration = 0
 
     var pending: TimeInterval { box.pending }
 
@@ -770,13 +787,36 @@ nonisolated enum PCMCarry {
         AudioWork.later { box.schedule(pcm) }
     }
 
+    /// Plays a clip the tolerant ways in turn (`ClipStart`, #412): the bytes as the kind they really are, then a
+    /// temporary file (§3.4), then once more after the audio session is set active again. A failure is
+    /// `VoiceWire.clipFailure`: a playback failure for a kind this device plays, the format only for one it doesn't.
     func playClip(_ clip: SpeechClip) async throws {
-        let player: AVAudioPlayer
-        do {
-            player = try AVAudioPlayer(data: clip.data, fileTypeHint: Self.typeHint(clip.mime))
-        } catch {
-            throw VoiceFailure(reason: VoiceWire.unplayable(clip.mime), detail: "unplayable")
+        let generation = clipGeneration
+        var file: URL?
+        defer { if let file { try? FileManager.default.removeItem(at: file) } }
+        if let sniffed = VoiceWire.sniff(clip.data), sniffed.mime != VoiceWire.canonicalMime(clip.mime) {
+            VoiceEvents.note("speech: clip labelled \(clip.mime.isEmpty ? "unknown" : clip.mime) is \(sniffed.mime)")
         }
+        let started = try await ClipStart.first(clip, stopped: { [weak self] in self?.clipGeneration != generation }) { attempt -> AVAudioPlayer in
+            let player: AVAudioPlayer
+            switch attempt {
+            case .data(let hint):
+                player = try AVAudioPlayer(data: clip.data, fileTypeHint: hint)
+            case .file(let ext, let reactivate):
+                if reactivate { await AudioSessionCoordinator.shared.reactivate() }
+                let url = try file ?? Self.write(clip.data, fileExtension: ext)
+                file = url
+                player = try AVAudioPlayer(contentsOf: url)
+            }
+            guard await start(player) else { throw ClipNotStarted() }
+            return player
+        }
+        guard let player = started, clipPlayer === player else { return }   // stopped while it was starting
+        await withCheckedContinuation { clipWaiter = $0 }
+    }
+
+    /// Makes `player` the clip that is playing and starts it. False: it would not start (nothing is left playing).
+    private func start(_ player: AVAudioPlayer) async -> Bool {
         let delegate = ClipDelegate { [weak self] in self?.clipEnded() }
         player.delegate = delegate
         if Self.silent.withLock({ $0 }) { player.volume = 0 }
@@ -784,14 +824,21 @@ nonisolated enum PCMCarry {
         clipDelegate = delegate
         clipStarted = CACurrentMediaTime()
         let boxed = UncheckedPlayer(player)
-        let started = await AudioWork.perform { boxed.value.prepareToPlay() && boxed.value.play() }
-        guard started else {
-            clipPlayer = nil
-            clipDelegate = nil
-            throw VoiceFailure(reason: VoiceWire.unplayable(clip.mime), detail: "unplayable")
+        guard await AudioWork.perform({ boxed.value.prepareToPlay() && boxed.value.play() }) else {
+            if clipPlayer === player {
+                clipPlayer = nil
+                clipDelegate = nil
+            }
+            return false
         }
-        guard clipPlayer === player else { return }   // stopped while it was starting
-        await withCheckedContinuation { clipWaiter = $0 }
+        return true
+    }
+
+    /// The clip in a temporary file named for its kind, for `AVAudioPlayer(contentsOf:)`.
+    private static func write(_ data: Data, fileExtension: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hq-speech-\(UUID().uuidString).\(fileExtension)")
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     private func clipEnded() {
@@ -803,6 +850,7 @@ nonisolated enum PCMCarry {
     }
 
     func stop() {
+        clipGeneration += 1
         let box = self.box
         AudioWork.later { box.stop() }
         box.cleared()
@@ -810,16 +858,6 @@ nonisolated enum PCMCarry {
             let boxed = UncheckedPlayer(player)
             AudioWork.later { boxed.value.stop() }
             clipEnded()
-        }
-    }
-
-    /// The file type `AVAudioPlayer` is told to expect (nil: it looks at the bytes).
-    private static func typeHint(_ mime: String) -> String? {
-        switch VoiceWire.fileExtension(mime) {
-        case "mp3": "public.mp3"
-        case "wav": "com.microsoft.waveform-audio"
-        case "m4a": "com.apple.m4a-audio"
-        default: nil
         }
     }
 }
@@ -976,6 +1014,9 @@ nonisolated final class SpeechEngineBox: @unchecked Sendable {
     private(set) var lastFormat: (rate: Double, channels: Int)?
     /// A clip of an unknown length plays this long.
     var clipSeconds = 0.6
+    /// Every clip fails to play with this, as the real output's last try would (`VoiceWire.clipFailure`).
+    var clipError: (any Error)?
+    private(set) var clipFailures = 0
 
     var pending: TimeInterval { max(0, endsAt - CACurrentMediaTime()) }
 
@@ -1002,6 +1043,10 @@ nonisolated final class SpeechEngineBox: @unchecked Sendable {
 
     func playClip(_ clip: SpeechClip) async throws {
         guard VoiceWire.canPlay(clip.mime) else { throw VoiceFailure(reason: VoiceWire.unplayable(clip.mime), detail: "unplayable") }
+        if let clipError {
+            clipFailures += 1
+            throw VoiceWire.clipFailure(clip, clipError)
+        }
         clips += 1
         let mine = generation
         endsAt = CACurrentMediaTime() + Self.seconds(of: clip, otherwise: clipSeconds)

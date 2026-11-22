@@ -35,6 +35,8 @@ extension MoreViewController: KeySearchable {}
     // [mac] Stress test 2026-10-28: More's search (sessions, pages, actions) from anywhere, the caret into the message
     // field, and Archive as Messages' ⌘⌫.
     static let openQuickly = #selector(AppDelegate.hqOpenQuickly(_:))
+    /// [quick-actions] DECISION I22: the Quick Actions page as a sheet (⇧⌘K, beside Open Quickly's ⌘K).
+    static let quickActions = #selector(AppDelegate.hqQuickActions(_:))
     static let messageField = #selector(AppDelegate.hqMessageField(_:))
     static let archiveChat = #selector(AppDelegate.hqArchiveChat(_:))
     /// [mac] Tester 2026-11-09: "Cmd+Delete currently archives the conversation. On Mac this shortcut usually means
@@ -121,11 +123,13 @@ extension MoreViewController: KeySearchable {}
         return [UIMenu(title: "", options: .displayInline, children: [command("Find…", find, "f", .command)] + steps),
                 UIMenu(title: "", options: .displayInline, children: [
                     command("Search Sessions", searchSessions, "f", [.command, .shift]),
-                    command("Open Quickly…", openQuickly, "k", .command)])]
+                    command("Open Quickly…", openQuickly, "k", .command),
+                    command(IntentsText.quickActions + "…", quickActions, "k", [.command, .shift])])]
         #else
         return [command("Find", find, "f", .command)] + steps + [
          command("Search Sessions", searchSessions, "f", [.command, .shift]),
-         command("Open Quickly…", openQuickly, "k", .command)] + chatItems()
+         command("Open Quickly…", openQuickly, "k", .command),
+         command(IntentsText.quickActions + "…", quickActions, "k", [.command, .shift])] + chatItems()
         #endif
     }
 
@@ -404,7 +408,8 @@ extension MoreViewController: KeySearchable {}
         case .resignField: "Leave Message Field"
         case .nothing: escapePageStep(root) == .goBack ? "Go Back" : "Stop Reply"
         // Mac polish #7: out of the card's "Something else…" field first, as its Escape does.
-        case .skipQuestion: questionCard(root)?.isTyping == true ? "Leave Answer Field" : "Skip Question"
+        case .skipQuestion: questionCard(root)?.isDictating == true ? "Cancel Dictation"   // [question-dictate]
+            : questionCard(root)?.isTyping == true ? "Leave Answer Field" : "Skip Question"
         // Mac polish #15: a group chat's Stop, as its ⋯ names it.
         case .stop: root.chatOnShow?.roomChrome != nil ? "Stop All" : "Stop Reply"
         case .system: "Stop Reply"
@@ -738,7 +743,7 @@ extension MoreViewController: KeySearchable {}
     /// [macpass] A text field or text view in the window holds the caret (the arrows are its own).
     static func typing(_ root: MainTabController) -> Bool {
         guard let first = root.view.window?.hqFirstResponder else { return false }
-        return first is UIKeyInput
+        return first.hqTypingInput != nil   // [search-keys] a search bar holding the keyboard counts
     }
 
     /// [Mac AAA 2026-11-16] The list row the keyboard's focus is on in the main window (a grey mark after ↓ or Tab).
@@ -918,7 +923,7 @@ extension AppDelegate {
             // [Mac AAA 2026-11-16] Nor ⌘↑ / ⌘↓ while a field holds words: they are the caret's (start / end of the text),
             // as `walkFromEmptyField` says. The menu's item went first, so ⌘↓ in a half-typed message switched the chat
             // (seen in the running app); an empty field still walks the chats.
-            if KeyCommands.typing(root), (root.view.window?.hqFirstResponder as? UIKeyInput)?.hasText == true { enabled = false }
+            if KeyCommands.typing(root), root.view.window?.hqFirstResponder?.hqTypingInput?.hasText == true { enabled = false }
             #endif
         case KeyCommands.selectTab:
             let place = KeyCommands.namePlace(command, root)
@@ -952,6 +957,8 @@ extension AppDelegate {
             enabled = enabled && root.chatOnShow != nil
         case KeyCommands.openQuickly:
             enabled = enabled && root.pages?.more != nil
+        case KeyCommands.quickActions:
+            break
         case KeyCommands.messageField:
             enabled = enabled && root.chatOnShow.map { !$0.composer.textView.isFirstResponder } == true
             #if targetEnvironment(macCatalyst)
@@ -972,7 +979,7 @@ extension AppDelegate {
             #if targetEnvironment(macCatalyst)
             // [Mac AAA 2026-11-17] While a field holds words ⌘⌫ is the text's (delete to the start of the line), as ⌘↑ /
             // ⌘↓ are: the item took it and asked to delete the chat mid-message (seen in the running app).
-            if KeyCommands.typing(root), (root.view.window?.hqFirstResponder as? UIKeyInput)?.hasText == true { enabled = false }
+            if KeyCommands.typing(root), root.view.window?.hqFirstResponder?.hqTypingInput?.hasText == true { enabled = false }
             #endif
         case KeyCommands.escape:
             // An alert or a menu on top: the system's own Escape closes it, so this command must not take the key.
@@ -1010,7 +1017,7 @@ extension AppDelegate {
         KeyCommands.newChat, KeyCommands.newChatWith, KeyCommands.newChatHere, KeyCommands.closeChat, KeyCommands.find, KeyCommands.searchSessions, KeyCommands.nextChat,
         KeyCommands.previousChat, KeyCommands.selectTab, KeyCommands.settings, KeyCommands.refresh, KeyCommands.escape, KeyCommands.send,
         KeyCommands.messageActions, KeyCommands.back, KeyCommands.closeWindow, KeyCommands.openQuickly,
-        KeyCommands.messageField, KeyCommands.archiveChat, KeyCommands.deleteChat,
+        KeyCommands.quickActions, KeyCommands.messageField, KeyCommands.archiveChat, KeyCommands.deleteChat,
         ]
         #if !targetEnvironment(macCatalyst)
         actions.insert(KeyCommands.toggleList)   // [ipad-polish]
@@ -1055,7 +1062,7 @@ extension AppDelegate {
     /// dimmed while Settings was in front. The rest (the chat on show's, the sidebar's) stay off there.
     static let bringsMainForward: Set<Selector> = [
         KeyCommands.newChat, KeyCommands.newChatWith, KeyCommands.newChatHere, KeyCommands.selectTab,
-        KeyCommands.searchSessions, KeyCommands.openQuickly,
+        KeyCommands.searchSessions, KeyCommands.openQuickly, KeyCommands.quickActions,
     ]
 
     /// The main window to the front when another of the app's windows (Settings, a file) is (`bringsMainForward`).
@@ -1428,6 +1435,15 @@ extension AppDelegate {
         KeyCommands.openSearch(root.sessionsViewController)
     }
 
+    /// [quick-actions] ⇧⌘K: the Quick Actions page as a sheet, as every shortcut opens it (DECISION I22).
+    @objc func hqQuickActions(_ sender: Any?) {
+        #if targetEnvironment(macCatalyst)
+        mainWindowForward()
+        #endif
+        AppLog.note("keys", "quick actions")
+        Task { await QuickActionsRouter.present(from: "keys") }
+    }
+
     /// ⌘K: More's search, which finds sessions, pages and actions, opened with the caret in it.
     @objc func hqOpenQuickly(_ sender: Any?) {
         #if targetEnvironment(macCatalyst)
@@ -1780,7 +1796,7 @@ extension KanbanBoardListController: ListPaneContent {}
 
     /// An input method is composing (marked text) in the key window's field, UIKit's or AppKit's.
     private static func composing() -> Bool {
-        if (sheetWindow()?.hqFirstResponder as? UITextInput)?.markedTextRange != nil { return true }
+        if (sheetWindow()?.hqFirstResponder?.hqTypingInput as? UITextInput)?.markedTextRange != nil { return true }
         guard let app = (NSClassFromString("NSApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
               let first = (app.value(forKey: "keyWindow") as? NSObject)?.value(forKey: "firstResponder") as? NSObject,
               first.responds(to: NSSelectorFromString("hasMarkedText")) else { return false }

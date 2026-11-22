@@ -30,6 +30,9 @@ nonisolated struct SessionProject: Sendable, Hashable, Identifiable, Codable {  
     var paths: [String]
     /// Hermes found it by itself (`isAuto`): no saved project behind it, so there is nothing to delete.
     var isAuto: Bool? = nil
+    /// [repo-pickers] The git repositories Hermes found in it (each repo's root, not its worktree lanes): what its
+    /// Repository… page offers. nil in a copy saved before they were kept.
+    var repos: [String]? = nil
 
     /// The tree's projects a chat can move to: every project with a folder (not the folder-less "Home" bucket).
     static func decodeTree(_ json: JSONValue) -> [SessionProject] {
@@ -43,7 +46,8 @@ nonisolated struct SessionProject: Sendable, Hashable, Identifiable, Codable {  
             let lanes = repos.flatMap { ($0["groups"]?.array ?? []).compactMap { RosterText.trimmed($0["path"]) } }
             guard let root = own ?? repoPaths.first else { return nil }
             return SessionProject(id: id, label: label, root: root, paths: [own].compactMap { $0 } + repoPaths + lanes,
-                                  isAuto: node["isAuto"]?.bool == true || node["is_auto"]?.bool == true ? true : nil)
+                                  isAuto: node["isAuto"]?.bool == true || node["is_auto"]?.bool == true ? true : nil,
+                                  repos: repoPaths.isEmpty ? nil : repoPaths)
         }
     }
 
@@ -273,6 +277,7 @@ extension SessionStore {
         AppLog.trace("sessions", "\(archived ? "archive" : "unarchive") \(tag): succeeded in \(AppLog.ms(since: started)) ms")
         leaving.remove(key)
         if archived {
+            startedRows[key] = nil                      // [#440]
             recents.removeAll { $0.id == session.id && $0.profile == session.profile }
             if var row {
                 row.archived = true
@@ -343,6 +348,7 @@ extension SessionStore {
         ManualChatTitles.set(false, account: account.id, profile: session.profile, id: session.id)
         func drop(_ rows: inout [SidebarSessionRow]) { rows.removeAll { $0.id == session.id && $0.profile == session.profile } }
         drop(&recents); drop(&cron); drop(&messaging); drop(&archivedRows)
+        startedRows[Self.writeKey(id: session.id, profile: session.profile)] = nil   // [#440]
         onDeleted?(session.profile, session.id)         // [sessions-m9] its "Not Delivered:" words go with it
         lastFingerprint = nil
         writeCache()
@@ -402,9 +408,12 @@ extension SessionStore {
         if !refresh, let cached = projectsByProfile[profile] { return cached }
         do {
             let answer = try await client.call("projects.tree", ["preview_limit": 3, "profile": .string(profile)], timeout: .seconds(20))
-            let projects = SessionProject.decodeTree(answer)
+            let found = SessionProject.decodeTree(answer)
+            // [own-folder] [own-folder-everywhere] Where the bot works is read first, so that no group on a bot's own
+            // folder is ever kept as one of its projects, not even for a moment.
+            if found.contains(where: { $0.isAuto == true }) { await learnBotFolder(profile) }
+            let projects = found.filter { !SessionProjects.isOwnFolderGroup($0, ownFolders: ownFolders) }
             projectsByProfile[profile] = projects
-            if projects.contains(where: { $0.isAuto == true }) { await learnBotFolder(profile) }   // [own-folder]
             return projects
         } catch let error as RPCError where error.code == -32601 {
             projectsByProfile[profile] = []
@@ -626,12 +635,14 @@ extension SessionStore {
 
     /// Compose: a new chat in `profile` (`session.create`, the profile's own model settings); its stored id, else its
     /// runtime id, to open.
-    func newChat(profile: String, folder: String? = nil) async throws -> SessionBranch {
+    /// [project-new-chat-model] `start`: a project's own model, provider and reasoning level, when it chose any.
+    func newChat(profile: String, folder: String? = nil, start: [String: JSONValue] = [:]) async throws -> SessionBranch {
         try refuseWhenReadOnly()
         let made: JSONValue
         do {
-            made = try await SessionCreate.call(client, profile: profile, ["profile": .string(profile), "follow_profile_config": true],
-                                         folder: folder, timeout: .seconds(30))
+            made = try await SessionCreate.call(client, profile: profile,
+                                                start.merging(["profile": .string(profile), "follow_profile_config": true]) { _, own in own },
+                                                folder: folder, timeout: .seconds(30))
         } catch {
             AppLog.note("sessions", "new chat (\(profile)): failed, \(SessionActionText.reason(error))")
             throw error

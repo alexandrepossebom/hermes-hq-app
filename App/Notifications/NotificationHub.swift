@@ -267,6 +267,11 @@ import UIKit
             AppLog.note("notify", "muted \(kind) \(AppLog.tag(session))")
             return false
         }
+        // [project-mute] The chat's project is on Only When It Needs Me or Mute: no alert and no peek for what it quiets.
+        guard ProjectMuteCenter.shared.allows(kind: kind, session: entry?.stored ?? session) else {
+            AppLog.note("notify", "project quiets \(kind) \(AppLog.tag(session))")
+            return false
+        }
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
             // No permission: inside the app a reply still peeks.
             AppLog.trace("notify", "\(kind) \(AppLog.tag(session)) skipped: not authorized")
@@ -389,6 +394,9 @@ import UIKit
         if content.userInfo["deviceDraft"] is String { return [.banner, .list, .sound] }
         // [update-flow] A Hermes update ended while its sheet wasn't on screen: always shown.
         if content.userInfo[HermesUpdate.alertKey] is String { return [.banner, .list, .sound] }
+        // [phone-calls] The assistant on a call asks something, or background time ran out: always shown (the call's
+        // sheet wasn't on screen when it was posted).
+        if content.userInfo[PhoneAlerts.alertKey] is String { return [.banner, .list, .sound] }
         let info = PushSeal.opened(content.userInfo, keys: PushSealKeys.all())
         let kind: String
         let muteKind: String
@@ -418,6 +426,11 @@ import UIKit
         // Per-bot Mute: a muted bot's finished reply shows nothing while the app is open (the extension already made it quiet).
         if let profile = target?.profile ?? directory[session]?.profile, !BotMuteCenter.shared.allows(kind: muteKind, profile: profile) {
             AppLog.trace("notify", "incoming \(kind) \(AppLog.tag(session)) presented as nothing: bot muted")
+            return []
+        }
+        // [project-mute] As a muted bot's: the extension already made it quiet, and it shows nothing in the open app.
+        if !ProjectMuteCenter.shared.allows(kind: muteKind, session: session) {
+            AppLog.trace("notify", "incoming \(kind) \(AppLog.tag(session)) presented as nothing: project quiets it")
             return []
         }
         // [mac] Stress test 2026-10-28 #31: a Mac app runs while another app is in front, where the window (and a peek in
@@ -477,6 +490,12 @@ import UIKit
             AppLog.note("notify", "response hermes update")
             let shown = response.notification.request.content
             HermesUpdateCenter.shared.open(key, title: shown.title, body: shown.body)
+            return
+        }
+        if delivered[PhoneAlerts.alertKey] is String {
+            // [phone-calls] That call's chat, then its call sheet.
+            AppLog.note("notify", "response phone call")
+            PhoneAlerts.open(delivered)
             return
         }
         let info = PushSeal.opened(delivered, keys: PushSealKeys.all())

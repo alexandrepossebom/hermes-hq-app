@@ -208,20 +208,26 @@ struct GoalsStoreTests {
         let s = store(client)
         await s.refresh()
         #expect(!s.goalsSupported && s.goals.isEmpty)
+        #expect(s.goalsNeedAddOn, "[goals-addon] Tasks read, no goals: the Goals pill stays and offers the update")
         var notices: [String] = []
         s.onNotice = { notices.append($0) }
         #expect(await s.addGoal(GoalWire.newGoal(title: "Run a 10K")) == nil)
-        #expect(s.addGoalFailure == "Goals need the newest HQ add-on on your computer (0.9.65 or later).")
+        #expect(s.addGoalFailure == "Goals need the newest HQ add-on on your computer (0.9.74 or later).")
         #expect(client.log.allSatisfy { $0.method == "GET" }, "nothing sent to an add-on that can't keep it")
         #expect(notices.count == 1)
 
         // The add-on is updated: goals arrive with the next read.
         client.respond { _ in Self.list([]) }
         await s.refresh(force: true)
-        #expect(s.goalsSupported && s.goals.isEmpty)
+        #expect(s.goalsSupported && s.goals.isEmpty && !s.goalsNeedAddOn)
         // …and an older add-on again (rolled back) takes them away.
         client.respond { _ in Self.list(nil) }
         await s.refresh(force: true)
-        #expect(!s.goalsSupported)
+        #expect(!s.goalsSupported && s.goalsNeedAddOn)
+    }
+
+    @Test func noGoalsUpdateOfferBeforeTheListIsRead() {
+        let s = store(PagesFakeClient { _ in Self.list(nil) })
+        #expect(!s.goalsNeedAddOn, "[goals-addon] nothing read yet: no Goals pill, no update offer on a guess")
     }
 }

@@ -78,7 +78,7 @@ nonisolated private func intentsOnMainThread() -> Bool { Thread.isMainThread }
         #expect(ShortcutCatalogBuilder.displayName(IntentsFixture.bot("default", name: "  ")) == "Hermes")
         #expect(ShortcutCatalogBuilder.displayName(IntentsFixture.bot("ops", name: "")) == "ops")
         #expect(QuickActions.plan([ShortcutTarget(id: "e:bot:k", name: VoiceBotCatalog.clean(String(repeating: "é", count: 200)), kind: "bot", botKey: "k")])
-            .first?.title == "New Voice Memo for " + String(repeating: "é", count: 160))
+            .first { $0.action == "memo" }?.title == "New Voice Memo for " + String(repeating: "é", count: 160))
         // Two bots with one display name: both listed, told apart by their keys.
         let twins = ShortcutCatalogBuilder.botRecords(bots: [IntentsFixture.bot("ivy", name: "Ivy"), IntentsFixture.bot("ivy2", name: "Ivy")],
                                                       account: IntentsFixture.account)
@@ -359,6 +359,8 @@ nonisolated private func intentsOnMainThread() -> Bool { Thread.isMainThread }
         #expect(!allowed("open", "A:ivy", epoch: nil, current: "B", targets: a))
         #expect(!allowed("search", "", epoch: nil, current: nil)); #expect(!allowed("search", "", epoch: ""))
         #expect(allowed("search", "", epoch: nil)); #expect(allowed("open", "A:ivy", epoch: nil))
+        // [quick-actions] Quick Actions names no target: allowed as Search Chats is, in a sign-in only.
+        #expect(allowed("quick-actions", "", epoch: nil)); #expect(!allowed("quick-actions", "", epoch: nil, current: nil))
     }
 
     // A21 (W:scripts/native-shortcuts/main.swift)
@@ -479,16 +481,18 @@ nonisolated private func intentsOnMainThread() -> Bool { Thread.isMainThread }
                         ShortcutTarget(id: "E:bot:ios-direct::ivy", name: "Ivy", kind: "bot", botKey: "ios-direct::ivy"),
                         ShortcutTarget(id: "E:bot:ios-direct::default", name: "Hermes", kind: "bot", botKey: "ios-direct::default")]
 
-    @Test func memoToTheMostRecentBotTheTwoMostRecentChatsThenSearch() {
+    // [quick-actions] DECISION I22: Quick Actions first, then the memo, the most recent chat and Search Chats (the
+    // second recent chat made room for it; the Home Screen shows four).
+    @Test func quickActionsThenMemoToTheMostRecentBotTheMostRecentChatThenSearch() {
         let plan = QuickActions.plan(safe, enabled: true)
-        #expect(plan.map(\.title) == ["New Voice Memo for Ivy", "Open Trip plan", "Open Ivy", "Search Chats"])
-        #expect(plan.map(\.symbol) == ["mic", "bubble.left", "bubble.left", "magnifyingglass"])
-        #expect(plan.map(\.type) == ["dispatch.memo", "dispatch.open", "dispatch.open", "dispatch.search"])
-        #expect(plan.map(\.id) == ["E:bot:ios-direct::ivy", "E:session:s1", "E:bot:ios-direct::ivy", nil])
+        #expect(plan.map(\.title) == ["Favorites", "New Voice Memo for Ivy", "Open Trip plan", "Search Chats"])
+        #expect(plan.map(\.symbol) == ["star.circle", "mic", "bubble.left", "magnifyingglass"])
+        #expect(plan.map(\.type) == ["dispatch.quick-actions", "dispatch.memo", "dispatch.open", "dispatch.search"])
+        #expect(plan.map(\.id) == [nil, "E:bot:ios-direct::ivy", "E:session:s1", nil])
     }
 
     @Test func noBotsNoMemoAndNeverALoneSearch() {
-        #expect(QuickActions.plan([safe[0]], enabled: true).map(\.title) == ["Open Trip plan", "Search Chats"])
+        #expect(QuickActions.plan([safe[0]], enabled: true).map(\.title) == ["Favorites", "Open Trip plan", "Search Chats"])
         #expect(QuickActions.plan([], enabled: true).isEmpty)
     }
 

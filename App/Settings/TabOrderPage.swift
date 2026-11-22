@@ -14,9 +14,12 @@ struct TabOrderPage: View {
     @State private var shown = TabOrder.tabs
     #if targetEnvironment(macCatalyst)
     @State private var botsInSidebar = MacSidebar.botsInSidebar   // [bots-place]
+    @State private var pinnedOnly = MacSidebar.pinnedOnly         // [pinned-only]
     #endif
     /// [kanban-tab-one] The Kanban Tab choice; nil while there is none to make (`kanbanChoice`).
     @State private var kanban: KanbanTabOverride?
+    /// [jobs-badge] When the Jobs tab's count clears.
+    @State private var jobsBadge = JobsBadgePref.clear
     /// [kanban-tab-one] The row a search result marks, as the Settings root marks its own (UX study #108).
     @State private var revealed: String?
     @ScaledMetric(relativeTo: .body) private var iconWidth: CGFloat = 28
@@ -52,6 +55,7 @@ struct TabOrderPage: View {
                 } }
                 botsInSidebarSection
                 kanbanSection
+                jobsBadgeSection
                 if !more.isEmpty {
                     Section {
                         // Ids of their own: a row turned on is a new row in the bar, with its drag handle (one that kept
@@ -130,6 +134,21 @@ struct TabOrderPage: View {
                 Text(botsInSidebar ? "Your bots are listed in the sidebar. Turn this off to have a Bots row that opens the list beside the sidebar, as Sessions does."
                      : "Bots is a row in the sidebar, and the list of bots opens beside it, as Sessions does.")
             } }
+            // [pinned-only] Owner 2026-11-22: only the pinned bots in the sidebar. The footer says what the name
+            // can't: a bot that isn't pinned is still listed while it wants you.
+            if botsInSidebar {
+                Section {
+                    SwitchRow(title: "Pinned Bots Only", isOn: Binding(get: { pinnedOnly }, set: { on in
+                        Haptics.play(.selection)
+                        pinnedOnly = on
+                        MacSidebar.pinnedOnly = on
+                    }))
+                    .accessibilityIdentifier("tab-order.pinned-only")
+                    .onReceive(NotificationCenter.default.publisher(for: MacSidebar.pinnedOnlyChanged)) { _ in pinnedOnly = MacSidebar.pinnedOnly }
+                } footer: { HQSectionFooter {
+                    Text("A bot that isn’t pinned still shows while it’s working or has a reply you haven’t read.")
+                } }
+            }
         }
         #endif
     }
@@ -182,6 +201,49 @@ struct TabOrderPage: View {
         }
     }
 
+    /// [jobs-badge] Jobs Badge: when the red count on Jobs (the jobs under Needs Attention) clears. Drawn as Kanban Tab
+    /// is: the Menu over the row on the iPhone and iPad, the form's pop-up on the Mac.
+    @ViewBuilder
+    private var jobsBadgeSection: some View {
+        let choice = Binding(get: { jobsBadge }, set: { (value: JobsBadgeClear) in
+            Haptics.play(.selection)
+            JobsBadgePref.clear = value
+            jobsBadge = value
+        })
+        let label = Label {
+            Text("Jobs Badge").foregroundStyle(Color.hqLabel)
+        } icon: {
+            iconBox(symbol("calendar.badge.clock").foregroundStyle(Color.hqLabel))
+        }
+        Section {
+            if DeviceWord.isMac {
+                HStack(spacing: 12) {
+                    label
+                    Spacer(minLength: 16)
+                    MacPopUp(label: "Jobs Badge", selection: choice, options: JobsBadgeClear.allCases) { $0.title }
+                        .accessibilityIdentifier("settings.jobs-badge")
+                        .hqMacSettingsControl()
+                }
+            } else {
+                SettingsMenuRowFace(label: label, value: jobsBadge.title)
+                    .overlay {
+                        Menu {
+                            Picker("Jobs Badge", selection: choice) {
+                                ForEach(JobsBadgeClear.allCases) { Text($0.title).tag($0) }
+                            }
+                        } label: {
+                            Color.clear.contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Jobs Badge")
+                        .accessibilityValue(jobsBadge.title)
+                        .accessibilityIdentifier("settings.jobs-badge")
+                    }
+            }
+        } footer: { HQSectionFooter {
+            Text(SettingsWords.jobsBadgeFooter(jobsBadge)).accessibilityIdentifier("tab-order.jobs-badge-footer")
+        } }
+    }
+
     /// [mac] The Mac shows the tabs in its sidebar, not a bar (stress test 2026-10-31).
     private static var barName: String { DeviceWord.isMac ? "Sidebar" : "Tab Bar" }
     /// [mac] Mac polish #131: the control is "Kanban" on the Mac, which has places, not tabs.
@@ -204,8 +266,8 @@ struct TabOrderPage: View {
 
     private var barFooter: String {
         var words = DeviceWord.isMac
-            ? "Drag a row by its handle, or in the sidebar itself, to move it. Bots or Sessions always stays: chats open there."
-            : "Drag a tab by its handle to move it. More always stays last. Bots or Sessions always stays: chats open there."
+            ? "Bots or Sessions always stays: chats open there."
+            : "More always stays last. Bots or Sessions always stays: chats open there."
         // [more-bots] The Mac has no More: its list of bots is the first of the sidebar's Tools then.
         if !shown.contains(.main(.bots)) {
             words += DeviceWord.isMac ? " With Bots hidden, the list is under Tools, and a bot’s chat opens on Sessions."
@@ -359,7 +421,8 @@ struct TabOrderPage: View {
                                                   "connectors": ("Connectors", "powerplug"), "artifacts": ("Artifacts", "photo.on.rectangle"),
                                                   "kanban": ("Kanban", "rectangle.split.3x1"), "pinned": ("Tiles", "rectangle.3.group"),
                                                   "marketplace": ("Marketplace", "bag"), "passwords": ("Passwords", "key"),
-                                                  ComposioRow.id: (ComposioRow.title, ComposioRow.outline)]
+                                                  ComposioRow.id: (ComposioRow.title, ComposioRow.outline),
+                                                  QuickTileStore.rowID: (IntentsText.quickActions, "star.circle")]   // [quick-actions]
         let (title, symbol) = known[id] ?? (id.capitalized, "square.dashed")
         return PageChoice(id: id, title: title, symbol: symbol)
     }

@@ -43,11 +43,29 @@ nonisolated enum ToolCallsAfterReply: String, CaseIterable, Hashable, Sendable {
     var title: String { self == .keep ? "Keep" : "Hide" }
 }
 
+/// File Changes (Settings › Chat): how the "N files changed" card under a reply that edited files is drawn. Folded is
+/// one line like a reply's work line ("8 files changed +49 −11 ⌄") that opens on the card; Open is the card itself
+/// (owner 2026-11-20, from tester Mordred: "the files edited as a collapsible section similar to Ran <x> commands").
+nonisolated enum FileChangesLook: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case off, folded, open
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .folded: return "Folded"
+        case .open: return "Open"
+        }
+    }
+}
+
 nonisolated enum ToolCallSettings {
     static let styleKey = "hq.chat.toolCallStyle"
     static let afterReplyKey = "hq.chat.toolCallsAfterReply"
     static let fewerTimestampsKey = "hq.chat.fewerTimestamps"
+    /// The old on/off switch (only "off" was ever stored): still read, so a card someone turned off stays off.
     static let fileChangesKey = "hq.chat.showFileChanges"
+    static let fileChangesLookKey = "hq.chat.fileChanges"
     static let didChange = Notification.Name("hq.chat.toolCallSettingsDidChange")
 
     static var style: ToolCallStyle {
@@ -81,14 +99,18 @@ nonisolated enum ToolCallSettings {
         }
     }
 
-    /// Show File Changes: the "N files changed" card under a reply that edited files (and the folded one in a run of
-    /// idle updates). Off hides only the card; the chat’s ⋯ › Changes still lists them (owner 2026-11-10).
-    static var showFileChanges: Bool {
-        // On by default: only "off" is stored.
-        get { UserDefaults.standard.object(forKey: fileChangesKey) as? Bool ?? true }
+    /// File Changes: the "N files changed" card under a reply that edited files (and the folded one in a run of idle
+    /// updates). Off hides only the card; the chat’s ⋯ › Changes still lists them (owner 2026-11-10). Folded is the
+    /// default (owner 2026-11-20); the old switch's stored "off" reads as Off.
+    static var fileChanges: FileChangesLook {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: fileChangesLookKey), let look = FileChangesLook(rawValue: raw) { return look }
+            return UserDefaults.standard.object(forKey: fileChangesKey) as? Bool == false ? .off : .folded
+        }
         set {
-            if newValue { UserDefaults.standard.removeObject(forKey: fileChangesKey) }
-            else { UserDefaults.standard.set(false, forKey: fileChangesKey) }
+            UserDefaults.standard.removeObject(forKey: fileChangesKey)
+            if newValue == .folded { UserDefaults.standard.removeObject(forKey: fileChangesLookKey) }
+            else { UserDefaults.standard.set(newValue.rawValue, forKey: fileChangesLookKey) }
             NotificationCenter.default.post(name: didChange, object: nil)
         }
     }

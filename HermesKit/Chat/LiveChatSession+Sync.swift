@@ -822,7 +822,8 @@ extension LiveChatSession {
            !messages.suffix(3).contains(where: { $0.role == .user && Hydration.userDisplayKey($0.plainText) == Hydration.userDisplayKey(queued) }) {
             localCounter += 1
             AppLog.trace("turn", "snapshot \(logIds): gateway's queued prompt not shown, bubble added")
-            appendMessage(ChatMessage(id: "local-user-queued-\(localCounter)", role: .user, parts: [.text(queued)], timestamp: Date(), rowId: nil))
+            appendMessage(ChatMessage(id: "local-user-queued-\(localCounter)", role: .user, parts: [.text(PhoneChatText.shown(queued))], timestamp: Date(), rowId: nil,
+                                          phoneResultText: PhoneChatText.resultText(queued)))
         }
         scheduleFlush()
     }
@@ -846,7 +847,8 @@ extension LiveChatSession {
                 // a raw path, until the stored row arrives (docs/spec/1x-attachments.md §7.1).
                 let lifted = AttachmentHydration.liftText(user)
                 AppLog.trace("turn", "inflight \(logIds): its prompt isn't the newest shown, prompt bubble \(AppLog.tag(id)) added (running=\(running))")
-                appendMessage(ChatMessage(id: id, role: .user, parts: [.text(lifted.text)], timestamp: turn.turnStartedAt ?? Date(), rowId: nil))
+                appendMessage(ChatMessage(id: id, role: .user, parts: [.text(PhoneChatText.shown(lifted.text))], timestamp: turn.turnStartedAt ?? Date(), rowId: nil,
+                                          phoneResultText: PhoneChatText.resultText(lifted.text)))
                 if !lifted.attachments.isEmpty {
                     var meta = metaById[id] ?? MessageMeta()
                     meta.attachments = lifted.attachments
@@ -997,7 +999,8 @@ extension LiveChatSession {
             }
             localCounter += 1
             let id = "local-user-correction-\(localCounter)"
-            appendMessage(ChatMessage(id: id, role: .user, parts: [.text(text)], timestamp: Date(), rowId: nil))
+            appendMessage(ChatMessage(id: id, role: .user, parts: [.text(PhoneChatText.shown(text))], timestamp: Date(), rowId: nil,
+                                          phoneResultText: PhoneChatText.resultText(text)))
             turn.correctionIds.insert(id)
             after = messages.count - 1
             added += 1

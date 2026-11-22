@@ -46,16 +46,24 @@ nonisolated enum TabChoice: Hashable, Sendable {
     case main(HQTab)
     case page(String)
 
-    /// The More pages that can be tabs. A page's tag is 100 + its place here, so new pages go at the end.
-    static let pageIDs = ["files", "review", "command-center", "capabilities", "profiles", "messaging", "spawn-tree",
-                          "star-map", "webhooks", "connectors", "import-sessions", "settings", "artifacts", "kanban",
-                          "pinned",   // [pins]
-                          "terminal",   // [terminal]
-                          "tasks",   // [tasks]
-                          "marketplace",   // [marketplace-row]
-                          "usage",
-                          "passwords",   // [passwords-page]
-                          "composio"]   // [composio-row]   // Usage, a page of its own since Command Center split: never a Mac Tool without it (owner 2026-11-07)
+    /// The More pages that can be tabs (every slot but a retired page's).
+    static let pageIDs = tagSlots.filter { retired[$0] == nil }
+    /// Every page that has ever been a tab, in tag order. A page's tag is 100 + its place here, so new pages go at the
+    /// end, and a retired page keeps its slot (the pages after it keep their tags).
+    private static let tagSlots = ["files", "review", "command-center", "capabilities", "profiles", "messaging", "spawn-tree",
+                                   "star-map", "webhooks", "connectors", "import-sessions", "settings", "artifacts", "kanban",
+                                   "pinned",   // [pins]
+                                   "terminal",   // [terminal]
+                                   "tasks",   // [tasks]
+                                   "marketplace",   // [marketplace-row]
+                                   "usage",
+                                   "passwords",   // [passwords-page]
+                                   "composio",   // [composio-row]   // Usage, a page of its own since Command Center split: never a Mac Tool without it (owner 2026-11-07)
+                                   "favorites",   // [favorites] retired: see `retired`
+                                   "quick-actions"]   // [quick-actions]
+    /// [favorites-retired] A page that is gone → the page its stored tab (key or tag) now opens. Owner 2026-11-22: the
+    /// Quick Actions page replaces Favorites.
+    static let retired = ["favorites": "quick-actions"]
     static let firstPageTag = 100
 
     var key: String {
@@ -67,7 +75,8 @@ nonisolated enum TabChoice: Hashable, Sendable {
 
     init?(key: String) {
         if key.hasPrefix("page.") {
-            let id = String(key.dropFirst(5))
+            let stored = String(key.dropFirst(5))
+            let id = Self.retired[stored] ?? stored
             guard Self.pageIDs.contains(id) else { return nil }
             self = .page(id)
         } else {
@@ -80,7 +89,7 @@ nonisolated enum TabChoice: Hashable, Sendable {
     var tag: Int {
         switch self {
         case .main(let tab): tab.rawValue
-        case .page(let id): Self.firstPageTag + (Self.pageIDs.firstIndex(of: id) ?? 0)
+        case .page(let id): Self.firstPageTag + (Self.tagSlots.firstIndex(of: id) ?? 0)
         }
     }
 
@@ -90,8 +99,9 @@ nonisolated enum TabChoice: Hashable, Sendable {
             self = .main(tab)
         } else {
             let place = tag - Self.firstPageTag
-            guard Self.pageIDs.indices.contains(place) else { return nil }
-            self = .page(Self.pageIDs[place])
+            guard Self.tagSlots.indices.contains(place) else { return nil }
+            let id = Self.tagSlots[place]
+            self = .page(Self.retired[id] ?? id)
         }
     }
 

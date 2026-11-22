@@ -40,7 +40,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// The Other Apps page while it is in the stack (its rows' actions and reloads go through this list).
     private weak var otherAppsPage: OtherAppsViewController?
     /// The roster by profile, rebuilt once per reload: rows draw their owner's name and head from it.
-    private var owners: [String: Bot] = [:]
+    private(set) var owners: [String: Bot] = [:]
     private(set) var groups: [SessionGroup] = []
     /// [drag-to-project] The project group a dragged chat is held over: its header lights up as the place it would go.
     var dropTargetGroup: String? {
@@ -139,6 +139,11 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// the bot works or waits on you), and Group By Recent's Pinned (`freshPinnedKeys`: never a second line).
     private var freshKeys: Set<String> = []
     private var freshPinnedKeys: Set<String> = []
+    /// [page-pinned-no-pin] A project page's Pinned pile: its rows draw no pin (the heading says it).
+    private var pagePinnedKeys: Set<String> = []
+    #if DEBUG
+    private var lastPinGlyphs: String?
+    #endif
     /// [mac-pane] The rows under the "Yesterday" heading: on the Mac they say the hour, not "Yesterday" again.
     private var yesterdayKeys: Set<String> = []
     private var backgroundObserver: NSObjectProtocol?
@@ -146,6 +151,12 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     // [/sessions-m9]
     /// Rows whose Delete is on its way (dimmed, a spinner).
     private var busy: Set<String> = []
+    /// [spring-drop] Files dragged in from outside the app: a chat's row held under them opens it.
+    private(set) lazy var fileDrop: SessionFileDrop = {
+        let drop = SessionFileDrop(list: collectionView)
+        drop.target = { [weak self] point in self?.fileDropTarget(at: point) }
+        return drop
+    }()
     private var barCapsule: PageBarCapsule?
     /// [Mac full pass 2026-11-14] The Mac's "All Bots ⌄", in the bar where Jobs, Artifacts and Tasks have theirs (it
     /// stood in a row of its own under the bar, the one list that put it there).
@@ -185,6 +196,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         collectionView.delegate = self
         collectionView.alwaysBounceVertical = true
         collectionView.accessibilityIdentifier = "sessions.list"
+        // Owner 2026-11-21: room under the last row (the Done link sat right on the tab bar), scrolled to the end.
+        collectionView.contentInset.bottom = Self.bottomRoom
         ListBarAppearance.apply(to: navigationItem)        // the same bar as the Bots tab
         if let settings = services as? SettingsServices {   // settings stream: the gateway switcher (1x-settings §4.6)
             titleSwitcher = GatewayTitleSwitcher(host: self, services: services, settings: settings, baseTitle: "Sessions")
@@ -435,6 +448,13 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 list.contentInsets.trailing = ProjectCard.inset
                 list.supplementaryContentInsetsReference = .none
             }
+            // [mac] The scroller runs in a lane of its own, beside the project's card and the cards under it, not over
+            // them. (Not the collection view's own right inset: the list then scrolled sideways by that much.) On Soft
+            // Cards the soft card keeps the lane (`BackdropCards.card`), as on every list.
+            let lane = BackdropCards.on(self) ? 0 : ScrollBarLane.listTrailing
+            list.contentInsets.trailing += lane
+            // A header (its Edit, See All; an open card's top) lays itself out across the list: it narrows with its rows.
+            list.boundarySupplementaryItems.forEach { $0.contentInsets.trailing += lane }
             if let self {
                 // [backdrop-cards] On Soft Cards a section is a soft card. The projects, which stand one under the other
                 // with "Projects" over the first, share one card, open or closed (an open one draws no card of its own
@@ -463,6 +483,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         return layout
     }
 
+    /// Room under the list's last row when scrolled to its end, clear of the tab bar (owner 2026-11-21).
+    static let bottomRoom: CGFloat = 28
+
     /// [project-cards] An open project's card (its rows are set in to the card's edges).
     private func isOpenCard(_ section: Int) -> Bool {
         !searching && section >= 0 && section < groups.count && SessionListPipeline.isProject(groups[section].id) && !groups[section].collapsed
@@ -473,12 +496,25 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         return store?.isCodingProject(key) == true
     }
 
+    /// [project-branch-rows] A coding project's page with Show Branch on Rows on: its rows start with their branch.
+    private var branchRowsPage: Bool {
+        guard codingProjectPage, let key = groups.first(where: { $0.id == SessionListPipeline.pageId })?.pageKey else { return false }
+        return store?.isProjectBranchRows(key) == true
+    }
+
+    /// The branch such a row starts with; nil when the chat has none.
+    private static func branchLead(_ session: SessionSummary) -> String? {
+        let branch = session.branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return branch.isEmpty ? nil : branch
+    }
+
     private func configureDataSource() {
         let rowRegistration = UICollectionView.CellRegistration<SessionListCell, String> { [weak self] cell, _, id in
             guard let self, let session = self.sessionsByID[id] else { return }
             let owner = self.owner(of: session)
             let busy = self.busy.contains(Self.realKey(id))
             let coding = self.codingProjectPage
+            let branchLead = self.branchRowsPage ? Self.branchLead(session) : nil   // [project-branch-rows]
             let detail = coding ? self.rowDetail.subtracting([.time, .tokens, .cost]) : self.rowDetail
             let muted = BotMuteCenter.shared.isMuted(session.profile)   // UX study #248
             let origin = session.origin          // where it came from: the platform's mark before the title
@@ -488,6 +524,10 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             // [sessions-fresh] Pinned's and Recent's one line, with or without the face (Show › Bot Faces, which only
             // Group By Recent offers; the cards follow it there too).
             let fresh: SessionRowView.Fresh? = self.freshPinnedKeys.contains(id) ? .pinned : self.freshKeys.contains(id) ? .recent : nil
+            let pinnedPile = self.pagePinnedKeys.contains(id)   // [page-pinned-no-pin]
+            // [coding-pr-review] A coding project's page: the row's PR mark opens the PR card.
+            let onPR: (() -> Void)? = coding && (session.pullRequest.map { $0.state != .none } ?? false)
+                ? { [weak self] in self?.presentPRCard(session) } : nil
             let faces = !(self.freshLayout || self.projectLayout) || (self.store?.view.botFaces ?? true)   // [projects-switch]
             // [mac-pane] The Mac: under the "Yesterday" heading a row says when ("5:31 PM"), not "Yesterday" again down
             // every row; and the pointer over a row swaps its time for Pin, Archive and More.
@@ -508,7 +548,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 SessionRowView(session: session, ownerName: owner.name, ownerHead: owner.head,
                                time: time, busy: busy, detail: detail, muted: muted,
                                origin: origin, compact: compact, shortPreview: short, card: card, fresh: fresh, faces: faces,
-                               recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, hover: hover)
+                               recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, branchLead: branchLead,
+                               pinnedPile: pinnedPile, onPR: onPR, hover: hover)
             }
             .margins(.all, 0)
             // [sessions-layout] A one-line row is as tall as it draws itself (44 pt), not the list's taller least row.
@@ -563,8 +604,10 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 },
                 onNewChatWith: { [weak self] in self?.organizer?.newChat(inProject: key, profile: nil, asks: true) })
             let prCounts = self.projectPRCounts(key)
+            // [project-header-repo] The folder its Repository… page points at, when one is linked.
+            let place = ProjectPageHeader.place(key: key, linked: self.store?.prRepo(forProject: key)?.path, branch: group.branch)
             let header = ProjectPageHeader(
-                name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
+                name: group.latestTitle ?? key, folder: place.folder, branch: place.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
                 onJump: { [weak self] count in self?.pickPageCount(count) },
                 lit: self.store?.statusChip.map { $0 == .working ? ["working"] : ["needs", "ready"] } ?? [],
@@ -580,11 +623,16 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 onCodingChange: { [weak self] enabled in
                     self?.store?.setCodingProject(key, enabled)
                     self?.reload(animated: false)
-                }, onInfo: { [weak self] in
-                    guard let self else { return }
-                    let guide = ProjectIconGuide(coding: self.store?.isCodingProject(key) ?? false)
-                    self.present(ChatSheet.wrap(UIHostingController(rootView: guide), title: "Project Icons", detents: [.large()]), animated: true)
-                }, onRepository: self.store?.prManage == true ? { [weak self] in
+                },
+                sort: self.store?.projectSort(key) ?? .needsMeFirst,
+                onSortChange: { [weak self] sort in
+                    Haptics.play(.selection)
+                    self?.store?.setProjectSort(key, sort)
+                    self?.reload(animated: true)
+                },
+                onSettings: { [weak self] in self?.presentProjectSettings(key, name: group.latestTitle ?? key) },
+                look: self.store?.projectLook(key) ?? ProjectLook(),
+                onRepository: self.store?.prManage == true ? { [weak self] in
                     guard let self, let store = self.store else { return }
                     let page = ProjectRepositoryPage(project: key, store: store)
                     self.present(ChatSheet.wrap(UIHostingController(rootView: page), title: "Repository", detents: [.large()]), animated: true)
@@ -692,7 +740,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                                     latestTitle: group.latestTitle, time: ListTime.string(group.newest), collapsed: group.collapsed,
                                     working: group.working, whole: group.whole, home: key == SessionProjects.homeKey,
                                     afterCard: section > 0 && SessionListPipeline.isProject(groups[section - 1].id)
-                                        && !groups[section - 1].collapsed)
+                                        && !groups[section - 1].collapsed,
+                                    look: key.map { store?.projectLook($0) ?? ProjectLook() } ?? ProjectLook())   // [project-look]
             : nil
         // [sessions-layout] New for You says how many it holds.
         let badge = !searching && id == SessionListPipeline.newId ? group.total : nil
@@ -1541,6 +1590,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         compactKeys = fresh ? [] : pinnedKeys
         freshPinnedKeys = fresh ? pinnedKeys : []
         freshKeys = []
+        pagePinnedKeys = []
         yesterdayKeys = []
         shortKeys = searching ? [] : Set(groups.first { $0.id == SessionListPipeline.newId }?.sessions.map(Self.key) ?? [])
         cardKeys = [:]
@@ -1566,6 +1616,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 return key
             }
             if card { for item in items { cardKeys[item] = group.title } }
+            if !searching, group.id == SessionListPipeline.statePrefix + "pinned" { pagePinnedKeys.formUnion(items) }   // [page-pinned-no-pin]
             if !searching && ((fresh && recent) || group.id == SessionListPipeline.chipId || (projectLayout && !card)) { freshKeys.formUnion(items) }
             if !searching, DeviceWord.isMac, group.id == SessionListPipeline.recentId + "-yesterday" { yesterdayKeys.formUnion(items) }   // [mac-pane]
             snapshot.appendItems(items, toSection: section)
@@ -1588,7 +1639,11 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                     [SessionPRStatus.State.none, .draft, .open, .merged, .closed].map { "\(counts[$0, default: 0])" }.joined(separator: ",")
             } ?? ""
             let sign = [page.pageKey ?? "", page.latestTitle ?? "", page.branch ?? "", page.profiles.joined(separator: ","), usual,
-                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")", prSign].joined(separator: "|")
+                        "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")", prSign,
+                        "\(page.pageKey.map { store?.isProjectPinsLocal($0) ?? false } ?? false)",
+                        page.pageKey.map { store?.projectSort($0).rawValue ?? "" } ?? "",                          // [project-pins]
+                        page.pageKey.map { projectSettingsSign($0) } ?? "",                                         // [project-settings]
+                        page.pageKey.flatMap { store?.prRepo(forProject: $0)?.path } ?? ""].joined(separator: "|") // [project-header-repo]
             if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
             pageSign = sign
         }
@@ -1599,6 +1654,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             otherAppsSign = sign
         }
         let coding = codingProjectPage
+        let branchRows = branchRowsPage   // [project-branch-rows]
         var next: [String: Int] = [:]
         for id in snapshot.itemIdentifiers {
             guard let session = sessionsByID[id] else { continue }
@@ -1612,11 +1668,13 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             hasher.combine(cardKeys[id])                                    // [project-cards] in a card, and whose
             hasher.combine(rowDetail)             // [sessions-m9]
             hasher.combine(coding)
+            hasher.combine(branchRows)
             hasher.combine(BotMuteCenter.shared.isMuted(session.profile))   // UX study #248
             hasher.combine(compactKeys.contains(id))                        // [sessions-layout] Pinned's one line
             hasher.combine(shortKeys.contains(id))                          // [sessions-layout] New for You's one line
             hasher.combine(freshKeys.contains(id))                          // [sessions-fresh] Fresh's rows
             hasher.combine(freshPinnedKeys.contains(id))
+            hasher.combine(pagePinnedKeys.contains(id))                     // [page-pinned-no-pin]
             hasher.combine(yesterdayKeys.contains(id))                      // [mac-pane] the hour under Yesterday
             hasher.combine(store?.view.botFaces)                            // [sessions-fresh] Show › Bot Faces
             next[id] = hasher.finalize()
@@ -1629,6 +1687,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         for group in groups where !group.collapsed && SessionListPipeline.isProject(group.id) {
             next[Self.newKey(group.id)] = newChatSign(group)
         }
+        #if DEBUG
+        recordPinGlyphs(snapshot.itemIdentifiers)
+        #endif
         let changed = columnFlipped ? snapshot.itemIdentifiers
             : snapshot.itemIdentifiers.filter { id in signatures[id].map { $0 != next[id] } ?? false }
         if !changed.isEmpty { snapshot.reconfigureItems(changed) }
@@ -1831,6 +1892,17 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         return dataSource.snapshot().itemIdentifiers.filter { sessionsByID[$0] != nil && !Self.isCopy($0) && !busy.contains($0) }
     }
 
+    /// [spring-drop] The chat's row under a file drag (`point` in the list), with what opening it does.
+    private func fileDropTarget(at point: CGPoint) -> SessionFileDrop.Target? {
+        guard let path = collectionView.indexPathForItem(at: point), let item = dataSource.itemIdentifier(for: path),
+              let cell = collectionView.cellForItem(at: path) else { return nil }
+        let key = Self.realKey(item)
+        guard let session = sessionsByID[key], !busy.contains(key) else { return nil }
+        return SessionFileDrop.Target(key: item, view: cell, rect: cell.bounds.insetBy(dx: 6, dy: 2), cornerRadius: 14,
+                                      chat: .session(profile: session.profile, id: session.id),
+                                      open: { [weak self] in self?.open(key) })
+    }
+
     /// `key`: the row's item key (`Self.key(_:)`, profile + stored id).
     func open(_ key: String) {
         guard let session = sessionsByID[key], !busy.contains(key) else { return }
@@ -1886,6 +1958,24 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
 
     /// A chat push is waiting for its first rows: further taps wait too.
     private var opening = false
+
+    #if DEBUG
+    /// [page-pinned-no-pin] UI tests read which listed rows draw a pin glyph (`-HQDebugTextOut`, pin-glyphs.txt: one
+    /// chat id per line, "none" when no row does), by the rule the row draws by.
+    private func recordPinGlyphs(_ items: [String]) {
+        let ids = items.compactMap { id -> String? in
+            guard let session = sessionsByID[id] else { return nil }
+            let fresh: SessionRowView.Fresh? = freshPinnedKeys.contains(id) ? .pinned : freshKeys.contains(id) ? .recent : nil
+            let draws = SessionRowView.drawsPin(pinned: session.pinned || session.projectPinned, compact: compactKeys.contains(id),
+                                                fresh: fresh, pinnedPile: pagePinnedKeys.contains(id))
+            return draws ? session.id : nil
+        }
+        let text = ids.isEmpty ? "none" : Set(ids).sorted().joined(separator: "\n")
+        guard text != lastPinGlyphs else { return }
+        lastPinGlyphs = text
+        DebugHooks.recordText(text, as: "pin-glyphs.txt")
+    }
+    #endif
 
     /// A row's identity: its profile and stored id. A cloned profile's chat keeps the stored id of the original
     /// (profile twins, fix161 D18/D22), so the id alone would drop the second row.
@@ -2129,6 +2219,7 @@ extension SessionsViewController {
             case .archived: item.state = state.prefs.showArchived ? .on : .off
             case .botFaces: item.state = state.prefs.botFaces ? .on : .off
             case .projectChatsInRecent: item.state = state.prefs.projectChatsInRecent ? .on : .off
+            case .showProjects: item.state = state.prefs.showProjects ? .on : .off
             default: break
             }
         }
@@ -2293,6 +2384,8 @@ extension SessionsViewController {
 
     /// A project's page is on show (the Projects side, one project picked).
     var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
+    /// [project-pins] The open project page's key (nil off a page).
+    var projectPageKey: String? { groups.first { $0.id == SessionListPipeline.pageId }?.pageKey }
     #if DEBUG
     /// [mac-scope-menu] The Mac's bot / project menu as it would open now (the tour draws it).
     func debugScopeMenu(dark: Bool) -> [UIMenuElement] { headerModel.scopeMenuElements(dark: dark, scale: 2) }
@@ -2461,6 +2554,8 @@ extension SessionsViewController {
         if headerModel.pills != pills { headerModel.pills = pills; headerChanged = true }
         let pillProjects = pills == .projects ? store.pillProjects(order: bots.map(\.id)) : []
         if headerModel.projects != pillProjects { headerModel.projects = pillProjects; headerChanged = true }
+        let looks = pills == .projects ? store.projectLooks : [:]   // [project-look] the pills' own emoji and colour
+        if headerModel.projectLooks != looks { headerModel.projectLooks = looks; headerChanged = true }
         let pickedProjects = SessionFilterWords.effectiveProjects(state)
         if headerModel.pickedProjects != pickedProjects { headerModel.pickedProjects = pickedProjects; headerChanged = true }
         if headerModel.botPicked != (state.botFilter != nil) { headerModel.botPicked = state.botFilter != nil; headerChanged = true }

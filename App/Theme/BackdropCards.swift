@@ -120,6 +120,11 @@ import UIKit
                      extraTop: CGFloat = 0, extraBottom: CGFloat = 0) {
         guard on else { return }
         var insets = section.contentInsets
+        // [mac] The card and what is on it stand clear of the Mac's scroller (`ScrollBarLane.listTrailing`), on every list.
+        let lane = ScrollBarLane.listTrailing
+        insets.trailing += lane
+        // A header lays itself out across the list (See All, Edit at its end): it narrows with the card.
+        if lane > 0 { section.boundarySupplementaryItems.forEach { $0.contentInsets.trailing += lane } }
         if !keepWidth {
             insets.leading += side
             insets.trailing += side
@@ -132,7 +137,7 @@ import UIKit
         card.contentInsets = NSDirectionalEdgeInsets(top: join.contains(.above) || header ? 0 : max(0, insets.top - top),
                                                      leading: keepWidth ? side : insets.leading,
                                                      bottom: join.contains(.below) ? 0 : max(0, insets.bottom - bottom),
-                                                     trailing: keepWidth ? side : insets.trailing)
+                                                     trailing: keepWidth ? side + lane : insets.trailing)
         card.zIndex = -1
         section.decorationItems.append(card)
     }

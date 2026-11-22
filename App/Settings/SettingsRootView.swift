@@ -67,7 +67,7 @@ final class SettingsRootModel {
     var query = ""
     var inAppTips = InAppTips.isOn
     var fewerTimestamps = ToolCallSettings.fewerTimestamps
-    var showFileChanges = ToolCallSettings.showFileChanges
+    var fileChanges = ToolCallSettings.fileChanges
     var newChatAsksProject = NewChatProjectChoice.isOn
     var waitForModels = ModelPrefs.waitForModels
     // [settings] On this iPhone: Haptics (docs/spec/3x-settings.md §1) and Intro Splash (§7).
@@ -939,14 +939,40 @@ struct SettingsRootView: View {
             }
             .accessibilityIdentifier("settings.fewer-timestamps")
             .revealRow("row:fewer-timestamps", model.revealed)
-            Toggle(isOn: Binding(get: { model.showFileChanges }, set: { on in
-                model.showFileChanges = on
-                ToolCallSettings.showFileChanges = on
-            })) {
-                SettingsRowLabel(title: "Show File Changes", systemImage: "doc.badge.ellipsis", subtitle: notes ? ChatRowNotes.showFileChanges : nil)
+            // [files] Owner 2026-11-20 (tester Mordred): Off / Folded / Open, Folded by default — the card as one line,
+            // like a reply's work line, that opens on it.
+            let fileChanges = Binding(get: { model.fileChanges }, set: { (value: FileChangesLook) in
+                Haptics.play(.selection)
+                model.fileChanges = value
+                ToolCallSettings.fileChanges = value
+                AppLog.note("settings", "File Changes set to \(value.rawValue)")
+            })
+            if DeviceWord.isMac {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {   // [Mac AAA 2026-11-17] on the title's line, as the switches
+                    SettingsRowLabel(title: "File Changes", systemImage: "doc.badge.ellipsis", subtitle: ChatRowNotes.showFileChanges)
+                    Spacer(minLength: 16)
+                    MacPopUp(label: "File Changes", selection: fileChanges, options: FileChangesLook.allCases) { $0.title }
+                        .accessibilityIdentifier("settings.show-file-changes")
+                        .hqMacSettingsControl()
+                }
+                .revealRow("row:show-file-changes", model.revealed)
+            } else {
+                SettingsMenuRowFace(label: SettingsRowLabel(title: "File Changes", systemImage: "doc.badge.ellipsis"),
+                                    value: model.fileChanges.title)
+                .overlay {
+                    Menu {
+                        Picker("File Changes", selection: fileChanges) {
+                            ForEach(FileChangesLook.allCases) { Text($0.title).tag($0) }
+                        }
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("File Changes")
+                    .accessibilityValue(model.fileChanges.title)
+                    .accessibilityIdentifier("settings.show-file-changes")
+                }
+                .revealRow("row:show-file-changes", model.revealed)
             }
-            .accessibilityIdentifier("settings.show-file-changes")
-            .revealRow("row:show-file-changes", model.revealed)
             Toggle(isOn: Binding(get: { model.newChatAsksProject }, set: { on in
                 model.newChatAsksProject = on
                 NewChatProjectChoice.isOn = on
@@ -1153,24 +1179,7 @@ struct SettingsRootView: View {
             }
             .accessibilityIdentifier("settings.message-reactions")
             .revealRow("row:message-reactions", model.revealed)
-        } header: { categoryHeader("Chat") } footer: { if !notes { HQSectionFooter {
-            // UX study #69: the switches' names say what they do; the footer keeps only what a name can't say.
-            Text("Fewer Timestamps shows a day line only when the date changes, and a time only under the bot’s replies."
-                 + " Show File Changes puts a “files changed” card under a reply that edited files; with it off, ⋯ › Changes still lists them."
-                 + " New Chat Asks for a Project: off, New Chat with a bot picked on Sessions starts in no project at once, with no sheet."
-                 + " Send While Replying is what Send does while a reply runs: Steer adds your message to that reply, Queue sends it when the reply finishes."
-                 + (DeviceWord.isMac ? " ⌘Return does the other one." : " Touch and hold Send for the other one.")
-                 + " Open Links In is for web links: pages and files your bots make always open in the app."
-                 + (DeviceWord.isMac ? (model.newChatKeyMode == .botChat
-                    ? " ⌘N opens the ⌘N bot’s own chat, ready to type; ⌥⌘N starts a new chat like the one you’re in; ⇧⌘N asks for a bot and project."
-                    : " ⌘N starts a new chat with the ⌘N bot, in its project, at once; ⌥⌘N starts one with the bot and project of the chat"
-                      + " you’re in; ⇧⌘N asks for both.") : "")
-                 + (DeviceWord.isMac
-                    ? " Other Chats at the Top shows a bot’s chats that are working, unread or pinned as tabs under the title of the bot’s own chat; All opens the full list beside the chat."
-                    : " Other Chats at the Top shows a bot’s other recent chats as buttons under a chat’s title, so one tap moves between them.")
-                 + " Message Reactions adds Tapbacks to a message’s menu, and lets the bot react to yours."
-                 + (model.configStore != nil ? " Reopen Last Chat on Launch is saved on \(HostWord.phrase)." : ""))
-        } } }
+        } header: { categoryHeader("Chat") }
         }
 
         // [settings] §1, §18: "Sounds & Haptics". The Haptics row does not depend on the completion cue being wired.
@@ -1250,12 +1259,7 @@ struct SettingsRootView: View {
                 }
                 .revealRow("row:thinking-drive", model.revealed)
             }
-        } header: { categoryHeader(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics") } footer: { HQSectionFooter {
-            Text(!SettingsSearch.hasHaptics ? "Completion Sound plays when a bot’s reply finishes."
-                 : SettingsHooks.completionCueWired
-                 ? "Completion Sound plays when a bot’s reply finishes. Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up."
-                 : "Haptics are the small taps you feel when you pick, drag or finish something. Thinking Bar is how the model panel’s thinking bar looks and feels as you drag it up.")
-        } }
+        } header: { categoryHeader(!SettingsSearch.hasHaptics ? "Sounds" : SettingsHooks.completionCueWired ? "Sounds & Haptics" : "Haptics") }
         }
 
         if model.shows(.gateway) {
@@ -1277,12 +1281,11 @@ struct SettingsRootView: View {
                     .accessibilityIdentifier("settings.sessions")
             } header: { HQSectionLabel {
                 Text("On Your Gateway")   // UX study #72: was "Hermes", which said nothing about where these are kept
-            } } footer: { HQSectionFooter {
-                // UX study 2026-10-21 #186, #50, #117: whose settings these are, and the few kept on this device.
-                Text(SettingsWords.gatewayFooter(defaultBot: model.defaultBotName, otherBots: model.rosterCount > 1))
             } }
 
             Section {
+                NavRow(title: "Phone Calls (Beta)", systemImage: "phone") { SettingsNavigator.openRoot("phone-calls", router: router) }
+                    .accessibilityIdentifier("settings.phone-calls")
                 NavRow(title: "Providers", systemImage: "bolt") { SettingsNavigator.openRoot("providers", router: router) }
                     .accessibilityIdentifier("settings.providers")
                 NavRow(title: "Keys", systemImage: "key") { SettingsNavigator.openRoot("keys", router: router) }
@@ -1420,7 +1423,7 @@ struct SettingsRootView: View {
                     if let status = model.fileStatus {
                         Text(status).foregroundStyle(Color.hqLabel).accessibilityIdentifier("settings.file-status")
                     }
-                    Text("Keys, tokens and passwords are left out of exported files, including those in connector links and arguments. Importing one keeps the ones already on \(HostWord.phrase).")
+                    Text("Exported files leave out keys, tokens and passwords.")
                 }
             } }
         }

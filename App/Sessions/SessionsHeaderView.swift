@@ -38,6 +38,8 @@ final class SessionsHeaderModel {
     /// lit one(s) (Filter › Project's picks).
     var pills: SessionPills = .bots
     var projects: [SessionProjectPill] = []
+    /// [project-look] The projects' own emoji and colour (key → look; only the ones that say something).
+    var projectLooks: [String: ProjectLook] = [:]
     var pickedProjects: Set<String> = []
     /// [project-pills] A bot picked another way (Filter › All Bots off) keeps All from lighting.
     var botPicked = false
@@ -204,8 +206,9 @@ struct SessionsHeaderView: View {
         // the menu's name now gives way first and keeps its room ahead of the counts. On a project's page the counts are
         // the header's (that project's, and they narrow it), so the row doesn't say them a second time.
         // A pane too narrow for it all says the counts as a mark and a number ("● 5"), then the switch's words without
-        // its glyphs, before the menu's name is cut. The switch always says Bots and Projects (owner 2026-11-19: "The
-        // toggle should have Bots and Projects written in it just like it has on iOS").
+        // its glyphs, before the menu's name is cut. The switch always says its two views' names (owner 2026-11-19: "The
+        // toggle should have Bots and Projects written in it just like it has on iOS"; Chats and Projects since
+        // [chats-switch]).
         ViewThatFits(in: .horizontal) {
             macRowContent(switchIcons: true, countWords: true)
             macRowContent(switchIcons: true, countWords: false)
@@ -214,17 +217,24 @@ struct SessionsHeaderView: View {
         }
         .frame(height: SessionsMacControl.height)
         .padding(.leading, Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead)   // the project header's edge
-        .padding(.trailing, (Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead) - 6)   // a count's text ends where the rows' times do (its 6 pt padding)
+        // A count's text ends where the rows' times do (its 6 pt padding). [popup-room] With no counts after it, the menu's
+        // box is the last thing on the row: its edge sits as far in as the switch's on the left.
+        .padding(.trailing, (Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead) - (menuEndsRow ? 0 : 6))
         .padding(.top, Theme.isDesktop ? 6 : 4)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// [popup-room] The menu's box ends the row (no New / Working counts after it).
+    private var menuEndsRow: Bool { model.hasPills && (model.onPage || model.shownStatus.isEmpty) }
+
     private func macRowContent(switchIcons: Bool, countWords: Bool, menuPicture: Bool = true) -> some View {
         HStack(spacing: countWords ? 8 : 6) {
             if model.showsSwitch { SessionsPillsSwitch(model: model, macIcons: switchIcons).fixedSize() }
-            if model.hasPills { scopeMenu(picture: menuPicture).layoutPriority(1) }
+            // [popup-room] Owner 2026-11-21: "the project dropdown should be right aligned": the switch keeps the left,
+            // the menu (and the counts after it) the right.
             Spacer(minLength: 0)
+            if model.hasPills { scopeMenu(picture: menuPicture).layoutPriority(1) }
             if !model.onPage {
                 ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip, words: countWords) }
             }
@@ -277,11 +287,16 @@ struct SessionsHeaderView: View {
             Image(systemName: "chevron.down").font(Font.hqSystem(size: HQFont.scaled(9), weight: .bold))
                 .foregroundStyle(Color.hqLabel2)
                 .fixedSize()
+                .padding(.leading, MacPopUpInsets.chevronGap - 6)
         }
         .font(SessionsMacControl.font)
         .foregroundStyle(Color.hqLabel)
-        .padding(.leading, picture ? 5 : 8).padding(.trailing, 8)
-        .frame(minWidth: 64, maxHeight: SessionsMacControl.height)   // [mac-top] never just its arrows
+        // [popup-room] Owner 2026-11-21 ("the box needs to be properly sized. It has not room to breathe"): the shared
+        // pop-up inset (a picture needs a little less: its own box has air in it), and the switch's full height. It had
+        // been `maxHeight` under a vertical `fixedSize`, which sized the box to the words, shorter than the switch.
+        .padding(.leading, picture ? MacPopUpInsets.leading - 3 : MacPopUpInsets.leading).padding(.trailing, MacPopUpInsets.trailing)
+        .frame(minWidth: 64)   // [mac-top] never just its arrows
+        .frame(height: SessionsMacControl.height)
         .background {
             let shape = RoundedRectangle(cornerRadius: SessionsMacControl.radius, style: .continuous)
             shape.fill(scopeHover ? Color.hqLabel.opacity(0.16) : Color.clear)
@@ -734,12 +749,29 @@ struct ProjectPillMark: View {
     var state: SessionProjectState
     var archived: Bool
     var picked: Bool
+    /// [project-look] The project's own emoji and colour: they stand where the folder did, and a project that needs the
+    /// owner, has a new reply or is at work keeps that state's mark as a small badge on its corner.
+    var look = ProjectLook()
 
     var body: some View {
         let ink = picked ? Color.hqOnTint : Color.hqLabel
         Group {
             if archived {
                 Image(systemName: "archivebox").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium)).foregroundStyle(ink.opacity(0.7))
+            } else if !look.isEmpty {
+                // On a picked pill a colour would fight the tint: the folder takes the pill's ink (an emoji keeps its own).
+                ProjectLookMark(look: look, size: 15, ink: picked ? Color.hqOnTint : nil)
+                    .overlay(alignment: .topTrailing) {
+                        Group {
+                            switch state {
+                            case .needsYou: Circle().fill(picked ? Color.hqOnTint : Color.hqOrange).frame(width: 7, height: 7)
+                            case .ready: Circle().fill(picked ? Color.hqOnTint : Color.hqTint).frame(width: 7, height: 7)
+                            case .working: StatusChipMark(chip: .working, picked: picked).scaleEffect(0.7)
+                            case .quiet: EmptyView()
+                            }
+                        }
+                        .offset(x: 3, y: -3)
+                    }
             } else {
                 switch state {
                 case .needsYou: Circle().fill(picked ? Color.hqOnTint : Color.hqOrange).frame(width: 8, height: 8)
@@ -992,12 +1024,10 @@ struct SessionsPillsSwitch: View {
                 ForEach([SessionPills.bots, .projects], id: \.self) { view in
                     let here = model.pills == view
                     HStack(spacing: 4) {
-                        if macIcons, view == .bots {
-                            Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(12), line: 0.1)).renderingMode(.template)
-                        } else if macIcons {
-                            Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(11), weight: .medium))
+                        if macIcons {
+                            Image(systemName: Self.symbol(view)).font(Font.hqSystem(size: HQFont.scaled(11), weight: .medium))
                         }
-                        Text(view == .bots ? "Bots" : "Projects").lineLimit(1).fixedSize()
+                        Text(Self.word(view)).lineLimit(1).fixedSize()
                     }
                     .font(SessionsMacControl.font)
                     .foregroundStyle(here ? Color.hqLabel : Color.hqLabel2)
@@ -1014,9 +1044,9 @@ struct SessionsPillsSwitch: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(other == .projects ? "Show Projects" : "Show Bots")
-        .accessibilityLabel(other == .projects ? "Switch to Projects" : "Switch to Bots")
-        .accessibilityValue(model.pills == .projects ? "Projects" : "Bots")
+        .help("Show " + Self.word(other))
+        .accessibilityLabel("Switch to " + Self.word(other))
+        .accessibilityValue(Self.word(model.pills))
         .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
     }
 
@@ -1072,13 +1102,20 @@ struct SessionsPillsSwitch: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(other == .projects ? "Switch to Projects" : "Switch to Bots")
-                .accessibilityValue(model.pills == .projects ? "Projects" : "Bots")
+                .accessibilityLabel("Switch to " + Self.word(other))
+                .accessibilityValue(Self.word(model.pills))
                 .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
                 .fixedSize()
             }
         }
     }
+
+    /// [chats-switch] A tester, 2026-11-20: the switch's left side is "Chats", told apart from the bots themselves (the
+    /// Bots tab, a bot's own sessions), with the Sessions tab's chat bubbles for its glyph; it was "Bots" and the
+    /// robot. The view's value is still `SessionPills.bots` and its button `sessions.pills.bots`; the rail of bot
+    /// pills (and its All Bots) is still the bots'.
+    static func word(_ view: SessionPills) -> String { view == .bots ? "Chats" : "Projects" }
+    static func symbol(_ view: SessionPills) -> String { view == .bots ? "bubble.left.and.bubble.right" : "folder" }
 
     /// [switch-thumb] The side shown: concentric with the track (the Desktop Look's box, else the glass capsule).
     private var thumbShape: AnyShape {
@@ -1090,12 +1127,8 @@ struct SessionsPillsSwitch: View {
     /// toggle to show the words of each with the icons" (both sides named, now that the switch scrolls with the row).
     private func switchSide(_ view: SessionPills, here: Bool, half: CGFloat, side: CGFloat) -> some View {
         HStack(spacing: 5) {
-            if view == .bots {
-                Image(uiImage: TabIcons.bot(pointSize: HQFont.scaled(14), line: 0.1)).renderingMode(.template)
-            } else {
-                Image(systemName: "folder").font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
-            }
-            Text(view == .bots ? "Bots" : "Projects")
+            Image(systemName: Self.symbol(view)).font(Font.hqSystem(size: HQFont.scaled(13), weight: .medium))
+            Text(Self.word(view))
                 .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
                 .lineLimit(1)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)

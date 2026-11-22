@@ -778,6 +778,16 @@ compiling; the fake gains a way to fail a page for the UI test.
 - VoiceOver: when a page lands, `HQAnnounce.say("Earlier messages loaded")` only if focus was on the
   earlier row.
 
+- **DECISION (owner, 2026-11-22): where the pill stands and its shape** [earlier-pill-place]. As built it is a
+  floating pill (`ChatEarlierPill`), not a row. On every device it takes the empty status line's place under the
+  title and steps down under the status words when they show (`ChatViewController.earlierGap`, as the notice's
+  `noticeGap`; the Mac since 2026-11-17, the iPhone and iPad since this decision: it stood a whole empty status line
+  lower). While there are earlier messages the transcript's top rests under the pill's foot
+  (`ChatViewController.earlierRoom`, not on the Mac, whose transcript already starts under its 34 pt pill), so it
+  never covers the first row (it stood on "Today 7:13 AM"). In the Desktop Look it is the look's 4 pt box in every
+  state (`ChatEarlierPill.corners`; the capsule build 436 set after `ThemeChrome.solidify` left it round). Tests:
+  unit `EarlierPillShapeTests`, UI `testT15c_EarlierPillSitsUnderTheTitleAndCoversNoRow`.
+
 **Wire.** `GET /api/sessions/{id}/messages` with the paging params the app already sends (unchanged).
 
 **Fixture.** Preset `long`; `POST /__fixture/fail {"path":"/api/sessions/*/messages","code":503,"times":2}`
@@ -951,6 +961,13 @@ Review (tinted) opens the Changes page; `matchChangedFile` maps a card row to th
     "This chat has no folder."
 - VoiceOver: card is a container labelled "N files changed"; rows read "<name>, A added, R removed".
 - "After Reply: Hide" hides tool rows but keeps the card.
+- DECISION 2026-11-20 (owner, from tester Mordred: "the files edited as a collapsible section similar to Ran <x>
+  commands"): Settings › Chat › **File Changes** is Off / **Folded** (default) / Open, replacing the Show File Changes
+  switch (its stored "off" reads as Off; `ToolCallSettings.fileChanges`). Folded draws the card as one centred line in
+  the work line's look — file glyph, "N files changed", every file's +/− summed, a soft caret (down shut, up open) —
+  and a tap opens the card under it (4 pt below) or folds it back; the opened card's top line is "Review ›" alone,
+  since the line already counts the files. The open state is per card (`ChatRow.filesOpenKey`, separate from Show
+  All's key). Open is the card as above, with no line (`ActivityRows.changedFiles`, `ChangedFilesCell.configureLine`).
 
 **Wire.** Existing: `GET /api/git/review/list?path=<cwd>&scope=uncommitted` and
 `GET /api/git/review/diff?path=<cwd>&file=<rel>&scope=uncommitted&staged=<bool>`.

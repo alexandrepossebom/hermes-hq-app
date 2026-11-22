@@ -95,6 +95,19 @@ struct TodoListsTests {
         #expect(TodoLists.dot(plain, in: .today, sections: all) == nil, "a list with no colour yet")
     }
 
+    /// [tasks-colour] On the page the row says its list with the list's icon, in grey (owner 2026-11-22, pick A).
+    @Test func aRowCarriesItsListsIconOutsideTheList() {
+        let filed = task("filed", section: "work"), loose = task("loose"), plain = task("plain", section: "old"), gone = task("gone", section: "deleted")
+        let all = [TodoUserSection(id: "work", name: "Work", color: "blue", icon: "briefcase"), TodoUserSection(id: "old", name: "Old")]
+        #expect(TodoLists.mark(filed, in: .today, sections: all) == "briefcase")
+        #expect(TodoLists.mark(filed, in: .upcoming, sections: all) == "briefcase")
+        #expect(TodoLists.mark(filed, in: .list("work"), sections: all) == nil, "every row there is that list's")
+        #expect(TodoLists.mark(filed, in: .bots, sections: all) == nil)
+        #expect(TodoLists.mark(loose, in: .today, sections: all) == nil)
+        #expect(TodoLists.mark(plain, in: .today, sections: all) == TodoListIcons.fallback, "a list with no icon and no colour still says it is a list")
+        #expect(TodoLists.mark(gone, in: .today, sections: all) == nil)
+    }
+
     @Test func aNewListTakesTheFirstFreeColour() {
         #expect(TodoLists.nextColor([]) == .blue)
         #expect(TodoLists.nextColor(lists) == .orange, "blue and green are taken")

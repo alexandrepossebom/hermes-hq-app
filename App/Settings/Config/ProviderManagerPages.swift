@@ -425,10 +425,7 @@ struct ProvidersPageView: View {
             return "Turn Off keeps a provider’s key on \(HostWord.phrase) and takes it out of every model menu. Remove takes its key off \(HostWord.phrase)."
         }
         let count = ProviderList.onOffLine(rows, prefs: model.prefs).map { "\($0). " } ?? ""
-        let how = DeviceWord.isMac
-            ? "Click a name to rename it or choose which of its models show. \(DeviceWord.hold) one to remove it."   // Mac polish #135
-            : "Tap a name to rename it or choose which of its models show. Swipe one to remove it."
-        return "\(count)Switch a provider off to take it out of every model menu; its key stays on \(HostWord.phrase), so anything else that uses it still works. \(how) Select changes several at once."
+        return "\(count)A provider switched off leaves every model menu; its key stays on \(HostWord.phrase)."
     }
 
     // MARK: [provider-off] Select
@@ -616,6 +613,14 @@ private struct ProviderSelectBar: View {
 @MainActor enum ProviderPages {
     static func open(_ id: String, model: ProvidersModel, router: SettingsRouter) {
         guard let row = model.row(id) else { return }
+        // [moa-setup] Owner 2026-11-21 ("The mixture of agents setup page… basically not usable"): Mixture of Agents'
+        // row opened the page every provider gets, where its presets were "models" with Show switches, Add Model…
+        // asked for a typed model ID that names nothing, and Default Model was another provider's. It opens the
+        // Mixture of Agents page (Settings › Model's), which sets it up; the list reads its presets again on the way back.
+        if id == MixtureRecord.provider {
+            router.push(row.name(model.prefs), MixtureOfAgentsView(router: router)) { Task { await model.catalog.load() } }
+            return
+        }
         router.push(row.name(model.prefs), ProviderPageView(id: id, model: model, router: router))
     }
 
@@ -746,8 +751,8 @@ struct ProviderPageView: View {
                 .accessibilityIdentifier("provider-page.on")
         } footer: { HQSectionFooter {
             Text(off
-                ? "Off: none of its models are in the model menus in Hermes HQ, on all your devices, including any it adds later. A chat already on one of them keeps it. Its key stays on \(HostWord.phrase), so anything else that uses it still works."
-                : "Switch it off to take every one of its models out of the model menus in Hermes HQ, on all your devices. Its key stays on \(HostWord.phrase), so anything else that uses it still works.")
+                ? "Its models are out of every model menu. A chat already on one keeps it, and its key stays on \(HostWord.phrase)."
+                : "Off takes its models out of every model menu. Its key stays on \(HostWord.phrase).")
         } }
     }
 
@@ -758,15 +763,11 @@ struct ProviderPageView: View {
             ValueRow(title: "Name", value: row.name(prefs), opensPrompt: true) { ProviderPages.rename(row, model: model, router: router, onPage: true) }
                 .disabled(model.readOnly)
                 .accessibilityIdentifier("provider-page.name")
-        } footer: { HQSectionFooter {
-            if row.endpoint != nil {
-                Text("Saved on \(HostWord.phrase), so the Hermes desktop app shows the same name.")
-            } else if prefs.providerName(row.id) != nil {
-                Text("Hermes calls it \(row.originalName). The new name shows in Hermes HQ on all your devices.")
-            } else {
-                Text("The name shows in every model menu in Hermes HQ, on all your devices.")
+        } footer: {
+            if row.endpoint == nil, prefs.providerName(row.id) != nil {
+                HQSectionFooter { Text("Hermes calls it \(row.originalName).") }
             }
-        } }
+        }
     }
 
     // MARK: Models
@@ -842,7 +843,7 @@ struct ProviderPageView: View {
             } else if off {
                 Text("None of these show while the provider is off. Switch it on above to choose which do.")
             } else {
-                Text("Switch a model off to leave it out of the model menus; one a bot is using still shows there. \(DeviceWord.Tap) a name to rename it.")
+                Text("A model a bot is using still shows in model menus.")
             }
         } }
     }
@@ -1050,8 +1051,6 @@ struct ProviderPageView: View {
                 }
             } header: { HQSectionLabel {
                 Text("Connection")
-            } } footer: { HQSectionFooter {
-                Text("Test Connection asks the service which models it has; they join the list above.")
             } }
         }
         if !row.keys.isEmpty {

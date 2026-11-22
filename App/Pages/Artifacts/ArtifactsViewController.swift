@@ -1625,7 +1625,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         let bot = fixedProfile ?? (currentScope == PagesScope.all ? nil : currentScope)
         let sheet = NewTileSheet.make(services: services, bot: bot) { [weak self] bot, what in
             guard let self, let services = self.services else { return }
-            let chat = services.newChat(for: bot, folder: nil)
+            let chat = services.tileChat(for: bot)
             TileMaker.start(bot: bot, what: what, accountId: self.store.account.id, chat: chat, from: self)
         }
         present(sheet, animated: true)
@@ -1676,7 +1676,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     func changeTile(id: String, what words: String) {
         guard let services, !services.readOnlyGateway, let pin = pins.pins.first(where: { $0.id == id }), let path = pin.gatewayPath,
               let bot = services.bots.first(where: { $0.id == pin.profile }) else { return }
-        let chat = services.newChat(for: bot, folder: nil)
+        let chat = services.tileChat(for: bot)
         TileMaker.change(pin, path: path, bot: bot, what: words, accountId: store.account.id, chat: chat, from: self)
     }
 
@@ -1732,10 +1732,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         Task { [weak self] in
             let (job, _) = await TileUpdates.shared.lookup(pin, accountId: accountId, client: services.gateway)
             guard let self, job != nil, TileMaker.working(on: id, accountId: accountId) == nil else { return }
-            let chat: any ChatSessionModel = pin.sessionId.isEmpty
-                ? services.newChat(for: bot, folder: nil)
-                : services.chat(for: SessionSummary(id: pin.sessionId, profile: pin.profile, title: pin.sessionTitle, preview: nil,
-                                                    lastActive: nil, source: nil, unread: false, isRunning: false))
+            let chat = self.tileOwnChat(pin, bot: bot, services: services)
             TileMaker.rolledBack(pin, path: path, bot: bot, version: version.number, accountId: accountId, chat: chat, from: self)
         }
     }
@@ -1747,6 +1744,34 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
         let grid = ArtifactPins.view == .grid
         let pixels = (pinnedOnly || grid && pin.tileSize != .small ? 640 : 520) * traitCollection.displayScale
         return pinPictures.picture(pin, dark: dark, pixels: pixels, shape: pinPictureShape(pin))
+    }
+
+    /// [tile-chats] The tile's own chat (the one its bot last worked on it in), or a fresh hidden one when it has none.
+    private func tileOwnChat(_ pin: ArtifactPin, bot: Bot, services: PagesServices) -> any ChatSessionModel {
+        guard !pin.sessionId.isEmpty else { return services.tileChat(for: bot) }
+        return services.chat(for: SessionSummary(id: pin.sessionId, profile: pin.profile, title: pin.sessionTitle, preview: nil,
+                                                 lastActive: nil, source: nil, unread: false, isRunning: false))
+    }
+
+    /// [tile-chats] The tile has a chat to open: the one its bot made or last changed it in, or the one it works in now.
+    func tileHasChat(_ pin: ArtifactPin) -> Bool {
+        !pin.sessionId.isEmpty || TileMaker.working(on: pin.id, accountId: store.account.id) != nil
+    }
+
+    /// [tile-chats] Open Chat (owner 2026-11-21: "an easy way to be able to open the session attached to a Tile"): the
+    /// tile's chat, which no list shows. While its bot works on it, the chat it works in (that screen then follows the
+    /// turn, and the tile updates when it ends).
+    func openChat(ofTile id: String) {
+        guard let pin = pins.pins.first(where: { $0.id == id }) else { return }
+        if let maker = TileMaker.working(on: pin.id, accountId: store.account.id) {
+            AppLog.trace("pages", "tile chat opened while its bot works")
+            Haptics.play(.soft)
+            openTileChat(maker.chat)
+            return
+        }
+        guard !pin.sessionId.isEmpty else { return }
+        AppLog.trace("pages", "tile chat opened")
+        showInChat(pin.record)
     }
 
     /// [dashboard] A New Tile's chat, when the bot needs the person (its question, or no page handed over).
@@ -2667,7 +2692,16 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             PinActions.toggle(record, pins: self.pins, from: self)
         }
         var first: [UIMenuElement] = [open]
-        if !pin.sessionId.isEmpty { first.append(chat) }
+        if pin.isPage, tileHasChat(pin) {
+            // [tile-chats] A tile's chat is in no list: Open Chat, beside Open.
+            let tileChat = UIAction(title: "Open Chat", image: UIImage(systemName: "bubble.left.and.bubble.right")) { [weak self] _ in
+                self?.openChat(ofTile: pin.id)
+            }
+            tileChat.accessibilityIdentifier = "tile.open-chat"
+            first.append(tileChat)
+        } else if !pin.sessionId.isEmpty {
+            first.append(chat)
+        }
         first.append(share)
         if let save = saveAction(record, anchor: anchor) { first.append(save) }
         var groups = [UIMenu(options: .displayInline, children: first + [copy])]
@@ -2788,10 +2822,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             return refuse("Couldn’t Send to This Tile")
         }
         guard let bot = services.bots.first(where: { $0.id == pin.profile }) else { return refuse("This Tile’s Bot Is Gone") }
-        let chat: any ChatSessionModel = pin.sessionId.isEmpty
-            ? services.newChat(for: bot, folder: nil)
-            : services.chat(for: SessionSummary(id: pin.sessionId, profile: pin.profile, title: pin.sessionTitle, preview: nil,
-                                                lastActive: nil, source: nil, unread: false, isRunning: false))
+        let chat = tileOwnChat(pin, bot: bot, services: services)
         let maker = TileMaker.act(pin, path: path, bot: bot, prompt: prompt, accountId: store.account.id, chat: chat, from: self)
         maker.ended = ended
         return true
@@ -2856,6 +2887,12 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             tile.botName = PagesNames.botName(pin.profile, bots: services?.bots ?? [])
             tile.send = { [weak self] prompt, host, ended in self?.sendFromTile(pin.id, prompt, from: host, ended: ended) ?? false }
             tile.id = pin.id   // [tiles] read again in place when its job runs
+            // [tile-chats] Its chat on a button of the bar: the tile closes and the chat opens over Tiles.
+            if tileHasChat(pin) {
+                tile.openChat = { [weak self] host in
+                    host.dismiss(animated: true) { self?.openChat(ofTile: pin.id) }
+                }
+            }
             // [tiles] The sheet opens in the page's own colour, read off the tile's picture: no black sheet with white bar
             // words before a white page draws (Mac pass 2026-11-14).
             tile.backdrop = pinPictures.shown(pin).flatMap(PinPictures.edgeColor)

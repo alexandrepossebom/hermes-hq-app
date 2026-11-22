@@ -280,8 +280,7 @@ private func modelSets(_ gateway: ModelGateway) -> [(query: [URLQueryItem], body
         #expect(SettingsWords.customProviderDefaultFooter(model: " ", provider: "Studio", defaultBot: "Hermes").hasPrefix("Makes Studio the default provider."))
         #expect(SettingsWords.customProviderIsDefault(defaultBot: "Hermes") == "New chats with Hermes use this provider’s default model.")
         #expect(SettingsWords.customProviderIsDefault(defaultBot: nil) == "New chats with the default bot use this provider’s default model.")
-        #expect(SettingsWords.moaFooter(defaultBot: "Hermes")
-                == "Several models answer each turn, and an aggregator model writes the reply from their answers. Applies to Hermes only.")
+        #expect(SettingsWords.moaFooter(defaultBot: "Hermes").hasSuffix("Applies to Hermes only."))   // [moa-setup] its own words: MixtureRecordTests
         #expect(SettingsWords.toolModelScope(bot: "Ivy") == "Applies to Ivy only.")
         #expect(SettingsWords.toolModelScope(bot: "") == "Applies to this bot only.")
         #expect(JobWords.modelScope(bot: "Ivy") == "Applies to this job only. Default uses Ivy’s own model.")

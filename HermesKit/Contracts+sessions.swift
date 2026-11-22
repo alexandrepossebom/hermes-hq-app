@@ -37,6 +37,11 @@ nonisolated struct SessionsViewPrefs: Codable, Hashable, Sendable {
     /// Show › Project Chats in Recent: off lists under "Recent" only the chats outside every project (Home's); a
     /// project's chats then show on its card alone (tester, 2026-11-08: "hide it from Recent too").
     var projectChatsInRecent = true
+    /// [chats-projects] Show › Projects: the Chats side (Group By Recent) draws the projects' shortcut above Recent.
+    /// Off by default: a tester found the projects on both sides of the switch confusing (2026-11-20), so the Chats
+    /// side lists chats alone and the projects are the switch's other side; on brings the shortcut back as it was
+    /// ([sessions-shape]). Project Chats in Recent only means something while it is on.
+    var showProjects = false
     /// Row Detail › Preview under Group By Recent: one line of the last message under each Recent (and project card)
     /// chat's title. Its own setting, off by default, so the one-line Recent rows stay as they were; the other
     /// groupings keep `rowDetail`'s Preview (a tester, 2026-11-12: "toggling previews doesn't do anything").
@@ -64,7 +69,7 @@ nonisolated struct SessionsViewPrefs: Codable, Hashable, Sendable {
         return recentPreview ? rowDetail.union([.preview]) : rowDetail.subtracting([.preview])
     }
 
-    private enum CodingKeys: String, CodingKey { case sortBy, groupBy, rowDetail, statusFilter, projectFilter, showArchived, botFaces, projectChatsInRecent, recentPreview }
+    private enum CodingKeys: String, CodingKey { case sortBy, groupBy, rowDetail, statusFilter, projectFilter, showArchived, botFaces, projectChatsInRecent, showProjects, recentPreview }
 
     /// Lenient: a value this build does not know (a file from a newer one) reads as that field's default, never an error.
     init(from decoder: Decoder) throws {
@@ -77,6 +82,7 @@ nonisolated struct SessionsViewPrefs: Codable, Hashable, Sendable {
         if let value = try? c.decodeIfPresent(Bool.self, forKey: .showArchived) { showArchived = value }
         if let value = try? c.decodeIfPresent(Bool.self, forKey: .botFaces) { botFaces = value }
         if let value = try? c.decodeIfPresent(Bool.self, forKey: .projectChatsInRecent) { projectChatsInRecent = value }
+        if let value = try? c.decodeIfPresent(Bool.self, forKey: .showProjects) { showProjects = value }
         if let value = try? c.decodeIfPresent(Bool.self, forKey: .recentPreview) { recentPreview = value }
     }
 
@@ -90,6 +96,7 @@ nonisolated struct SessionsViewPrefs: Codable, Hashable, Sendable {
         try c.encode(showArchived, forKey: .showArchived)
         try c.encode(botFaces, forKey: .botFaces)
         try c.encode(projectChatsInRecent, forKey: .projectChatsInRecent)
+        try c.encode(showProjects, forKey: .showProjects)
         try c.encode(recentPreview, forKey: .recentPreview)
     }
 }
@@ -112,6 +119,86 @@ nonisolated struct SessionPending: Hashable, Sendable {
     }
 
     var prefix: String { failed ? "Not Delivered:" : "Draft:" }
+}
+
+/// A coding row names the decision, current step or confirmed outcome. It isn't a transcript preview.
+nonisolated enum CodingSessionSubtitle {
+    static func line(_ row: SessionSummary) -> String {
+        if row.pending?.failed == true { return "Your message wasn’t delivered" }
+        if row.status == .needsInput { return row.inputDetail ?? "Waiting for you in chat" }
+        if row.pending != nil { return "Draft not sent" }
+        if row.isRunning || row.status == .working {
+            return live(row.step ?? "")
+        }
+        if let result = row.lastResult, result != replyFallback { return result }
+        if let pr = row.pullRequest, pr.state != .none, pr.state != .unknown {
+            let name = pr.number.map { "PR #\($0)" } ?? "Pull request"
+            switch pr.state {
+            case .draft: return "\(name) is still a draft"
+            case .open: return "\(name) is open"
+            case .merged: return "\(name) merged"
+            case .closed: return "\(name) closed"
+            default: break
+            }
+        }
+        return row.unread ? "Unread reply in chat" : row.lastResult ?? "No recent update"
+    }
+
+    private static let replyFallback = "Replied in chat"
+
+    /// While the bot works: the tool call it is on, as every other Sessions row streams it ("Running npm test…",
+    /// owner 2026-10-30), masked once more. "Working…" before the first step and while the reply writes.
+    private static func live(_ step: String) -> String {
+        let words = NotificationText.oneLine(NotificationText.redact(step))
+        return words.isEmpty ? "Working…" : LiveSteps.line(words)
+    }
+
+    /// Fillers a reply opens with that say nothing about the work.
+    private static let openers = ["done. ", "done! ", "done, ", "done: ", "done — ", "done - ", "all set. ", "all set! ",
+                                  "sure. ", "sure! ", "okay. ", "okay, ", "ok. ", "ok, ", "got it. ", "great. ", "great news: "]
+
+    /// When the turn ends: the reply's own summary, its first sentence (owner, 2026-11-20: tool calls while it works,
+    /// the summary when it's done). A reply that opens with code or a masked secret says only that it replied.
+    static func result(_ message: SessionLatestMessage) -> String? {
+        if message.role == "user" { return "No reply yet" }
+        guard message.role == "assistant" else { return nil }
+        let raw = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.hasPrefix("```"), !raw.hasPrefix("$ ") else { return replyFallback }
+        var words = NotificationText.oneLine(RosterPreview.cleanPreviewText(raw))
+        while let lead = openers.first(where: { words.lowercased().hasPrefix($0) }) {
+            words = String(words.dropFirst(lead.count)).trimmingCharacters(in: .whitespaces)
+        }
+        if let end = words.range(of: #"[.!?](?=\s)"#, options: .regularExpression),
+           words.distance(from: words.startIndex, to: end.lowerBound) >= 12 {
+            words = String(words[..<end.upperBound])
+        }
+        let line = NotificationText.preview(words, max: 86)
+        guard !line.isEmpty, !line.contains(NotificationText.redacted) else { return replyFallback }
+        return line.prefix(1).uppercased() + line.dropFirst()
+    }
+
+    static func prompt(_ prompts: ChatPrompts) -> String? {
+        if prompts.approvals.contains(where: { !$0.leaving }) { return "Review the command before it runs" }
+        if let value = prompts.values.first(where: { !$0.late }) {
+            switch value.kind {
+            case .sudo: return "Administrator password needed"
+            case .vaultCode: return "Enter your sign-in code"
+            case .vaultUnlock: return "Unlock your password manager"
+            case .vaultSaveLogin: return "Save a login to continue"
+            default: return "Enter the requested credential"
+            }
+        }
+        guard let ask = prompts.clarify else { return nil }
+        guard let q = ask.questions.first(where: { !ask.lockedAnswers.keys.contains($0.qid) }), let choices = q.choices, choices.count > 1 else { return "Answer a question in chat" }
+        if !q.multiSelect {
+            let stem = q.question.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            for (prefix, action) in [("which branch", "Choose a branch"), ("which layout", "Choose a layout"), ("which header layout", "Choose a header layout"), ("which version", "Choose a version")] where stem.hasPrefix(prefix + " ") || stem == prefix + "?" {
+                return action
+            }
+        }
+        if !q.multiSelect, choices.count == 2 { return "Choose between two options" }
+        return q.multiSelect ? "Select the options you want" : "Choose from \(choices.count) options"
+    }
 }
 
 // MARK: - Mark All as Read (§5.6)

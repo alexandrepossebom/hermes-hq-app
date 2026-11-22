@@ -179,6 +179,22 @@ nonisolated enum AudioWork {
         AudioWork.later { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
 
+    /// A clip of speech was made and would not start (docs/spec/3x-talk.md §3.4, #412): the session is set active again,
+    /// once, for whoever holds it now (another owner or an interruption may have taken it a moment ago). A player's
+    /// category is set again too; inside a conversation only `setActive(true)` (the category is the conversation's).
+    /// Nothing when nobody plays or a stand-in holds it. A failure is only logged: the clip's own retry says the rest.
+    func reactivate() async {
+        guard let owner, owner.plays || owner == .conversation, !isSimulated(owner) else { return }
+        VoiceEvents.note("audio session: \(owner.rawValue) set active again")
+        do {
+            try await AudioWork.run {
+                if owner.plays { try Self.activate(owner, mode: .default) } else { try AVAudioSession.sharedInstance().setActive(true) }
+            }
+        } catch {
+            VoiceEvents.note("audio session: \(owner.rawValue) set active again failed: \(VoiceReport.scrub(error.localizedDescription))")
+        }
+    }
+
     /// The bar's speaker button: the loudspeaker, or the earpiece. Only while the built-in route plays.
     func setLoudspeaker(_ on: Bool) {
         guard loudspeaker != on else { return }

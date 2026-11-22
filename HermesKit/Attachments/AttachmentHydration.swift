@@ -204,6 +204,7 @@ nonisolated extension Hydration {
     /// question), the resume snapshot's `inflight.user` (leading `@file:` lines, no `@image:` lines) and the stored row
     /// (both) all give the same key.
     static func userDisplayKey(_ text: String) -> String {
-        ChatText.flat(AttachmentHydration.liftText(text).text)
+        // [phone-calls] A call result and its short bubble are one message (PhoneChatText.shown).
+        ChatText.flat(PhoneChatText.shown(AttachmentHydration.liftText(text).text))
     }
 }

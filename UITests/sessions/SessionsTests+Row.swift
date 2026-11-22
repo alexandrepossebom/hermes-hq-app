@@ -98,9 +98,21 @@ extension SessionsTests {
         let app = launch()
         let garden = row(app, "s-garden")
         XCTAssertTrue(garden.waitForExistence(timeout: 15))
+        // Recent's Preview is independently off by default (build 957); it can be enabled for the last message.
+        XCTAssertTrue(waitUntil(6) { self.labelOf(garden).contains("Hermes: main · hermes-4 · 2 messages") }, labelOf(garden))
+        openFilter(app)
+        tapFilter(app, "detail", "detail.preview")
+        closeFilter(app)
+        XCTAssertTrue(waitUntil(6) { self.labelOf(garden).contains("Hermes: Tomatoes") }, labelOf(garden))
         openChat(app, "s-garden")
         type(app, "call the plumber", send: false)
         backToList(app)
+        XCTAssertTrue(waitUntil(6) { self.labelOf(garden).contains("Hermes: Draft: call the plumber") }, labelOf(garden))
+        XCTAssertFalse(labelOf(garden).contains("Hermes: Tomatoes"), "draft takes precedence over the preview")
+        // A draft is still shown when Recent's Preview is off.
+        openFilter(app)
+        tapFilter(app, "detail", "detail.preview")
+        closeFilter(app)
         XCTAssertTrue(waitUntil(6) { self.labelOf(garden).contains("Hermes: Draft: call the plumber") }, labelOf(garden))
         shot(app, "E5-draft")
         openFilter(app)
@@ -135,7 +147,16 @@ extension SessionsTests {
         shot(app, "E5-draft-cleared-in-chat")
         backToList(app)
         XCTAssertTrue(waitUntil(6) { !self.labelOf(garden).contains("Draft:") }, "no text, no line (\(labelOf(garden)))")
-        XCTAssertTrue(labelOf(garden).contains("Hermes: Tomatoes"), "the preview is back (\(labelOf(garden)))")
+        XCTAssertTrue(waitUntil(6) { self.labelOf(garden).contains("Hermes: main · hermes-4 · 2 messages") },
+                      "the metadata returns with Preview off (\(labelOf(garden)))")
+        openFilter(app)
+        tapFilter(app, "detail", "detail.preview")
+        closeFilter(app)
+        XCTAssertTrue(waitUntil(6) { self.labelOf(garden).contains("Hermes: Tomatoes") },
+                      "the preview returns when enabled (\(labelOf(garden)))")
+        openFilter(app)
+        tapFilter(app, "status", "status.draft")
+        XCTAssertTrue(waitUntil(6) { self.order(app).isEmpty }, "the cleared chat no longer matches Draft (\(order(app)))")
     }
 
     /// E6: a send whose answer never came: the row says "Not Delivered:" ahead of a draft; a relaunch keeps it; the

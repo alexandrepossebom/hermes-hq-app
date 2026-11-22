@@ -612,6 +612,7 @@ nonisolated struct RowLayout: @unchecked Sendable {
     var key: TextLayoutKey?
     enum Content {
         case bubble(BubbleLayout)
+        case phoneResult(CGRect)
         case tool(ToolRowLayout)
         case line(LineLayout)          // day separator, notice, caption, stopped-early
         case error(ErrorLayout)
@@ -705,6 +706,11 @@ nonisolated enum TextLayout {
         case .bubble(let b):
             if b.senderInset && !b.mine { return senderBubble(b, row: row, width: width, style: style, keep: keep) }   // [groups]
             return bubble(b, row: row, width: width, style: style, keep: keep)
+        case .phoneResult(let result, _):
+            let cardWidth = max(0, width - 2 * ChatMetrics.sideInset)
+            let height = PhoneChatCardLayout.height(for: .result(result), width: cardWidth, style: style)
+            return RowLayout(height: gap + height, content: .phoneResult(CGRect(x: ChatMetrics.sideInset, y: gap,
+                                                                                width: cardWidth, height: height)))
         case .toolRun(let t):
             if let line = t.line {                          // Tool Call Style › One Line: the reply's line
                 let failed = t.tools.filter { $0.state == .failed }.count
@@ -884,7 +890,7 @@ nonisolated enum TextLayout {
                                         linkChips: !b.mine && !b.streaming,   // [transcript] §3.7: chips under a settled reply's bare links
                                         filePaths: !b.mine,                    // a path the bot names opens in Files
                                         streaming: b.streaming,
-                                        pageCards: !b.mine)                    // [page-cards] also while the reply arrives
+                                        pageCards: !b.mine, phoneProposals: !b.mine) // [page-cards] also while the reply arrives
         } else {
             r = RenderedMarkdown(blocks: [.text(MarkdownRenderer.plain(b.text, style: style, theme: b.mine ? .me : .bot))],
                                  plainText: b.text)
@@ -1051,6 +1057,18 @@ nonisolated enum TextLayout {
         if !b.media.isEmpty || !b.files.isEmpty { return AttachmentBubbleLayout.bubble(b, row: row, width: width, style: style, keep: keep) }
         if let memo = b.memo { return MemoBubbleLayout.make(b, memo: memo, row: row, width: width, style: style) }   // VOICE
         let rendered = rendered(b, row: row, style: style)
+        if rendered.blocks.count == 1, let block = rendered.blocks.first, case .phoneProposal(_, let proposal) = block {
+            let w = max(0, width - 2 * ChatMetrics.sideInset)
+            let h = PhoneChatCardLayout.height(for: .proposal(proposal), width: w, style: style)
+            let bounds = CGRect(x: 0, y: 0, width: w, height: h)
+            let placed = PlacedBlock(block: block, frame: bounds, textFrame: .zero, contentWidth: w, contentHeight: h,
+                                     layoutWidth: nil, pieces: [], codeOpen: nil)
+            let shape = BubbleShape.Key(width: w, height: h, mine: false, joinsAbove: false, joinsBelow: false, tail: false)
+            let layout = BubbleLayout(frame: bounds.offsetBy(dx: ChatMetrics.sideInset, dy: row.gapAbove), shape: shape,
+                                      mine: false, blocks: [placed], timeText: nil, timeFrame: .zero, dimmed: false,
+                                      copyText: rendered.plainText, showMoreFrame: nil)
+            return RowLayout(height: row.gapAbove + h, content: .bubble(layout))
+        }
         // [attachments] a reply part of images only draws like a photo-only bubble (spec §7.5)
         if !b.mine, let photos = AttachmentBubbleLayout.photoOnlyReply(rendered, b, row: row, width: width, style: style) { return photos }
         var maxBubble = maxBubbleWidth(mine: b.mine, width: width, style: style)
@@ -1200,6 +1218,13 @@ nonisolated enum TextLayout {
                                           pieces: laid.pieces, codeOpen: nil, grid: laid.grid))
                 contentWidth = max(contentWidth, w)
                 y += size.height + footer
+            case .phoneProposal(_, let proposal):
+                let w = maxText
+                let h = PhoneChatCardLayout.height(for: .proposal(proposal), width: w, style: style)
+                placed.append(PlacedBlock(block: block, frame: CGRect(x: 0, y: y, width: w, height: h), textFrame: .zero,
+                                          contentWidth: w, contentHeight: h, layoutWidth: nil, pieces: [], codeOpen: nil))
+                contentWidth = max(contentWidth, w)
+                y += h
             case .linkChip:
                 // [transcript] A fixed size from the start (§3.7): the title and icon land without moving anything.
                 let w = LinkChipView.width(maxText: maxText), h = LinkChipView.height(style: style)
@@ -1530,7 +1555,7 @@ nonisolated enum TextLayout {
                 let lines = ([t.header] + t.rows).map { $0.map(\.string).joined(separator: " · ") }
                 piece = NSAttributedString(string: lines.joined(separator: "\n"),
                                            attributes: [.font: style.body, .foregroundColor: ChatPalette.label])
-            case .spacer, .media, .linkChip, .pageCard: piece = nil
+            case .spacer, .media, .linkChip, .pageCard, .phoneProposal: piece = nil
             }
             guard let piece, piece.length > 0 else { continue }
             if out.length > 0 { out.append(gap) }

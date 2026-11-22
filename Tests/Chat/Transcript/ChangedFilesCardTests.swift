@@ -97,6 +97,74 @@ import UIKit
         #expect(card(ChatRowBuilder.build(i)) == nil)
     }
 
+    // [files] File Changes › Folded (owner 2026-11-20): one line until tapped; Open is the card alone.
+
+    func filesLayout(_ i: ChatRowBuilder.Input) throws -> (ChangedFilesRow, ChangedFilesLayout) {
+        let rows = ChatRowBuilder.build(i)
+        let row = try #require(rows.first { $0.id == "a|files" })
+        let c = try #require(row.changedFiles)
+        guard case .activity(.changedFiles(let layout)) = TextLayout.make(row, width: 393, style: ChatStyleCache.shared.style(for: .large)).content else {
+            throw CancellationError()
+        }
+        return (c, layout)
+    }
+
+    @Test func foldedIsOneLineWithTheSummedCounts() throws {
+        let (parts, diffs) = threeFiles
+        var i = input(parts, diffs: diffs, style: .bottom)
+        i.activity.fileChanges = .folded
+        let (c, layout) = try filesLayout(i)
+        #expect(c.folded && !c.opened)
+        #expect(!layout.cardShown && layout.rows.isEmpty && layout.showAllFrame == nil, "no card until it is opened")
+        let line = try #require(layout.lineText?.string)
+        #expect(line == "2 files changed  +8 −4", "app.py +3 −4 and README.md +5: \(line)")
+        #expect((layout.lineFrame?.height ?? 0) >= ChatMetrics.toolRowMin, "a work line's 40 pt row")
+    }
+
+    @Test func foldedOpensOnItsOwnKeyAndKeepsShowAllSeparate() throws {
+        let (parts, diffs) = threeFiles
+        var i = input(parts, diffs: diffs, style: .bottom)
+        i.activity.fileChanges = .folded
+        i.expanded = [ChatRow.filesOpenKey("a|files")]
+        let (c, layout) = try filesLayout(i)
+        #expect(c.opened && !c.showAll, "opening the line is not Show All")
+        #expect(layout.cardShown && layout.rows.count == 2)
+        let lineFrame = try #require(layout.lineFrame)
+        #expect(layout.cardFrame.minY >= lineFrame.maxY, "the card hangs under its line")
+        // Fingerprints differ so the table redraws the row when it opens.
+        i.expanded = []
+        let shut = try #require(ChatRowBuilder.build(i).first { $0.id == "a|files" })
+        i.expanded = [ChatRow.filesOpenKey("a|files")]
+        let open = try #require(ChatRowBuilder.build(i).first { $0.id == "a|files" })
+        #expect(shut.fingerprint != open.fingerprint && shut.variant != open.variant)
+    }
+
+    @Test func openIsTheCardWithNoLine() throws {
+        let (parts, diffs) = threeFiles
+        var i = input(parts, diffs: diffs, style: .bottom)
+        i.activity.fileChanges = .open
+        let (c, layout) = try filesLayout(i)
+        #expect(!c.folded && layout.lineFrame == nil && layout.cardShown && layout.headerTitle == "2 files changed")
+    }
+
+    @Test func theOldSwitchsOffStaysOffAndFoldedIsTheDefault() {
+        let d = UserDefaults.standard
+        let saved = (d.object(forKey: ToolCallSettings.fileChangesKey), d.object(forKey: ToolCallSettings.fileChangesLookKey))
+        defer {
+            d.set(saved.0, forKey: ToolCallSettings.fileChangesKey)
+            d.set(saved.1, forKey: ToolCallSettings.fileChangesLookKey)
+        }
+        d.removeObject(forKey: ToolCallSettings.fileChangesLookKey)
+        d.removeObject(forKey: ToolCallSettings.fileChangesKey)
+        #expect(ToolCallSettings.fileChanges == .folded)
+        d.set(false, forKey: ToolCallSettings.fileChangesKey)
+        #expect(ToolCallSettings.fileChanges == .off, "a card turned off under the old switch stays off")
+        ToolCallSettings.fileChanges = .open
+        #expect(ToolCallSettings.fileChanges == .open && d.object(forKey: ToolCallSettings.fileChangesKey) == nil)
+        ToolCallSettings.fileChanges = .folded
+        #expect(d.object(forKey: ToolCallSettings.fileChangesLookKey) == nil, "the default stores nothing")
+    }
+
     @Test func theCardStaysWhenStepsAreHidden() {
         let (parts, diffs) = threeFiles
         let rows = ChatRowBuilder.build(input(parts, diffs: diffs, style: .rows, hide: true))

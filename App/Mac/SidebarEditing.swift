@@ -13,6 +13,8 @@ import UIKit
         var choice: TabChoice
         var title: String
         var image: UIImage?
+        /// [sidebar-add-tools] One of the Tools now: added, it leaves Tools for the pages under the line.
+        var fromTools = false
     }
 
     /// A row's drag (`MacSidebar`): the place it shows.
@@ -25,29 +27,41 @@ import UIKit
 
     /// What could join the sidebar now, as Settings › Tabs' add list has it: the main tabs not in it, then the More
     /// pages this gateway has, in More's order.
-    /// Owner 2026-11-17 (Mac calls Q11): Only pages in neither the places nor Tools: a Tool is already in the
-    /// sidebar, and its own Control-click has Move to Places (two ways to one thing before).
+    /// Owner 2026-11-17 (Mac calls Q11) had left the Tools out (a Tool is already in the sidebar, with Move to Places).
+    /// [sidebar-add-tools] Owner 2026-11-22, the Add to Sidebar menu listing only setup pages: "There is a lot that I
+    /// cannot add to the sidebar" (as on 2026-11-09: "I don't see tasks or tiles as options to add"). The Tools are
+    /// offered again, after the rest and marked `fromTools` (the menu lists them under "From Tools"). Bots stays out:
+    /// Bots in Sidebar decides where it is.
     static func addable() -> [Place] {
         let shown = TabOrder.tabs
-        let mains = HQTab.movable.map(TabChoice.main).filter { !shown.contains($0) && !isTool($0) }
-        let pages = TabOrderPage.pageChoices().filter { !shown.contains(.page($0.id)) && !isTool(.page($0.id)) }
-        return mains.map { Place(choice: $0, title: TabOrderPage.title($0), image: image($0, symbol: nil)) }
-            + pages.map { Place(choice: .page($0.id), title: $0.title, image: image(.page($0.id), symbol: $0.symbol)) }
+        let mains = HQTab.movable.map(TabChoice.main).filter { !shown.contains($0) && !($0 == .main(.bots) && isTool($0)) }
+        let pages = TabOrderPage.pageChoices().filter { !shown.contains(.page($0.id)) }
+        let all = mains.map { Place(choice: $0, title: TabOrderPage.title($0), image: image($0, symbol: nil), fromTools: isTool($0)) }
+            + pages.map { Place(choice: .page($0.id), title: $0.title, image: image(.page($0.id), symbol: $0.symbol), fromTools: isTool(.page($0.id))) }
+        // The Tools in the order the sidebar lists them.
+        let toolOrder = MainTabController.current?.pages?.toolIDs ?? []
+        func rank(_ place: Place) -> Int { toolID(place.choice).flatMap(toolOrder.firstIndex) ?? Int.max }
+        let tools = all.enumerated().filter { $0.element.fromTools }
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        return all.filter { !$0.fromTools } + tools
     }
 
     /// `choice` stands under the sidebar's Tools now (a page More's working sections give it, Marketplace, a plugin
     /// page, or Bots while it is no place).
     private static func isTool(_ choice: TabChoice) -> Bool {
         guard let pages = MainTabController.current?.pages else { return false }
-        let id: String?
+        return toolID(choice).map(pages.toolIDs.contains) ?? false
+    }
+
+    /// The More row id `choice` would have among the Tools.
+    private static func toolID(_ choice: TabChoice) -> String? {
         switch choice {
-        case .page(let page): id = page
-        case .main(.jobs): id = "jobs"
-        case .main(.workspace): id = pages.workspaceRowID
-        case .main(.bots): id = PagesTabs.botsRowID
-        case .main: id = nil
+        case .page(let page): return page
+        case .main(.jobs): return "jobs"
+        case .main(.workspace): return MainTabController.current?.pages?.workspaceRowID
+        case .main(.bots): return PagesTabs.botsRowID
+        case .main: return nil
         }
-        return id.map(pages.toolIDs.contains) ?? false
     }
 
     /// The place a More row opens, when it can be in the sidebar: a hidden Jobs or Kanban/Artifacts tab, or a page.
@@ -74,6 +88,16 @@ import UIKit
         TabOrder.tabs = tabs.filter { $0 != choice }
     }
 
+    /// [sidebar-divider] A page added to the sidebar (More's, from Add to Sidebar or Settings › Tabs), not one of the
+    /// main places (Bots, Sessions, Jobs, Kanban or Artifacts): those added sit under a line after the main ones.
+    static func isAddedPage(_ tag: Int) -> Bool {
+        if case .page? = TabChoice(tag: tag) { return true }
+        return false
+    }
+
+    /// Moves stay on their own side of the line: a page among the pages, a main place among the main places.
+    private static func sameSide(_ a: TabChoice, _ b: TabChoice) -> Bool { isAddedPage(a.tag) == isAddedPage(b.tag) }
+
     /// The places in the sidebar's order as it shows them (a page this gateway lacks is in `TabOrder.tabs` but not
     /// here: moves step over it).
     /// Only rows a move can land beside: Bots has no row here (the bots themselves stand for it) and the Tools sit
@@ -87,23 +111,32 @@ import UIKit
 
     /// `choice` one row up (-1) or down (+1); false when it is already at that end.
     static func canMove(_ choice: TabChoice, by step: Int) -> Bool {
-        let rows = shown
+        let rows = shown.filter { sameSide($0, choice) }   // [sidebar-divider] not across the line
         guard let index = rows.firstIndex(of: choice) else { return false }
         return rows.indices.contains(index + step)
     }
 
     static func move(_ choice: TabChoice, by step: Int) {
-        let rows = shown
+        let rows = shown.filter { sameSide($0, choice) }
         guard let index = rows.firstIndex(of: choice), rows.indices.contains(index + step) else { return }
         AppLog.note("mac", "sidebar: moved \(choice.key) \(step < 0 ? "up" : "down")")
         place(choice, beside: rows[index + step], after: step > 0)
     }
 
     /// A dragged row dropped above `target`, or below the last row (nil).
+    /// [sidebar-divider] Dropped on the other side of the line, it lands at the end of its own side nearest the drop:
+    /// a page let go among the main places is the first page, a main place let go among the pages the last main place.
     static func move(_ choice: TabChoice, before target: TabChoice?) {
         guard target != choice else { return }
         AppLog.note("mac", "sidebar: dragged \(choice.key) above \(target?.key ?? "the end")")
-        if let target { place(choice, beside: target, after: false) } else if let last = shown.last, last != choice { place(choice, beside: last, after: true) }
+        let side = shown.filter { sameSide($0, choice) }
+        if let target, sameSide(target, choice) {
+            place(choice, beside: target, after: false)
+        } else if isAddedPage(choice.tag), target != nil {
+            if let first = side.first, first != choice { place(choice, beside: first, after: false) }
+        } else if let last = side.last, last != choice {
+            place(choice, beside: last, after: true)
+        }
     }
 
     private static func place(_ choice: TabChoice, beside neighbour: TabChoice, after: Bool) {
@@ -140,9 +173,7 @@ import UIKit
         let add: UIMenuElement = places.isEmpty
             // Owner 2026-11-17 (Mac calls Q11): Nothing left to add: the item itself, dimmed, not an empty submenu.
             ? UIAction(title: "Add to Sidebar", image: UIImage(systemName: "plus"), attributes: .disabled) { _ in }
-            : UIMenu(title: "Add to Sidebar", image: UIImage(systemName: "plus"), children: places.map { place in
-                UIAction(title: place.title, image: place.image) { _ in add(place.choice) }
-            })
+            : UIMenu(title: "Add to Sidebar", image: UIImage(systemName: "plus"), children: addGroups(places))
         let settings = UIAction(title: "Sidebar Settings…", image: UIImage(systemName: "gearshape")) { _ in openSettings() }
         // [bots-place] The bots in the sidebar, or a Bots row whose list opens beside it (while Bots is a place).
         var view: [UIMenuElement] = []
@@ -150,9 +181,27 @@ import UIKit
             view.append(UIAction(title: "Bots in Sidebar", state: MacSidebar.botsInSidebar ? .on : .off) { _ in
                 MacSidebar.botsInSidebar.toggle()
             })
+            // [pinned-only] Only the pinned bots (and one that wants you), while the bots are in the sidebar.
+            if MacSidebar.botsInSidebar {
+                view.append(UIAction(title: "Pinned Bots Only", state: MacSidebar.pinnedOnly ? .on : .off) { _ in
+                    MacSidebar.pinnedOnly.toggle()
+                })
+            }
         }
         return UIMenu(children: [UIMenu(options: .displayInline, children: [add]), UIMenu(options: .displayInline, children: view),
                                  UIMenu(options: .displayInline, children: [settings])])
+    }
+
+    /// [sidebar-add-tools] Add to Sidebar's items: the pages in neither list first, then "From Tools" (each leaves
+    /// Tools for the pages under the line), each group only when it has items.
+    private static func addGroups(_ places: [Place]) -> [UIMenuElement] {
+        func item(_ place: Place) -> UIAction { UIAction(title: place.title, image: place.image) { _ in add(place.choice) } }
+        let others = places.filter { !$0.fromTools }.map(item)
+        let tools = places.filter(\.fromTools).map(item)
+        var groups: [UIMenuElement] = []
+        if !others.isEmpty { groups.append(UIMenu(options: .displayInline, children: others)) }
+        if !tools.isEmpty { groups.append(UIMenu(title: "From Tools", options: .displayInline, children: tools)) }
+        return groups
     }
 
     /// A More row's Control-click: Add to Sidebar, when its page can be there.
@@ -164,6 +213,18 @@ import UIKit
                 UIAction(title: "Sidebar Settings…", image: UIImage(systemName: "gearshape")) { _ in openSettings() },
             ]),
         ])
+    }
+
+    /// [tools-menu-icon] A sidebar row's icon at a menu's size (the folded sidebar's Tools menu). Owner 2026-11-22: "the
+    /// kanban icon here is too big": a drawn glyph (Kanban, Bots) is made at the bar's size and a menu draws an image
+    /// at the size it is, where a symbol takes the menu's own size. Those are drawn again as Add to Sidebar draws them.
+    static func menuImage(_ item: UITabBarItem) -> UIImage? {
+        if let image = item.image, image.isSymbolImage { return image }
+        if item.accessibilityIdentifier == "tab-page-\(PagesTabs.botsRowID)" { return image(.main(.bots), symbol: nil) }
+        if let choice = TabChoice(tag: item.tag), choice == .page("kanban") || choice == .main(.workspace) {
+            return image(choice, symbol: nil)
+        }
+        return item.image
     }
 
     /// The place's icon as the sidebar draws it, at a menu's size.

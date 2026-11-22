@@ -331,10 +331,25 @@ sample wait for the next frame (`PCMCarry`), never dropped (`V:lib/voice-playbac
 `POST /api/audio/speak?profile=<profile>` body `{"text": "Your first meeting is at nine."}`, timeout 60 s.
 
 Answer: `200 {"ok": true, "data_url": "data:audio/mpeg;base64,…", "mime_type": "audio/mpeg", "provider": "edge"}`.
-`400 {"detail": "Text is required"}` for empty text. The app decodes the data URL to a temporary file and plays it
-with `AVAudioPlayer`. `audio/mpeg`, `audio/wav`, `audio/x-wav`, `audio/flac`, `audio/mp4`, `audio/aac` play; anything
-else fails with "Your gateway’s voice uses a format iPhone can’t play (<mime>). Pick another Text to Speech provider
-in Settings › Voice." (title "Voice Playback Failed").
+`400 {"detail": "Text is required"}` for empty text. `audio/mpeg`, `audio/wav`, `audio/x-wav`, `audio/flac`,
+`audio/mp4`, `audio/aac` play; anything else fails with "Your gateway’s voice uses a format iPhone can’t play (<mime>).
+Pick another Text to Speech provider in Settings › Voice." (title "Voice Playback Failed").
+
+**Playing a clip (#412, a tester: a plain 24 kHz MP3 was called "a format iPhone can't play" while the output was
+busy, and the gateway's voice was then skipped for 30 minutes).** The app decodes the data URL and plays it with
+`AVAudioPlayer`, the tolerant ways in turn (`SpeechClipPlayback.swift`, `ClipStart`): (1) the bytes from memory, with
+the type their first bytes say (`VoiceWire.sniff`: MP3 frame, ADTS AAC, an ID3 tag skipped, RIFF/WAVE, fLaC, `ftyp`,
+caff, AIFF; else the label's type), so an AAC body a gateway labels `audio/mpeg` (an extension Hermes doesn't know
+falls back to that label) plays as AAC; (2) the same bytes written to a temporary file named for that kind,
+`AVAudioPlayer(contentsOf:)`; (3) only when a player was made and `play()` said no: the audio session is set active
+again once for whoever holds it (`AudioSessionCoordinator.reactivate`; inside a conversation only `setActive(true)`)
+and the file is tried once more. A clip that still won't play is **not** a format problem: "iPhone couldn’t play your
+gateway’s voice just now (<why>). Try again." (`VoiceWire.playbackFailed`; <why> is "the audio output was busy" for
+`!pla`/`!int`/`!pri`/`!act`, "the audio session wasn’t active" for `inac`, "the audio couldn’t be read" for
+`fmt?`/`typ?`/`dta?`, "the audio output didn’t start" when `play()` returned false, nothing otherwise), with the
+error's domain, code, four-character code, label, sniffed kind and size in Voice Diagnostics' events. It is this
+reply's alone (§7.7: never remembered). The format sentence stays for a label the list above refuses and for bytes
+no player here reads whatever their label (Ogg, WebM: "… can’t play (audio/ogg) …"), which are remembered as before.
 
 ### 3.5 Warm-up leases (best effort)
 
@@ -992,6 +1007,7 @@ denied, otherwise **Try Again**.
 | transcription failed 3 times running (T15) | (title Voice Transcription Failed) <the gateway's last reason> | status code and body |
 | the chat cannot send any more (session gone, signed out) | (title Voice Transcription Failed) This chat can’t send right now. | the refusal's text |
 | speech could not be played at all (unplayable format, §3.4) | (title Voice Playback Failed) Your gateway’s voice uses a format iPhone can’t play (<mime>). Pick another Text to Speech provider in Settings › Voice. | — |
+| a clip of a playable kind would not play here (§3.4, #412) and the iPhone's voice can't play either | (title Voice Playback Failed) iPhone couldn’t play your gateway’s voice just now (<why>). Try again. | — (not fatal: the next reply tries the gateway's voice again) |
 
 A single transcription failure or a single speech failure does **not** stop the conversation. The strip shows the
 reason for that turn ("Voice Transcription Failed. <reason>" / "Voice Playback Failed. <reason>") in the warning
@@ -1205,6 +1221,7 @@ Details** (the web's failure alert, `W:src/ui-chat/composer.tsx`).
 | gateway unreachable | The computer running Hermes isn’t reachable right now. Try again when it reconnects. |
 | the gateway answered an error | the gateway's `detail`, word for word |
 | unplayable format | Your gateway’s voice uses a format iPhone can’t play (<mime>). Pick another Text to Speech provider in Settings › Voice. |
+| a clip of a playable kind would not play (output busy, session lost, bad clip; §3.4) | iPhone couldn’t play your gateway’s voice just now (<why>). Try again. |
 | no speech arrived for 15 s | The voice didn’t answer in time. Try again. |
 | nothing to read | There’s nothing to read in this reply. |
 
@@ -1229,13 +1246,17 @@ failed (edge): … 403 …" because the bot's profile had no `tts:` section, Her
   second of audio, whole sentences only), or from the start when nothing played. Its PCM goes to the same
   `SpeechOutput` as the gateway's: inside the conversation's engine (voice processing cancels it, barge-in works) and on
   the level meter. A failure is: an error answer from either speech route (provider error, 4xx/5xx, unplayable audio),
+  a clip that came and would not play here after the tolerant tries of §3.4,
   or **no audio at all 20 s after the reply is complete** (`VoiceWire.phoneVoiceAfter`, the one constant: Hermes makes a
   whole first sentence before any audio and a cold local voice can take 10–15 s; Read Aloud's own "didn't answer" waits
   10 s longer so the iPhone's voice always gets its turn). A connection that drops mid-reply also continues on the
   iPhone's voice, without a notice.
 - **Remembered**: an error answer is remembered per gateway and profile for 30 minutes (`PhoneVoiceFallback`); later
   replies start on the iPhone's voice with no failing round trip, then the computer is asked again. A slow computer
-  (the 20 s wait) is never remembered. Any save of the gateway's settings forgets it at once.
+  (the 20 s wait) is never remembered, nor a clip of a playable kind that would not play here (#412: a busy output or
+  a lost audio session is the phone's moment, not the computer's voice; the next reply asks the computer again). A
+  clip whose bytes no player here reads (Ogg, WebM under any label) is remembered like an error answer. Any save of the
+  gateway's settings forgets it at once.
 - **Told once**, per gateway and profile while the app runs, in the chat on screen: the one-line notice under the title
   (8 s) "Using the iPhone’s voice. <Bot>’s voice on your computer isn’t working." with **Fix…**, which opens Settings ›
   Voice › Text to Speech for that bot (its own profile's settings, `?profile=`) with Text to Speech Provider on top. No
@@ -1257,6 +1278,10 @@ Web: `V:app/chat/composer/hooks/use-voice-recorder.ts`, `V:app/chat/composer/voi
 `W:build/fe-voice-gates.ts` FE-009 and r1-22 ("trigger becomes Stop; × cancels"), and the phone's "Done" button.
 
 Started only from the voice options menu ("Dictate with Hermes"), under the `.dictation` audio owner (§10.1).
+[question-dictate] 2026-11-22 (#438): also from the mic in a bot's question card's answer field, the same dictation
+with its words typed into that field (docs/spec/1x-questions.md §4.3). Each take has an owner, the composer or the
+card, and only the owner shows its row; while the card stands in the composer's place, Dictate with Hermes and Try
+Again go to the card.
 
 **DECISION T32.** Dictation does not use the conversation's engine. `DictationRecorder` (`HermesKit/Voice/`) is an
 `AVAudioRecorder` with the memo recorder's proven settings (AAC, mono, 24 kHz, metering on), behind a four-method
@@ -1488,6 +1513,33 @@ The test take is recorded with `TalkCapturing` (so it tests the engine a convers
 `AVAudioPlayer` under the `.speech` owner, and transcribed with §3.2.
 
 ---
+
+### 9.5 Live voices, and each bot's own voice ([voice picker], [bot voices])
+
+The owner, 2026-11-04: "It'd be nice if I could very easily like change the voices." The owner, 2026-11-21: "I'd like
+to be able to choose a voice for each bot so that when you talk to them they can have different voices if you want them
+to." A bot's voice had been pickable only in its chat's hold menu, and a pick in Settings wrote over it for every bot
+without a word.
+
+GPT-Live and Grok Live read their voice from the bot's own `config.yaml` when a conversation starts:
+`voice.gpt_live.voice` (Hermes' default `marin`) and `voice.grok_live.voice` (the add-on's default `eve`). The lists,
+the keys and the sparse patch are `HermesKit/Voice/LiveVoices.swift`; every voice has a recorded sample in the app
+(`App/Resources/VoiceSamples`), so hearing one costs nothing. Standard speaks with the bot's Text to Speech voice.
+
+| # | Rule | Code |
+|---|---|---|
+| BV1 | **Bot Info › Settings › Talk › Voice** (`bot-info.voice`) names this bot's voice for the engine Talk would start with here: this device's Voice Model, else the bot's own `voice.voice_chat_mode`. For Standard the value is "Text to Speech". Shown whenever the bot's settings can be read; dimmed offline. | `BotInfoModel.voiceValue`, `LiveVoices.engine(chosen:config:)` |
+| BV2 | The row opens **Voice**, pushed inside the sheet: the engine's voices with a ▶ sample each, this bot's ticked (`bot-voice.<id>`, `bot-voice.<id>.play`). A pick is saved at once for this bot alone (`PUT /api/config?profile=`, only the one key) and is heard on the next conversation. A voice written by hand that the list does not know is shown ticked and kept until another is picked. For Standard the row opens this bot's own Text to Speech page instead. | `BotVoicePage`, `BotModelPages.openVoice` |
+| BV3 | The page edits the config store the sheet read as it opened, so the row names the new voice as the page closes. The default bot's store is Settings' own: its voice is the one Settings › Voice shows. | `BotInfoModel.contextStore` |
+| BV4 | **Settings › Voice › Voice Conversation** still picks one voice for all bots. Before saving, it reads every other bot's own config. A bot has a voice of its own when one is written there and it is neither the voice Settings showed before the pick nor the one being picked; a missing key is nobody's choice (`GET /api/config` fills in Hermes' defaults, which hold no live voice). | `LiveVoices.written`, `LiveVoices.ownVoices`, `LiveVoiceSaver.otherBots` |
+| BV5 | When any bot has a voice of its own the pick asks first: **Change Every Bot’s Voice?** / "<Bot> (<Voice>) has a voice of its own." (three names, then "N more") / **Change All Bots** · **Keep Its Own Voice** (Keep Their Own Voices) · **Cancel**. Nothing is saved before the answer. Keep saves for every other bot; Cancel puts the tick back. With nothing to lose there is no question. The question is a UIKit alert from the page: the list builds its rows and footer only as they scroll into view, so a SwiftUI alert hung on one of them is not there to be shown. | `LiveVoiceSection.ask`, `LiveVoices.ownVoicesMessage` |
+| BV6 | The chat's hold menu keeps **Voice ▸** (Voice with <Bot> › Voice): the same per-bot save, from inside the chat. | `TalkMenus.voiceNode` |
+| BV7 | Footers (under DECISION 18.3 of `3x-settings.md`: when a change is heard, and a step on another page). Settings: "Heard the next time you talk. A bot can have a voice of its own: Bot Info › Settings › Voice." Bot Info: "Heard the next time you talk with <Bot>. Your other bots keep their voices." | `LiveVoices.sharedFooter`, `LiveVoices.botFooter` |
+
+Tests: `Tests/Talk/LiveVoicesTests.swift` (what counts as a bot's own voice, the engine, the question's words), `E30`
+(the lists, samples, a pick for all bots, the chat's Voice ▸) and `E31` (Bot Info's row and page, a pick that is the
+bot's alone, Settings asking, each of the three answers) in `UITests/talk/`. The stand-in gateway keeps one record for
+every bot unless `botConfigs` is a dict, which gives each bot its own (§12.1).
 
 ## 10. Audio session and keep awake (rows L544, L1010, L1012)
 
@@ -1909,6 +1961,7 @@ Accept: the checks of L539 and L530.
 | `TalkEchoTests`, `SpeechTextTests` | the vendor's own vectors (`V:lib/voice-tts-echo.test.ts`, `V:lib/speech-text.test.ts` where present), ported |
 | `TalkVADTests` | level maths (silence 0, a full-scale sine near 1), end of speech at 1.25 s, idle at 12 s, the 60 s cap, the barge trigger (calibration, 300 ms and 80 %, the 0.14–0.37 clamp while playing, grace, multiplier), pre-roll |
 | `KeepAwakeTests`, `VoiceReportTests`, `TalkRouteNameTests` | §10.2, §9.4, §6.5 |
+| `SpeechClipPlaybackTests` | §3.4's clip playback (#412): what the first bytes say (MP3, ADTS, ID3 skipped, WAV, FLAC, M4A, CAF, AIFF, Ogg, WebM), the tolerant tries in order (reactivation only after a player that would not start; none once stopped), a playable kind's failure is the playback sentence with its code, Ogg bytes under any label are the format, and the real player with garbage and with a WAV labelled MP3; with `PhoneVoiceTests`: a playback failure is read by the iPhone's voice and never remembered |
 | `ReadAloudCenterTests` | with `FixtureTalkSpeaker`: §7.4's rules, replacing (T30), failure leaves the switch on |
 | `TalkControllerTests` | with fixture capture and speaker and a fake chat: one conversation app-wide, notices per chat, start clears stale notices, auto-mute for questions and other audio |
 | `VoiceSettingsCatalogTests` | section order, hidden keys absent from pages and search, makers' names, provider-only fields |
@@ -1925,7 +1978,7 @@ menu · `E14a–f` dictation · `E15a–d` Read Aloud · `E16a–c` Read Replies
 diagnostics · `E19a–d` failures (Speech to Text off, denied, three failed transcriptions, unplayable voice) · `E20`
 a question during a conversation (question dock wins, conversation muted, back to Listening after the answer) ·
 `E21` keep awake · `E22` audio preview · `E23` accessibility sizes · `E24` relaunch · `E25` hidden engine and wake
-word.
+word · `E30` picking a live voice · `E31` a bot's own voice (§9.5).
 
 Every test signs in once with the fixture's invented credentials, uses launch arguments from §14.3, attaches a
 screenshot at each named state, and reads the fixture's ledger over `http://127.0.0.1:<port>/__fixture/voice-state`.

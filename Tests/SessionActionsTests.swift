@@ -138,6 +138,7 @@ import Testing
         let projects = SessionProject.decodeTree(tree)
         #expect(projects.map(\.id) == ["p_site", "auto"])
         #expect(projects[1].root == "/h/repo")
+        #expect(projects[0].repos == nil && projects[1].repos == ["/h/repo"])     // [repo-pickers] repo roots, not lanes
         #expect(SessionProject.owner(of: "/h/site/src", in: projects) == "p_site")
         #expect(SessionProject.owner(of: "/h/repo-retry", in: projects) == "auto")
         #expect(SessionProject.owner(of: "/h/sites", in: projects) == nil)

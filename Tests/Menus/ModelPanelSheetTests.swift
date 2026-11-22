@@ -26,6 +26,13 @@ import UIKit
             #expect(abs(own.close.midY - face.midY) < 1, "one line")
             #expect(own.thinkingCard.minY >= max(own.close.maxY, face.maxY), "Thinking's card is under the header")
             #expect(own.thinkingCard.contains(own.thinking), "the bar sits on its card")
+            // [session-context] Then the chat's context on its own card, as wide as Thinking's.
+            if let context = pieces["context"] {
+                #expect(context.minY >= own.thinkingCard.maxY && facts.minY >= context.maxY, "Thinking, then the context, at \(width)")
+                #expect(abs(context.minX - own.thinkingCard.minX) < 0.5 && abs(context.width - own.thinkingCard.width) < 0.5, "one column")
+            } else {
+                Issue.record("no context card at \(width)")
+            }
             #expect(facts.minY >= own.thinkingCard.maxY && settings.minY >= facts.maxY, "then the facts, then the rows")
             #expect(settings.maxY <= height && height < 620, "the page is the sheet's height (\(height) at \(width))")
             for frame in [own.thinkingCard, facts, settings] {
@@ -40,18 +47,22 @@ import UIKit
         let (panel, _) = ModelPanelView.debugSheet(ModelPanelModel.debugSample, width: 402) { $0.openContextWindow = {} }
         guard let strip = panel.debugPieces.first(where: { $0.name == "facts" })?.view else { Issue.record("no facts"); return }
         let tiles = strip.subviews.compactMap { $0 as? FactColumn }.sorted { $0.frame.minX < $1.frame.minX }
-        #expect(tiles.count == ModelPanelModel.debugSample.facts.count)
+        #expect(tiles.count == ModelPanelModel.cardFacts(ModelPanelModel.debugSample.facts).count)
         for (a, b) in zip(tiles, tiles.dropFirst()) where abs(a.frame.minY - b.frame.minY) < 1 {
             #expect(b.frame.minX - a.frame.maxX >= 8, "a gap between tiles")
         }
-        #expect(tiles.allSatisfy { $0.frame.height >= 60 && $0.backgroundColor != nil && $0.backgroundColor != .clear })
+        #expect(tiles.allSatisfy { $0.backgroundColor != nil && $0.backgroundColor != .clear })
+        // [session-context] Owner 2026-11-20 ("taking up Way too much space"): each tile one line, a tap target tall.
+        #expect(tiles.allSatisfy { $0.frame.height >= 44 && $0.frame.height < 52 }, "one-line tiles: \(tiles.map(\.frame.height))")
+        #expect(tiles.allSatisfy { $0.fitsRow(width: $0.frame.width) }, "caption and value side by side")
         #expect(strip.backgroundColor == .clear, "no strip behind the tiles")
-        #expect(panel.debugFacts.first { $0.title == ModelPanelState.Fact.contextTitle }?.opens == true)
+        // [session-context] The window is on the context card now, and it opens Context Window.
+        #expect(tiles.count == 2 && panel.debugContext.opens && panel.debugContext.shown)
     }
 
     /// The hard states fit the page too: a long name, offline, a model with no thinking, the largest text.
     @Test func theHardStatesFit() {
-        for name in ["long", "bare", "onestop", "offline", "yolo", "bedrock", "custom"] {
+        for name in ["long", "bare", "onestop", "offline", "yolo", "bedrock", "custom", "context-warm", "context-full"] {
             guard let state = ModelPanelModel.debugCase(name) else { continue }
             for width in widths {
                 let (panel, height) = ModelPanelView.debugSheet(state, width: width)
@@ -66,6 +77,19 @@ import UIKit
                     #expect(nameFrame.minX >= own.close.maxX - 0.5, "the name clears the close disc (\(name), \(width))")
                 }
             }
+        }
+    }
+
+    /// [session-context] Owner 2026-11-20, "Do we need any of the text under the bar??": no. "Almost full" leads the top
+    /// row, so the card is one height full or not, at every phone width.
+    @Test func nothingSitsUnderTheBar() {
+        let card = ContextCard()
+        card.onSheet = true
+        for width in widths {
+            card.context = ModelPanelModel.Context(used: "780K", window: "1M", fill: 0.78, note: nil, warn: false, spoken: "")
+            let room = card.preferredHeight(width: width - 32)
+            card.context = ModelPanelModel.Context(used: "960K", window: "1M", fill: 0.96, note: "Almost full", warn: true, spoken: "")
+            #expect(card.preferredHeight(width: width - 32) == room, "one height at \(width): \(room)")
         }
     }
 

@@ -89,7 +89,7 @@ nonisolated struct TodoRowWords: Hashable, Sendable {
     /// "2/4" with steps.
     var steps: String?
     var repeats = false
-    /// 0 none, 1 high, 2 medium, 3 low: the circle's colour.
+    /// 0 none, 1 high, 2 medium, 3 low: the mark before the name (`TodoViews.priorityMark`).
     var priority = 0
     /// Its tags, where the row has the room for them (a list, Inbox).
     var tags: [String] = []
@@ -402,6 +402,16 @@ nonisolated enum TodoViews {
         case .stale: return (TodoSection.stale.rawValue, nil)
         case .bot(let profile): return (botName(profile), nil)
         case .done: return ("Done", nil)
+        }
+    }
+
+    /// [tasks-colour] The mark before a row's name: "!!" for high, "!" for medium, none for low or no priority (the
+    /// list's order and VoiceOver still say low). Ink, not a colour: on the list a colour means late or asked.
+    static func priorityMark(_ priority: Int) -> String? {
+        switch priority {
+        case 1: return "!!"
+        case 2: return "!"
+        default: return nil
         }
     }
 

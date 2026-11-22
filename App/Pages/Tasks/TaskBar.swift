@@ -47,7 +47,8 @@ struct TaskBarView: View {
         .hqGlassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .background { macBacking }
         .padding(.horizontal, 8).padding(.vertical, 6)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { model.onLeadHeight?($0) }
+        // Only while it is the bar on show: the brief it replaced fades out beside it and still reports its own height.
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if model.tucked { model.onLeadHeight?($0) } }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Shows the whole task")

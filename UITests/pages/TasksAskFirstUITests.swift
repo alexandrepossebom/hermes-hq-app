@@ -22,7 +22,7 @@ extension PagesTests {
         // Done, and says why.
         let inbox = app.buttons["tasks.view.inbox"].firstMatch
         XCTAssertTrue(inbox.waitForExistence(timeout: 20), "the views head the page")
-        inbox.tap()
+        tapView("inbox")
         let header = app.descendants(matching: .any)["tasks.section.Still Need These?"].firstMatch
         for _ in 0..<8 where !(header.exists && header.isHittable) { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(header.waitForExistence(timeout: 15), "forgotten bot tasks ask to be kept")

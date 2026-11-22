@@ -187,9 +187,11 @@ final class ChatEarlierPill: UIView {
             HQAnnounce.say(words, priority: .high, coalesce: true)
         }
         // One line (the button, or the spinner and its words) is a capsule like the status line above it; the wrapped
-        // failure keeps the card's corners.
+        // failure keeps the card's corners. [desktoplook] Owner 2026-11-22: the Desktop Look's 4 pt box in every state,
+        // as the activity shelf's chips: the capsule set here after `ThemeChrome.solidify` had squared the panel left a
+        // round pill among the look's boxes (since build 436).
         if next != .hidden {
-            glass.cornerConfiguration = next == .failed ? .corners(radius: .fixed(18)) : .capsule()
+            glass.cornerConfiguration = Self.corners(next)
             backing.cornerConfiguration = glass.cornerConfiguration
         }
         let shown = next != .hidden
@@ -204,6 +206,12 @@ final class ChatEarlierPill: UIView {
     }
 
     @objc private func tapped() { onLoad?() }
+
+    /// The pill's shape in a state: the Desktop Look's box, else a capsule for one line and the card's corners wrapped.
+    static func corners(_ state: State) -> UICornerConfiguration {
+        if Theme.isDesktop { return .corners(radius: .fixed(HQShape.desktopRadius(.capsule))) }
+        return state == .failed ? .corners(radius: .fixed(18)) : .capsule()
+    }
 }
 
 final class ChatNoticeCard: UIView {

@@ -1,6 +1,6 @@
 // The performance log's sending rules (lifecycle #43, #45): a hold after the link comes back, forced kicks that ignore
 // it, a batch the plugin refuses for good let go, a batch that keeps failing let go after 8 tries, and requests capped
-// by bytes as well as lines.
+// by bytes as well as lines; and the main thread never waits on the outbox's file work (#349).
 
 import Foundation
 import Synchronization
@@ -47,6 +47,13 @@ import Testing
     }
 
     private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
+
+    /// Another thread holds the outbox files for `seconds`, as a write the disk is slow with does; returns once it holds them.
+    private static func slowWrite(_ uploader: LogUploader, seconds: TimeInterval) {
+        let holding = DispatchSemaphore(value: 0)
+        Thread.detachNewThread { uploader.whileWritingFiles { holding.signal(); Thread.sleep(forTimeInterval: seconds) } }
+        holding.wait()
+    }
 
     @Test func aHoldKeepsTheLinesUntilItEndsAndAForcedKickIgnoresIt() async throws {
         let sink = Sink()
@@ -146,6 +153,26 @@ import Testing
         await kick(uploader, force: true)
         let toA = a.bodies.flatMap { ($0["lines"] as? [String]) ?? [] }
         #expect(toA.count == 1 && toA.first?.contains("for a") == true, "\(toA)")
+    }
+
+    // [#349] The main thread never waits on the outbox's file work: a write the disk is slow with (held here for 1 s) does
+    // not hold up the hold after the link comes back, a sign-in, or Diagnostics' count of what waits.
+    @MainActor @Test func theMainThreadDoesNotWaitOnASlowOutboxWrite() async throws {
+        let sink = Sink()
+        let uploader = try uploader(sink)
+        Self.slowWrite(uploader, seconds: 1)
+        let start = Date()
+        uploader.hold(until: Date().addingTimeInterval(60))
+        uploader.setSender(sink.sender, account: "http://a|me")
+        _ = uploader.pendingBytes
+        let waited = Date().timeIntervalSince(start)
+        #expect(waited < 0.2, "the main thread waited \(waited) s")
+        uploader.settle()   // the sign-in lands once the write is done
+        line(uploader)
+        await kick(uploader)
+        #expect(sink.count == 0, "the hold took effect")
+        #expect(exists(directory.appendingPathComponent("outbox-\(LogUploader.ownerKey("http://a|me")).jsonl")),
+                "lines wait for the account signed in")
     }
 
     @Test func aRequestEndsAtTheByteCap() async throws {

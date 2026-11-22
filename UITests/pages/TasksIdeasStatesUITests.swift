@@ -12,7 +12,7 @@ extension PagesTests {
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
         let today = app.buttons["tasks.view.today"].firstMatch, inbox = app.buttons["tasks.view.inbox"].firstMatch
         XCTAssertTrue(inbox.waitForExistence(timeout: 20), "the views head the page")
-        inbox.tap()
+        tapView("inbox")
         XCTAssertTrue(app.cells["task-row-Fix the porch light"].firstMatch.waitForExistence(timeout: 10))
         RunLoop.current.run(until: Date().addingTimeInterval(2))
         XCTAssertFalse(app.buttons["tasks.ideas.turn-on"].exists, "an older add-on has no ideas to turn on")
@@ -23,7 +23,7 @@ extension PagesTests {
         // says it's done, and then nothing changes").
         try account.control("/__fixture/tasks-mode", ["older_addon": false, "keep_rev": true])
         today.tap()
-        inbox.tap()
+        tapView("inbox")
         for _ in 0..<6 where !app.buttons["tasks.ideas.turn-on"].firstMatch.exists { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(app.buttons["tasks.ideas.turn-on"].firstMatch.waitForExistence(timeout: 10),
                       "after the update, Inbox offers Ideas")
@@ -37,7 +37,7 @@ extension PagesTests {
         XCTAssertTrue(today.exists, "the views show on an empty list")
         XCTAssertFalse(app.buttons["tasks.view.bots"].exists, "no Bots view until a bot has a task of its own")
         shot("tasks-ideas-states-2-empty" + Self.lookName)
-        inbox.tap()
+        tapView("inbox")
         XCTAssertTrue(app.buttons["tasks.ideas.turn-on"].firstMatch.waitForExistence(timeout: 10), "Ideas offers itself with no tasks")
         XCTAssertTrue(app.buttons["tasks.empty.new"].firstMatch.exists, "No Tasks stays above it")
         shot("tasks-ideas-states-3-empty-inbox" + Self.lookName)
@@ -49,7 +49,7 @@ extension PagesTests {
                                           "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"])
         XCTAssertTrue(inbox.waitForExistence(timeout: 20))
         shot("tasks-ideas-states-4-large-today" + Self.lookName)
-        inbox.tap()
+        tapView("inbox")
         let turnOn = app.buttons["tasks.ideas.turn-on"].firstMatch
         for _ in 0..<4 where !(turnOn.exists && turnOn.isHittable) { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(turnOn.waitForExistence(timeout: 10))

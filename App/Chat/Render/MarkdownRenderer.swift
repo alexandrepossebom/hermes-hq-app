@@ -48,6 +48,7 @@ nonisolated enum MarkdownBlock: @unchecked Sendable {
     /// An HTML page alone on its paragraph of a settled reply (`::preview{file="…"}`, a `MEDIA:` page): a card with a
     /// picture of the page that opens it live (`PageCardView`).
     case pageCard(MediaRef)
+    case phoneProposal(URL, PhoneProposal)
 
     var isProse: Bool { if case .text = self { return true } else { return false } }
 }
@@ -146,7 +147,7 @@ nonisolated enum MarkdownRenderer {
     /// `streaming`: the reply is still arriving (an unclosed thinking tag on its own line hides what follows it).
     static func render(_ markdown: String, style: ChatStyle, theme: MarkdownTheme = .bot, highlight: Bool = false,
                        linkChips: Bool = false, filePaths: Bool = false, streaming: Bool = false,
-                       pageCards: Bool = false) -> RenderedMarkdown {
+                       pageCards: Bool = false, phoneProposals: Bool = false) -> RenderedMarkdown {
         // Copy, Share and VoiceOver start from `plainText`: the reply as written, less its hidden thinking.
         let shown = ReasoningTags.strip(markdown, streaming: streaming)
         if markdown.utf16.count > plainTextLimit {
@@ -163,12 +164,12 @@ nonisolated enum MarkdownRenderer {
             // Within the limits but deeply nested: parse where the stack is big (the recursion is per nesting level).
             let rendered = BigStackRunner.shared.run {
                 UncheckedSendable(parse(source, style: style, theme: theme, highlight: highlight, linkChips: linkChips,
-                                        filePaths: filePaths, pageCards: pageCards, formulas: formulas, plainText: shown))
+                                        filePaths: filePaths, pageCards: pageCards, phoneProposals: phoneProposals, formulas: formulas, plainText: shown))
             }
             return rendered.value
         case .simple:
             return parse(source, style: style, theme: theme, highlight: highlight, linkChips: linkChips,
-                         filePaths: filePaths, pageCards: pageCards, formulas: formulas, plainText: shown)
+                         filePaths: filePaths, pageCards: pageCards, phoneProposals: phoneProposals, formulas: formulas, plainText: shown)
         }
     }
 
@@ -199,13 +200,14 @@ nonisolated enum MarkdownRenderer {
     }
 
     private static func parse(_ source: String, style: ChatStyle, theme: MarkdownTheme, highlight: Bool,
-                              linkChips: Bool = false, filePaths: Bool = false, pageCards: Bool = false,
+                              linkChips: Bool = false, filePaths: Bool = false, pageCards: Bool = false, phoneProposals: Bool = false,
                               formulas: [MathText.Span.Taken] = [], plainText: String) -> RenderedMarkdown {
         let document = Document(parsing: source, options: [.disableSmartOpts, .disableSourcePosOpts])
         var builder = BlockBuilder(style: style, theme: theme)
         builder.highlight = highlight
         builder.linkChips = linkChips
         builder.pageCards = pageCards || linkChips
+        builder.phoneProposals = phoneProposals && source.range(of: "://phone-call", options: .caseInsensitive) != nil
         builder.filePaths = filePaths
         builder.formulas = formulas
         builder.blocks(of: document)
@@ -344,6 +346,7 @@ nonisolated private struct BlockBuilder {
     /// [page-cards] A page alone on its line is a page card: a bot's reply in the chat, settled or still arriving (the
     /// card is the same size either way, so the reply settling moves nothing; it was a file's row until then).
     var pageCards = false
+    var phoneProposals = false
     /// A path in inline code opens the file (`FileLinks`).
     var filePaths = false
     /// [transcript] F17: the reply's formulas, by the index their tokens carry (`MathText.extract`).
@@ -376,6 +379,7 @@ nonisolated private struct BlockBuilder {
     mutating func block(_ node: Markup) {
         switch node {
         case let p as Paragraph:
+            if phoneProposals && appendPhoneProposals(in: p) { return }
             if let refs = MarkdownMedia.mediaOnly(p) {                       // [attachments] spec §7.5
                 flush()
                 // A settled reply's pages: each a page card (the desktop draws them live in the reply).
@@ -441,6 +445,38 @@ nonisolated private struct BlockBuilder {
             // Unknown block (directives etc.): render its children as blocks, else its text.
             if node.childCount > 0 { blocks(of: node) }
         }
+    }
+
+    /// A proposal on its own line breaks the paragraph into prose and a call card.
+    private mutating func appendPhoneProposals(in paragraph: Paragraph) -> Bool {
+        let nodes = Array(paragraph.children)
+        func isBreak(_ node: Markup) -> Bool { node is SoftBreak || node is LineBreak }
+        var previous = 0
+        var added = false
+        for (index, node) in nodes.enumerated() {
+            guard (index == 0 || isBreak(nodes[index - 1])),
+                  (index + 1 == nodes.count || isBreak(nodes[index + 1])),
+                  let destination = (node as? Markdown.Link)?.destination, let url = URL(string: destination),
+                  let proposal = PhoneProposal.parse(url) else { continue }
+            if previous < index {
+                let end = index > 0 && isBreak(nodes[index - 1]) ? index - 1 : index
+                let text = inlineText(nodes[previous..<max(previous, end)], InlineContext())
+                if text.length > 0 {
+                    appendParagraph(text, font: style.body, lineHeight: style.bodyLineHeight, before: gapBefore(style.paragraphGap))
+                }
+            }
+            flush()
+            out.append(.phoneProposal(url, proposal))
+            added = true
+            previous = min(index + 2, nodes.count)
+        }
+        if added, previous < nodes.count {
+            let text = inlineText(nodes[previous...], InlineContext())
+            if text.length > 0 {
+                appendParagraph(text, font: style.body, lineHeight: style.bodyLineHeight, before: 0)
+            }
+        }
+        return added
     }
 
     private mutating func appendParagraph(_ text: NSAttributedString, font: UIFont, lineHeight: CGFloat, before: CGFloat,
@@ -596,7 +632,7 @@ nonisolated private struct BlockBuilder {
             case .text(let t), .quote(let t, _): piece = t
             case .table(let table): piece = table.flat
             case .code(_, _, let t, _): piece = t
-            case .spacer, .linkChip, .pageCard: continue
+            case .spacer, .linkChip, .pageCard, .phoneProposal: continue
             case .media(let refs): piece = styled(refs.map(\.label).joined(separator: ", "), InlineContext())   // [attachments]
             }
             if joined.length > 0 { joined.append(NSAttributedString(string: "\n")) }
@@ -883,6 +919,19 @@ nonisolated private struct BlockBuilder {
                 c.link = url
             }
             let before = out.length
+            if let url = c.link, let proposal = PhoneProposal.parse(url) {
+                // [phone-calls] An agent's call proposal reads as an action: a phone glyph, "Call <number>", and the goal
+                // under it. A tap opens the call sheet filled in (PhoneCallChat.open); nothing dials by itself.
+                let font = attributes(ctx)[.font] as? UIFont ?? style.body
+                out.append(PhoneProposal.glyph(font: font, color: theme.link))
+                out.append(styled("Call " + phoneShown(proposal.to), c))
+                var goal = attributes(c)
+                goal[.foregroundColor] = theme.secondary
+                goal[.font] = font.withSize(max(11, font.pointSize - 2))
+                goal.removeValue(forKey: .underlineStyle)
+                out.append(NSAttributedString(string: "\u{2028}" + proposal.goal, attributes: goal))
+                break
+            }
             if let dest = l.destination, dest.hasPrefix("#media:"), let ref = MarkdownMedia.ref(destination: dest, title: l.plainText, image: false) {
                 // [attachments] the glyph says what it is: "File: data.csv" reads "data.csv"
                 out.append(styled(MarkdownMedia.inlineTitle(l.plainText, ref: ref), c))

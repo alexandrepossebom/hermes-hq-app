@@ -37,15 +37,18 @@ struct TaskListDot: View {
     }
 }
 
-/// On a list's pill: its icon in its colour, or the colour's dot. White on the picked pill's tint.
+/// On a list's pill: its icon in grey ([tasks-colour] its colour shows where you choose it, in Edit List: `inColour`),
+/// or the plain list icon for a list with none. White on the picked pill's tint.
 struct TaskListPillMark: View {
     var color: TodoListColor?
     var icon: String?
     var picked: Bool
+    /// Edit List's preview: the icon in the list's colour, or the colour's dot.
+    var inColour = false
 
     var body: some View {
-        let ink = picked ? Color.hqOnTint : (color?.ink ?? Color.hqLabel2)
-        if let icon {
+        let ink = picked ? Color.hqOnTint : (inColour ? (color?.ink ?? Color.hqLabel2) : Color.hqLabel2)
+        if let icon = icon ?? (inColour ? nil : TodoListIcons.fallback) {
             Image(systemName: icon)
                 .font(Font.hq(Theme.isDesktop ? .caption : .footnote).weight(.medium))
                 .foregroundStyle(ink)
@@ -354,7 +357,7 @@ struct TaskListEditView: View {
         Form {
             Section {
                 HStack(spacing: 10) {
-                    TaskListPillMark(color: color, icon: model.draft.icon ?? TodoListIcons.fallback, picked: false)
+                    TaskListPillMark(color: color, icon: model.draft.icon ?? TodoListIcons.fallback, picked: false, inColour: true)
                         .frame(width: 24)
                     TextField("List Name", text: $model.name)
                         .focused($naming)

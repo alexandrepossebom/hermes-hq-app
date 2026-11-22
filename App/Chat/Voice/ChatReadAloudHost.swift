@@ -99,7 +99,8 @@ import UIKit
 
     private var busyElsewhere: Bool {
         guard let composer = screen?.composer else { return false }
-        return composer.memoActive || composer.dictating
+        // [question-dictate] A dictation into the question card waits a reply's reading as the composer's does.
+        return composer.memoActive || composer.dictating || screen?.promptsUI?.cardDictating == true
     }
 
     private func readNext(_ messageId: String) {

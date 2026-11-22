@@ -36,7 +36,7 @@ nonisolated enum TodoQuickParse {
     /// `dates: false` leaves every date word in the name (the date was picked by hand).
     /// [goals] `goal: true` reads New Goal's line: a day only, with the "by" before it ("Run a 10K by may 3" is the goal
     /// "Run a 10K" by May 3); no time, repeat, tag or priority (a goal has none, and "#1" may be part of its name).
-    static func read(_ text: String, now: Date, calendar: Calendar = .current, dates: Bool = true, goal: Bool = false) -> TodoQuickRead {
+    static func read(_ text: String, now: Date, calendar: Calendar = .current, dates: Bool = true, goal: Bool = false, metadata: Bool = true, repeats: Bool = true, priorities: Bool = true) -> TodoQuickRead {
         let raw = text.split(whereSeparator: { $0 == " " || $0.isNewline }).map(String.init)
         // A word as it is matched: lower case, without the comma or full stop after it.
         let words = raw.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",.;")) }
@@ -101,18 +101,18 @@ nonisolated enum TodoQuickParse {
             guard !used.contains(i) else { continue }
 
             // Tags and priority: no date in them, read whatever `dates` says.
-            if !goal, word.hasPrefix("#"), word.count > 1 {
+            if !goal, metadata, word.hasPrefix("#"), word.count > 1 {
                 let tag = String(raw[i].dropFirst().trimmingCharacters(in: CharacterSet(charactersIn: ",.;")).prefix(30))
                 if !tag.isEmpty, !out.tags.contains(where: { $0.lowercased() == tag.lowercased() }) { out.tags.append(tag) }
                 take(i...i, date: false); continue
             }
-            if !goal, let level = ["!high": 1, "!1": 1, "p1": 1, "!medium": 2, "!med": 2, "!2": 2, "p2": 2, "!low": 3, "!3": 3, "p3": 3][word] {
+            if !goal, metadata, priorities, let level = ["!high": 1, "!1": 1, "p1": 1, "!medium": 2, "!med": 2, "!2": 2, "p2": 2, "!low": 3, "!3": 3, "p3": 3][word] {
                 out.priority = level; take(i...i, date: false); continue
             }
             guard dates else { continue }
 
             // How it repeats.
-            if !goal, word == "every", let next {
+            if !goal, repeats, word == "every", let next {
                 if let weekday = weekdays[next] ?? (next == "sun" ? 1 : nil) {
                     out.repeatRule = "weekly"; day = day ?? coming(weekday, includingToday: true); take(i...i + 1); continue
                 }
@@ -120,10 +120,13 @@ nonisolated enum TodoQuickParse {
                     out.repeatRule = rule; take(i...i + 1); continue
                 }
             }
-            if !goal, let rule = ["daily": "daily", "weekdays": "weekdays", "weekly": "weekly", "monthly": "monthly", "yearly": "yearly",
+            if !goal, repeats, let rule = ["daily": "daily", "weekdays": "weekdays", "weekly": "weekly", "monthly": "monthly", "yearly": "yearly",
                            "annually": "yearly"][word] {
                 out.repeatRule = rule; take(i...i); continue
             }
+
+            // An unsupported recurrence remains entirely literal, including its weekday.
+            if !goal, !repeats, word == "every", let next, weekdays[next] != nil || next == "sun" { i += 1; continue }
 
             // A day.
             if word == "today" { day = today; take(i...i); continue }

@@ -132,6 +132,8 @@ enum DebugHooks {
         }
         #endif
         AccountVault.app.removeAll()
+        PhoneKeyStore.app.removeAll()           // [phone-calls] every account's samplehost key
+        PhoneHistoryStore.app.removeAll()       // [phone-calls] every account's call history
         OnboardingGate.signedInBefore = false   // [onboarding] a clean first run has never signed in
         TranscriptCache.shared.purgeAll()
         try? FileManager.default.removeItem(at: AppModel.listsCacheDirectory)
@@ -168,6 +170,7 @@ enum DebugHooks {
         AnimationWatch.start()                  // [perf] -HQDebugAnimationWatch (App/Debug/AnimationWatch.swift)
         TalkDebugHooks.applyAfterLaunch(root)   // [talk] -HQDebugTalkProbe
         PopLoopDebugHook.start(root)            // [perf] -HQDebugPopLoop (App/Debug/PopLoopDebugHook.swift)
+        SpringDropDebugHook.start(root)         // [spring-drop] -HQDebugSpringDrop (App/Debug/SpringDropDebugHook.swift)
         DuoDebugHooks.applyAfterLaunch(root)    // [duo] -HQDebugDuoTurn (App/Debug/DuoDebugHooks.swift)
         if let state = defaults.string(forKey: "HQDebugAddOnUpdate") {
             // [addon-progress] The add-on update sheet in one state (AddOnUpdate.demo), over whatever the other hooks

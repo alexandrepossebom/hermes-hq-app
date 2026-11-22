@@ -212,6 +212,52 @@ import Testing
         oldStore.stop()
     }
 
+    /// [repo-pickers] The Repository… page's choices: this project's repositories first (the linked one leading, its own
+    /// folder when Hermes found none), every other one known by name, and the public names already linked.
+    @Test func repositoryPageOffersKnownRepositories() async throws {
+        let client = BotsFakeGatewayClient()
+        let sidebar = Self.sidebar([Self.srow("a")])
+        let repos = Self.prReposPath
+        client.onREST { method, path, _, _ in
+            if method == "GET", path == repos {
+                return Data("""
+                {"repos":[{"project":"/code/app","path":"/code/app-src","main":"main","public_repo":"me/app-public","mirror":true},
+                {"project":null,"path":"/code/zeta","main":"main","public_repo":"me/zeta","mirror":false},
+                {"project":null,"path":"/code/bad","main":"main","public_repo":"not a repo","mirror":false}]}
+                """.utf8)
+            }
+            return sidebar
+        }
+        let store = makeStore(client)
+        #expect(await BotsTest.waitUntil { store.sessions.count == 1 })
+        store.projectsByProfile = [
+            "ivy": [SessionProject(id: "p1", label: "App", root: "/code/app", paths: ["/code/app"], repos: ["/code/app/", "/code/app-tools"]),
+                    SessionProject(id: "p2", label: "Site", root: "/code/site", paths: ["/code/site"], repos: ["/code/site"])],
+            "otto": [SessionProject(id: "p3", label: "Notes", root: "/code/notes", paths: ["/code/notes"]),
+                     SessionProject(id: "p4", label: "Blog", root: "/code/Blog", paths: ["/code/Blog"], repos: ["/code/Blog", "/code/app-tools"])],
+        ]
+        var choices = store.repositoryFolderChoices(forProject: "/code/app")
+        #expect(choices.here == ["/code/app", "/code/app-tools"] && choices.elsewhere == ["/code/Blog", "/code/site"])
+        await store.loadPRRepos()
+        choices = store.repositoryFolderChoices(forProject: "/code/app")
+        #expect(choices.here == ["/code/app-src", "/code/app", "/code/app-tools"])
+        #expect(choices.elsewhere == ["/code/bad", "/code/Blog", "/code/site", "/code/zeta"])
+        #expect(store.repositoryFolderChoices(forProject: "/code/notes").here == ["/code/notes"])   // no repos found: its own folder
+        #expect(store.repositoryFolderChoices(forProject: "id:ivy/x").here.isEmpty)
+        #expect(store.publicRepoChoices() == ["me/app-public", "me/zeta"])
+        store.stop()
+    }
+
+    @Test func publicRepositoryIsReadOutOfALink() {
+        #expect(SessionStore.ownerRepo(from: " https://github.com/me/app ") == "me/app")
+        #expect(SessionStore.ownerRepo(from: "https://github.com/me/app/pull/12") == "me/app")
+        #expect(SessionStore.ownerRepo(from: "git@github.com:me/app.git") == "me/app")
+        #expect(SessionStore.ownerRepo(from: "github.com/me/app.git") == "me/app")
+        #expect(SessionStore.ownerRepo(from: "me/app") == "me/app")
+        #expect(SessionStore.isOwnerRepo("me/app") && !SessionStore.isOwnerRepo("me app") && !SessionStore.isOwnerRepo("/code/app"))
+        #expect(SessionStore.folderName("/code/app/") == "app" && SessionStore.tidyFolder(" /code/app// ") == "/code/app")
+    }
+
     nonisolated private static let prReposPath = "/api/plugins/hermes-hq-push/sessions/pr-repos"
     nonisolated private static let prMarkPath = "/api/plugins/hermes-hq-push/sessions/pr-mark"
 

@@ -60,3 +60,17 @@ import UIKit
         }
     }
 }
+
+/// [mac] The up-and-down lane (owner 2026-11-22): the iPhone's and iPad's 3 pt bar floats over the page's margin, so
+/// their lists keep their width; a soft card's edges are where they were.
+@MainActor @Suite struct ScrollBarListLaneTests {
+    @Test func noLaneOffTheMac() {
+        #expect(ScrollBarLane.listTrailing == 0)
+        let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(44)))
+        let group = NSCollectionLayoutGroup.vertical(layoutSize: .init(widthDimension: .fractionalWidth(1), heightDimension: .absolute(44)), subitems: [item])
+        let section = NSCollectionLayoutSection(group: group)
+        BackdropCards.card(section, on: true)
+        #expect(section.contentInsets.trailing == BackdropCards.side)
+        #expect(section.decorationItems.first?.contentInsets.trailing == BackdropCards.side)
+    }
+}

@@ -86,6 +86,78 @@ extension SessionStore {
         await refreshPullRequests(for: [session], force: true)
     }
 
+    /// [repo-pickers] The folders the Repository… page offers for *key* (owner 2026-11-21: "These fields need to be more
+    /// than just free-type"): the git repositories Hermes found in that project (its own folder when it found none),
+    /// then every other repository known here (other projects', and those linked or listed on the computer running
+    /// Hermes), by name.
+    func repositoryFolderChoices(forProject key: String) -> (here: [String], elsewhere: [String]) {
+        var seen = Set<String>()
+        func fresh(_ path: String) -> String? {
+            let tidy = Self.tidyFolder(path)
+            return tidy.hasPrefix("/") && seen.insert(tidy).inserted ? tidy : nil
+        }
+        var here: [String] = []
+        var elsewhere: [String] = []
+        for (profile, projects) in projectsByProfile.sorted(by: { $0.key < $1.key }) {
+            for project in projects where SessionProjects.key(project, profile: profile) == key {
+                here += (project.repos ?? []).compactMap(fresh)
+            }
+        }
+        if let linked = prRepo(forProject: key)?.path, let path = fresh(linked) { here.insert(path, at: 0) }
+        if here.isEmpty, let own = fresh(key) { here.append(own) }
+        for projects in projectsByProfile.values {
+            for project in projects { elsewhere += (project.repos ?? []).compactMap(fresh) }
+        }
+        elsewhere += (prRepos ?? []).map(\.path).compactMap(fresh)
+        let byName: (String, String) -> Bool = { a, b in
+            let order = Self.folderName(a).compare(Self.folderName(b), options: [.caseInsensitive, .numeric])
+            return order == .orderedSame ? a < b : order == .orderedAscending
+        }
+        return (here, elsewhere.sorted(by: byName))
+    }
+
+    /// [repo-pickers] The GitHub repositories (owner/repo) the Repository… page offers as the public one: those already
+    /// linked, and those chats' pull requests and branches were read against, by name.
+    func publicRepoChoices() -> [String] {
+        var seen = Set<String>()
+        let names = (prRepos ?? []).compactMap(\.publicRepo) + pullRequestRepos
+        return names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { Self.isOwnerRepo($0) && seen.insert($0.lowercased()).inserted }
+            .sorted { $0.compare($1, options: [.caseInsensitive, .numeric]) == .orderedAscending }
+    }
+
+    nonisolated static func tidyFolder(_ path: String) -> String {
+        var tidy = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        while tidy.count > 1, tidy.hasSuffix("/") { tidy.removeLast() }
+        return tidy
+    }
+
+    /// A folder's own name ("app" for /Users/me/Projects/app).
+    nonisolated static func folderName(_ path: String) -> String {
+        let name = (tidyFolder(path) as NSString).lastPathComponent
+        return name.isEmpty ? path : name
+    }
+
+    /// owner/repo as GitHub spells them (what the add-on accepts).
+    nonisolated static func isOwnerRepo(_ text: String) -> Bool {
+        text.range(of: #"^[A-Za-z0-9-]{1,39}/[A-Za-z0-9_.-]{1,100}$"#, options: .regularExpression) != nil
+    }
+
+    /// owner/repo out of what was typed or pasted: a GitHub web or clone address is cut down to it.
+    nonisolated static func ownerRepo(from text: String) -> String {
+        var tidy = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["https://github.com/", "http://github.com/", "github.com/", "ssh://git@github.com/", "git@github.com:"]
+        where tidy.lowercased().hasPrefix(prefix) {
+            tidy.removeFirst(prefix.count)
+            let parts = tidy.split(separator: "/", omittingEmptySubsequences: true)
+            guard parts.count >= 2 else { return tidy }
+            var repo = String(parts[1])
+            if repo.hasSuffix(".git") { repo.removeLast(4) }
+            return "\(parts[0])/\(repo)"
+        }
+        return tidy
+    }
+
     /// Turning Coding Project on for a project whose key is a folder: that folder is tried as its repository, quietly.
     func linkOwnFolderIfUnlinked(_ key: String) {
         guard prManage, key.hasPrefix("/"), prRepo(forProject: key) == nil else { return }

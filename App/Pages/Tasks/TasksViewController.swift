@@ -611,7 +611,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         if case .goals(let key) = section { configureGoalHeader(header, key); return }
         guard case .group(let kind) = section, let words = heading(kind) else { return }
         let count = groups.first { $0.0 == kind }?.1.count ?? 0
-        var view = TodoGroupHeaderView(title: words.title, detail: words.detail, count: count, red: kind == .overdue)
+        var view = TodoGroupHeaderView(title: words.title, detail: words.detail, count: count)
         view.onCard = BackdropCards.on(self)
         switch kind {
         case .bot(let profile):
@@ -751,10 +751,13 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
                 if case .next(let id) = kind, mores[id] != nil { snapshot.appendItems([.more(id)], toSection: .group(kind)) }
             }
             // [goals] The Goals view: its cards, not tasks.
-            let goalsShown = current == .goals && !searching
+            // [goals-addon] Not on an add-on without goals: its Goals view is the update state alone.
+            let goalsShown = current == .goals && !searching && store.goalsSupported
             if goalsShown { appendGoals(to: &snapshot, now: now) } else if !goalsFound { goalCards = [:]; goalGroups = [] }
             // No tasks at all: every view says so, with New Task (and Inbox's ideas still under it).
-            let nothing = groups.isEmpty && !searching && !goalsShown
+            // [goals-addon] Goals on an add-on without them: the update state alone (updateEmptyState), no task lines.
+            let goalsLocked = current == .goals && !searching && !store.goalsSupported
+            let nothing = groups.isEmpty && !searching && !goalsShown && !goalsLocked
             if nothing, all.isEmpty {
                 snapshot.appendSections([.empty])
                 snapshot.appendItems([.ideaNote(.noTasks(text: Self.nothingText(scope: PagesScope.all, botName: ""), imports: true))], toSection: .empty)
@@ -799,7 +802,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         notePaneListEmpty(!snapshot.itemIdentifiers.contains { taskID(of: $0) != nil })   // [mac] #57
         refreshHeaders()
         addItem.isEnabled = !store.readOnlyGateway && !store.needsAddOn
-        addItem.accessibilityLabel = current == .goals ? "New Goal" : "New Task"   // [goals] the bar's + makes a goal there
+        addItem.accessibilityLabel = current == .goals ? (store.goalsNeedAddOn ? "Update Add-on" : "New Goal") : "New Task"   // [goals] the bar's + makes a goal there
         header.update(pills: listShown ? pills(visible, now: now) : [], picked: current,
                       editsLists: !store.readOnlyGateway && store.sectionsSupported)
         if selecting {
@@ -838,7 +841,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         switch current {
         case .list(let id) where !store.sections.contains { $0.id == id }: current = .today
         case .bots where !TodoViews.showsBots(tasks): current = .today
-        case .goals where !store.goalsSupported: current = .today   // [goals] an add-on that keeps no goals
+        case .goals where !store.goalsSupported && !store.goalsNeedAddOn: current = .today   // [goals] no list yet
         default: break
         }
     }
@@ -867,8 +870,10 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private func pills(_ tasks: [TodoTask], now: Date) -> [TaskViewPill] {
         func count(_ view: TodoView) -> Int { TodoViews.openCount(tasks, view: view, sections: store.sections, now: now) }
         var out: [TaskViewPill] = []
-        // [goals] Goals is the first pill, with its active goals, on an add-on that keeps goals.
+        // [goals] Goals is the first pill, with its active goals, on an add-on that keeps goals. [goals-addon] On one from
+        // before Goals it stays, with no count, and says to update the add-on.
         if store.goalsSupported { out.append(TaskViewPill(view: .goals, title: "Goals", count: GoalViews.activeCount(store.goals))) }
+        else if store.goalsNeedAddOn { out.append(TaskViewPill(view: .goals, title: "Goals", count: nil)) }
         out += [TaskViewPill(view: .today, title: "Today", count: count(.today)),
                    TaskViewPill(view: .upcoming, title: "Upcoming", count: count(.upcoming)),
                    TaskViewPill(view: .inbox, title: "Inbox", count: count(.inbox))]
@@ -931,19 +936,18 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private func rowModel(_ task: TodoTask, kind: TodoGroupKind, now: Date, heads: [String: JSONValue?]) -> TodoRowModel {
         let helper = task.helper
         let name: (String?) -> String = { [bots] in PagesNames.botName($0 ?? "default", bots: bots) }
-        // [task-lists] Its list's colour, where the row isn't under that list's own name.
-        var dot = searching ? TodoLists.color(store.sections.first { $0.id == task.section })
-            : TodoLists.dot(task, in: current, sections: store.sections)
-        if case .next = kind { dot = nil }   // "Next in Work" names the list over the rows
+        // [task-lists] Its list's icon, where the row isn't under that list's own name.
+        var mark = TodoLists.mark(task, in: searching ? .today : current, sections: store.sections)
+        if case .next = kind { mark = nil }   // "Next in Work" names the list over the rows
         var model = TodoRowModel.make(task, kind: kind, now: now, botName: name, head: helper.flatMap { heads[$0] ?? nil },
-                                      ticking: ticking.contains(task.id), dot: dot, listName: dot == nil ? nil : listName(task.section),
+                                      ticking: ticking.contains(task.id), listIcon: mark, listName: mark == nil ? nil : listName(task.section),
                                       wide: isTable)
-        // [goals] Step 2: a task in an active or paused goal carries the goal's mark in the dot's place, in every view
-        // (inside a list and under "Next in" too, where no dot is drawn).
+        // [goals] Step 2: a task in an active or paused goal carries the goal's mark in the icon's place, in every view
+        // (inside a list and under "Next in" too, where no icon is drawn).
         if let goal = GoalViews.markGoal(task, goals: store.goals) {
-            model.goalMark = goal.tint
+            model.goalMark = true
             model.goalName = goal.title.isEmpty ? "Untitled Goal" : goal.title
-            model.listDot = nil
+            model.listIcon = nil
         }
         model.selecting = selecting
         model.picked = picked.contains(task.id)
@@ -965,6 +969,15 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         if store.needsAddOn {
             var state = PageStates.empty(symbol: "puzzlepiece.extension", title: "Update the Add-on",
                                          text: "Tasks needs \(AddOnUpdate.pushName) 0.9.32 or later on \(HostWord.phrase).")   // Mac polish #139
+            var button = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)
+            button.title = updateAsked ? "Updating…" : "Update Add-on"
+            state.button = button
+            state.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.updateAddOn() }
+            showEmpty(state)
+        } else if current == .goals, !searching, store.goalsNeedAddOn {
+            // [goals-addon] Goals is there, and the add-on on the computer is from before it.
+            var state = PageStates.empty(symbol: "flag", title: "Goals Need a Newer Add-on",
+                                         text: "Update \(AddOnUpdate.pushName) on \(HostWord.phrase) to set goals, milestones and the tasks under them.")
             var button = UIButton.Configuration.hqMacPush(or: .hqFilled(), capsule: true)
             button.title = updateAsked ? "Updating…" : "Update Add-on"
             state.button = button
@@ -1142,12 +1155,16 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     }
 
     /// A new task starts where you are: in the list on show, due today on Today.
-    func newTask() {
+    /// `bot`: [quick-actions] the bot an Add Task tile names, chosen in the sheet (else the page's own scope decides).
+    func newTask(bot: String? = nil) {
         guard !store.readOnlyGateway else { notices.show(JobsStore.readOnlyNotice); return }
-        if current == .goals, !searching { newGoal(); return }   // [goals] the bar's + makes a goal in the Goals view
+        if bot == nil, current == .goals, !searching, store.goalsNeedAddOn { updateAddOn(); return }   // [goals-addon] no goals to make yet
+        if bot == nil, current == .goals, !searching { newGoal(); return }   // [goals] the bar's + makes a goal in the Goals view
         PagesHaptics.selection()
         let scoped = scope.effective(bots: bots)
-        let sheet = NewTodoSheet.make(store: store, bots: bots, preferredBot: scoped == PagesScope.all || scoped == PagesScope.me ? nil : scoped,
+        let preferred = bot.flatMap { id in bots.contains { $0.id == id } ? id : nil }
+            ?? (scoped == PagesScope.all || scoped == PagesScope.me ? nil : scoped)
+        let sheet = NewTodoSheet.make(store: store, bots: bots, preferredBot: preferred,
                                       section: currentList, dueDay: newTaskDay) { [weak self] task in
             guard let self, let task else { return }
             self.reload(animated: true)

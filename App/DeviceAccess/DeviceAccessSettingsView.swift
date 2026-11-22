@@ -444,7 +444,7 @@ struct DeviceAccessKindView: View {
                             .accessibilityIdentifier("device-access.draft.\(draft.id)")
                     }
                 } header: { HQSectionLabel { Text("Waiting for You") } } footer: { HQSectionFooter {
-                    Text("\(DeviceWord.Tap) one to check it and send it. A draft you don’t send is cleared after a day.")
+                    Text("A draft you don’t send is cleared after a day.")
                 } }
             }
 

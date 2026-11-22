@@ -46,6 +46,20 @@ import Foundation
         return store.pullRequest(profile: model.profile, id: storedId) ?? SessionPRStatus(state: .unknown)
     }
 
+    /// [pr-card-detail] The PR card's own ask for this chat (`detail: true`).
+    func pullRequestDetail() async -> SessionPRStatus? {
+        guard let model, let storedId, let store else { return nil }
+        return await store.pullRequestDetail(profile: model.profile, id: storedId)
+    }
+
+    /// [coding-pr-review] The chat as the PR card names it: its stored id, title and bot.
+    var cardChat: PullRequestCardSheet.Chat? {
+        guard let model, let storedId else { return nil }
+        let title = model.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PullRequestCardSheet.Chat(profile: model.profile, id: storedId, title: title.isEmpty ? "Untitled Chat" : title,
+                                         botName: profileName?(model.profile) ?? model.profile)
+    }
+
     /// The sheet opened: one `session.usage` ask (errors swallowed), and the stored row by id when no list holds it.
     /// `changed` runs when either answers.
     func opened(_ changed: @escaping () -> Void) {

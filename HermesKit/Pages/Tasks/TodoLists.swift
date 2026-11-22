@@ -324,6 +324,15 @@ nonisolated enum TodoLists {
         return color(sections.first { $0.id == id })
     }
 
+    /// [tasks-colour] The icon before a row's date, outside the task's own list: the list's own, or the plain list
+    /// icon for a list with none. Nil for a task in no list (or in one that is gone).
+    static func mark(_ task: TodoTask, in view: TodoView, sections: [TodoUserSection]) -> String? {
+        if case .list = view { return nil }       // every row there is that list's
+        if view == .bots { return nil }
+        guard let id = task.section, let section = sections.first(where: { $0.id == id }) else { return nil }
+        return section.icon ?? TodoListIcons.fallback
+    }
+
     /// The first colour no list has yet (a new list's), else the first.
     static func nextColor(_ sections: [TodoUserSection]) -> TodoListColor {
         let used = Set(sections.compactMap(\.color))

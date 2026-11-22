@@ -18,7 +18,7 @@ extension PagesTests {
         shot("tasks-ideas-1-today" + Self.lookName)
 
         // Ideas is off until you turn it on: one line at Inbox's foot, and one button.
-        inbox.tap()
+        tapView("inbox")
         let turnOn = app.buttons["tasks.ideas.turn-on"].firstMatch
         // [task-lists] Inbox holds every unfiled task now, so its foot is a scroll away.
         for _ in 0..<6 where !turnOn.exists || !turnOn.isHittable { app.swipeUp(velocity: .slow) }

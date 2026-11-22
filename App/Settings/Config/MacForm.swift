@@ -977,6 +977,23 @@ extension View {
     static var dimmed: Color { Theme.isDesktop ? Color.hqLabel3 : Color.hqLabel.opacity(0.55) }
 }
 
+/// [popup-room] Owner 2026-11-21 (a screenshot of the Sessions project menu: "the box needs to be properly sized. It has
+/// not room to breathe ... we use this dropdown box like this in a lot of places where the text is basically touching
+/// the box. All of those should be fixed."): one inset for every boxed pop-up's face, SwiftUI and UIKit alike. They
+/// had each picked their own 5–10 pt, which put the words and the chevrons against the edge.
+@MainActor enum MacPopUpInsets {
+    /// From the box's left edge to its first word or picture.
+    static let leading: CGFloat = 12
+    /// From the chevrons to the box's right edge.
+    static let trailing: CGFloat = 10
+    /// Between the words and the chevrons.
+    static let chevronGap: CGFloat = 8
+    /// The same room for a UIKit pop-up (`UIButton.Configuration.contentInsets`), `vertical` above and under.
+    static func content(vertical: CGFloat = 4) -> NSDirectionalEdgeInsets {
+        NSDirectionalEdgeInsets(top: vertical, leading: leading, bottom: vertical, trailing: trailing)
+    }
+}
+
 /// [mac] Stress test 2026-10-28 round 8: a pop-up button's press. `.plain` faded a disabled pop-up as a whole on top of
 /// its face's own dimmed colours, to about 2.3:1 (Mixture of Agents' models); the face dims itself (`MacPopUpFace`).
 struct MacPopUpButtonStyle: ButtonStyle {
@@ -1002,7 +1019,7 @@ struct MacPopUpFace: View {
 
     var body: some View {
         let _ = Theme.touch()
-        HStack(spacing: 6) {
+        HStack(spacing: MacPopUpInsets.chevronGap) {
             Text(text)
                 .foregroundStyle(enabled ? Color.hqLabel : MacField.dimmed)
                 .lineLimit(1)
@@ -1012,8 +1029,8 @@ struct MacPopUpFace: View {
                 .foregroundStyle(enabled ? Color.hqLabel2 : MacField.dimmed)
                 .accessibilityHidden(true)
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 7)
+        .padding(.leading, MacPopUpInsets.leading)
+        .padding(.trailing, MacPopUpInsets.trailing)
         .padding(.vertical, 4)
         .frame(minHeight: MacForm.controlHeight)   // [mac] Stress test 2026-10-28 round 8: one height with the fields
         .background(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).fill(MacField.fill))

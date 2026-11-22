@@ -44,7 +44,7 @@ extension AppModel: SessionsServices {}
     /// Up / Move Down act in the group that row is in; nil is the chat's own row.
     func menuNodes(for session: SessionSummary, row: String? = nil) -> [BotMenuNode] {
         let tiles: [BotMenuNode] = [
-            .action(session.pinned ? "Unpin" : "Pin", session.pinned ? "pin.slash" : "pin") { [weak self] in self?.pin(session) },
+            .action(Self.pinned(session) ? "Unpin" : "Pin", Self.pinned(session) ? "pin.slash" : "pin") { [weak self] in self?.pin(session) },
             // UX study 2026-10-19 #35: a verb, as the Bots menus say it; "Mark Read" (not "Mark as Read") fits a third of
             // the tile row at Extra Large text. The swipe buttons keep their short titles.
             .action(Self.readTitle(unread: session.unread), session.unread ? "envelope.open" : "envelope.badge") { [weak self] in
@@ -177,11 +177,11 @@ extension AppModel: SessionsServices {}
         read.image = UIImage(systemName: session.unread ? "envelope.open.fill" : "envelope.badge.fill")
         read.backgroundColor = HQPalette.tint
         read.accessibilityLabel = session.unread ? "Mark as Read" : "Mark as Unread"
-        let pin = UIContextualAction(style: .normal, title: session.pinned ? "Unpin" : "Pin") { [weak self] _, _, done in
+        let pin = UIContextualAction(style: .normal, title: Self.pinned(session) ? "Unpin" : "Pin") { [weak self] _, _, done in
             self?.pin(session)
             done(true)
         }
-        pin.image = UIImage(systemName: session.pinned ? "pin.slash.fill" : "pin.fill")
+        pin.image = UIImage(systemName: Self.pinned(session) ? "pin.slash.fill" : "pin.fill")
         pin.backgroundColor = .systemOrange
         let actions = UISwipeActionsConfiguration(actions: [read, pin])
         actions.performsFirstActionWithFullSwipe = true
@@ -302,8 +302,10 @@ extension AppModel: SessionsServices {}
         // A bot's recent projects: the ones the sheet started for it, then the ones its newest chats are in.
         let chats = (store?.sessions ?? []).sorted { ($0.lastActive ?? .distantPast) > ($1.lastActive ?? .distantPast) }
         let byProfile = store?.projectsByProfile ?? [:]
+        // [favorite-in-new-chat] Favorites lead the short list (in the order they were starred), ahead of the recent ones.
+        let favorites = store?.device.favoriteProjects ?? []
         let recent: (String) -> [String] = { bot in
-            NewChatLast.recents(for: bot) + chats.filter { $0.profile == bot }.map {
+            favorites + NewChatLast.recents(for: bot) + chats.filter { $0.profile == bot }.map {
                 SessionProjects.key(cwd: $0.cwd, profile: bot, projectsByProfile: byProfile)
             }
         }
@@ -331,7 +333,7 @@ extension AppModel: SessionsServices {}
         page.view.backgroundColor = HQPalette.sheetPage   // [glass] the glass shows around the rows
         // The sheet is as tall as its rows (New Project…, the last one, is on show without a scroll) up to the full
         // height: the title bar, the pills, Start Chat and the heading, then the projects, All Projects and New Project….
-        let listed = NewChatLast.shown(all: projects.map(\.key), recent: [])
+        let listed = NewChatLast.shown(all: projects.map(\.key), recent: favorites)
         let folderHeading = projects.contains { $0.isFolder && listed.keys.contains($0.key) } ? 1 : 0   // [own-folder]
         let rows = CGFloat(listed.keys.count + (listed.more ? 1 : 0) + 1 + folderHeading)
         let fit = UISheetPresentationController.Detent.custom(identifier: .init("new-chat.fit")) { context in
@@ -377,14 +379,17 @@ extension AppModel: SessionsServices {}
         let holders = store.projectHolders(key: key)
         let label = holders.first?.project.label ?? store.projectEntries().first { $0.key == key }?.label
             ?? (key as NSString).lastPathComponent
+        // [project-new-chat-model] Project Settings › New Chats: the model and reasoning the chat starts with (read as
+        // the chat starts, so a choice made a moment ago counts); nothing chosen adds nothing to `session.create`.
         let start: (String) -> Void = { [weak self] profile in
+            let chosen = self?.store?.projectNewChat(key).createParams ?? [:]
             if let held = holders.first(where: { $0.profile == profile }) {
-                self?.newChat(profile: profile, folder: held.project.root)
+                self?.newChat(profile: profile, folder: held.project.root, start: chosen)
             } else if !holders.isEmpty, holders.allSatisfy({ $0.project.isAuto == true }) {
                 // [own-folder] A folder Hermes found, saved by nobody: the chat starts there and no project is made.
-                self?.newChat(profile: profile, folder: key)
+                self?.newChat(profile: profile, folder: key, start: chosen)
             } else {
-                self?.addProjectThenChat(profile: profile, name: label, folder: key)
+                self?.addProjectThenChat(profile: profile, name: label, folder: key, start: chosen)
             }
         }
         // [sessions-ux] The chooser says which project the chat starts in, the project's own bots first (it read
@@ -417,7 +422,7 @@ extension AppModel: SessionsServices {}
 
     /// A bot without the project: `projects.create` for it with the project's name and folder, then the new chat there.
     /// A failure is said, not hidden: the chat never starts outside the project.
-    private func addProjectThenChat(profile: String, name: String, folder: String) {
+    private func addProjectThenChat(profile: String, name: String, folder: String, start: [String: JSONValue] = [:]) {
         guard let store else { return }
         let hud = slowHUD("Adding Project…")
         Task { [weak self] in
@@ -426,13 +431,13 @@ extension AppModel: SessionsServices {}
                 let project = try await store.createProject(name: name, folder: folder, profile: profile)
                 hud()
                 store.loadProjects(force: true, also: [profile])
-                self?.newChat(profile: profile, folder: project.root)
+                self?.newChat(profile: profile, folder: project.root, start: start)
             } catch is CancellationError {
             } catch {
                 guard let self else { return }
                 let reason = SessionActionText.reason(error)
                 let retry: (() -> Void)? = reason == SessionActionText.projectsUnsupported ? nil : { [weak self] in
-                    self?.addProjectThenChat(profile: profile, name: name, folder: folder)
+                    self?.addProjectThenChat(profile: profile, name: name, folder: folder, start: start)
                 }
                 FailureAlert.present(title: "Couldn’t Start a New Chat", reason: reason, detail: SessionActionText.detail(error),
                                      from: self.host, retry: retry)
@@ -485,15 +490,17 @@ extension AppModel: SessionsServices {}
     /// and writes its row only with the first prompt, so a stored id taken here and opened as a listed chat names a
     /// row that does not exist yet.
     /// `folder`: a project's root; the chat starts there.
-    func newChat(profile: String, folder: String? = nil) {
+    /// [project-new-chat-model] `start`: what the project's settings add to `session.create`.
+    func newChat(profile: String, folder: String? = nil, start: [String: JSONValue] = [:]) {
         Haptics.play(.soft)
         if let starter = services as? BotChatStarting, let bot = services.bots.first(where: { $0.id == profile }) {
-            host?.openChat(model: starter.newChat(for: bot, folder: folder), fresh: true)
+            let chat = start.isEmpty ? starter.newChat(for: bot, folder: folder) : starter.newChat(for: bot, folder: folder, start: start)
+            host?.openChat(model: chat, fresh: true)
             return
         }
         guard let store else { return }
         run("Couldn’t Start a New Chat", {
-            let made = try await store.newChat(profile: profile, folder: folder)
+            let made = try await store.newChat(profile: profile, folder: folder, start: start)
             let summary = SessionSummary(id: made.storedId, profile: made.profile, title: "New Chat", preview: nil, lastActive: Date(),
                                          source: nil, unread: false, isRunning: false)
             self.host?.openChat(summary, fresh: true)
@@ -530,7 +537,9 @@ extension AppModel: SessionsServices {}
             return [BotMenuNode(title: "Reopen", image: "arrow.uturn.backward.circle", identifier: "sessions.row.prReopen",
                                 kind: .action({ [weak self] in self?.markPRClosed(session, false) }))]
         }
-        guard let state = status?.state, [.draft, .none, .unknown].contains(state) else { return [] }
+        // [pr-multi] An add-on that lists items (0.9.75) labels an open pull request too; an older one doesn't.
+        let marks: Set<SessionPRStatus.State> = status?.items != nil ? [.draft, .open, .none, .unknown] : [.draft, .none, .unknown]
+        guard let state = status?.state, marks.contains(state) else { return [] }
         return [BotMenuNode(title: "Mark as Closed", image: "xmark.circle", identifier: "sessions.row.prClose",
                             kind: .action({ [weak self] in self?.markPRClosed(session, true) }))]
     }
@@ -541,8 +550,20 @@ extension AppModel: SessionsServices {}
         run(closed ? "Couldn’t Mark as Closed" : "Couldn’t Reopen", owner: session.owner) { try await store.setPRClosed(session, closed) }
     }
 
+    /// [project-pins] Pinned as the row shows it: everywhere, or on this project's page alone.
+    static func pinned(_ session: SessionSummary) -> Bool { session.pinned || session.projectPinned }
+
     func pin(_ session: SessionSummary) {
         guard let store else { return }
+        // [project-pins] On a project's page: a chat pinned there alone unpins there; with Pins Stay in Project on, an
+        // unpinned chat pins there alone. A chat pinned everywhere still unpins everywhere (it says so wherever it is).
+        if onProjectPage, let key = host?.projectPageKey {
+            if session.projectPinned || (!session.pinned && store.isProjectPinsLocal(key)) {
+                Haptics.play(.selection)
+                store.setProjectPinned(session, project: key, !session.projectPinned)
+                return
+            }
+        }
         Haptics.play(.selection)
         let pinned = !session.pinned
         run(pinned ? "Couldn’t Pin Chat" : "Couldn’t Unpin Chat", owner: session.owner) { try await store.setPinned(session, pinned) }
@@ -715,7 +736,7 @@ extension AppModel: SessionsServices {}
     /// folder), then the chat moves into it.
     func newProjectThenMove(_ session: SessionSummary) {
         guard let store else { return }
-        askNewProject { [weak self] name, folder in
+        askNewProject(profile: session.profile) { [weak self] name, folder in
             self?.run("Couldn’t Move Chat", {
                 let project = try await store.createProject(name: name, folder: folder, profile: session.profile)
                 try await store.move(session, to: project)
@@ -737,7 +758,7 @@ extension AppModel: SessionsServices {}
     /// `startsChat`: the New Chat sheet's New Project…: a new chat opens in the project once it is made.
     func newProject(profile: String, name: String = "", folder: String = "", startsChat: Bool = false) {
         guard let store else { return }
-        askNewProject(name: name, folder: folder) { [weak self] name, folder in
+        askNewProject(profile: profile, name: name, folder: folder) { [weak self] name, folder in
             // A slow gateway: "Creating Project…" once the call has taken 400 ms, until it answers (30 s at most).
             let hud = self?.slowHUD("Creating Project…") ?? {}
             Task { [weak self] in
@@ -767,7 +788,10 @@ extension AppModel: SessionsServices {}
 
     /// The New Project alert: Create is off until the name has text. The folder is optional: left empty, the app makes
     /// one named after the project (its placeholder says where, as the name is typed).
-    private func askNewProject(name: String = "", folder: String = "", create made: @escaping (_ name: String, _ folder: String) -> Void) {
+    /// [new-project-folder] Choose Folder… browses `profile`'s folders on the gateway's computer and comes back here
+    /// with the pick in Folder (and, with no name typed yet, the folder's own name in Name).
+    private func askNewProject(profile: String, name: String = "", folder: String = "",
+                               create made: @escaping (_ name: String, _ folder: String) -> Void) {
         guard let host = FailureAlert.topmost(host) else { return }
         let alert = UIAlertController(title: "New Project",
                                       message: "A project holds the chats in its folder on \(HostWord.phrase). Leave Folder empty to make a new one.",
@@ -798,10 +822,48 @@ extension AppModel: SessionsServices {}
             create?.isEnabled = !name.isEmpty
             alert?.textFields?.last?.placeholder = autoPlaceholder(name)
         }, for: .editingChanged)
+        let browse = UIAlertAction(title: "Choose Folder…", style: .default) { [weak self, weak alert] _ in
+            let typedName = alert?.textFields?.first?.text ?? "", typedFolder = alert?.textFields?.last?.text ?? ""
+            self?.chooseProjectFolder(profile: profile, typed: typedFolder) { [weak self] picked in
+                let named = typedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? picked.map(ProjectFolderWords.suggestedName(folder:)) ?? typedName : typedName
+                self?.askNewProject(profile: profile, name: named, folder: picked ?? typedFolder, create: made)
+            }
+        }
+        browse.accessibilityIdentifier = "project.choose-folder"
+        alert.addAction(browse)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(create)
         alert.preferredAction = create
         host.present(alert, animated: true)
+    }
+
+    /// [new-project-folder] The folder browser, as a sheet. `done`: the picked folder, or nil when the sheet was
+    /// closed without one. Delivered once, after the sheet has gone (the alert that follows needs a free presenter).
+    private func chooseProjectFolder(profile: String, typed: String, done: @escaping (String?) -> Void) {
+        guard let store, let host = FailureAlert.topmost(host) else { done(nil); return }
+        let workspace = ChatWorkspace(client: store.client, profile: profile.isEmpty || profile == "default" ? nil : profile)
+        final class Box { weak var sheet: UINavigationController?; var delivered = false; var picked: String? }
+        let box = Box()
+        // Whichever notices the sheet gone first (the dismissal's completion, the page's own disappearance, the
+        // timer for a completion UIKit dropped) delivers the same answer: the pick, or nil for a plain close.
+        let deliver: () -> Void = {
+            guard !box.delivered else { return }
+            box.delivered = true
+            done(box.picked)
+        }
+        let picker = ProjectFolderPickerHost(rootView: ProjectFolderPickerView(
+            browser: ProjectFolderBrowser(workspace: workspace, typed: typed)) { picked in
+                Haptics.play(.selection)
+                box.picked = picked
+                guard let sheet = box.sheet, sheet.presentingViewController != nil else { deliver(); return }
+                sheet.dismiss(animated: true) { deliver() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { deliver() }
+            })
+        picker.closed = deliver
+        let sheet = ChatSheet.wrap(picker, title: "Choose Folder")
+        box.sheet = sheet
+        host.present(sheet, animated: true)
     }
 
     /// Branch in New Chat: the gateway copies the chat into a new one, which opens.
@@ -973,6 +1035,10 @@ struct NewChatSheetView: View {
 
     private var faceSize: CGFloat { Theme.isDesktop ? HQFont.scaled(20) : HQFont.scaled(24) }
     private static let rowInsets = EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+    /// The bot pills' room inside their card (owner 2026-11-22: 2pt left them pressed against the card's sides). The
+    /// same 8 all round, so the pills sit centred with an even rim; on the phone it is the strip's content inset, so a
+    /// scrolled pill still slides out under the card's edge.
+    private static let pillInset = EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
 
     private var botName: String { bots.first { $0.id == bot }?.name ?? "Hermes" }
 
@@ -1033,7 +1099,7 @@ struct NewChatSheetView: View {
                     // edge (Finance, cut in half with five bots) was out of reach without a trackpad. On the Mac the
                     // pills wrap to another line, as the job editor's faces do (FEEL-LIST #32).
                     PagesFlowLayout(spacing: 8, lineSpacing: 8) { botPills }
-                        .padding(.horizontal, 2)
+                        .padding(Self.pillInset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
@@ -1041,7 +1107,7 @@ struct NewChatSheetView: View {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal) {
                             HStack(spacing: 8) { botPills }
-                                .padding(.horizontal, 2)
+                                .padding(Self.pillInset)
                         }
                         .scrollIndicators(.hidden)
                         .onAppear { proxy.scrollTo(bot, anchor: .center) }

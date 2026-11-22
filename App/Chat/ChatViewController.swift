@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 
 /// The chat screen. An inverted table (row 0 = newest, at the bottom) with exact precomputed heights, a glass composer
 /// pinned to the keyboard layout guide, and a jump-to-latest button (docs/ARCHITECTURE.md "Feel rules", spec 06).
@@ -446,7 +447,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                     switch block {
                     case .text(let t), .quote(let t, _), .code(_, _, let t, _): _ = TextKitLayout(t, width: 300)
                     case .table(let t): t.header.forEach { _ = TextKitLayout($0, width: nil) }
-                    case .spacer, .media, .linkChip, .pageCard: break
+                    case .spacer, .media, .linkChip, .pageCard, .phoneProposal: break
                     }
                 }
             }
@@ -676,6 +677,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         tableView.delegate = self
         tableView.prefetchDataSource = self
         tableView.register(ChatBubbleCell.self, forCellReuseIdentifier: ChatBubbleCell.reuse)
+        tableView.register(PhoneResultCell.self, forCellReuseIdentifier: PhoneResultCell.reuse)
         tableView.register(ChatToolCell.self, forCellReuseIdentifier: ChatToolCell.reuse)
         tableView.register(ChatLineCell.self, forCellReuseIdentifier: ChatLineCell.reuse)
         tableView.register(ChatErrorCell.self, forCellReuseIdentifier: ChatErrorCell.reuse)
@@ -1530,6 +1532,11 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             relayoutEverything(reason: "column width changed \(Int(was.rounded())) → \(Int(column.width.rounded()))"
                                + (view.window == nil ? ", off screen" : ""))
         }
+        if !DeviceWord.isMac, traitCollection.userInterfaceIdiom == .phone,
+           let strip = topAccessory as? SessionStripController {
+            let keys = view.keyboardLayoutGuide.layoutFrame
+            strip.setKeyboardOccludesChat(keys.height > view.safeAreaInsets.bottom + 20)
+        }
         activity.layoutChanged()         // [activity] an opened card's cap follows the keyboard in this same pass
         updateInsets()
         updateBottomEdge()
@@ -1664,6 +1671,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         #endif
         ChatPerf.mark("chat.viewDidAppear")
         chatAppeared = true
+        DroppedFilesHandOff.claim(self)   // [spring-drop] files let go on this chat's row in a list
         edgeStandIn.handOver()
         // [desktoplook4] Panels that joined the window during the push sat under its dimming wrapper then: flatten
         // whatever is still glass now that it's done.
@@ -2230,7 +2238,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let bottom = max(0, view.bounds.maxY - dockTop) + ChatMetrics.composerContentGap
         // [Mac AAA 2026-11-17] The Find bar standing in the empty status line's place (`findGap`) takes that much less.
         let findRoom = findInset > 0 && findGap < 0 ? max(0, findInset + findGap) : findInset
-        let top = view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findRoom
+        let top = max(view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findRoom,
+                      earlierRoom)
         let old = tableView.contentInset
         // The scroll bar runs the whole height the rows can show in: down behind the composer to the screen's bottom
         // edge (above the home indicator), or to the keys when they're up. Owner 2026-11-01: ended at the composer's
@@ -2299,6 +2308,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         var reuse: String
         switch row.kind {
         case .bubble: reuse = ChatBubbleCell.reuse
+        case .phoneResult: reuse = PhoneResultCell.reuse
         case .toolRun, .thought, .backgroundResult: reuse = ChatToolCell.reuse
         case .day, .notice, .caption, .stoppedEarly, .sendState, .slashOutput: reuse = ChatLineCell.reuse
         case .error: reuse = ChatErrorCell.reuse
@@ -2798,9 +2808,13 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         #endif
         let oldCount = rows.count
         let targetCount = shown.count
+        // UIKit validates index paths against its own last snapshot, not the data source. After a
+        // reconnect those differed in build 1169 (38 vs 13). No indexed update is safe in that case.
+        let tableCount = tableView.numberOfSections == 1 ? tableView.numberOfRows(inSection: 0) : nil
+        let staleTable = tableCount != oldCount
 
         // Rows that changed in place and kept their heights need no table update at all: only their cells.
-        if d.inserts.isEmpty && d.deletes.isEmpty && oldCount == targetCount && d.front + d.back >= oldCount {
+        if !staleTable && d.inserts.isEmpty && d.deletes.isEmpty && oldCount == targetCount && d.front + d.back >= oldCount {
             var fresh: [(Int, RowLayout)] = []
             var keepsHeights = true
             for i in d.changed {
@@ -2818,8 +2832,17 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
 
         activity.willApply()             // [activity] the fold's slide: where rows were
-        // Where to hold the view still.
-        let anchor = captureAnchor()
+        // On a stale table its indices can't identify a message. Use the visible cell itself to keep the
+        // reader's place across the reload; at the live end just stay pinned.
+        let anchor: Anchor
+        if !staleTable {
+            anchor = captureAnchor()
+        } else if !following, let top = tableView.indexPathsForVisibleRows?.max(by: { $0.row < $1.row }),
+                  let cell = tableView.cellForRow(at: top) as? ChatBaseCell {
+            anchor = .row(id: cell.rowId, index: top.row, top: tableView.rectForRow(at: top).maxY - tableView.contentOffset.y)
+        } else {
+            anchor = .bottom(refs: [])
+        }
         // A lift that still carries the rows above (its offset share) hands what is left of it to the stream glide;
         // its stand-in keeps flying to wherever the bubble now rests.
         let liftCarry = lift?.drivesOffset == true ? max(0, tableView.contentOffset.y - minOffset) : 0
@@ -2860,11 +2883,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         }
 
         let bigChange = d.inserts.count + d.deletes.count > 400 && !d.deletes.isEmpty
-        let reloadReason = bigChange ? "big change" : oldCount == 0 ? "table was empty" : tableView.window == nil ? "off screen" : nil
+        let reloadReason: String?
+        if staleTable { reloadReason = "row counts differ: table \(tableCount ?? 0), transcript \(oldCount)" }
+        else if bigChange { reloadReason = "big change" }
+        else if oldCount == 0 { reloadReason = "table was empty" }
+        else if tableView.window == nil { reloadReason = "off screen" }
+        else { reloadReason = nil }
         var growth: CGFloat = 0
         var arrived: [Int] = []
         UIView.performWithoutAnimation {
-            if bigChange || oldCount == 0 || tableView.window == nil {
+            if reloadReason != nil {
                 commitRows()
                 tableView.reloadData()
                 // Commit the reload now: a batch update queued on top of an uncommitted reload leaves ghost cells.
@@ -3752,8 +3780,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private func installEarlierPill() {
         earlierPill.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(earlierPill)
-        // [Mac AAA 2026-11-17] As the Find bar and the notice: in the empty status line's place on the Mac (`findGap`).
-        let earlierTop = earlierPill.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: DeviceWord.isMac ? findGap : 8)
+        // [Mac AAA 2026-11-17] As the Find bar and the notice: in the empty status line's place (`earlierGap`). The
+        // iPhone and iPad too since owner 2026-11-22 (it sat a whole empty status line under the title there).
+        let earlierTop = earlierPill.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: earlierGap)
         earlierPillTop = earlierTop
         NSLayoutConstraint.activate([
             earlierPill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -3779,7 +3808,21 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         else if failed { state = .failed }
         else { state = .idle }
         let offline: Bool = if case .offline = session.connection { true } else { false }
+        let before = earlierPill.state
         earlierPill.set(state, offline: offline)
+        // The room kept under the pill (`earlierRoom`) follows whether there is more before, and the failure's height.
+        if earlierPill.state != before { updateInsets() }
+    }
+
+    /// Owner 2026-11-22: the pill stood over the top of what is loaded ("Today 7:13 AM"). While there are earlier
+    /// messages to show, the transcript's top rests under the pill's foot (the y it must reach, from the view's top), so
+    /// arriving at the top shows the pill above the first row, never on it. Not on the Mac: its pill is the status
+    /// capsule's 34 pt sibling and the transcript already starts under it.
+    private var earlierRoom: CGFloat {
+        guard !DeviceWord.isMac, isViewLoaded, session.hasOlder, findInset == 0, !transcriptCovered else { return 0 }
+        let words = statusPill.text == nil ? 0 : ChatMetrics.statusLineHeight + ChatMetrics.underBarGap
+        let pillTop = view.safeAreaInsets.top + ChatMetrics.statusPillTop + words
+        return pillTop + max(48, earlierPill.bounds.height) + 8
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -4414,6 +4457,15 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         rebuildMessage(row.messageId)
     }
 
+    func chatCellToggleFiles(rowId: String) {
+        guard let row = rows.first(where: { $0.id == rowId }) else { return }
+        let key = ChatRow.filesOpenKey(rowId)
+        if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) }
+        // As "Show All N Files": the newest row opened at the chat's end grows up into view; elsewhere it holds its top.
+        if !(following && rows.first?.id == rowId) { holdRowId = rowId }
+        rebuildMessage(row.messageId)
+    }
+
     func chatCellToggleCode(rowId: String, block: Int) {
         guard let row = rows.first(where: { $0.id == rowId }) else { return }
         let key = "\(rowId)#c\(block)"
@@ -4543,7 +4595,12 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         TableSheetController.open(table, from: self)
     }
 
+    func chatCellOpenPhoneResult(_ result: PhoneResultCard, sentAt: Date?) {
+        PhoneCallChat.open(result, sentAt: sentAt, from: self)
+    }
+
     func chatCellOpen(url: URL) {
+        if PhoneCallChat.open(url, from: self) { return }                                         // [phone-calls] an agent's call proposal
         if openMediaLink(url) { return }                                                          // [attachments] `#media:` links
         if openFileLink(url) { return }                                                           // a path in backticks: Files
         LinkOpener.open(url, from: self)   // [transcript] in-app Safari; a gateway-loopback page says why it can't open
@@ -4816,9 +4873,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         return statusPill.text == nil ? -ChatMetrics.statusLineHeight : ChatMetrics.underBarGap
     }
 
+    /// The Search Earlier pill's top under the status line, every device: in the status line's place with no words,
+    /// under the words when they show (the notice's `noticeGap`).
+    private var earlierGap: CGFloat {
+        statusPill.text == nil ? -ChatMetrics.statusLineHeight : ChatMetrics.underBarGap
+    }
+
     private func updateNoticeTop() {
-        if DeviceWord.isMac, let earlierPillTop, earlierPillTop.constant != findGap {
-            earlierPillTop.constant = findGap
+        if let earlierPillTop, earlierPillTop.constant != earlierGap {
+            earlierPillTop.constant = earlierGap
+            updateInsets()
             if view.window != nil, !earlierPill.isHidden {
                 HQMotion.animate(HQMotion.fade, options: [.beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
             }

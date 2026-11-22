@@ -12,6 +12,8 @@
 // [provider-off] testCP5: a row's switch takes the provider out of the model chooser; a provider Hermes sets up itself
 // (the fixture's Mixture of Agents) is listed; Select turns several off, removes several after one confirm (the one that
 // can't be removed is turned off), and turns them back on; the provider page's own switch.
+// [moa-setup] testCP6: Mixture of Agents' row opens the Mixture of Agents page (its models, New Preset…, Make Default,
+// Delete Preset, and the row's own switch), not the page every provider gets.
 
 import XCTest
 
@@ -420,5 +422,100 @@ extension SettingsEndToEndTests {
         shot(app, "provider-off-7-page-off")
         back(app)
         XCTAssertTrue(waitUntil(timeout: 5) { anthropic.label.hasSuffix("Off") }, anthropic.label)
+    }
+
+    /// [moa-setup] Owner 2026-11-21: "The mixture of agents setup page needs all kinds of work. It's basically not
+    /// usable." Providers › Mixture of Agents was the page every provider gets (a typed model ID, a Default Model). It
+    /// is the Mixture of Agents page: its models, a new preset, the one /moa uses, delete, and the row's own switch.
+    /// Seeded as his Hermes has it: one preset named `default`.
+    @MainActor func testCP6_MixtureOfAgentsRowOpensItsSetup() throws {
+        try a.control("/__settings/moa", ["default_preset": "default", "presets": [
+            "default": moaPreset(references: [("openrouter", "deepseek/deepseek-v3.2"), ("anthropic", "claude-sonnet-5")]),
+        ]])
+        func moaState() -> [String: Any] { (a.state()["moa"] as? [String: Any]) ?? [:] }
+        func presets() -> [String: Any] { (moaState()["presets"] as? [String: Any]) ?? [:] }
+        func references(_ name: String) -> [[String: Any]] { ((presets()[name] as? [String: Any])?["reference_models"] as? [[String: Any]]) ?? [] }
+
+        let app = launchClean()
+        openProviders(app)
+        let moa = app.buttons["provider.moa"]
+        XCTAssertTrue(appears(moa, app, "cp6-list", timeout: 10))
+        scrollTo(moa, app)
+        XCTAssertTrue(moa.label.contains("1 preset"), "its row counts presets: \(moa.label)")
+        moa.tap()
+
+        // Its setup, not a provider's page.
+        let on = app.switches["moa.enabled"]
+        XCTAssertTrue(appears(on, app, "cp6-page", timeout: 10), "the Mixture of Agents page")
+        XCTAssertEqual(on.value as? String, "1")
+        XCTAssertFalse(app.buttons["provider-models.add"].exists || app.buttons["provider-page.default-model"].exists
+                       || app.buttons["provider-page.name"].exists, "none of the provider page's rows")
+        let first = app.buttons["moa.ref-0"], second = app.buttons["moa.ref-1"], aggregator = app.buttons["moa.aggregator"]
+        XCTAssertTrue(first.exists && second.exists && aggregator.exists, "its reference models and its aggregator")
+        XCTAssertTrue(first.label.contains("DeepSeek") && aggregator.label.contains("Opus"), "\(first.label) / \(aggregator.label)")
+        let picker = app.descendants(matching: .any)["moa.preset"]
+        XCTAssertTrue(picker.exists, "one preset still shows which")
+        XCTAssertFalse(app.buttons["moa.preset-delete"].exists || app.buttons["moa.preset-default"].exists, "the only preset: nothing to delete or switch to")
+        shot(app, "moa-setup-1-from-providers")
+
+        // New Preset…: a copy of the one shown, saved on Hermes under a name with no spaces, and the one now shown.
+        app.buttons["moa.preset-new"].tap()
+        answerPrompt(app, "moa.preset-name", "Deep Research", "Add", "moa-setup-2-new-preset")
+        XCTAssertTrue(waitUntil(timeout: 8) { references("deep_research").count == 2 }, "saved with the shown preset's models: \(presets().keys)")
+        XCTAssertTrue(same(moaState()["default_preset"], "default"), "the default stays")
+        let makeDefault = app.buttons["moa.preset-default"], delete = app.buttons["moa.preset-delete"]
+        XCTAssertTrue(makeDefault.waitForExistence(timeout: 5) && delete.exists, "a second preset: Make Default and Delete Preset")
+        XCTAssertTrue(app.staticTexts["moa.preset-footer"].label == "/moa uses Default.", app.staticTexts["moa.preset-footer"].label)
+        shot(app, "moa-setup-3-second-preset")
+
+        // Its second reference model goes; the last one stays (Hermes refuses a preset with none).
+        second.swipeLeft()
+        let swipeDelete = app.buttons["Delete"]
+        XCTAssertTrue(swipeDelete.waitForExistence(timeout: 5), "swipe to remove a reference model")
+        swipeDelete.tap()
+        XCTAssertTrue(waitUntil(timeout: 8) { references("deep_research").count == 1 }, "one reference model left on the new preset")
+        XCTAssertEqual(references("default").count, 2, "the other preset is untouched")
+        XCTAssertTrue(waitUntil(timeout: 5) { !second.exists })
+        first.swipeLeft()
+        XCTAssertFalse(app.buttons["Delete"].waitForExistence(timeout: 2), "the last reference model can't be removed")
+        // With nothing to swipe to, the runner's swipe can land as a tap and open the row's chooser: back out of it.
+        if app.buttons["model-chooser.provider"].waitForExistence(timeout: 1.5) { back(app) }
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        XCTAssertEqual(references("deep_research").count, 1, "still its one reference model")
+        let writes = a.writes("PUT /api/model/moa").count
+
+        // Make Default: the preset /moa uses, with the top level following it.
+        makeDefault.tap()
+        XCTAssertTrue(waitUntil(timeout: 8) { self.same(moaState()["default_preset"], "deep_research") }, "\(String(describing: moaState()["default_preset"]))")
+        XCTAssertEqual((moaState()["reference_models"] as? [Any])?.count, 1, "the top level is the default preset's")
+        XCTAssertTrue(waitUntil(timeout: 5) { !makeDefault.exists }, "it is the default now")
+        XCTAssertEqual(a.writes("PUT /api/model/moa").count, writes + 1, "one save")
+
+        // Delete Preset, after one confirm: left out of what is saved, and the default moves back.
+        delete.tap()
+        XCTAssertTrue(appears(app.alerts.buttons["Delete"], app, "cp6-delete-confirm"))
+        shot(app, "moa-setup-4-delete-confirm")
+        confirmAlert(app, "Delete")
+        XCTAssertTrue(waitUntil(timeout: 8) { Array(presets().keys) == ["default"] }, "\(presets().keys)")
+        XCTAssertTrue(same(moaState()["default_preset"], "default"))
+        XCTAssertTrue(waitUntil(timeout: 5) { second.exists && !delete.exists }, "back on the one preset, with its two models")
+
+        // The switch is the row's own: off changes nothing on Hermes, and the list says Off.
+        let saved = a.writes("PUT /api/model/moa").count
+        flip(on)
+        XCTAssertTrue(waitUntil(timeout: 5) { on.value as? String == "0" && !aggregator.isEnabled }, "off, and its rows wait")
+        XCTAssertTrue(app.staticTexts["moa.footer"].label.hasPrefix("Off, it is in no model menu."), app.staticTexts["moa.footer"].label)
+        shot(app, "moa-setup-5-off")
+        back(app)
+        XCTAssertTrue(waitUntil(timeout: 8) { moa.exists && moa.label.hasSuffix("Off") }, moa.label)
+        XCTAssertEqual(a.writes("PUT /api/model/moa").count, saved, "nothing saved on Hermes")
+        moa.tap()
+        XCTAssertTrue(on.waitForExistence(timeout: 8))
+        XCTAssertEqual(on.value as? String, "0", "off here as in the list")
+        flip(on)
+        XCTAssertTrue(waitUntil(timeout: 5) { on.value as? String == "1" && aggregator.isEnabled })
+        back(app)
+        XCTAssertTrue(waitUntil(timeout: 8) { moa.exists && !moa.label.hasSuffix("Off") && moa.label.contains("1 preset") }, moa.label)
+        XCTAssertEqual(a.writes("PUT /api/model/moa").count, saved, "Hermes was already listing it: still nothing saved")
     }
 }

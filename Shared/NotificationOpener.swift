@@ -15,11 +15,13 @@ nonisolated enum NotificationOpener {
         var record: (String) -> Void
         /// The mutes set on this iPhone (Shared/BotMutes.swift), read once per push.
         var mutes: () -> [String: BotMute] = { [:] }
+        /// [project-mute] The chats in a project set to Only When It Needs Me or Mute (Shared/ProjectMutes.swift).
+        var projectLevels: () -> ProjectMutes.Levels = { [:] }
 
         static var live: Environment {
             Environment(keys: { PushSealKeys.all() }, face: { PushFaces.face(account: $0, profile: $1) },
                         locked: { PushSealKeys.locked() }, record: { PushAlertDiagnostics.record($0) },
-                        mutes: { BotMutes.stored() })
+                        mutes: { BotMutes.stored() }, projectLevels: { ProjectMutes.stored() })
         }
     }
 
@@ -51,8 +53,12 @@ nonisolated enum NotificationOpener {
         // A muted bot's finished reply (Bot Info › Mute Notifications): an extension can't drop an alert without
         // Apple's filtering entitlement, so it arrives quietly in Notification Center (no sound, no banner, no wake), as
         // a muted Messages conversation does. Approvals and every other kind keep their alert.
-        guard !BotMutes.allows(kind: BotMutes.pushKind(remote), account: account, profile: profile, mutes: env.mutes()) else { return shown }
-        return quieted(shown)
+        // [project-mute] The same for a chat whose project is on Only When It Needs Me (finished replies arrive
+        // quietly) or Mute (every kind but an approval or a question does).
+        let kind = BotMutes.pushKind(remote)
+        let loud = BotMutes.allows(kind: kind, account: account, profile: profile, mutes: env.mutes())
+            && ProjectMutes.allows(kind: kind, account: account, session: remote["session"] as? String ?? "", levels: env.projectLevels())
+        return loud ? shown : quieted(shown)
     }
 
     /// The same alert, delivered without sound, banner or screen wake.

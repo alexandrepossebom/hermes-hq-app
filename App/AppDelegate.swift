@@ -63,6 +63,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         AppIcons.dropStaleLaunchPicture()              // 2026-11-02: no old Hermes head on the system launch screen
         WidgetRefresh.register()                       // [tile-widgets] the widgets' background refresh, before launch ends
         TasksWidgetWriter.install()                    // [tasks-widget] the Tasks widget's check circle runs in the app
+        // [quick-actions] Open Quick Actions (the shortcut) shows the page; one asked for before now waits.
+        QuickActionsOpener.install { from in Task { await QuickActionsRouter.present(from: from) } }
         #if DEBUG
         DiagnosticsDebug.applyAtLaunch()
         #endif
@@ -329,8 +331,25 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
         if IntentsDebugHooks.handle(url, model: model) { return }   // [intents] <scheme>://debug-intent/<word>
         if AlertDebugHooks.handle(url) { return }                   // [notify] <scheme>://debug-alert/task|chat/<id>
         #endif
+        // [phone-calls] A call proposal counts only as a tap inside a chat (ChatViewController.chatCellOpen). From
+        // another app, a web page or a widget it is refused, so nothing outside can pre-fill a call.
+        if PhoneProposal.refusesOutside(url) {
+            AppLog.note("link", "phone-call refused: from outside the app")
+            if let top = window?.rootViewController {
+                LinkOpener.notice(DeepLink.unavailable(device: DeviceWord.name), from: LinkOpener.noticeHost(root: top))
+            }
+            return
+        }
         // [tile-widgets] <scheme>://widget/…: a Home Screen widget's tap (a tile, Tiles, Tasks, a task, New Task).
         if WidgetRouter.handle(url) { return }
+        // [quick-actions] <scheme>://quick-actions: the Quick Actions page (DECISION I22), as the shortcut opens it.
+        if case .other(kind: QuickTileStore.rowID, _, _)? = DeepLink.parse(url, scheme: AppIdentity.current.urlScheme) {
+            AppLog.note("link", "quick actions")
+            Task { await QuickActionsRouter.present(from: "link") }
+            return
+        }
+        // [shortcut-new-chat] <scheme>://new-chat?bot=…&project=…: a new chat with that bot in that project.
+        if NewChatRouter.handle(url) { return }
         // [live] <scheme>://job/<owner|id>: a job's Lock Screen progress opens its page in Jobs.
         // Signed out (no tabs): nothing to open, and it is not an unknown link, so no "isn't available" notice.
         if case .other(kind: "job", let key, _)? = DeepLink.parse(url, scheme: AppIdentity.current.urlScheme), !key.isEmpty {

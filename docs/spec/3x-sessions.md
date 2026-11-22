@@ -235,6 +235,13 @@ chat is whatever the rules above make it.
   menu opens or Group By Project is on, then at most once a minute per bot, and again after a project is created.
 - A chat's project is `SessionProject.owner(of: cwd, in: projects)` (the existing longest-folder match). No folder, or no
   match: no project.
+- **DECISION (a bot's own folder is no project; a tester, issue #64, 2026-11-14 and 2026-11-21):** a group Hermes found by
+  itself (`isAuto`) whose folder is any bot's own folder (its `terminal.cwd` from `GET /api/config?profile=`, or the
+  folder its own chat runs in) or any bot's home (`~/.hermes`, `~/.hermes/profiles/<name>`) is dropped from every bot's
+  projects as they are read and kept (`SessionProjects.droppingOwnFolders`, `NAT/HermesKit/Store/SessionStore+OwnFolder.swift`).
+  So it is in no Project submenu, Group By Project group, project pill, Move to Project list or New Chat list, and its
+  chats sit under Home with the chats that have no folder (one bot's chats are no longer split by whether their cwd was
+  recorded). A project someone saved on that folder stays. Nothing on the gateway is changed.
 - **DECISION (project identity across bots):** under All, two bots can each have a project on the same folder. A
   project's key is its folder (`root`, standardised, no trailing slash); a project without a folder uses
   `"id:" + profile + "/" + id`. One entry per key, labelled by the first bot's label in chip order. The key for "no
@@ -295,6 +302,132 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
   so the name keeps its room); a caption with a hold menu (a bot's under Group By Bot) has it at its end, after any +.
   Each is a 44 pt touch opening the same items as holding the header (`ProjectHeaderMenuItems`); a tap on the row
   still folds it, and VoiceOver finds the ⋯ as its own button, "Actions for <name>" (`sessions.header.menu`).
+- **DECISION (2026-11-20, owner): a project's pins can stay in the project** [project-pins]. The project page's ⋯
+  has Pins Stay in Project (`sessions.projectPage.localPins`, per project, off until turned on). On, Pin on that
+  page (row menu, swipe, the Mac's hover) pins the chat on that page alone: it joins the page's Pinned pile, its row
+  says "Pinned in project", and no `pinned` write reaches the gateway, so Pinned everywhere else is unchanged
+  (`SessionStore.setProjectPinned`, `SessionsOrganizer.pin`). Such a pin unpins on its page whatever the switch says;
+  a chat pinned everywhere still unpins everywhere. The switch and the pins (project key → row keys) are kept with
+  the hand-picked parts and synced in the "sessions" document (`projectPinsLocal`, `projectPins`); an older document
+  without them erases neither. Step 3 is unchanged for every other list: only `SessionListPipeline.projectPage` reads
+  `SessionListInput.projectPins`.
+- **DECISION (2026-11-21, owner): opening a chat does not move it on a project's page** [read-holds]. "Sessions here
+  move when you open them": Active orders Needs You, New, Working, then the rest, and reading a New chat dropped it to
+  the rest. A chat read since the page was last left (`keepNew`, the same hold New for You uses) keeps its New rank
+  until the page is left (another tab, the app in the background); the header's counts say what is.
+- **DECISION (2026-11-21, owner): a project's page has its own Sort** [project-sort]. ⋯ › Sort: Needs Me First (the
+  default, the order above) or Newest (one run by the list's sort; reading or a reply's New state moves nothing).
+  Kept per project and synced (`projectSorts`); an older document erases it not.
+- **DECISION (2026-11-21, owner): a project's settings are one page** [project-settings]. The project page's ⋯ was
+  getting long: it starts with Project Settings… (`sessions.projectPage.settings`), a sheet titled with the project's
+  name (`ProjectSettingsPage`, presented by `SessionsViewController.presentProjectSettings` through `ChatSheet.wrap`).
+  Sections: Chats, Notifications, New Chats, Look. A change is kept at once (no Save) and the page behind redraws.
+  Pins Stay in Project moved there from the ⋯ (same id); Coding Project, Repository…, Sort, New Chat With… and Default
+  Bot stay in the ⋯. Every setting is per project key, kept with the hand-picked parts and synced in the "sessions"
+  document; an older document without a part erases nothing, and a rebase only fills what this device has not set
+  (`SessionStore+Sync.swift`). Home's page keeps Pins Stay in Project, Move Quiet Chats to Done and Notifications.
+- **DECISION (2026-11-21, owner): a project can keep its chats on its page** [project-keep]. Keep Chats in This
+  Project (`projectKeep`, `SessionStore.setProjectKept`, never Home): its chats leave Recent and the days, Group By
+  Status, Group By Bot, a flat sort and the Working pill (`SessionListPipeline.listed`, `SessionListInput.keptProjects`).
+  Still shown: its page, its own row or card and their counts, Pinned for a chat pinned everywhere, and, only while
+  the chat waits on the owner (`needsInput`), New for You and the New pill, whose count follows (`chipCounts`). A
+  reply not read yet does not bring one back. Search is unchanged. Under Group By Recent there is no New for You, so
+  such a chat is under the New pill and in its project. Owner 2026-11-22 ("I don't believe it's working"): the lists
+  outside Sessions follow the same rule (`SessionListPipeline.isKeptAway`, `SessionStore.sessionsOutsideKeptProjects`):
+  the chats under each bot's row and the Mac rail's, the strip over a chat and its All sheet, and the Mac's Chats tab.
+  Pinned everywhere and waiting on the owner still show; the chat on screen always stays in its strip.
+- **DECISION (2026-11-21, owner): quiet chats can move to Done on a project's page** [project-auto-done]. Move Quiet
+  Chats to Done: Never, After 3, 7 or 14 Days, and in a coding project a switch, When the Pull Request Merges
+  (`projectAutoDone`, `ProjectAutoDone`). On that page a live chat that is quiet, not pinned (either kind), not read
+  since the page was last left (`keepNew`) and last active longer ago than the age (`input.now`), or whose pull
+  request's state is merged, is listed in Done with the archived ones (`SessionListPipeline.projectPage`). Display
+  only: nothing is archived, no write reaches the gateway, the row keeps its verbs, and no other list reads the rule.
+- **DECISION (2026-11-21, owner): a project has its own Notifications** [project-mute]. All, Only When It Needs Me, or
+  Mute (`projectNotify`, `ProjectNotify`). A push names its account, bot and chat, not the chat's folder, so the app
+  keeps which chats are in a project that is not on All, by gateway account and stored id, in the Keychain group it
+  shares with the notification extension (`Shared/ProjectMutes.swift`, beside the bot mutes), rewritten whenever the
+  list or the setting changes (`ProjectMuteCenter.update`, `SessionStore.projectMuteLevels`; the newest 2,000 chats).
+  Only When It Needs Me quiets what a bot mute quiets (finished replies, background work); Mute quiets every kind but
+  an approval or a question. The extension delivers a quieted push passively, as a muted bot's
+  (`NotificationOpener.process`); the app's own alerts, the peek and a push presented while the app is open show
+  nothing (`NotificationHub`). The setting syncs; the list of chats is each device's own, so a chat made in the
+  project elsewhere is quieted once this device's Sessions list has it.
+- **DECISION (2026-11-21, owner): a project's new chats can start with a model and a reasoning level**
+  [project-new-chat-model]. New Chats › Model and Reasoning, each Bot's Default until chosen (`projectNewChat`,
+  `ProjectNewChat`). The models are the project's default bot's (`SessionStore.projectModelProviders`,
+  `GET /api/model/options?explicit_only=1&profile=`, signed-in providers only); a model is kept with its provider. A
+  project's New Chat (`SessionsOrganizer.newChat(inProject:)`) adds `model`, `provider` and `reasoning_effort` to
+  `session.create` (`ProjectNewChat.createParams`); with nothing chosen the call is what it was.
+- **DECISION (2026-11-21, owner): a project has an icon and a colour** [project-look]. Look › Icon (one emoji) and
+  Color (the chat colours' swatches, `SessionColors`; None clears) (`projectLooks`, `ProjectLook`). Drawn on its pill
+  (`ProjectPillMark`: in the folder's place, the project's state as a small badge on its corner), before its name on
+  its page (`ProjectPageHeader`) and in the folder's place on its row or card (`ProjectCardHeader`). An emoji with a
+  colour stands on a disc of it; a colour alone fills the folder. An archived project's pill keeps its box.
+- **DECISION (2026-11-21, owner): a coding project's rows can show their branch** [project-branch-rows]. Look › Show
+  Branch on Rows, in a coding project only, off until turned on (`projectBranchRows`). On its page a row's coding line
+  starts with the chat's branch, cut in its middle when long, then " · " and the usual line
+  (`SessionRowView.branchLead`); a chat without a branch is unchanged.
+- **DECISION (2026-11-21, owner): no pin in a project page's Pinned pile** [page-pinned-no-pin]. "The Pin icon can go
+  because if a session is pinned, it's always in the Pinned section … it feels redundant." On any project's page
+  (coding or not) a chat pinned everywhere or in the project is listed in the Pinned pile
+  (`SessionListPipeline.projectPage`), whose heading says it, so its row draws no `pin.fill`, as the main list's own
+  Pinned rows already don't (`SessionRowView.drawsPin`, `pinnedPile`; the list marks the pile's rows,
+  `SessionsViewController.pagePinnedKeys`). An archived pinned chat listed in Done keeps the glyph (nothing else says
+  it is pinned). VoiceOver still says "Pinned" / "Pinned in project"; the Mac's hover buttons are unchanged. Board:
+  `artifacts/coding-pr-review/mock1.html` (option B). UI test `test40r_PinnedPileDrawsNoPin` reads which rows draw a
+  pin through the DEBUG text-out `pin-glyphs.txt`.
+- **DECISION (2026-11-21, owner): a project page's header has no ⓘ; the icon guide is in Project Settings**
+  [page-header-guide]. This replaces the 2026-11-19 placement ("the information icon on the right, the three dots to
+  the left"). `ProjectPageHeader` draws no ⓘ; its ⋯ (`moreButton`, `HeaderMoreButton`) is the last control, where the
+  ⓘ stood: a 44 pt touch on the iPhone, a smaller frame on the Mac. Project Settings ends with an Icon Guide row
+  (`ProjectSettingsPage.iconGuide`, id `sessions.projectSettings.iconGuide`, a chevron), Home's too, which pushes
+  `ProjectIconGuide` inside the sheet (`presentProjectSettings`). The coding count line draws only the states with a
+  chat, plus a picked one so it can be cleared (`ProjectPageHeader.shownPRStates`); with nothing to draw the line is
+  absent. Board: `artifacts/coding-pr-review/mock1.html` (option B). UI tests `test40s_HeaderGuideInSettings`,
+  `testProjectPRCountFilter`.
+- **DECISION (2026-11-21, owner): a coding row's PR mark opens the PR card** [pr-card]. On a coding project's page the
+  mark is a button (`SessionRowView.onPR`, id `session-row.pr`, a 44 pt touch reaching into the row's padding,
+  `AtLeastHitShape`); the rest of the row still opens the chat, the row stays one VoiceOver element and gains the
+  custom action "Show Pull Request". The card (`PullRequestCard`, drawn by `PullRequestCardView`, a sheet from
+  `PullRequestCardSheet.make` through `ChatSheet.wrap`, titled "Pull Request" or "Branch", medium and large) is in the
+  settings list's look: the state line (glyph, words in the state's colour made readable), the name (bold, two
+  lines), one quiet line `repo · branch → base`; Actions: Open on GitHub (a link), Ask <bot> to Merge… (draft or
+  open, not marked closed by the owner); "Also in This Chat" when the chat lists more than one, each pushing its own
+  card. Ask to Merge shows its exact words ("Merge pull request #24.", else "Merge the branch <branch> into <base>." or
+  "Merge the branch <branch>.") with Cancel and Send; Send closes the card, opens that chat and posts the words as a
+  normal message (`PullRequestCardSheet.deliver`, the Shortcuts' first-message road `NewChatRouter.deliver` and
+  `ChatViewController.sendFromCard`). Session Info's pull request rows open the same card (it was an alert;
+  `ChatInfoList.showPullRequest`). Board: `artifacts/coding-pr-review/mock1.html` (option B, fourth column). Tests
+  `CodingPRReviewTests`, `test40t_PRCardFromTheMark`, `testPRTrackingEndToEnd`, `testPRSeveralInOneChat`.
+- **DECISION (2026-11-21, owner): `pr-status` carries review facts, and a coding row its verdict** [pr-review-facts]
+  [pr-verdict]. The wire (given whole to the app and the add-on): optional keys on each answer and each entry of
+  `items`: `size` `{files, additions, deletions}` (draft or open), `checks` `{state: passed|failed|running, passed,
+  failed, running}` (a GitHub pull request in draft or open with at least one run), `title` (at most 200), `base`; the
+  top level carries the lead's. With `detail: true` (4 chats or fewer) each draft or open entry may add `files` (at
+  most 50 of `{path, additions, deletions, binary?, patch?, patch_cut?}`) and `checks.runs` (at most 30 of `{name,
+  state}`). An absent key is "not known", never zero; a wrong type, a negative number or an unknown checks state drops
+  that one key, never the answer (`PRFacts`, HermesKit/Model/PullRequestFacts.swift; `SessionStore.prStatus`,
+  `prItems`). Kept in the marks cache without runs or files (`SessionMarksCacheFile.Mark.size/checks/title/base`; an
+  older file loads). On a coding project's page only, a draft or open lead (not marked closed by the owner) adds its
+  verdict at the trailing end of the row's one subtitle line, under the mark (`PRVerdict.of`, `PRVerdictView`): ✓ and
+  `+128 −12`; ✗ "2 checks failing" in the theme's red, the only colour; the Working quarter ring and "checks running";
+  `+212 −40` alone; ✓ alone; else nothing. The subtitle's quiet ink, caption, monospaced digits; the words truncate
+  first; gone at the accessibility sizes. Both spoken labels add it (`PRVerdict.spoken`: "Checks passed, 128 lines
+  added, 12 removed"). The card names the pull request's title and `branch → base`; Ask to Merge names the base.
+  Board: `artifacts/coding-pr-review/mock1.html` (option B). Tests `CodingPRReviewTests`, `test40u_VerdictOnRows`.
+- **DECISION (2026-11-21, owner): the PR card's Checks and Changes** [pr-card-detail]. As it opens the card asks
+  `pr-status` for that one chat with `detail: true` and `fresh: true` (`SessionStore.pullRequestDetail`, whose facts
+  without files and runs also update the chat's mark), shows what it has at once and fills in when the answer comes
+  (`PullRequestCardModel`; a quiet progress mark beside the state line meanwhile). Checks, only with `checks`: one row
+  ("5 checks passed" / "2 of 5 checks failing" / "3 of 5 checks running"), its mark as on the row, red only when
+  failing; with runs a chevron pushes them (`PullRequestRunsPage`). Changes, only with `files`: "Changes · 4 files ·
+  +128 −12" (from `size`), a row per file (its name in monospace, its folder quiet beneath, `+96 −8` trailing); a patch
+  pushes its diff in the steps sheet's own `DiffPanel(lines: StepRules.diffLines(…))` (`PullRequestDiffPage`);
+  "Binary file", "Too large to show here", then "and N more files" (`PullRequestCard.checksRow`, `fileRows`,
+  `moreFilesWords`, HermesKit/Model/PullRequestCardDetail.swift). While checks fail Actions adds "Ask <bot> to Fix
+  Checks…" ("The checks on pull request #24 are failing. Fix them."), confirmed and sent as Ask to Merge is. A gateway
+  that sends nothing new leaves the card as [pr-card] draws it. Board: `artifacts/coding-pr-review/mock1.html` (the PR
+  card column). Tests `CodingPRReviewTests`, `test40v_CardChecksAndChanges`.
 - **DECISION (2026-11-19, a tester, then the owner): Home is on the Bots side** [bot-home]. Group By Recent with a
   project shown: "Projects" ends with a Home row (the house, its count), the chats in no project, pinned ones
   counted: every bot's under All (one bucket, as Hermes's own sidebar merges the profiles' Homes), the picked bot's
@@ -307,6 +440,13 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
   The row has no star, no place in the projects' order and no hold menu. Not while a status or project filter
   narrows the list: Home would open, as every group a filter finds, and list each match twice. Before 2026-11-15
   Group By Project under a bot's pill drew that bot's Home; the project pills (which drop the bot) left it no place.
+- **DECISION (2026-11-20, tester #387, owner): the switch's left side is Chats, with no projects by
+  default** [chats-projects] [chats-switch]. With projects on both sides of the switch the two sides looked alike, and
+  "Bots" read as the bots themselves. The left side is called Chats (the Sessions tab's chat bubbles, VoiceOver
+  "Switch to Chats", the Mac's "Show Chats"); the bot pills and All Bots keep their names. Group By Recent lists Pinned,
+  then every chat by the day; the projects' shortcut above them, Home's row with it ([bot-home]), only with Filter &
+  Sort › Show › Projects (off by default, kept per gateway account), and Project Chats in Recent is offered only then.
+  Home stays on the Projects side. The owner picked this over keeping Home on the Chats side alone.
 - Search results ignore steps 2-5 except the bot (§7.4).
 - Budget: 5,000 rows through the whole pipeline in under 50 ms on the simulator's host (unit test with `measure`).
 

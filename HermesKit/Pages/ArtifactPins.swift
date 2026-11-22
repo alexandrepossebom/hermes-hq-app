@@ -37,6 +37,9 @@ nonisolated struct ArtifactPin: Codable, Sendable, Hashable, Identifiable {
     /// [tile-versions] The version of its page that shows now, as last read from the bot's computer (`TileVersions`);
     /// nil until the app has kept one.
     var version: Int?
+    /// [tile-chats] When its bot last worked on it in `sessionId` (a Change…, seconds since 1970): a hidden tile chat is
+    /// never in the Artifacts listing, so an older chat naming the file there doesn't take the tile back (`follow`).
+    var chatAt: Double?
 
     var tileSize: PinTileSize { size ?? .small }
 
@@ -453,6 +456,17 @@ final class ArtifactPins {
         changed()
     }
 
+    /// [tile-chats] Its bot worked on the tile in `sessionId` (a Change…, a button's or a roll back's first chat): the
+    /// tile's Open Chat goes there from now on.
+    func noteChat(id: String, sessionId: String, title: String, at now: Date = Date()) {
+        guard !sessionId.isEmpty, let index = pins.firstIndex(where: { $0.id == id }) else { return }
+        guard pins[index].sessionId != sessionId else { return }
+        pins[index].sessionId = sessionId
+        if !title.isEmpty { pins[index].sessionTitle = title }
+        pins[index].chatAt = now.timeIntervalSince1970
+        changed()
+    }
+
     /// A newer chat named a pinned file: the pin follows it (Show in Chat goes to where the file was last made).
     func follow(_ records: [ArtifactRecord]) {
         var newest: [String: ArtifactRecord] = [:]
@@ -465,6 +479,8 @@ final class ArtifactPins {
         for index in pins.indices {
             guard let record = newest[pins[index].id], record.sessionId != pins[index].sessionId
                     || record.sessionTitle != pins[index].sessionTitle else { continue }
+            // [tile-chats] Its bot worked on it later, in a chat the listing doesn't show: that chat stays its chat.
+            if let chatAt = pins[index].chatAt, record.sessionId != pins[index].sessionId, record.timestamp / 1000 <= chatAt { continue }
             pins[index].sessionId = record.sessionId
             pins[index].sessionTitle = record.sessionTitle
             moved = true

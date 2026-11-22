@@ -11,8 +11,12 @@ nonisolated struct ActivityRowsInput: @unchecked Sendable {
     var style: ToolCallStyle = .rows
     /// After Reply › Hide (never in In Header).
     var hideSteps = false
-    /// Show File Changes (Settings › Chat): off, no "N files changed" card.
-    var showFileChanges = true
+    /// File Changes (Settings › Chat): Off, no "N files changed" card; Folded, its one line until tapped; Open, the card.
+    var fileChanges: FileChangesLook = .open
+    var showFileChanges: Bool {
+        get { fileChanges != .off }
+        set { fileChanges = newValue ? .open : .off }
+    }
     /// Replies whose hidden steps were brought back (Show Steps), by message id.
     var revealed: Set<String> = []
     /// Replies whose steps are fading out right now: still drawn until the fold removes them.
@@ -169,6 +173,11 @@ nonisolated struct ChangedFilesRow {
     var files: [ChangedFile]
     /// "Show all N files" was tapped.
     var showAll: Bool
+    /// [files] File Changes › Folded (owner 2026-11-20): the card stands as one line, "8 files changed +49 −11 ⌄", like
+    /// a reply's work line. False under Open: the card alone, as before.
+    var folded = false
+    /// Folded only: the line was tapped open, and the card hangs under it (`ChatRow.filesOpenKey` in `expanded`).
+    var opened = false
 }
 
 /// [transcript] A landed edit's first changed lines, drawn under its row in Rows and Bubbles (One Line / At the
@@ -185,6 +194,9 @@ nonisolated struct DiffPreviewRow {
 }
 
 nonisolated extension ChatRow {
+    /// [files] The `expanded` key that holds a folded files line open (the row's own id is its "Show All N Files").
+    static func filesOpenKey(_ rowId: String) -> String { rowId + "#open" }
+
     /// [files] The "N files changed" card's files; nil for every other row.
     var changedFiles: ChangedFilesRow? {
         if case .activity(.changedFiles(let c)) = kind { return c }
@@ -330,7 +342,7 @@ nonisolated enum ActivityRows {
         case "delegate_task":
             // Bounded per value at the source; a text cut short anyway still gives its goals (tolerant scan).
             var goals = ToolCards.delegateGoals(.object(ToolArgs.parse(call.argsText)))
-            if case .delegate(let cardGoals, _, _)? = call.card, goals.isEmpty { goals = cardGoals }
+            if case .delegate(let cardGoals, _, _, _)? = call.card, goals.isEmpty { goals = cardGoals }
             let base = ToolCards.rows(goals: goals, card: call.card, hasResult: call.card != nil, toolCallId: call.id)
             // The chat's live children belong to the running call or the latest turn's card; an earlier turn's card
             // (one task, done) would otherwise take a new single child by its index. Stand-ins match by id anywhere.
@@ -387,12 +399,17 @@ nonisolated enum ActivityRows {
     /// The card for these files ([files] also the one card that stands for several replies' cards: UpdateGroups.swift).
     static func changedFilesRow(id: String, messageId: String, files: [ChangedFile], input: ChatRowBuilder.Input) -> ChatRow {
         let showAll = input.expanded.contains(id)
+        let folded = input.activity.fileChanges == .folded
+        let opened = folded && input.expanded.contains(ChatRow.filesOpenKey(id))
         var h = Hasher()
         for f in files { h.combine(f.path); h.combine(f.name); h.combine(f.added); h.combine(f.removed); h.combine(f.edits) }
         h.combine(showAll)
+        h.combine(folded)
+        h.combine(opened)
         return ChatRow(id: id, messageId: messageId, scope: input.scope, fingerprint: h.finalize(),
-                       kind: .activity(.changedFiles(ChangedFilesRow(messageId: messageId, files: files, showAll: showAll))),
-                       gapAbove: 8, variant: showAll ? 1 : 0)
+                       kind: .activity(.changedFiles(ChangedFilesRow(messageId: messageId, files: files, showAll: showAll,
+                                                                      folded: folded, opened: opened))),
+                       gapAbove: folded ? 0 : 8, variant: (showAll ? 1 : 0) + (folded ? 2 : 0) + (opened ? 4 : 0))
     }
 
     /// Under a landed edit's own row (Rows, Bubbles): its first changed lines. Diffs come from `ToolDetail.inlineDiff`
@@ -694,6 +711,15 @@ nonisolated struct ChangedFilesLayout: @unchecked Sendable {
     var rows: [FileRow]
     var showAllFrame: CGRect?
     var showAllTitle: String?
+    /// [files] File Changes › Folded: the one line ("8 files changed +49 −11"), spanning the chat (the cell centres its
+    /// glyph, words and caret in it, as an update group's line). Nil under Open.
+    var lineFrame: CGRect?
+    var lineText: NSAttributedString?
+    var lineFont: UIFont?
+    /// Folded and tapped open: the card is drawn under the line (false: the line alone).
+    var opened = false
+    /// Folded: the card's top line carries only "Review ›" — the line above it already says how many files.
+    var cardShown = true
 }
 
 /// [transcript] A landed edit's first changed lines (§12, n20 F10): one monospaced block, added/removed lines washed
@@ -1319,7 +1345,23 @@ nonisolated enum ActivityLayouts {
         let lineH = ceil(font.lineHeight)
         let pad: CGFloat = 12
         let left = ChatMetrics.sideInset
-        let top = max(0, row.gapAbove)
+        var top = max(0, row.gapAbove)
+        // [files] Folded: the work line's own row (40 pt, the notice face), its words and the summed +/− centred in it.
+        var lineFrame: CGRect?, lineText: NSAttributedString?, lineFont: UIFont?
+        if c.folded {
+            let notice = style.notice
+            let rowH = max(ChatMetrics.toolRowMin, ChatMetrics.toolRowPadV * 2 + ceil(notice.lineHeight))
+            lineFrame = CGRect(x: left, y: top, width: width - 2 * left, height: rowH)
+            lineText = filesLineText(c.files, font: notice)
+            lineFont = notice
+            if !c.opened {
+                return RowLayout(height: ceil(top + rowH), content: .activity(.changedFiles(ChangedFilesLayout(
+                    cardFrame: .zero, headerFrame: .zero, headerTitle: ChangedFiles.title(c.files.count), font: font, rows: [],
+                    showAllFrame: nil, showAllTitle: nil, lineFrame: lineFrame, lineText: lineText, lineFont: lineFont,
+                    opened: false, cardShown: false))))
+            }
+            top += rowH + 4   // the card 4 pt under its line, as an opened update line's
+        }
         let rowH = max(44, ChatMetrics.stepPadV * 2 + lineH)   // each a tap target of its own
         let headerFrame = CGRect(x: left + pad, y: top, width: columnW - 2 * pad, height: rowH)
         var y = top + rowH
@@ -1349,9 +1391,23 @@ nonisolated enum ActivityLayouts {
             y += rowH
         }
         let cardFrame = CGRect(x: left, y: top, width: columnW, height: y - top)
-        return RowLayout(height: ceil(y + 2), content: .activity(.changedFiles(ChangedFilesLayout(
+        return RowLayout(height: ceil(y + (c.folded ? 8 : 2)), content: .activity(.changedFiles(ChangedFilesLayout(
             cardFrame: cardFrame, headerFrame: headerFrame, headerTitle: ChangedFiles.title(c.files.count),
-            font: font, rows: rows, showAllFrame: showAllFrame, showAllTitle: showAllTitle))))
+            font: font, rows: rows, showAllFrame: showAllFrame, showAllTitle: showAllTitle,
+            lineFrame: lineFrame, lineText: lineText, lineFont: lineFont, opened: c.opened, cardShown: true))))
+    }
+
+    /// [files] The folded line's words: "8 files changed", then every file's lines summed ("+49 −11", none when no
+    /// file reported a count).
+    static func filesLineText(_ files: [ChangedFile], font: UIFont) -> NSAttributedString {
+        // Label 2 here (built off the main thread); on a chat picture's pill the cell takes the words to the primary label.
+        let out = NSMutableAttributedString(string: ChangedFiles.title(files.count), attributes: [.font: font, .foregroundColor: ChatPalette.label2])
+        let added = files.reduce(0) { $0 + $1.added }, removed = files.reduce(0) { $0 + $1.removed }
+        if added > 0 || removed > 0 {
+            out.append(NSAttributedString(string: "  ", attributes: [.font: font]))
+            out.append(fileStats(added: added, removed: removed, font: font))
+        }
+        return out
     }
 
     // MARK: Diff preview (§12, n20 F10)

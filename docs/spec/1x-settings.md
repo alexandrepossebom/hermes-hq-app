@@ -342,6 +342,23 @@ Kanban tab.", `S/fe-pages-r4.ts:48-51`).
 - When the pages stream adds its More tab, it lists the gateway card, Settings and Capabilities through
   `SettingsScreens` (`1x-pages.md` §1.2); the Bots bar's Settings button stays (both reach the same pages).
 
+### 3.10 Jobs Badge ([jobs-badge], issue #385, PR #386, tester 2026-11-20)
+
+- The Jobs tab carries a red count of the jobs under Needs Attention (`JobWords.section == .needsAttention`: a failed
+  last run, an overdue run past `JobWords.overdueGrace`, or the error state). Paused, disabled and completed jobs
+  never count, nor does a job running again. `JobsBadge` (HermesKit/Pages/JobsBadge.swift); drawn by
+  `PagesTabs.showJobsTab` as the tab item's `badgeValue` (`BadgeMath.backTitle`, "99+"), beside the running spinner.
+  Accessibility value: "<n> running, <m> need attention".
+- Row "Jobs Badge" on **Settings › Appearance › Tabs** (`TabOrderPage.jobsBadgeSection`), a Menu on the iPhone and
+  iPad, the form's pop-up on the Mac: **When Fixed** (default, stored as no value) · **When Seen**
+  (`hqn.jobsBadgeClear` = `whenSeen`, device-wide). Footer `SettingsWords.jobsBadgeFooter`.
+- When Seen: the Jobs list on screen marks what is under Needs Attention as seen (`JobsStore.markAttentionSeen`).
+  A mark is the job's key, state, failed run's `last_run_at` and overdue run's `next_run_at`, so a later failure or
+  missed run counts again. Kept per account in `pages.jobsBadge.seen.<account>` (newest 500), gone at sign-out
+  (`PagesTabs.forgetDefaults`).
+- A one-shot timer at `JobsBadge.nextChange` recounts when the next job passes the overdue grace with no read.
+- Not yet: the row is not in Settings search; with Jobs out of the tab bar the count shows nowhere else.
+
 ---
 
 ## 4. More than one gateway

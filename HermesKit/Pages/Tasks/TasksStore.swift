@@ -218,12 +218,17 @@ final class TasksStore {
     private(set) var offers: [TodoOffer] = []
     /// [goals] Every goal, any status (optimistic edits applied); docs/goals.md.
     private(set) var goals: [Goal] = [] { didSet { TodoOfferStates.noteGoals(goals) } }
-    /// [goals] The add-on keeps goals (0.9.65+: `goals` in `GET /tasks`). Without it nothing of Goals shows.
+    /// [goals] The add-on keeps goals (`goals` in `GET /tasks`). Without it the page offers the update in Goals' place
+    /// (`goalsNeedAddOn`). Public from hermes-hq-push 0.9.73 as re-published 2026-11-20 and 0.9.74; the "0.9.65" and
+    /// "0.9.66" named here and in goals.py were only ever installed on the owner's computer (PushPolicy.goals).
     private(set) var goalsSupported = false
-    /// [goals step 3] The add-on puts bots on goals (0.9.66's `goal_bots`): a lead, helpers, offers, the check-in. With
-    /// 0.9.65 none of it shows.
+    /// [goals-addon] Tasks work but the add-on keeps no goals: an add-on from before Goals was published. The Goals
+    /// pill stays and says to update the add-on (a public tester, 2026-11-20: "can't see Goals in Tasks").
+    var goalsNeedAddOn: Bool { hasList && !needsAddOn && !goalsSupported }
+    /// [goals step 3] The add-on puts bots on goals (`goal_bots`, with Goals in the public add-on): a lead, helpers,
+    /// offers, the check-in.
     private(set) var goalBotsSupported = false
-    /// [goals step 5] The add-on draws Goal Pages (0.9.66's `goal_pages` in `/status`).
+    /// [goals step 5] The add-on draws Goal Pages (`goal_pages` in `/status`).
     private(set) var goalPagesSupported = false
     /// [goals step 3] Goal offers seen here, by id (newest kept, 80 at most): what a goal's chat card draws once the
     /// gateway has let the offer go ("Answered").
@@ -434,6 +439,42 @@ final class TasksStore {
     }
 
     // MARK: Writes
+
+    /// Acceptance is conditional on the exact revision shown. Never retry a conflict: the suggestion may have changed.
+    func acceptSuggestedTitle(_ id: String, suggestion: String, forTitle: String) async -> Bool {
+        guard !refuse(about: id) else { return false }
+        guard inFlight[id] == nil else {
+            notice("This task is being saved. Try again in a moment.", about: id)
+            return false
+        }
+        guard let base = task(id), !TodoIDs.isLocal(id),
+              base.title == forTitle, base.currentSuggestedTitle == suggestion else {
+            notice("This suggestion is no longer current.", about: id)
+            return false
+        }
+        begin(id)
+        defer { end(id) }
+        do {
+            let answer = try await api.patch(id, rev: base.rev, fields: ["title": .string(suggestion)])
+            put(answer); save(); changed()
+            guard answer.title == suggestion else {
+                notice("Couldn’t save the suggested title. Showing the saved task.", about: id)
+                return false
+            }
+            return true
+        } catch {
+            if let current = TasksAPI.conflict(error) {
+                put(current); save(); changed()
+                notice("This task changed somewhere else. Showing the latest.", about: id)
+            } else if PagesREST.status(error) == 404 {
+                tasks.removeAll { $0.id == id }; save(); changed()
+                notice("This task was deleted somewhere else.", about: id)
+            } else {
+                notice("Couldn’t save the suggested title. \(PagesREST.reason(error))", about: id)
+            }
+            return false
+        }
+    }
 
     private func refuse(quiet: Bool = false, about task: String? = nil) -> Bool {
         guard readOnlyGateway else { return false }
@@ -685,7 +726,7 @@ final class TasksStore {
         addGoalFailure = nil
         guard !refuse() else { addGoalFailure = JobsStore.readOnlyNotice; return nil }
         guard goalsSupported else {
-            addGoalFailure = "Goals need the newest HQ add-on on your computer (0.9.65 or later)."
+            addGoalFailure = "Goals need the newest HQ add-on on your computer (0.9.74 or later)."   // [goals-addon] PushPolicy.goals
             notice(addGoalFailure ?? "")
             return nil
         }

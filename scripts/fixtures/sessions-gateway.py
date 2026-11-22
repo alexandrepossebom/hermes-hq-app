@@ -34,7 +34,8 @@ Filter & Sort, chips, Session Info and the reconnect probe (docs/spec/3x-session
                           {"projectsHold":true} (the same for projects.tree; other calls on the socket go on),
                           {"prompts":"hold"|"reply"|"reject"} (a prompt starts a turn that never ends | is answered |
                           is refused, the default), {"bots":40} (the roster grows to that many bots; 1 leaves Hermes alone),
-                          {"projects":"empty"|"odd"|"null"|"many"|"long"|"found"} (projects.tree answers), {"usage":{…}} (every session.usage),
+                          {"projects":"empty"|"odd"|"null"|"many"|"long"|"found"|"configured"} (projects.tree answers;
+                          "configured": as "found", but no Bot Chat records a folder and each bot's terminal.cwd names it), {"usage":{…}} (every session.usage),
                           {"down":8} (as a stopped gateway for that many seconds: sockets close, every request is
                           cut off unanswered; the test hooks still answer)
                           {"prStatus":{"default/s-garden":{"state":"none","repo":"example/garden","branch":"work"}}}
@@ -44,6 +45,7 @@ Filter & Sort, chips, Session Info and the reconnect probe (docs/spec/3x-session
                           process runs; serve/working answers 503 as outside the serving process)
                           {"live":{"s-trip":"waiting"}} (session.active_list names those chats with that status,
                           Hermes's own word on a turn or a request this app isn't attached to)
+  POST /__fixture/projects {"profile":"atlas","add":{"id":…,"label":…,"path":…}} a project made in another app
   POST /__fixture/read    {"id":"s-trip","unread":false} the person's other device reads the chat (or marks it unread):
                           the read watermark is stamped as PATCH /api/sessions/{id} {"unread":…} stamps it, and
                           sessions.changed goes out
@@ -347,12 +349,14 @@ def seed():
         {'role': 'assistant', 'content': 'Index rebuilt.'},
     ], base - 2 * 3600, source='tool', input_tokens=300, output_tokens=0)
     PROJECTS['default'] = [
-        {'id': 'p_site', 'label': 'Website', 'path': f'{HOME}/site', 'repos': [], 'sessionCount': 0},
-        {'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [], 'sessionCount': 0},
+        {'id': 'p_site', 'label': 'Website', 'path': f'{HOME}/site', 'repos': [{'path': f'{HOME}/site', 'groups': []}], 'sessionCount': 0},
+        # [repo-pickers] The git repositories Hermes found in a project: its Repository… page offers them.
+        {'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [{'path': f'{HOME}/app', 'groups': []},
+                                                                         {'path': f'{HOME}/app-server', 'groups': []}], 'sessionCount': 0},
         {'id': 'home', 'label': 'Home', 'path': None, 'isNoProject': True, 'repos': [], 'sessionCount': 3},
     ]
     PROJECTS['research'] = [{'id': 'p_reading', 'label': 'Reading', 'path': f'{HOME}/reading', 'repos': [], 'sessionCount': 0}]
-    PROJECTS['deploys'] = [{'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [], 'sessionCount': 0}]
+    PROJECTS['deploys'] = [{'id': 'p_app', 'label': 'App', 'path': f'{HOME}/app', 'repos': [{'path': f'{HOME}/app', 'groups': []}], 'sessionCount': 0}]
 
 def seed_everyday():
     """An everyday list, for looking at the page: 9 bots, 6 projects, about 45 chats over three weeks, 3 pinned,
@@ -495,7 +499,7 @@ def tree(profile):
     if odd == 'many':     # nine more: the New Chat sheet lists five and All Projects
         projects += [{'id': f'p_many_{n.lower()}', 'label': n, 'path': f'{HOME}/many/{n.lower()}', 'repos': []}
                      for n in ['Budget', 'Fitness', 'Garden', 'Kitchen', 'Newsletter', 'Photos', 'Recipes', 'Travel', 'Zebra']]
-    if odd == 'found':    # what Hermes finds by itself: the bot's own working folder (its Bot Chat runs there) and a checkout
+    if odd in ('found', 'configured'):    # what Hermes finds by itself: the bot's own working folder and a checkout
         projects += [{'id': f'{HOME}/bots/{profile}', 'label': profile, 'path': f'{HOME}/bots/{profile}', 'isAuto': True, 'repos': []},
                      {'id': f'{HOME}/code/checkout', 'label': 'checkout', 'path': f'{HOME}/code/checkout', 'isAuto': True, 'repos': []}]
     if odd == 'long':     # very long names, with and without spaces, among enough projects for All Projects
@@ -789,12 +793,21 @@ def handler(gateway):
                 # Opt-in synthetic statuses; ordinary chats have no repo or branch and are not a "no PR" match.
                 statuses = MODE['prStatus']
                 results = []
-                for item in body.get('sessions', []):
-                    if not isinstance(item, dict): continue
+                asked = [item for item in body.get('sessions', []) if isinstance(item, dict)]
+                # [pr-review-facts] Each item's `files` and `checks.runs` only for `detail: true` naming 4 chats or
+                # fewer (the wire contract); the request itself is in the REST log (`body.detail`).
+                detail = body.get('detail') is True and len(asked) <= 4
+                for item in asked:
                     profile, sid = item.get('profile'), item.get('id')
                     details = statuses.get(profile + '/' + sid, {}) if isinstance(profile, str) and isinstance(sid, str) else {}
                     if details:
-                        results.append({'profile': profile, 'id': sid, **details})
+                        answer = json.loads(json.dumps(details))
+                        if not detail:
+                            for entry in answer.get('items') or []:
+                                if not isinstance(entry, dict): continue
+                                entry.pop('files', None)
+                                if isinstance(entry.get('checks'), dict): entry['checks'].pop('runs', None)
+                        results.append({'profile': profile, 'id': sid, **answer})
                 return 200, {'sessions': results}
             # [pr-manage] Opt-in (`/__fixture/mode {"prManage": true}`): the owner's closed mark and a project's
             # linked repository, kept in memory. A folder with "nope" in it is not a repository.
@@ -825,6 +838,24 @@ def handler(gateway):
                         links[body.get('project')] = {'project': body.get('project'), 'path': folder.rstrip('/'), 'main': 'main',
                                                       'public_repo': body.get('public_repo') or 'example/app', 'mirror': mirror}
                         return 200, {'repo': links[body.get('project')]}
+            if path == '/api/model/options' and method == 'GET':     # [project-new-chat-model] a bot's models
+                return 200, {'model': 'claude-sonnet-5-5', 'provider': 'anthropic', 'providers': [
+                    {'slug': 'anthropic', 'name': 'Anthropic', 'authenticated': True, 'is_current': True,
+                     'models': ['claude-sonnet-5-5', 'claude-haiku-5-5']},
+                    {'slug': 'openrouter', 'name': 'OpenRouter', 'authenticated': True, 'models': ['example/large-1']},
+                    {'slug': 'signedout', 'name': 'Signed Out', 'authenticated': False, 'models': ['signedout-only-1']}]}
+            if path == '/api/config' and method == 'GET' and MODE.get('projects') == 'configured':   # [own-folder-everywhere]
+                return 200, {'terminal': {'cwd': f"{HOME}/bots/{one('profile') or 'default'}", 'backend': 'local'}}
+            if path == '/api/fs/default-cwd' and method == 'GET':   # [new-project-folder] where Choose Folder… opens
+                return 200, {'cwd': f'{HOME}/Projects'}
+            if path == '/api/fs/list' and method == 'GET':          # [new-project-folder] the folder browser's rows
+                where = one('path').rstrip('/') or '/'
+                tree = {'/': ['home/'], '/home': ['hermes/'], HOME: ['Documents/', 'Projects/', '.config/'],
+                        f'{HOME}/Projects': ['hermes-hq-native/', 'papers/', 'site/', 'notes.txt'],
+                        f'{HOME}/Projects/hermes-hq-native': ['App/', 'Tests/', 'README.md'], f'{HOME}/Documents': []}
+                if where not in tree: return 200, {'entries': [], 'error': 'not-found'}
+                return 200, {'entries': [{'name': n.rstrip('/'), 'path': (where if where != '/' else '') + '/' + n.rstrip('/'),
+                                          'isDirectory': n.endswith('/')} for n in tree[where]]}
             if path == '/api/files/mkdir' and method == 'POST':     # New Project with no folder typed: ~ is HOME
                 made = str((body or {}).get('path') or '')
                 if not made: return 400, {'detail': 'path is required'}
@@ -969,6 +1000,11 @@ def handler(gateway):
                 with lock: answer = patch_row(body)
                 if body.get('event'): broadcast()
                 return self.reply(200, answer)
+            if path == '/__fixture/projects':         # [projects-all-bots] a project made in another app (the desktop)
+                body = self.body_json()
+                project = {'repos': [], 'sessionCount': 0, **(body.get('add') or {})}
+                with lock: PROJECTS.setdefault(body.get('profile') or 'default', []).append(project)
+                return self.reply(200, {'ok': True, 'project': project})
             if path == '/__fixture/read':             # [read-sync] the person's other device
                 body = self.body_json()
                 with lock:

@@ -286,6 +286,62 @@ extension SessionsTests {
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
     }
 
+    /// [shortcut-new-chat] The New Chat shortcut's link: `<scheme>://new-chat?bot=…&project=…` starts a chat with that
+    /// bot in that project's folder. A project named (any case) for a bot without it: the bot is given it first; one
+    /// named by its folder for a bot that has it: no projects.create. A bot alone: its own chat folder, no project.
+    @MainActor func test23e_NewChatShortcutLinkStartsTheChatInTheProject() throws {
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        XCTAssertTrue(waitUntil(10) { self.rpc("projects.tree").contains { $0["profile"] as? String == "default" } }, "projects read with the list")
+        let scheme = ProcessInfo.processInfo.environment["HQN_UI_SCHEME"] ?? "hermeshq-native"
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func openLink(_ query: String) {
+            XCUIDevice.shared.system.open(URL(string: "\(scheme)://new-chat?\(query)")!)
+            let open = springboard.buttons["Open"]
+            if open.waitForExistence(timeout: 4) { open.tap() }
+        }
+        // By name, for Research (which has no Website).
+        openLink("bot=research&project=website")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("projects.create").contains { $0["profile"] as? String == "research" && $0["name"] as? String == "Website"
+                && ($0["folders"] as? [String]) == ["/home/hermes/site"] }
+        }, "projects.create for Research (\(rpc("projects.create")))")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("session.create").contains { $0["cwd"] as? String == "/home/hermes/site" && $0["profile"] as? String == "research" }
+        }, "session.create in Website's folder (\(rpc("session.create")))")
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+        shot(app, "shortcut-new-chat-project")
+        // By folder, for Hermes (which has App): no new project.
+        let made = rpc("projects.create").count
+        openLink("bot=default&project=%2Fhome%2Fhermes%2Fapp%2F")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("session.create").contains { $0["cwd"] as? String == "/home/hermes/app" && $0["profile"] as? String == "default" }
+        }, "session.create in App's folder (\(rpc("session.create")))")
+        XCTAssertEqual(rpc("projects.create").count, made, "Hermes already has App")
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+        // A bot alone, by its name: a plain new chat, no folder asked for.
+        let before = rpc("session.create").count
+        openLink("bot=Deploys")
+        XCTAssertTrue(waitUntil(10) {
+            self.rpc("session.create").dropFirst(before).contains { $0["profile"] as? String == "deploys" && $0["cwd_explicit"] as? Bool != true }
+        }, "session.create for Deploys (\(rpc("session.create")))")
+        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
+        // [shortcuts] A first message: the new chat sends it, "&" and all.
+        let created = rpc("session.create").count
+        openLink("bot=research&project=website&message=Check%20the%20build%20%26%20report")
+        XCTAssertTrue(waitUntil(10) { self.rpc("session.create").count > created }, "a new chat for the message")
+        XCTAssertTrue(waitUntil(15) {
+            self.rpc("prompt.submit").contains { ($0["text"] as? String) == "Check the build & report" }
+        }, "prompt.submit with the link's words (\(rpc("prompt.submit")))")
+        shot(app, "shortcut-new-chat-first-message")
+        // send=0: the words wait in the message box, nothing sent.
+        let sent = rpc("prompt.submit").count
+        openLink("bot=Deploys&message=Draft%20only&send=0")
+        let box = app.textViews["composer.text"]
+        XCTAssertTrue(waitUntil(10) { (box.value as? String) == "Draft only" }, "the words are in the box (\(String(describing: box.value)))")
+        XCTAssertEqual(rpc("prompt.submit").count, sent, "nothing sent")
+    }
+
     /// [project-cards] A bot in New Chat's menu (not the bot's chip, which has the same name).
     @MainActor func menuBot(_ app: XCUIApplication, _ name: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'sessions.chip')", name)).firstMatch
@@ -435,7 +491,8 @@ extension SessionsTests {
         openFilter(app)
         XCTAssertTrue(filterChecked(app, "allbots"), "All Bots is on while no chip is picked")
         tapFilter(app, "allbots")
-        XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-budget", "s-garden"] }, "only Hermes's chats (\(order(app)))")
+        // Projects are hidden by default, so both chats are in Recent, newest first (garden before budget).
+        XCTAssertTrue(waitUntil(6) { self.order(app) == ["s-garden", "s-budget"] }, "only Hermes's chats (\(order(app)))")
         closeFilter(app)
         XCTAssertTrue(chip(app, "default").isSelected, "the Hermes chip lights")
         XCTAssertFalse(nothingPicked(app))
@@ -831,6 +888,44 @@ extension SessionsTests {
         XCTAssertEqual(rpc("projects.create").first?["profile"] as? String, "research", "the chosen bot")
         XCTAssertEqual(rpc("projects.create").first?["folders"] as? [String], ["/home/hermes/Projects/papers"], "the folder the gateway made")
         XCTAssertTrue(app.staticTexts["Created Papers"].waitForExistence(timeout: 5))
+    }
+
+    /// [new-project-folder] New Project › Choose Folder…: the folder is picked from the gateway's computer, not typed;
+    /// the pick comes back in Folder, with the folder's own name in an empty Name. Closing the browser keeps what was typed.
+    @MainActor func test33b_ChooseFolder() throws {
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        tapChip(app, "default")
+        openFilter(app)
+        tapFilter(app, "project", "project.new")
+        let alert = app.alerts["New Project"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "the New Project alert")
+        shot(app, "D5-alert-with-choose-folder")
+        press(alert.buttons["Choose Folder…"].firstMatch)
+        let native = app.buttons["project-folder-hermes-hq-native"]
+        XCTAssertTrue(native.waitForExistence(timeout: 8), "it opens in the gateway's Projects folder")
+        XCTAssertFalse(app.buttons["project-folder-notes.txt"].exists, "folders only")
+        shot(app, "D5-folder-browser")
+        native.tap()
+        XCTAssertTrue(app.buttons["project-folder-App"].waitForExistence(timeout: 5), "a tap goes into the folder")
+        XCTAssertTrue(app.buttons["project-folder-up"].exists, "and Up goes back out")
+        shot(app, "D5-folder-inside")
+        app.buttons["project-folder-use"].tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Project comes back")
+        XCTAssertEqual(alert.textFields["project.folder"].value as? String, "/home/hermes/Projects/hermes-hq-native", "with the picked folder")
+        XCTAssertEqual(alert.textFields["project.name"].value as? String, "hermes-hq-native", "and its name offered")
+        shot(app, "D5-alert-filled")
+        // Closed without a pick: what was typed is kept.
+        press(alert.buttons["Choose Folder…"].firstMatch)
+        XCTAssertTrue(app.buttons["project-folder-App"].waitForExistence(timeout: 8), "it reopens in the folder already chosen")
+        app.buttons["sheet.close"].firstMatch.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Project comes back after a close")
+        XCTAssertEqual(alert.textFields["project.name"].value as? String, "hermes-hq-native")
+        XCTAssertEqual(alert.textFields["project.folder"].value as? String, "/home/hermes/Projects/hermes-hq-native")
+        press(alert.buttons["Create"])
+        XCTAssertTrue(waitUntil(8) { self.rpc("projects.create").count == 1 }, "one projects.create")
+        XCTAssertEqual(rpc("projects.create").first?["folders"] as? [String], ["/home/hermes/Projects/hermes-hq-native"])
+        XCTAssertEqual(rpc("projects.create").first?["name"] as? String, "hermes-hq-native")
     }
 
     /// D4: Move to Project › New Project… still creates the project, then moves the chat.

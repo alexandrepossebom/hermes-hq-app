@@ -84,6 +84,43 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     private var roomsByID: [String: GroupRowModel] = [:]
     /// [chats-under] The chats drawn under bots, by item key, and whether each is its bot's last row; "N more" counts.
     private var chatRows: [String: (session: SessionSummary, last: Bool)] = [:]
+    /// [spring-drop] Files dragged in from outside the app: a bot's row (or a chat under it) held under them opens it.
+    private(set) lazy var fileDrop: SessionFileDrop = {
+        let drop = SessionFileDrop(list: collectionView)
+        drop.target = { [weak self] point in self?.fileDropTarget(at: point) }
+        return drop
+    }()
+
+    #if DEBUG
+    /// [spring-drop] `SpringDropDebugHook`: the middle of `id`'s row in the list, once it is drawn.
+    func debugRowCenter(_ id: String) -> CGPoint? {
+        guard isViewLoaded, view.window != nil, let dataSource, let path = dataSource.indexPath(for: .row(id)),
+              let cell = collectionView.cellForItem(at: path) else { return nil }
+        return CGPoint(x: cell.frame.midX, y: cell.frame.midY)
+    }
+    #endif
+
+    /// [spring-drop] The bot's row (its own chat) or a chat under it at `point` in the list, for a file drag.
+    private func fileDropTarget(at point: CGPoint) -> SessionFileDrop.Target? {
+        guard let path = collectionView.indexPathForItem(at: point), let item = dataSource.itemIdentifier(for: path),
+              let cell = collectionView.cellForItem(at: path) else { return nil }
+        switch item {
+        case .row(let id), .tile(let id):
+            guard let bot = botsByID[id] else { return nil }
+            return SessionFileDrop.Target(key: "bot:" + id, view: cell, rect: cell.bounds.insetBy(dx: 6, dy: 2), cornerRadius: 14,
+                                          chat: .botChat(profile: bot.id), open: { [weak self] in self?.open(id) })
+        case .chat(let key):
+            guard let session = chatRows[key]?.session else { return nil }
+            return SessionFileDrop.Target(key: "chat:" + key, view: cell, rect: cell.bounds.insetBy(dx: 6, dy: 1), cornerRadius: 12,
+                                          chat: .session(profile: session.profile, id: session.id),
+                                          open: { [weak self] in
+                                              guard let self else { return }
+                                              self.push(self.services.chat(for: session))
+                                          })
+        default:
+            return nil
+        }
+    }
     private var moreCounts: [String: Int] = [:]
     private var chatsByBot: [String: [SessionSummary]] = [:]
     private var groupBlockCount = 0
@@ -762,7 +799,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         foldedTileCount = 0
         chatRows = [:]
         moreCounts = [:]
-        chatsByBot = Dictionary(grouping: services.sessions, by: \.profile)
+        chatsByBot = Dictionary(grouping: services.sessionsOutsideKeptProjects, by: \.profile)   // [project-keep]
 
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
         if let token = BotsBar.token(kind: kind, activity: activity) {
@@ -1011,7 +1048,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     /// list: Filter › Chats Under Bots or the bot's own choice. Bots with nothing to show are left out.
     func railChats(for bots: [String]) -> [String: (shown: [SessionSummary], more: Int)] {
         guard BotChatsPrefs.inUse else { return [:] }
-        let byBot = Dictionary(grouping: services.sessions, by: \.profile)
+        let byBot = Dictionary(grouping: services.sessionsOutsideKeptProjects, by: \.profile)   // [project-keep]
         var out: [String: (shown: [SessionSummary], more: Int)] = [:]
         for id in bots {
             var picked = BotChatsUnder.pick(byBot[id] ?? [], bot: id, choice: BotChatsPrefs.choice(for: id))

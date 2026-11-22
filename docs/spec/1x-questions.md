@@ -359,7 +359,9 @@ prompts (oldest first), the sent-answers note, and the undelivered flag. Plus ma
    - after answering one of S's approvals;
    - when the chat opens.
 
-   Drop approval entries whose queue `request_id` isn't listed. Add listed ones that are missing, as queue-only.
+   Drop **queue-only** approvals whose `request_id` isn't listed. For an open server request missing from this queue,
+   probe `open_requests` (rule 2) instead: a Bot Chat report turn's queue lives in the messaging gateway, not in
+   `hermes serve`. Add listed approvals that are missing as queue-only.
    Discard the answer if S's approvals changed while it was in flight (the web's revision check).
 4. **`request.cancel {id}`**: remove that entry, whatever its session (the web matches by id,
    `V:desktop/src/app/session/hooks/use-message-stream/gateway-event/input-requests.ts:99-187`). Dismiss its sheet
@@ -651,6 +653,22 @@ gates `W:build/phone-question-dock-gates.ts`, normalisation `V:desktop/src/store
   - **Open question (no choices):** a field 14 pt below. `ChatPalette.fill4`, radius 12, 44–132 pt tall, padding 11/14,
     Body, placeholder "Type your answer…" (`en.ts:5318`), capitalisation `.sentences`. It grows with its text, then
     scrolls.
+  - **[question-dictate] Dictation (#438, a tester: a free-text answer had to be typed).** In a chat with voice (the
+    composer's mic would show), the open question's field and the "Something else" field carry a 44 pt `mic` at their
+    trailing edge, on the last line (label **Dictate**, `question.dictate`). It is the composer's dictation
+    (`docs/spec/3x-talk.md` §8), not a recorder of its own: the same `.dictation` audio owner, Words From, Language,
+    Live Words, limit, lease and cards; only the field differs (`App/Questions/QuestionDictation.swift`). While it
+    records, the dictation row (✕, Dictating 0:07, the bars, Done) takes the field's place, the words heard above it
+    when Live Words is on; the text view goes invisible but keeps the keyboard. The words go in at the caret (a space
+    before them when needed), the keyboard comes up, and they are the page's answer as typed words are. Next and Send
+    are dimmed, and Return does nothing, until the words are in (Done or ✕ end it first), as the composer's Send gives
+    way to Stop Dictation. It is thrown away, nothing typed and no card, when the card is sent or skipped (or the bot
+    stops waiting), minimized, turns its page (Back), when its field goes (a choice closes "Something else…") and
+    whenever the composer's would be (the chat leaves, the app leaves, a call, a conversation). On the Mac, Escape
+    cancels it first ("Cancel Dictation"). One dictation runs app-wide: while another records (the composer in another
+    window), the card's mic is dimmed. With the card in the composer's place, Dictate with Hermes (⇧⌘D on the Mac) and
+    a dictation card's Try Again go to the card's field (the shown page's, "Something else…" opened for it; a minimized
+    card opens first), never to the hidden composer.
 - **Foot** (16 pt above): Back with chevron.left in tint, Body, only from page 2 on. Trailing, the primary capsule:
   tint fill, white Headline, min 96×44, padding 22.
   - "**Next**" before the last page.

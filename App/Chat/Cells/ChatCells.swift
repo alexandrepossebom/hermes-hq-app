@@ -8,8 +8,11 @@ import UIKit
     func chatCellToggle(rowId: String)
     /// A code block's clamp toggle (block index inside the bubble).
     func chatCellToggleCode(rowId: String, block: Int)
+    /// [files] A folded "N files changed" line was tapped: its card opens under it, or folds back.
+    func chatCellToggleFiles(rowId: String)
     func chatCellOpenStep(rowId: String, index: Int)
     func chatCellOpen(url: URL)
+    func chatCellOpenPhoneResult(_ result: PhoneResultCard, sentAt: Date?)
     /// [transcript] A link held in a bubble or a link chip: its own menu (Open, Open in Safari, Copy Link, Share…), titled
     /// with the whole address (docs/spec/3x-transcript.md L492, L568); nil keeps the message's menu.
     func chatCellLinkMenu(url: URL, source: UIView) -> UIMenu?
@@ -47,10 +50,12 @@ import UIKit
 }
 
 extension ChatCellDelegate {
+    func chatCellToggleFiles(rowId: String) {}
     func chatCellLinkMenu(url: URL, source: UIView) -> UIMenu? { nil }
     func chatCellShowAllSteps(rowId: String) {}
     func chatCellShowLiveSteps() {}
     func chatCellOpenTable(_ table: MarkdownTable) {}
+    func chatCellOpenPhoneResult(_ result: PhoneResultCard, sentAt: Date?) {}
     func chatCellRemoveReaction(rowId: String) {}
     func chatCellCanReply(rowId: String) -> Bool { false }
     func chatCellReply(rowId: String) {}
@@ -678,7 +683,8 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         shape.isReply = !b.mine
         shape.fill = b.mine ? ChatPalette.meBubble : ChatPalette.botBubble
         shape.key = b.shape
-        shape.isHidden = b.mediaOnly                                                               // [attachments] the photos are the bubble
+        let phoneOnly = b.blocks.count == 1 && b.blocks.contains { if case .phoneProposal = $0.block { true } else { false } }
+        shape.isHidden = b.mediaOnly || phoneOnly                                                               // [attachments] the photos are the bubble
         let mediaStyle = ChatStyleCache.shared.style(for: traitCollection.preferredContentSizeCategory)
         mediaView.configure(b, messageId: row.messageId, style: mediaStyle)                        // [attachments]
         // Blocks
@@ -782,11 +788,11 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
                 element.accessibilityCustomActions = bubble.accessibilityCustomActions
                 // A page card is its own button: the words leave its block out, or a touch on the card (VoiceOver's,
                 // a UI test's) finds the words first. A card alone keeps the frame but comes after the card.
-                let words = zip(b.blocks, blockViews).filter { !$1.showsPageCard }.map(\.0.frame)
+                let words = zip(b.blocks, blockViews).filter { !$1.showsStandaloneCard }.map(\.0.frame)
                 element.accessibilityFrameInContainerSpace = (words.isEmpty ? b.blocks.map(\.frame) : words).reduce(CGRect.null) { $0.union($1) }
                 if words.isEmpty {
                     elements += controls
-                    elements.append(element)
+                    if !phoneOnly { elements.append(element) }
                 } else {
                     elements.append(element)
                     elements += controls
@@ -824,6 +830,13 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
             }
             text.enumerateAttribute(.chatLink, in: NSRange(location: 0, length: text.length)) { value, _, _ in
                 guard let url = value as? URL, seen.insert(url).inserted else { return }
+                if let proposal = PhoneProposal.parse(url) {   // [phone-calls] an agent's call proposal
+                    actions.append(UIAccessibilityCustomAction(name: "Call \(phoneShown(proposal.to))") { [weak self] _ in
+                        self?.delegate?.chatCellOpen(url: url)
+                        return true
+                    })
+                    return
+                }
                 guard let path = FileLinks.path(fromLink: url) else {
                     guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
                     // Two links to one site are told apart by their address.
@@ -872,7 +885,8 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         Self.spokenBuilds += 1
         #endif
         // [attachments] a reply's picture is read by its name, not its path (docs/spec/1x-attachments.md §7.5)
-        let spoken = spokenMarkdown ? (mine ? UserMarkdown.spoken(copyText) : SpokenMarkdown.plain(MediaTags.forSpeech(copyText))) : copyText
+        // [phone-calls] a call proposal is read as the bubble draws it: "Call <number>. <goal>"
+        let spoken = spokenMarkdown ? (mine ? UserMarkdown.spoken(copyText) : SpokenMarkdown.plain(MediaTags.forSpeech(PhoneProposal.spoken(copyText)))) : copyText
         let label = spokenSpeaker.map { "\($0) said: " + spoken } ?? spoken
         spokenCache = (copyText, spokenMarkdown, spokenSpeaker, label)
         return label

@@ -224,8 +224,8 @@ final class DictationBars: UIView {
 
     private var controller: DictationController { DictationController.shared }
     private var composer: ComposerView? { screen?.composer }
-    /// A dictation records or transcribes for this chat.
-    var isActive: Bool { controller.isActive(in: chat) }
+    /// A dictation records or transcribes for this chat's composer ([question-dictate] not one for its question card).
+    var isActive: Bool { controller.isActive(in: chat, for: nil) }
 
     func install() {
         composer?.onStopDictation = { DictationController.shared.done() }
@@ -240,22 +240,20 @@ final class DictationBars: UIView {
     /// (docs/spec/3x-live-words.md §3.3): "Listening…" until the first word while this device listens; once it stops,
     /// only words keep the row.
     var heard: ComposerView.Heard? {
-        guard isActive else { return nil }
-        let words = controller.words
-        switch controller.phase {
-        case .recording:
-            let listening = controller.hearsWords
-            return listening || !words.isEmpty ? ComposerView.Heard(words: words, listening: listening) : nil
-        case .transcribing:
-            return words.isEmpty ? nil : ComposerView.Heard(words: words, listening: false)
-        case .idle, .starting:
-            return nil
-        }
+        guard isActive, let row = controller.heardRow else { return nil }
+        return ComposerView.Heard(words: row.words, listening: row.listening)
     }
 
     /// "Dictate with Hermes" in the voice options menu, Try Again on its failure card, and [composer-expand] the mic
     /// beside Send while typing in the two-row bar.
     func begin() {
+        // [question-dictate] While a bot's question card stands in the composer's place, its answer field takes the
+        // words (#438): Dictate with Hermes (⇧⌘D on the Mac) and a failure card's Try Again never record for a field
+        // that can't be seen.
+        if let card = screen?.promptsUI, card.coversComposer {
+            card.dictateIntoCard()
+            return
+        }
         guard let chat, let voice, voice.isAvailable, voice.isOnScreen, let composer, !composer.memoActive else { return }
         // The field's keyboard stays as it is; the words go in at the cursor when they arrive.
         controller.start(in: chat) { [weak self] words in self?.type(words) }

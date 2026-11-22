@@ -53,6 +53,8 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         var id: String? = nil
         /// [tiles] The page's own background as its tile's picture shows it: the sheet opens in it.
         var backdrop: UIColor? = nil
+        /// [tile-chats] Opens the tile's own chat (in no list): a chat button on the bar; nil when it has none.
+        var openChat: ((UIViewController) -> Void)? = nil
     }
 
     static let maxIntentLength = 500
@@ -440,6 +442,16 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
                 updates.accessibilityLabel = "Updates"
                 updates.accessibilityIdentifier = "tile.updates.button"
                 items.append(updates)
+                // [tile-chats] Owner 2026-11-21: "an easy way to be able to open the session attached to a Tile".
+                if let openChat = tile.openChat {
+                    let chat = UIBarButtonItem(image: UIImage(systemName: "bubble.left.and.bubble.right"), primaryAction: UIAction { [weak self] _ in
+                        guard let self else { return }
+                        openChat(self)
+                    })
+                    chat.accessibilityLabel = "Open Chat"
+                    chat.accessibilityIdentifier = "tile.chat.button"
+                    items.append(chat)
+                }
             }
             navigationItem.subtitle = tile.fileName
             // [tiles] "updated 5 min ago" kept current while it's open, not frozen at the moment it opened.
@@ -453,7 +465,9 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
             nameFromPage()
         }
         // [page-comment] Comment, where the page has a bot to hear it (an earlier version of a tile has none).
-        if canComment {
+        // [tile-chats] A tile with its chat button has Comment under ⋯: four buttons left the bar no room for the
+        // tile's name (owner 2026-11-21: "Comment moves under ⋯").
+        if canComment && !commentsUnderMore {
             let comment = UIBarButtonItem(image: UIImage(systemName: "bubble.left"), primaryAction: UIAction { [weak self] _ in
                 guard let self else { return }
                 self.setCommenting(!self.commenting)
@@ -626,6 +640,15 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     /// Under ⋯, read each time it opens (the file may have landed since, the view may have changed).
     private func moreActions() -> [UIMenuElement] {
         var out: [UIMenuElement] = []
+        if canComment && commentsUnderMore {   // [tile-chats] checked while commenting; again turns it off
+            out.append(UIMenu(options: .displayInline, children: [
+                UIAction(title: "Comment on the Page", image: UIImage(systemName: "bubble.left"),
+                         attributes: painted && !showsSource ? [] : .disabled, state: commenting ? .on : .off) { [weak self] _ in
+                    guard let self else { return }
+                    self.setCommenting(!self.commenting)
+                },
+            ]))
+        }
         if modeControl == nil {
             // Preview | Source as a choice of one, where the bar has no switch for it (a phone, the Desktop Look).
             out.append(UIMenu(options: [.displayInline, .singleSelection], children: [
@@ -766,6 +789,8 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
 
     /// The page has someone to hear a comment: the chat it was opened from, or its tile's bot.
     private var canComment: Bool { tile?.version == nil && (source?.comment != nil || tile?.send != nil) }
+    /// [tile-chats] Comment is under ⋯, not on the bar: the tile's chat button took its place.
+    private var commentsUnderMore: Bool { tile?.version == nil && tile?.openChat != nil }
 
     private func setCommenting(_ on: Bool) {
         guard on != commenting, !on || (painted && !showsSource) else { return }
@@ -1019,6 +1044,11 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     /// look, not the app's (2026-11-03: a light tile's words were light grey on white in dark mode). Then `window.hermes.send` (posting to the app, or answering that it can't).
     /// [tile-soft] A background that is a `color-mix()` reads back as `color(srgb 0.95 0.95 0.96)`, its parts from 0 to 1,
     /// not 0 to 255: such a pale page was taken for black, and its words went white on it.
+    /// [page-defaults] Plain HTML looks at home too (owner 2026-11-21: bots' pages kept the same small faults): fields
+    /// and buttons in the page's own type (16 pt, so iOS doesn't zoom into a tapped field) and ink, a checkbox or radio
+    /// kept on the line of its words, links and checkboxes in the theme's tint, long words and code wrapped rather than
+    /// widening the page. All in :where(), so a page that styles any of it keeps its own. The add-on's page check
+    /// (hermes-hq-push skills/html-page/check_page.py, DEFAULTS) draws pages with the same rules: keep the two alike.
     static func prelude(_ traits: UITraitCollection, talks: Bool) -> String {
         func css(_ dynamic: UIColor) -> String {
             let color = dynamic.resolvedColor(with: traits)
@@ -1032,10 +1062,14 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         :root{--foreground:\(css(ChatPalette.label));--muted-foreground:\(css(ChatPalette.label2));\
         --accent:\(css(ChatPalette.tint));--border:\(css(ChatPalette.separator));--card:\(css(ChatPalette.elevated));\
         --hq-radius:\(ThemeTable.desktopLook ? Int(DesktopRows.radius) : 16)px;\
-        color-scheme:\(traits.userInterfaceStyle == .dark ? "dark" : "light");color:var(--foreground);\
+        color-scheme:\(traits.userInterfaceStyle == .dark ? "dark" : "light");color:var(--foreground);accent-color:var(--accent);\
         font-family:-apple-system,system-ui,sans-serif;-webkit-text-size-adjust:100%}\
-        :where(html,body){margin:0;padding:0;background:transparent}:where(body){padding:12px 16px;box-sizing:border-box}\
-        :where(img,svg,canvas,video){max-width:100%}:where(svg[viewBox]){height:auto}
+        :where(html,body){margin:0;padding:0;background:transparent}:where(body){padding:12px 16px;box-sizing:border-box;\
+        overflow-wrap:break-word}:where(img,svg,canvas,video){max-width:100%}:where(svg[viewBox]){height:auto}\
+        :where(input,select,textarea,button){font:inherit;color:inherit}\
+        :where(label:has(>input[type=checkbox],>input[type=radio])){display:inline-flex;align-items:baseline;gap:.4em}\
+        :where(a){color:var(--accent)}:where(pre){white-space:pre-wrap}\
+        :where(hr){border:0;border-top:1px solid var(--border)}:where(iframe){max-width:100%;border:0}
         """
         let escaped = style.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "`", with: "\\`")
         let send = talks ? """
@@ -1064,7 +1098,7 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         r.setProperty('--muted-foreground',light?'rgba(60,60,67,0.75)':'rgba(235,235,245,0.7)')}}}\
         document.addEventListener('DOMContentLoaded',function(){fit();scheme();new MutationObserver(fit).observe(document.body,\
         {subtree:true,childList:true,attributes:true,attributeFilter:['width','height']})});})();
-        """
+        """ + PageLegibility.script(traits)   // after `scheme`, so it reads the inks that left
     }
 }
 

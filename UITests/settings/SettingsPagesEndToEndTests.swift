@@ -31,6 +31,13 @@ extension SettingsEndToEndTests {
         row.tap()
     }
 
+    /// [moa-setup] A Mixture of Agents preset as Hermes serves one (`POST /__settings/moa`).
+    func moaPreset(enabled: Bool = true, references: [(String, String)]) -> [String: Any] {
+        ["enabled": enabled, "reference_models": references.map { ["provider": $0.0, "model": $0.1, "enabled": true] as [String: Any] },
+         "aggregator": ["provider": "anthropic", "model": "claude-opus-5.5"], "reference_temperature": 0.6, "aggregator_temperature": 0.4,
+         "reference_timeout": NSNull(), "degraded_reference_policy": "loud", "fanout": "user_turn"]
+    }
+
     @MainActor func back(_ app: XCUIApplication) {
         app.navigationBars.firstMatch.buttons.element(boundBy: 0).tap()
     }
@@ -173,7 +180,11 @@ extension SettingsEndToEndTests {
     // MARK: - G5 Auxiliary, Fallbacks and Mixture of Agents
 
     @MainActor func testG5_AuxiliaryFallbacksAndMixtureOfAgents() throws {
-        let app = launchSignedIn()
+        try a.control("/__settings/moa", ["default_preset": "balanced", "presets": [
+            "balanced": moaPreset(enabled: false, references: [("openrouter", "deepseek/deepseek-v3.2"), ("anthropic", "claude-sonnet-5")]),
+            "fast": moaPreset(enabled: false, references: [("anthropic", "claude-haiku-5")]),
+        ]])
+        let app = launchSignedIn(["-HQDebugResetProviderPrefs", "YES"])
         openPage(app, "model", "auxiliary")
         let titles = app.buttons["aux-task.title_generation"]
         XCTAssertTrue(titles.waitForExistence(timeout: 10))
@@ -202,16 +213,42 @@ extension SettingsEndToEndTests {
         shot(app, "model-fallbacks")
         back(app)
 
+        // [moa-setup] Seeded with no preset enabled, so Hermes isn't listing it: the switch is off and what it governs
+        // waits. On saves the presets with the default one enabled (what lists it) and the page opens up.
         app.buttons["config-page.model.moa"].tap()
         let enabled = app.switches["moa.enabled"]
         XCTAssertTrue(enabled.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["moa.footer"].label.hasSuffix("Applies to Hermes only."), app.staticTexts["moa.footer"].label)   // [model-scope]
+        XCTAssertEqual(enabled.value as? String, "0", "Hermes isn't listing it")
+        let moaFooter = app.staticTexts["moa.footer"]
+        XCTAssertTrue(moaFooter.label.hasPrefix("Off") && moaFooter.label.hasSuffix("Applies to Hermes only."), moaFooter.label)   // [model-scope]
+        let aggregator = app.buttons["moa.aggregator"]
+        XCTAssertTrue(aggregator.exists && !aggregator.isEnabled, "its models wait while it is off")
         shot(app, "model-moa")
         flip(enabled)
         XCTAssertTrue(waitUntil(timeout: 8) {
             ((((self.a.state()["moa"] as? [String: Any])?["presets"] as? [String: Any])?["balanced"] as? [String: Any])?["enabled"] as? Bool) == true
-        }, "PUT /api/model/moa with the preset on")
+        }, "PUT /api/model/moa with the default preset on")
         XCTAssertTrue(same((a.state()["moa"] as? [String: Any])?["enabled"], true), "mirrored onto the default preset's top level")
+        XCTAssertTrue(same(((((a.state()["moa"] as? [String: Any])?["presets"] as? [String: Any])?["fast"] as? [String: Any])?["enabled"]), false),
+                      "the other preset is left as it was")
+        XCTAssertTrue(waitUntil(timeout: 8) { enabled.value as? String == "1" && aggregator.isEnabled }, "on, and open")
+        XCTAssertTrue(waitUntil(timeout: 5) { moaFooter.label.hasPrefix("To use it, pick Mixture of Agents in a chat’s model menu") }, moaFooter.label)
+        XCTAssertTrue(app.staticTexts["moa.advice"].label.contains("advise it once per message"), app.staticTexts["moa.advice"].label)
+        shot(app, "model-moa-on")
+
+        // A slot's model: the whole record is saved, the default preset on the top level too.
+        aggregator.tap()
+        let sonnet = app.buttons["model-option.claude-sonnet-5"]
+        XCTAssertTrue(sonnet.waitForExistence(timeout: 8), "Anthropic's models")
+        XCTAssertFalse(app.buttons["model-option.balanced"].exists, "a preset can't be its own model")
+        sonnet.tap()
+        XCTAssertTrue(waitUntil(timeout: 8) {
+            let moa = self.a.state()["moa"] as? [String: Any]
+            let preset = (moa?["presets"] as? [String: Any])?["balanced"] as? [String: Any]
+            return self.same((preset?["aggregator"] as? [String: Any])?["model"], "claude-sonnet-5")
+                && self.same((moa?["aggregator"] as? [String: Any])?["model"], "claude-sonnet-5")
+        }, "the aggregator saved on the preset and the top level")
+        XCTAssertTrue(waitUntil(timeout: 5) { aggregator.label.contains("Sonnet") }, aggregator.label)
     }
 
     // MARK: - G6 Keys: Show, a switch; Providers
@@ -321,7 +358,7 @@ extension SettingsEndToEndTests {
         XCTAssertTrue(appears(magnifier, app, "search-after-back"), "back on Settings")
 
         magnifier.tap()
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertTrue(appears(search, app, "search-reopened"), "the field opens again after a result")
         search.typeText("zzzz")
         XCTAssertTrue(app.staticTexts["settings.search-empty"].waitForExistence(timeout: 3) || app.descendants(matching: .any)["settings.search-empty"].exists)
         shot(app, "settings-search-empty")
@@ -468,10 +505,10 @@ extension SettingsEndToEndTests {
         openSection(app, "model")
         let sectionFooter = app.staticTexts["config-section.model.footer"]
         XCTAssertTrue(appears(sectionFooter, app, "model-section-footer", timeout: 8))
-        XCTAssertTrue(sectionFooter.label.hasPrefix("Hermes’s models"), sectionFooter.label)
+        XCTAssertTrue(sectionFooter.label.hasPrefix("Hermes’ models"), sectionFooter.label)   // [macpass-settings2] "Hermes’", not "Hermes’s"
         XCTAssertTrue(sectionFooter.label.contains("change them in each bot’s Bot Info › Brain"), sectionFooter.label)
         app.buttons["config-page.model.main"].tap()
-        let header = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Hermes’s Default Model")).firstMatch
+        let header = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Hermes’ Default Model")).firstMatch
         XCTAssertTrue(appears(header, app, "main-model-header", timeout: 8), "whose Main Model this is")
         XCTAssertEqual(app.staticTexts["main-model.footer"].label,
                        "Applies to Hermes only. Other bots keep their own in Bot Info › Brain. A chat can still switch its own model.")

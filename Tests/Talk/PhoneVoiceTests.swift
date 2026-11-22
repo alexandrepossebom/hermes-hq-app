@@ -172,6 +172,55 @@ struct PhoneVoiceTests {
         #expect(reason.hasPrefix("TTS chunk 1 failed (edge)"))
     }
 
+    // MARK: A clip that would not play here (#412)
+
+    @Test func aClipThatWouldNotPlayHereIsNotRememberedAgainstTheComputer() async {
+        let rig = rig()
+        rig.output.clipError = ClipNotStarted()
+        let client = gateway { _ in PhoneVoiceTests.wavAnswer }
+        let (seen, token) = watchNotices()
+        defer { NotificationCenter.default.removeObserver(token) }
+        VoiceEvents.clear()
+        // This reply goes on with the iPhone's voice from the clip that failed.
+        #expect(await read(rig, "The output is busy right now. It is still read to the end.", client: client) == .done)
+        #expect(rig.output.clipFailures == 1)
+        #expect(rig.renderers.spoken == ["The output is busy right now.", "It is still read to the end."])
+        #expect(seen.all.count == 1)
+        let log = VoiceEvents.all.map(\.text).joined(separator: "\n")
+        #expect(log.contains("couldn’t play your gateway’s voice just now"), "\(log)")
+        #expect(!log.contains("format"), "\(log)")
+        // Nothing is remembered: the next reply asks the computer's voice again, and plays it.
+        #expect(!rig.memory.isFailing(PhoneVoiceFallback.key(account: client.account.id, profile: "inbox")))
+        rig.output.clipError = nil
+        #expect(await read(rig, "Next reply.", client: client) == .done)
+        #expect(rig.speaker.gatewayTries == 2)
+        #expect(rig.output.clips == 1)
+        #expect(rig.renderers.spoken.count == 2)   // nothing more read by the iPhone
+    }
+
+    @Test func whenTheIPhoneVoiceCannotPlayEitherThePlaybackFailureIsSaidNotAFormat() async {
+        let rig = rig()
+        rig.output.clipError = NSError(domain: NSOSStatusErrorDomain, code: 561_015_905)   // '!pla'
+        rig.speaker.makePhoneRenderer = {
+            let made = FixturePhoneSpeechRenderer()
+            made.fails = true
+            return made
+        }
+        let client = gateway { _ in PhoneVoiceTests.wavAnswer }
+        let outcome = await read(rig, "Nothing plays right now.", client: client)
+        #expect(outcome == .failed(reason: VoiceWire.playbackFailed("the audio output was busy"), fatal: false))
+        #expect(!rig.memory.isFailing(PhoneVoiceFallback.key(account: client.account.id, profile: "inbox")))
+    }
+
+    @Test func oggBytesUnderAPlayableLabelAreStillRemembered() async {
+        let rig = rig()
+        let ogg = (Data("OggS".utf8) + Data(count: 60)).base64EncodedString()
+        rig.output.clipError = NSError(domain: NSOSStatusErrorDomain, code: 1_954_115_647)
+        let client = gateway { _ in "{\"ok\": true, \"data_url\": \"data:audio/mpeg;base64,\(ogg)\", \"mime_type\": \"audio/mpeg\"}" }
+        #expect(await read(rig, "Provider sends Ogg.", client: client) == .done)
+        #expect(rig.memory.isFailing(PhoneVoiceFallback.key(account: client.account.id, profile: "inbox")))
+    }
+
     // MARK: Remembered, then asked again
 
     @Test func aFailureIsRememberedPerGatewayAndProfileThenTheComputerIsAskedAgain() async {

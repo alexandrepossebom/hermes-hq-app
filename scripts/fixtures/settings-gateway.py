@@ -17,6 +17,7 @@ Controls (loopback, no auth, never under /api/):
                                                  a synced-documents-only write takes one only when armed synced: true
   POST /__settings/install-outcome {identifier,exit,lines}
   POST /__settings/runtime {ok,error}            next setup.runtime_check answer
+  POST /__settings/moa {presets[,default_preset]}  [moa-setup] the Mixture of Agents presets Hermes has
   POST /__settings/turn {seconds}                [live] each later reply's turn runs that long (0-120 s) before it answers
   POST /__settings/reset                         back to the seed
   POST /__settings/only {profiles:[names]}       [filters-only] only those bots are left (the rest gone, as if deleted)
@@ -692,7 +693,7 @@ def rpc(method, params):
             return {'status': 'interrupted'}
         if method == 'model.options':
             # [provider-manager] The chat's model menus read the same catalog Settings does (custom endpoints as custom:<id>).
-            options = cfg.model_options(S['env'])
+            options = cfg.model_options(S['env'], S['moa'])
             options['providers'] += [{'slug': 'custom:' + e['id'], 'name': e['name'], 'models': list(e['models']),
                                       'authenticated': True, 'is_user_defined': True} for e in S['custom']]
             return {**options, **model_of('default')}
@@ -962,6 +963,11 @@ def handler(gateway):
                 answer = onepassword_route('GET', path, {})
                 if answer is not None:
                     return self.reply(*answer)
+                if path == '/api/profiles':
+                    # More › Bot Profiles reads the roster over REST: this fixture's own bots, as its `profiles.list`
+                    # gives them. Unanswered here, the reference fixture answered with its two (Hermes and Sam), so the
+                    # page listed bots this fixture doesn't have and none of its own.
+                    return self.reply(200, {'profiles': [profile_row(n, False) for n in S['profiles']]})
                 if path == '/api/profiles/sessions':
                     p = S['profiles'].get(profile)
                     if p is None:
@@ -1017,7 +1023,7 @@ def handler(gateway):
                     return self.reply(200, {**model_of(profile), 'auto_context_length': 1000000, 'config_context_length': pinned,
                                             'effective_context_length': pinned or 1000000})
                 if path == '/api/model/options':
-                    options = cfg.model_options(S['env'])
+                    options = cfg.model_options(S['env'], S['moa'])
                     options['providers'] += [{'slug': 'custom:' + e['id'], 'name': e['name'], 'models': list(e['models']),
                                               'authenticated': True, 'is_user_defined': True} for e in S['custom']]
                     return self.reply(200, {**options, **model_of(profile)})
@@ -1220,7 +1226,12 @@ def handler(gateway):
                         slots = refs + [preset.get('aggregator') or {}]
                         if not refs or any(not str(x.get('provider') or '').strip() or not str(x.get('model') or '').strip() for x in slots):
                             return self.reply(422, {'detail': 'every Mixture of Agents slot needs a provider and a model'})
-                    S['moa'] = copy.deepcopy(body)
+                    if not presets:
+                        return self.reply(422, {'detail': 'Invalid MoA config: needs at least one preset'})
+                    # [moa-setup] As Hermes saves it: the presets sent are the presets kept (one left out is deleted),
+                    # and the default one is served again on the top level.
+                    S['moa'] = cfg.moa_record(copy.deepcopy(presets), str(body.get('default_preset') or ''),
+                                              str(body.get('active_preset') or ''))
                     return self.reply(200, {**S['moa'], 'ok': True})
                 if path == '/api/skills/toggle':
                     skill = next((s for s in S['skills'].get(profile, {}).get('installed', []) if s['name'] == body.get('name')), None)
@@ -1388,6 +1399,13 @@ def handler(gateway):
                     return self.reply(200, {'ok': True})
                 if path == '/__settings/runtime':
                     S['runtime'] = {'ok': bool(body.get('ok', False)), 'error': body.get('error')}
+                    return self.reply(200, {'ok': True})
+                if path == '/__settings/moa':
+                    # [moa-setup] The Mixture of Agents presets Hermes has, as another client left them.
+                    presets = body.get('presets')
+                    if not isinstance(presets, dict) or not presets:
+                        return self.reply(400, {'detail': 'presets: a map of at least one preset'})
+                    S['moa'] = cfg.moa_record(copy.deepcopy(presets), str(body.get('default_preset') or ''))
                     return self.reply(200, {'ok': True})
             return self.reply(404, {'detail': 'unknown control'})
 

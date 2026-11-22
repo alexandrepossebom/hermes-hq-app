@@ -6,6 +6,7 @@
 // - `-HQDebugHighContrast YES|NO`   High Contrast
 // - `-HQDebugUIScale <percent>`     UI Scale
 // - `-HQDebugDensity standard|compact`   [density] Density (the iOS look)
+// - `-HQDebugDesktopDensity standard|compact`   [desktop-density] the Desktop Look's own Density
 // - `-HQDebugAppearanceReveal row:<id>`   [appearance-groups] Appearance scrolled to that row (row:density, row:ui-scale…)
 // - `-HQDebugBubbleCorners <pt>`    Bubble Corners (the iOS look's chat bubbles)
 // - `-HQDebugDesktopCorners <pt>`   [desktop-corners] the Desktop Look's own Corners
@@ -64,6 +65,7 @@ enum ThemeDebugHooks {
         if defaults.object(forKey: "HQDebugHighContrast") != nil { store.setHighContrast(defaults.bool(forKey: "HQDebugHighContrast")) }
         if defaults.object(forKey: "HQDebugUIScale") != nil { store.setUIScale(defaults.integer(forKey: "HQDebugUIScale")) }
         if let density = defaults.string(forKey: "HQDebugDensity").flatMap(ListDensity.init(rawValue:)) { store.setDensity(density) }
+        if let density = defaults.string(forKey: "HQDebugDesktopDensity").flatMap(ListDensity.init(rawValue:)) { store.setDensity(density, desktop: true) }
         if defaults.object(forKey: "HQDebugBubbleCorners") != nil { store.setBubbleCorners(defaults.integer(forKey: "HQDebugBubbleCorners")) }
         if defaults.object(forKey: "HQDebugDesktopCorners") != nil { store.setBubbleCorners(defaults.integer(forKey: "HQDebugDesktopCorners"), desktop: true) }
         if let composer = defaults.string(forKey: "HQDebugDesktopComposer").flatMap(DesktopComposer.init(rawValue:)) { store.setDesktopComposer(composer) }

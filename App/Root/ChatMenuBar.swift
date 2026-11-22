@@ -118,6 +118,10 @@ import UIKit
     }
 
     static func canDictate(_ chat: ChatViewController) -> Bool {
+        // [question-dictate] With a bot's question card in the composer's place, the words go into the card (#438).
+        if let card = chat.promptsUI, card.coversComposer {
+            return chat.voice.isAvailable && card.canDictateIntoCard && TalkMenus.dictation(for: chat) == .on
+        }
         let composer = chat.composer
         return chat.voice.isAvailable && chat.voice.isOnScreen && composer.isEnabled && !composer.memoActive && !composer.dictating
             && TalkMenus.dictation(for: chat) == .on
