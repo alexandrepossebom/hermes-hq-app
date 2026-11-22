@@ -76,7 +76,7 @@ private struct TaskViewsBand: View {
                         detail: pill.count.flatMap { $0 > 0 ? "\($0)" : nil }) {
                 onPick(pill.view)
             } face: {
-                // [task-lists] The list's icon in its colour, or the colour's dot.
+                // [task-lists] The list's icon, grey ([tasks-colour]).
                 TaskListPillMark(color: pill.color, icon: pill.icon, picked: picked && !quiet)
             }
             .overlay {

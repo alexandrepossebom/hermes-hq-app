@@ -253,7 +253,7 @@ struct TaskIdeasHead: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            TodoGroupHeaderView.Words(title: "Suggested by \(botName)", detail: nil, count: count > 0 ? count : nil, red: false)
+            TodoGroupHeaderView.Words(title: "Suggested by \(botName)", detail: nil, count: count > 0 ? count : nil)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("tasks.ideas.status")
             Spacer(minLength: 8)

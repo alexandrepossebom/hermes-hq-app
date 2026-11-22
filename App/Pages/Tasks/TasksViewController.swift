@@ -611,7 +611,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
         if case .goals(let key) = section { configureGoalHeader(header, key); return }
         guard case .group(let kind) = section, let words = heading(kind) else { return }
         let count = groups.first { $0.0 == kind }?.1.count ?? 0
-        var view = TodoGroupHeaderView(title: words.title, detail: words.detail, count: count, red: kind == .overdue)
+        var view = TodoGroupHeaderView(title: words.title, detail: words.detail, count: count)
         view.onCard = BackdropCards.on(self)
         switch kind {
         case .bot(let profile):
@@ -936,19 +936,18 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
     private func rowModel(_ task: TodoTask, kind: TodoGroupKind, now: Date, heads: [String: JSONValue?]) -> TodoRowModel {
         let helper = task.helper
         let name: (String?) -> String = { [bots] in PagesNames.botName($0 ?? "default", bots: bots) }
-        // [task-lists] Its list's colour, where the row isn't under that list's own name.
-        var dot = searching ? TodoLists.color(store.sections.first { $0.id == task.section })
-            : TodoLists.dot(task, in: current, sections: store.sections)
-        if case .next = kind { dot = nil }   // "Next in Work" names the list over the rows
+        // [task-lists] Its list's icon, where the row isn't under that list's own name.
+        var mark = TodoLists.mark(task, in: searching ? .today : current, sections: store.sections)
+        if case .next = kind { mark = nil }   // "Next in Work" names the list over the rows
         var model = TodoRowModel.make(task, kind: kind, now: now, botName: name, head: helper.flatMap { heads[$0] ?? nil },
-                                      ticking: ticking.contains(task.id), dot: dot, listName: dot == nil ? nil : listName(task.section),
+                                      ticking: ticking.contains(task.id), listIcon: mark, listName: mark == nil ? nil : listName(task.section),
                                       wide: isTable)
-        // [goals] Step 2: a task in an active or paused goal carries the goal's mark in the dot's place, in every view
-        // (inside a list and under "Next in" too, where no dot is drawn).
+        // [goals] Step 2: a task in an active or paused goal carries the goal's mark in the icon's place, in every view
+        // (inside a list and under "Next in" too, where no icon is drawn).
         if let goal = GoalViews.markGoal(task, goals: store.goals) {
-            model.goalMark = goal.tint
+            model.goalMark = true
             model.goalName = goal.title.isEmpty ? "Untitled Goal" : goal.title
-            model.listDot = nil
+            model.listIcon = nil
         }
         model.selecting = selecting
         model.picked = picked.contains(task.id)

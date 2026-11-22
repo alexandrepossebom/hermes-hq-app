@@ -78,7 +78,7 @@ struct GoalShelfView: View {
     private var heading: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button(action: toggle) {
-                TodoGroupHeaderView.Words(title: "Goals", detail: nil, count: GoalShelf.headingCount(cards.count, folded: folded), red: false)
+                TodoGroupHeaderView.Words(title: "Goals", detail: nil, count: GoalShelf.headingCount(cards.count, folded: folded))
                     .padding(.top, 16).padding(.bottom, 4).padding(.trailing, 12)
                     .contentShape(Rectangle())
             }
