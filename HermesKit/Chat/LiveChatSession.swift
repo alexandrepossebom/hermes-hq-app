@@ -287,6 +287,9 @@ final class LiveChatSession: ChatSessionModel {
     /// so there is no history to read: an empty open is the bot's intro at once, never a skeleton that ends in
     /// "Couldn't load this chat."
     let startsNew: Bool
+    /// [#440] A chat this screen starts that the lists show (not a task's or a tile's, born hidden): its row is listed
+    /// here as its first message goes out (`SessionStore.listStartedChat`).
+    var listsWhenStarted = false
     private let lastActive: Date?
     var ticker: FrameTicker!
 

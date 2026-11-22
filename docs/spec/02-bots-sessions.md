@@ -790,6 +790,16 @@ Sessions) — `S/phone-new-chat.ts:48-64`. An empty Bot Chat lists ≤5 recent s
 (`GET /api/profiles/sessions?…&profile=<p>`, background runs excluded, the roster's `last_session` merged in;
 `S/bot-recent.ts:7-31`); those open as side chats (`S/bot-recent.ts:52-92`).
 
+Native [#440] (a tester, Mac): the gateway writes a new chat's row only with its first prompt, and the next list read
+can wait 150 s while a chat is on screen beside the Bots page (`SessionStoreTiming.focusedChatGap`), so a new chat was
+missing from the chats under its bot for minutes. Now, as the first message goes out, the app lists the chat's row
+itself (`SessionStore.listStartedChat`, from `AppModel` when a New Chat's turn starts): it shows at once in Sessions and
+under its bot (Bots page, the Mac's sidebar; iPhone, iPad and Mac alike), named by that message until the chat's title
+event names it (`applyTitle`). Pages that don't list it yet keep it; the first that does takes over. It goes when a
+page read more than 5 s after its first turn ended still leaves it out (a refused send), or after 10 min. Opening a New
+Chat and sending nothing lists nothing, and a task's or a tile's chat (born hidden) is never listed. No extra list
+reads: the cadence is unchanged.
+
 ---
 
 ## 9. Sessions tab (basic list)

@@ -28,6 +28,10 @@ nonisolated struct SessionStoreTiming: Sendable {
     /// Polls used only when the gateway does not broadcast `sessions.changed`.
     var fallbackOnScreenPoll: Duration = .seconds(30)
     var fallbackOffScreenPoll: Duration = .seconds(120)
+    /// [#440] How long a chat started here keeps its own row while no page lists it (`SessionStore.listStartedChat`).
+    var startedRowLife: Duration = .seconds(600)
+    /// [#440] A page read this long after that chat's first turn ended which still leaves it out is believed.
+    var startedRowSettle: Duration = .seconds(5)
     /// Read each shown chat's newest message for its row (SessionStore+Latest.swift).
     var readsLatest = true
     static let standard = SessionStoreTiming()
@@ -441,6 +445,18 @@ final class SessionStore {
     /// [read-sync] The archived read a list page asked for (`refreshArchivedIfMoved`), one at a time.
     @ObservationIgnored private var archivedRefresh: Task<Void, Never>?
     @ObservationIgnored var leaving: Set<String> = []
+    /// [#440] Chats started here whose row no page has listed yet, by write key, and when each was listed here
+    /// (`listStartedChat`).
+    @ObservationIgnored var startedRows: [String: StartedRow] = [:]
+
+    /// [#440] A started chat's own row (`listStartedChat`).
+    struct StartedRow {
+        var row: SidebarSessionRow
+        var at: ContinuousClock.Instant
+        /// When its first turn ended (sent, answered or refused): a page read after that which still leaves it out says
+        /// the gateway doesn't list it (a send it refused, or an id it doesn't list by).
+        var settledAt: ContinuousClock.Instant?
+    }
     /// Projects opened with Show More, by the chip's bot ("*" for All); not kept across launches.
     @ObservationIgnored var expandedGroups: [String: Set<String>] = [:]
     /// [sessions-layout] Chats kept in New for You until the page is left (row keys), read or not (`holdNew`).
@@ -604,6 +620,7 @@ final class SessionStore {
         isRefreshing = false
         forceNextNotify = false
         chatFocused = false
+        startedRows.removeAll()                         // [#440]
         lastProbeMatchAt = nil
         latestQueue = []
         resultBindings.removeAll()
@@ -740,6 +757,58 @@ final class SessionStore {
                 try await SessionWrite.patch(client, id: id, profile: profile, ["unread": .bool(false)])
             } catch {
                 AppLog.note("sessions", "read sync: new chat \(AppLog.tag(id)) not marked read (\(error.localizedDescription))")
+            }
+        }
+    }
+
+    /// [#440] A chat started on this device (New Chat, a project's New Chat) whose first message just went out: its row
+    /// is on the lists now (Sessions, and the chats under its bot on the Bots page and the Mac's sidebar), not with the
+    /// next list read, which waits up to 150 s while a chat is on screen beside a list other than Sessions. It is named
+    /// by that message until the gateway names it (the chat's title event reaches the row through `applyTitle`). Pages
+    /// that don't list it yet keep it and the first that does takes over (`keepStartedRows`). Hidden chats (a task's, a
+    /// tile's) never come here.
+    func listStartedChat(id: String, profile: String, title: String? = nil, firstMessage: String?, cwd: String? = nil,
+                         now: Date = Date()) {
+        let key = Self.writeKey(id: id, profile: profile)
+        if startedRows[key] != nil { startedRows[key]?.settledAt = nil; return }   // another turn: wait for it too
+        guard !id.isEmpty, started, !stopped, allBots || profile == routingProfile,
+              listedRow(id: id, profile: profile) == nil else { return }
+        let seconds = now.timeIntervalSince1970
+        var row = SidebarSessionRow(id: id, profile: profile, title: RosterText.nonBlank(title), preview: firstMessage,
+                                    source: "desktop", lastActive: seconds, unread: false)
+        row.startedAt = seconds
+        row.cwd = cwd
+        startedRows[key] = StartedRow(row: row, at: .now)
+        recents.insert(row, at: 0)
+        AppLog.trace("sessions", "new chat \(AppLog.tag(id)) listed before the gateway's page")
+        rebuild()
+    }
+
+    /// [#440] The started chat's first turn ended (`StartedRow.settledAt`).
+    func startedChatSettled(id: String, profile: String) {
+        let key = Self.writeKey(id: id, profile: profile)
+        guard startedRows[key]?.settledAt == nil else { return }
+        startedRows[key]?.settledAt = .now
+    }
+
+    /// [#440] After a page: a started chat it lists is the gateway's row from now on. One it doesn't list yet stays on (a
+    /// read that began before the first message was stored can't know it), unless the read began after the first turn
+    /// had ended, or `startedRowLife` has passed.
+    private func keepStartedRows(_ payload: SidebarPayload, readStartedAt: ContinuousClock.Instant) {
+        guard !startedRows.isEmpty else { return }
+        let paged = [payload.recents.rows, payload.cron.rows, payload.messaging.rows].compactMap { $0 }.joined()
+        let listed = Set(paged.map { Self.writeKey(id: $0.id, profile: $0.profile) })
+        let now = ContinuousClock.now
+        for (key, held) in startedRows {
+            let believed = held.settledAt.map { readStartedAt > $0 + timing.startedRowSettle } ?? false
+            if listed.contains(key) || leaving.contains(key) || now - held.at > timing.startedRowLife {
+                startedRows[key] = nil
+            } else if believed, payload.recents.rows != nil {
+                startedRows[key] = nil
+                recents.removeAll { $0.id == held.row.id && $0.profile == held.row.profile }
+                AppLog.note("sessions", "new chat \(AppLog.tag(held.row.id)) not on the gateway's page after its turn: its row goes")
+            } else if !recents.contains(where: { $0.id == held.row.id && $0.profile == held.row.profile }) {
+                recents.insert(held.row, at: 0)
             }
         }
     }
@@ -1007,6 +1076,7 @@ final class SessionStore {
             }
         }
         update(&recents); update(&cron); update(&messaging)
+        for (key, held) in startedRows where held.row.id == id { startedRows[key]?.row.title = value }   // [#440]
         guard changed else { return }
         lastFingerprint = nil
         writeCache()
@@ -1034,6 +1104,7 @@ final class SessionStore {
 
     /// MENUS (⋯ › Archive, Delete Chat): the chat leaves every list at once.
     func forget(id: String, profile: String) {
+        startedRows[Self.writeKey(id: id, profile: profile)] = nil   // [#440]
         let before = recents.count + cron.count + messaging.count
         recents.removeAll { $0.id == id && $0.profile == profile }
         cron.removeAll { $0.id == id && $0.profile == profile }
@@ -1393,6 +1464,7 @@ final class SessionStore {
         if let rows = placed(payload.recents.rows, into: recents, limit: topLimits?.0) { recents = rows }
         if let rows = placed(payload.cron.rows, into: cron, limit: topLimits?.1) { cron = rows }
         if let rows = placed(payload.messaging.rows, into: messaging, limit: topLimits?.2) { messaging = rows }
+        keepStartedRows(payload, readStartedAt: readStartedAt)   // [#440]
         refreshArchivedIfMoved(from: prior.recents)
         // [sessions-m9] The page's fingerprint is kept even while our own read marks are in the air (§11.2).
         // [perf-returns] A top page's fingerprint compares with a probe's as a full read's does: the same newest rows,

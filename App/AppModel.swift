@@ -270,6 +270,7 @@ final class AppModel: AppServices {
                                    }, startsNew: true)
         chat.botName = bot.name
         chat.modelName = extra["model"]?.string ?? botStore.profile(named: profile)?.model   // [project-new-chat-model] the project's own
+        chat.listsWhenStarted = extra["hidden"]?.bool != true   // [#440] a task's or a tile's chat stays off the lists
         chat.activityLink.store = activityStore       // [activity]
         wire(chat)
         chat.keepQueue()
@@ -1105,8 +1106,12 @@ final class AppModel: AppServices {
                 self.workingLedger?.turnEnded(id)
                 self.liveStatus?.turnEnded(id)            // [live-status]
             }
+            if running { self.listStartedChat(chat) }       // [#440] before Working…, which names its row
             self.setWorking(profile: chat.profile, storedId: chat.storedSessionId, running || chat.externalWorking)
             if !running { self.turnSeenEnding(chat) }       // [read-sync]
+            if !running, chat.startsNew, let id = chat.storedSessionId {   // [#440]
+                self.sessionStore?.startedChatSettled(id: id, profile: chat.profile)
+            }
         }
         // [external-turn] Another Hermes process's turn in the open chat: its bot and Sessions rows say Working… too.
         chat.onExternalWorkChange = { [weak self, weak chat] working in
@@ -1121,6 +1126,7 @@ final class AppModel: AppServices {
             guard let self, let chat else { return }
             // [read-sync] A chat started here is read on the gateway from the start, so every device's dot agrees.
             if chat.startsNew { self.sessionStore?.trackStartedChat(id: id, profile: chat.profile) }
+            if chat.reportsRunning { self.listStartedChat(chat) }   // [#440] its first message went out before the id came
             guard chat.reportsRunning || chat.externalWorking else { return }
             if let rid = chat.runtimeSessionId, let tracked = self.runningChats[rid], tracked.storedId == nil {
                 self.runningChats[rid] = (tracked.profile, id)
@@ -1160,6 +1166,16 @@ final class AppModel: AppServices {
                 self.sessionStore?.shareRead(id: id, profile: chat.profile, through: seen.timeIntervalSince1970)
             }
         }
+    }
+
+    /// [#440] A New Chat's first message went out: its row is on the lists at once (Sessions, and the chats under its bot
+    /// on the Bots page and the Mac's sidebar), named by that message until the gateway names it. Before this it waited
+    /// for the next list read: up to 150 s with the Bots page beside the chat, 45 s back on the phone's Bots page.
+    private func listStartedChat(_ chat: LiveChatSession) {
+        guard chat.startsNew, chat.listsWhenStarted, let id = chat.storedSessionId else { return }
+        let first = chat.messages.first { $0.role == .user && !$0.plainText.isEmpty }?.plainText
+        let named = ShortTitle.genericTitles.contains(ShortTitle.normalized(chat.title)) ? nil : chat.title
+        sessionStore?.listStartedChat(id: id, profile: chat.profile, title: named, firstMessage: first, cwd: chat.menus.cwd)
     }
 
     /// [read-sync] A turn ended in the chat in front of the person, with the app in front: its reply is read, and the

@@ -277,6 +277,7 @@ extension SessionStore {
         AppLog.trace("sessions", "\(archived ? "archive" : "unarchive") \(tag): succeeded in \(AppLog.ms(since: started)) ms")
         leaving.remove(key)
         if archived {
+            startedRows[key] = nil                      // [#440]
             recents.removeAll { $0.id == session.id && $0.profile == session.profile }
             if var row {
                 row.archived = true
@@ -347,6 +348,7 @@ extension SessionStore {
         ManualChatTitles.set(false, account: account.id, profile: session.profile, id: session.id)
         func drop(_ rows: inout [SidebarSessionRow]) { rows.removeAll { $0.id == session.id && $0.profile == session.profile } }
         drop(&recents); drop(&cron); drop(&messaging); drop(&archivedRows)
+        startedRows[Self.writeKey(id: session.id, profile: session.profile)] = nil   // [#440]
         onDeleted?(session.profile, session.id)         // [sessions-m9] its "Not Delivered:" words go with it
         lastFingerprint = nil
         writeCache()
