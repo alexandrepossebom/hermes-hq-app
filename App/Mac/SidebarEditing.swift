@@ -166,18 +166,6 @@ import UIKit
         ])
     }
 
-    /// [tools-menu-icon] A sidebar row's icon at a menu's size (the folded sidebar's Tools menu). Owner 2026-11-22: "the
-    /// kanban icon here is too big": a drawn glyph (Kanban, Bots) is made at the bar's size and a menu draws an image
-    /// at the size it is, where a symbol takes the menu's own size. Those are drawn again as Add to Sidebar draws them.
-    static func menuImage(_ item: UITabBarItem) -> UIImage? {
-        if let image = item.image, image.isSymbolImage { return image }
-        if item.accessibilityIdentifier == "tab-page-\(PagesTabs.botsRowID)" { return image(.main(.bots), symbol: nil) }
-        if let choice = TabChoice(tag: item.tag), choice == .page("kanban") || choice == .main(.workspace) {
-            return image(choice, symbol: nil)
-        }
-        return item.image
-    }
-
     /// The place's icon as the sidebar draws it, at a menu's size.
     private static func image(_ choice: TabChoice, symbol: String?) -> UIImage? {
         let size: CGFloat = 15

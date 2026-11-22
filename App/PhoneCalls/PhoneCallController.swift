@@ -10,6 +10,7 @@ import UIKit
 struct PhoneStartIntent: Equatable {
     let session: String, destination: String, goal: String
     var voicemail: PhoneVoicemailChoice = .hangUp
+    var name: String?
 }
 struct PhoneStartRetry {
     private(set) var pending: (intent: PhoneStartIntent, id: String)?
@@ -92,6 +93,7 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     var answered: Set<String> = []
     var asked: [PhoneQA] = []
     var result: PhoneResultState = .none
+    var resultFingerprint: String? = nil
     // While the app runs only.
     var answerCommandIDs: [String: String] = [:]
     var sendingAnswer: String? = nil
@@ -99,13 +101,21 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     var issue: String? = nil
     /// What the owner sent that the conversation hasn't returned yet (shown at once as "You" lines).
     var pendingYou: [String] = []
+    var pendingAnswers: [Int]? = nil
+    var name: String? = nil
+    var summary: String? = nil
+    var summaryFinished: Bool? = nil
+    var messageLeft: Bool {
+        voicemailChoice == .leaveMessage && lines.contains { $0.speaker == .assistant && $0.followsVoicemail == true }
+    }
+    var watchIssue: String? = nil
     var sendingMessage = false
 
     nonisolated enum CodingKeys: String, CodingKey {
         case id, sessionID, profile, to, purpose, placedAt, hangupCommandID, legID, samplehostSessionID, recorded,
              voicemailChoice, suggested, state, conversationID, liveAt, answeredAt, endedAt, overAt, duration, ringSeconds,
              voicemail, outcome, settled, settledAt, localEnd, endNote, seenAlive, events, lines, transcriptChangedAt,
-             question, answered, asked, result, pendingYou
+             question, answered, asked, result, resultFingerprint, pendingYou, pendingAnswers, name, summary, summaryFinished
     }
 
     var active: Bool { state != .ended }
@@ -121,11 +131,11 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     var straightToVoicemailNote: String? { phoneStraightToVoicemailNote(voicemail: voicemail, ringSeconds: ringSeconds) }
     /// The transcript as shown: what the conversation returned, then what the owner just sent.
     var shownLines: [PhoneTranscript.Line] {
-        lines + pendingYou.enumerated().map { PhoneTranscript.Line(id: "pending|\($0.offset)", speaker: .you, text: $0.element) }
+        lines + pendingYou.enumerated().map { PhoneTranscript.Line(id: "pending|\($0.offset)", speaker: .you, text: $0.element, isAnswer: pendingAnswers?.contains($0.offset) == true ? true : nil) }
     }
     var theirLines: [String] { lines.filter { $0.speaker == .them }.map(\.text) }
     /// Watched until the outcome is settled and the result handled.
-    var done: Bool { state == .ended && settled && result != .none }
+    var done: Bool { state == .ended && settled && result != .none && summaryFinished != false }
 }
 
 // MARK: - The controller
@@ -161,6 +171,9 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     /// Item 9: the result waits for the transcript to stop changing this long, or at most `resultDeadline`.
     var resultQuiet: TimeInterval = 6
     var resultDeadline: TimeInterval = 30
+    var summaryResultWait: TimeInterval = 20
+    var summaryDeadline: TimeInterval = 45
+    private var placing = false
     /// The chat a result goes into, when it is open now: a sender for it (PhoneChatDelivery).
     var chatSender: (_ call: PhoneCallRecord) -> ((PhoneResultMessage) -> Void)? = { _ in nil }
     /// Posts a local alert (PhoneAlerts).
@@ -170,6 +183,7 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     private var dialRetry = PhoneStartRetry()
     @ObservationIgnored private var watchdogs: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var pollers: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var refreshing: Set<String> = []
     @ObservationIgnored private var eventsReadAt: [String: Date] = [:]
     @ObservationIgnored private var alerted: Set<String> = []
     @ObservationIgnored private var quietlyAnswered: Set<String> = []
@@ -187,7 +201,7 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
 
     var setup: PhoneSetup? { store.load(for: accountID) }
     var ready: Bool { setup?.ready == true }
-    var hasActiveCall: Bool { calls.contains(where: \.active) }
+    var hasActiveCall: Bool { placing || calls.contains(where: \.active) }
     /// Any call still watched (on, or its outcome or result not done yet).
     var watching: Bool { calls.contains { !$0.done } }
     func calls(for sessionID: String) -> [PhoneCallRecord] { calls.filter { $0.sessionID == sessionID } }
@@ -211,18 +225,20 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     /// call). Throws a readable failure; a retry of the same intent reuses its command_id.
     @discardableResult
     func place(sessionID: String, profile: String? = nil, to: String, purpose: String,
-               voicemail: PhoneVoicemailChoice = .hangUp, suggested: Bool = false) async throws -> String {
+               voicemail: PhoneVoicemailChoice = .hangUp, suggested: Bool = false, name: String? = nil) async throws -> String {
         guard let setup, setup.ready, let from = setup.fromNumber, let connection = setup.connectionID,
               let assistant = setup.assistantID else {
             throw samplehostError.provider("Phone Calls isn't set up. Connect samplehost in Settings first.")
         }
         let api = makeAPI(setup.apiKey)
         guard !hasActiveCall else { throw samplehostError.provider("Another call is still going. Hang it up first.") }
+        placing = true
+        defer { placing = false }
         let matched = await Result.of { try await api.matchRecording(assistantID: assistant, on: setup.records) }
         if case .failure(let error) = matched {
             throw samplehostError.refused("The call wasn't placed: couldn't make the assistant's recording match Settings. " + phoneMessage(error))
         }
-        let commandID = dialRetry.id(for: PhoneStartIntent(session: sessionID, destination: to, goal: purpose, voicemail: voicemail))
+        let commandID = dialRetry.id(for: PhoneStartIntent(session: sessionID, destination: to, goal: purpose, voicemail: voicemail, name: name))
         let request = PhoneDialRequest(to: to, from: from, connectionID: connection, assistantID: assistant,
                                        purpose: purpose, commandID: commandID, ownerName: setup.name,
                                        recorded: setup.records, voicemail: voicemail)
@@ -235,6 +251,7 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
             record.legID = dialed.call_leg_id
             record.samplehostSessionID = dialed.call_session_id
             record.recorded = setup.records
+            record.name = name
             record.voicemailChoice = voicemail
             record.suggested = suggested
             calls.append(record)
@@ -264,9 +281,11 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     /// One look at a call: its conversation (found by call_control_id) and messages, whether it is alive, and the
     /// lagging event log; then what the app can say about it (PhoneVerdict) and, once settled, its result.
     func refresh(_ id: String) async {
-        guard let api, let start = call(id) else { return }
-        if start.done { return }
-        if !(start.state == .ended && start.settled) { await readConversation(id, api) }
+        guard let api, let start = call(id), !start.done, refreshing.insert(id).inserted else { return }
+        defer { refreshing.remove(id) }
+        if !(start.state == .ended && start.settled) || (start.summaryFinished == false && start.conversationID == nil) {
+            await readConversation(id, api)
+        }
         guard let afterTranscript = call(id) else { return }
         var justOver = false
         if afterTranscript.active {
@@ -281,7 +300,7 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
                     if calls[i].seenAlive || calls[i].conversationID != nil || ringOver { markOver(id, local: nil); justOver = true }
                 }
             case .failure(let error):
-                calls[i].issue = phoneMessage(error)
+                calls[i].watchIssue = phoneMessage(error)
             }
         }
         guard let current = call(id) else { return }
@@ -302,7 +321,26 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
             }
         }
         judge(id)
+        if let overAt = call(id)?.overAt, now().timeIntervalSince(overAt) >= summaryResultWait {
+            await finishResult(id)
+        }
+        await readSummary(id, api)
         await finishResult(id)
+    }
+
+    private func readSummary(_ id: String, _ api: samplehostAPI) async {
+        guard let call = call(id), call.state == .ended, call.summaryFinished == false else { return }
+        let elapsed = now().timeIntervalSince(call.overAt ?? call.placedAt)
+        if elapsed >= summaryDeadline {
+            if let i = index(id) { calls[i].summaryFinished = true; save() }
+            return
+        }
+        guard let conversation = call.conversationID,
+              case .success(let summary?) = await Result.of({ try await api.conversationSummary(conversationID: conversation) }),
+              let i = index(id) else { return }
+        calls[i].summary = summary
+        calls[i].summaryFinished = true
+        save()
     }
 
     /// The conversation and its messages. They trail the call, and keep arriving for a while after it ended.
@@ -313,7 +351,8 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
             found = await Result.of { try await api.conversationID(callControlID: id) }
         }
         guard case .success(let conversation?) = found else {
-            if case .failure(let error) = found, let i = index(id) { calls[i].issue = phoneMessage(error) }
+            if case .failure(let error) = found, let i = index(id) { calls[i].watchIssue = phoneMessage(error) }
+            else if let i = index(id) { calls[i].watchIssue = nil }
             return
         }
         let read = await Result.of { try await api.messages(conversationID: conversation) }
@@ -321,9 +360,9 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
         calls[i].conversationID = conversation
         if calls[i].liveAt == nil { calls[i].liveAt = now() }
         switch read {
-        case .failure(let error): calls[i].issue = phoneMessage(error)
+        case .failure(let error): calls[i].watchIssue = phoneMessage(error)
         case .success(let messages):
-            calls[i].issue = nil
+            calls[i].watchIssue = nil
             apply(PhoneTranscript.read(messages, answered: calls[i].answered), to: id)
             await answerRepeat(id, api)
         }
@@ -333,14 +372,23 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
         guard let i = index(id) else { return }
         var call = calls[i]
         // What the owner sent and the conversation now returns stops being "pending" (each new You line takes one).
-        var fresh: [String: Int] = [:]
-        for line in transcript.lines where line.speaker == .you { fresh[line.text, default: 0] += 1 }
-        for line in call.lines where line.speaker == .you { fresh[line.text, default: 0] -= 1 }
-        call.pendingYou = call.pendingYou.filter { text in
-            guard (fresh[text] ?? 0) > 0 else { return true }
-            fresh[text]! -= 1
-            return false
+        var fresh: [PhoneTranscript.OwnerWords: Int] = [:]
+        for line in transcript.lines where line.speaker == .you { fresh[.init(text: line.text, isAnswer: line.isAnswer == true), default: 0] += 1 }
+        for line in call.lines where line.speaker == .you { fresh[.init(text: line.text, isAnswer: line.isAnswer == true), default: 0] -= 1 }
+        var remainingAnswers: [Int] = []
+        var remainingCount = 0
+        call.pendingYou = call.pendingYou.enumerated().compactMap { offset, text in
+            let isAnswer = call.pendingAnswers?.contains(offset) == true
+            let words = PhoneTranscript.OwnerWords(text: text, isAnswer: isAnswer)
+            if (fresh[words] ?? 0) > 0 {
+                fresh[words]! -= 1
+                return nil
+            }
+            if isAnswer { remainingAnswers.append(remainingCount) }
+            remainingCount += 1
+            return text
         }
+        if call.pendingAnswers != nil { call.pendingAnswers = remainingAnswers }
         if transcript.lines != call.lines { call.lines = transcript.lines; call.transcriptChangedAt = now() }
         call.answered.formUnion(transcript.answeredInConversation)
         if call.sendingAnswer == nil, call.active { call.question = transcript.question }
@@ -415,9 +463,13 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
         let settledAt = calls[i].settledAt ?? now()
         let quietSince = max(calls[i].transcriptChangedAt ?? settledAt, settledAt)
         guard now().timeIntervalSince(quietSince) >= resultQuiet || now().timeIntervalSince(settledAt) >= resultDeadline else { return }
+        let overAt = calls[i].overAt ?? settledAt
+        if calls[i].summaryFinished == false, calls[i].conversationID != nil,
+           now().timeIntervalSince(overAt) < summaryResultWait { return }
         let message = PhoneResultMessage(calls[i])
         if let send = chatSender(calls[i]) {
             calls[i].result = .sent
+            calls[i].resultFingerprint = PhoneResultCard.fingerprint(message.text)
             save()
             AppLog.note("phone", "call result sent to its chat")
             send(message)
@@ -431,10 +483,12 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     /// A chat came on screen (its open settled): results waiting for it go in now.
     func deliverPending(matching matches: (PhoneCallRecord) -> Bool, send: (PhoneResultMessage) -> Void) {
         for i in calls.indices where calls[i].result == .pending && matches(calls[i]) {
+            let message = PhoneResultMessage(calls[i])
             calls[i].result = .sent
+            calls[i].resultFingerprint = PhoneResultCard.fingerprint(message.text)
             save()
             AppLog.note("phone", "waiting call result sent to its chat")
-            send(PhoneResultMessage(calls[i]))
+            send(message)
         }
     }
 
@@ -482,6 +536,7 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
             calls[j].question = nil
             calls[j].lastAnswer = answer
             calls[j].issue = nil
+            calls[j].pendingAnswers = (calls[j].pendingAnswers ?? []) + [calls[j].pendingYou.count]
             calls[j].pendingYou.append(answer)
             let key = PhoneTranscript.normalized(question.text)
             if let k = calls[j].asked.firstIndex(where: { PhoneTranscript.normalized($0.question) == key }) {
@@ -513,7 +568,12 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
             save()
             return true
         case .failure(let error):
-            if let k = calls[j].pendingYou.lastIndex(of: words) { calls[j].pendingYou.remove(at: k) }
+            if let k = calls[j].pendingYou.indices.last(where: {
+                calls[j].pendingYou[$0] == words && calls[j].pendingAnswers?.contains($0) != true
+            }) {
+                calls[j].pendingYou.remove(at: k)
+                calls[j].pendingAnswers = calls[j].pendingAnswers?.map { $0 > k ? $0 - 1 : $0 }
+            }
             if case samplehostError.callEnded = error { markOver(id, local: nil) } else { calls[j].issue = phoneMessage(error) }
             return false
         }
@@ -530,6 +590,7 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
         switch done {
         case .success: markOver(id, local: automatic ? .safetyStop : .youHungUp)
         case .failure(let error):
+            guard calls[j].state == .ending else { return }
             calls[j].state = before
             calls[j].issue = phoneMessage(error)
         }
@@ -551,6 +612,14 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
         if calls.isEmpty { history?.delete(for: accountID) } else { save() }
     }
 
+    func deleteCall(_ id: String) {
+        guard let i = index(id), !calls[i].active else { return }
+        pollers.removeValue(forKey: id)?.cancel()
+        eventsReadAt[id] = nil
+        calls.remove(at: i)
+        if calls.isEmpty { history?.delete(for: accountID) } else { save() }
+    }
+
     /// Settings › Disconnect: the account's saved calls go with its key.
     func forgetHistory() {
         history?.delete(for: accountID)
@@ -560,7 +629,10 @@ nonisolated struct PhoneCallRecord: Identifiable, Equatable, Codable, Sendable {
     private func markOver(_ id: String, local: PhoneLocalEnd?) {
         guard let i = index(id) else { return }
         calls[i].state = .ended
-        if calls[i].overAt == nil { calls[i].overAt = now() }
+        if calls[i].overAt == nil {
+            calls[i].overAt = now()
+            calls[i].summaryFinished = false
+        }
         if let local, calls[i].localEnd == nil { calls[i].localEnd = local; calls[i].endNote = local.note }
         calls[i].question = nil
         watchdogs.removeValue(forKey: id)?.cancel()

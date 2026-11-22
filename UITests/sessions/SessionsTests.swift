@@ -14,7 +14,11 @@ final class SessionsTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        account = try FixtureAccount.load()
+        if ProcessInfo.processInfo.environment["HQN_PHONE_GATEWAY"] != nil {
+            account = try phoneFixtureAccount("A")
+        } else {
+            account = try FixtureAccount.load()
+        }
         try account.control("/__fixture/reset", [:])
     }
 

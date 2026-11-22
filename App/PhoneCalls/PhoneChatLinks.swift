@@ -7,6 +7,7 @@
 //   PhoneChatDelivery    where a result goes in: the chat on screen now, or the next time it opens
 //   PhoneAlerts          item 7: local alerts for a question, and for background time running out
 
+import CryptoKit
 import SwiftUI
 import UIKit
 @preconcurrency import UserNotifications
@@ -24,7 +25,7 @@ nonisolated struct PhoneResultMessage: Equatable, Sendable {
     /// What the bubble shows: "Call to +1 212 555 0142: finished, 1m 32s".
     let display: String
 
-    init(_ call: PhoneCallRecord) {
+    init(_ call: PhoneCallRecord, includeSummary: Bool = true) {
         let outcome = phoneOutcomeWords(call.outcome, duration: call.duration)
         display = "Call to \(phoneShown(call.to)): \(outcome)"
         let questions = call.asked.map { "\($0.question) → \($0.answer ?? "(not answered)")" }
@@ -40,6 +41,7 @@ nonisolated struct PhoneResultMessage: Equatable, Sendable {
             "To: \(call.to)",
             "Goal: \(call.purpose)",
             "Outcome: \(outcome)",
+        ].joined(separator: "\n") + (includeSummary ? call.summary.map { "\nSummary: " + $0 } ?? "" : "") + "\n" + [
             "Questions the assistant asked and the answers: " + (questions.isEmpty ? "none" : "\n" + questions.joined(separator: "\n")),
             "Transcript:",
             Self.capped(speech.isEmpty ? "(nothing was said)" : speech.joined(separator: "\n")),
@@ -54,13 +56,75 @@ nonisolated struct PhoneResultMessage: Equatable, Sendable {
         return cutMark + "\n" + tail
     }
 
-    /// The bubble for a stored result message (after a relaunch, or on another device): its To and Outcome lines.
-    static func bubble(forStored text: String) -> String? {
-        guard text.hasPrefix(header) else { return nil }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard let to = lines.first(where: { $0.hasPrefix("To: ") })?.dropFirst(4),
-              let outcome = lines.first(where: { $0.hasPrefix("Outcome: ") })?.dropFirst(9) else { return nil }
-        return "Call to \(phoneShown(String(to))): \(outcome)"
+    static func bubble(forStored text: String) -> String? { PhoneResultCard(stored: text)?.display }
+}
+
+nonisolated struct PhoneResultCard: Equatable, Sendable {
+    let stored: String
+    let number: String
+    let outcome: String
+    let summary: String?
+
+    init?(stored: String) {
+        guard stored.hasPrefix(PhoneResultMessage.header) else { return nil }
+        let lines = stored.components(separatedBy: "\n")
+        guard lines.first == PhoneResultMessage.header,
+              lines.count >= 5, lines[1].hasPrefix("To: "), lines[2].hasPrefix("Goal: "),
+              let outcomeIndex = lines.dropFirst(3).firstIndex(where: { $0.hasPrefix("Outcome: ") }) else { return nil }
+        number = String(lines[1].dropFirst(4))
+        guard phoneIsE164(number) else { return nil }
+        outcome = String(lines[outcomeIndex].dropFirst(9))
+        let rest = lines.dropFirst(outcomeIndex + 1)
+        if let first = rest.first, first.hasPrefix("Summary: ") {
+            let continuation = rest.dropFirst().prefix { !$0.hasPrefix("Questions the assistant asked and the answers:") }
+            summary = ([String(first.dropFirst(9))] + continuation).joined(separator: " ")
+        } else {
+            summary = nil
+        }
+        self.stored = stored
+    }
+
+    static func fingerprint(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    var display: String { "Call to \(phoneShown(number)): \(outcome)" }
+    var subtitle: String {
+        guard let summary, !summary.isEmpty else { return phoneShown(number) }
+        let range = summary.range(of: #"[.!?](?=\s|$)"#, options: .regularExpression)
+        return range.map { String(summary[..<$0.upperBound]) } ?? summary
+    }
+
+    var title: String {
+        if outcome == "finished" { return "Call finished" }
+        if outcome.hasPrefix("finished, ") {
+            let interval = String(outcome.dropFirst("finished, ".count))
+                .replacingOccurrences(of: #"(?<=m )([0-9])(?=s$)"#, with: "0$1", options: .regularExpression)
+            return "Call finished · " + interval
+        }
+        if outcome.hasPrefix("went to voicemail") { return "Went to voicemail" }
+        if outcome.hasPrefix("couldn't connect") { return "Couldn't connect" }
+        return outcome.prefix(1).uppercased() + outcome.dropFirst()
+    }
+
+    var mark: PhoneMark {
+        if outcome.hasPrefix("finished") { return .success }
+        if outcome.hasPrefix("went to voicemail") { return .voicemail }
+        if outcome.hasPrefix("couldn't connect") { return .failed }
+        return ["no answer", "busy", "declined"].contains(outcome) ? .missed : .ended
+    }
+
+    /// Results sent before the insight arrived match the same saved call after it arrives.
+    func localCall(in calls: [PhoneCallRecord], sentAt: Date? = nil) -> PhoneCallRecord? {
+        let fingerprint = Self.fingerprint(stored)
+        let matches = calls.filter { call in
+            !call.active && call.to == number && (call.resultFingerprint == fingerprint || PhoneResultMessage(call).text == stored
+                || PhoneResultMessage(call, includeSummary: false).text == stored)
+        }
+        if matches.count == 1 { return matches.first }
+        guard let sentAt else { return nil }
+        return matches.filter { ($0.endedAt ?? $0.placedAt) <= sentAt }
+            .max { ($0.endedAt ?? $0.placedAt) < ($1.endedAt ?? $1.placedAt) }
     }
 }
 
@@ -68,10 +132,12 @@ nonisolated struct PhoneResultMessage: Equatable, Sendable {
 
 nonisolated enum PhoneChatNote {
     /// The note, with the app's own link scheme.
-    static func text(scheme: String = AppIdentity.current.urlScheme) -> String {
+    static func text(scheme: String = AppIdentity.current.urlScheme, includesName: Bool = true) -> String {
         "(Hermes HQ: this person can place AI phone calls from the app. To propose one, put a markdown link on its own "
             + "line in your reply: [Call +12125550142](\(scheme)://phone-call?to=%2B12125550142&goal=<URL-encoded goal in "
-            + "plain words>). Use the full number with + and country code. Optional &voicemail=leave to leave a message if "
+            + "plain words>). Use the full number with + and country code. "
+            + (includesName ? "Optional &name=<URL-encoded person or place name>. " : "")
+            + "Optional &voicemail=leave to leave a message if "
             + "voicemail answers. They approve it with a tap and the call's result comes back as their next message. Never "
             + "say a call was made before that result arrives. If you don't have the number, ask for it or look it up first.)"
     }
@@ -83,15 +149,15 @@ nonisolated enum PhoneChatNote {
 
     /// The note a typed message carries, when Phone Calls is ready for this account and the words mention calling.
     static func note(for typed: String, ready: Bool, scheme: String = AppIdentity.current.urlScheme) -> String? {
-        guard ready, mentionsCalling(typed), !typed.contains(text(scheme: scheme)) else { return nil }
+        guard ready, mentionsCalling(typed), stripped(typed, scheme: scheme) == nil else { return nil }
         return text(scheme: scheme)
     }
 
     /// The stored message without the note (nil when it has none): what the owner's bubble shows.
     static func stripped(_ stored: String, scheme: String = AppIdentity.current.urlScheme) -> String? {
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
-        let note = text(scheme: scheme)
-        guard trimmed.hasSuffix(note) else { return nil }
+        let notes = [text(scheme: scheme), text(scheme: scheme, includesName: false)]
+        guard let note = notes.first(where: trimmed.hasSuffix) else { return nil }
         let words = String(trimmed.dropLast(note.count)).trimmingCharacters(in: .whitespacesAndNewlines)
         return words.isEmpty ? nil : words
     }
@@ -100,6 +166,8 @@ nonisolated enum PhoneChatNote {
 /// Stored user messages the chat shows differently (SentTitles.title(forStored:)): a result message as its short line,
 /// a message with the note without it.
 nonisolated enum PhoneChatText {
+    static func resultText(_ text: String) -> String? { PhoneResultMessage.bubble(forStored: text) == nil ? nil : text }
+
     static func bubble(forStored text: String) -> String? {
         PhoneResultMessage.bubble(forStored: text) ?? PhoneChatNote.stripped(text)
     }
@@ -122,9 +190,11 @@ nonisolated struct PhoneProposal: Equatable, Sendable {
     let to: String
     let goal: String
     let voicemail: PhoneVoicemailChoice
+    var name: String? = nil
 
     static let kind = "phone-call"
     static let maxGoal = 500
+    static let maxName = 120
 
     /// One of the app's links (its scheme, or `hermes`) whose host is `phone-call`, valid or not.
     static func isLink(_ url: URL, scheme: String = AppIdentity.current.urlScheme) -> Bool {
@@ -148,7 +218,10 @@ nonisolated struct PhoneProposal: Equatable, Sendable {
         guard phoneIsE164(to) else { return nil }
         let goal = (value("goal") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard (1...maxGoal).contains(goal.count), !goal.unicodeScalars.contains(where: { $0.value < 0x20 && $0 != "\n" }) else { return nil }
-        return PhoneProposal(to: to, goal: goal, voicemail: value("voicemail")?.lowercased() == "leave" ? .leaveMessage : .hangUp)
+        let name = (value("name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.count <= maxName, !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
+        return PhoneProposal(to: to, goal: goal, voicemail: value("voicemail")?.lowercased() == "leave" ? .leaveMessage : .hangUp,
+                             name: name.isEmpty ? nil : name)
     }
 
     /// What VoiceOver reads for a reply: each valid proposal link `[text](…phone-call?…)` becomes the words the bubble
@@ -160,10 +233,12 @@ nonisolated struct PhoneProposal: Equatable, Sendable {
         for match in linkPattern.matches(in: markdown, range: NSRange(location: 0, length: ns.length)).reversed() {
             guard let url = URL(string: ns.substring(with: match.range(at: 1))), let proposal = parse(url, scheme: scheme),
                   let range = Range(match.range, in: out) else { continue }
-            out.replaceSubrange(range, with: "Call \(phoneShown(proposal.to)). \(proposal.goal)")
+            out.replaceSubrange(range, with: proposal.spokenReview)
         }
         return out
     }
+    var spokenReview: String { "Call \(name ?? phoneShown(to)). \(goal). Review." }
+
     private static let linkPattern = try! NSRegularExpression(pattern: #"\[[^\]\n]*\]\(([A-Za-z][A-Za-z0-9+.-]*://phone-call[^)\s]*)\)"#)
 
     /// The glyph a proposal link starts with in a chat, so it reads as an action, not a web page.
@@ -209,10 +284,31 @@ nonisolated struct PhoneProposal: Equatable, Sendable {
         return true
     }
 
-    static func present(account: String, session: String, profile: String?, proposal: PhoneProposal? = nil, from host: UIViewController) {
-        let sheet = UIHostingController(rootView: PhoneCallView(accountID: account, sessionID: session, profile: profile, proposal: proposal))
+    static func present(account: String, session: String, profile: String?, proposal: PhoneProposal? = nil,
+                        callID: String? = nil, from host: UIViewController) {
+        let live = (host as? ChatViewController)?.session as? LiveChatSession
+        let ids = Set([session, live?.storedSessionId, live?.resolvedStoredId, live?.runtimeSessionId].compactMap { $0 })
+        let controller = PhoneCallController.shared(for: account)
+        let current = controller.calls.last { $0.active && ids.contains($0.sessionID) }
+        let screen = PhoneCallView(accountID: account, sessionID: session, profile: profile, proposal: proposal,
+                                   callID: callID ?? current?.id, matchingSessions: ids)
+        let sheet = UIHostingController(rootView: screen)
+        if host.traitCollection.horizontalSizeClass == .compact { sheet.modalPresentationStyle = .fullScreen }
         sheet.view.accessibilityIdentifier = "phone.sheet"
         host.present(sheet, animated: true)
+    }
+
+    static func open(_ result: PhoneResultCard, sentAt: Date?, from chat: ChatViewController) {
+        guard chat.presentedViewController == nil else { return }
+        if let live = chat.session as? LiveChatSession {
+            let account = live.client.account.id
+            let calls = PhoneCallController.shared(for: account).calls.filter { matches(live, $0.sessionID) }
+            if let call = result.localCall(in: calls, sentAt: sentAt) {
+                present(account: account, session: call.sessionID, profile: call.profile, callID: call.id, from: chat)
+                return
+            }
+        }
+        chat.present(UIHostingController(rootView: PhoneStoredResultView(result: result)), animated: true)
     }
 }
 
@@ -307,7 +403,10 @@ nonisolated enum PhoneAlert: Equatable, Sendable {
                 guard let root = MainTabController.current, let chat = root.chatOnShow,
                       let live = chat.session as? LiveChatSession, live.client.account.id == account,
                       PhoneCallChat.matches(live, session), chat.viewIfLoaded?.window != nil else { continue }
-                if chat.presentedViewController == nil { PhoneCallChat.present(account: account, session: session, profile: profile, from: chat) }
+                if chat.presentedViewController == nil {
+                    PhoneCallChat.present(account: account, session: session, profile: profile,
+                                          callID: info[alertKey] as? String, from: chat)
+                }
                 return
             }
             AppLog.note("phone", "alert: the chat didn't open in time")

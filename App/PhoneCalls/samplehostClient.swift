@@ -106,6 +106,37 @@ nonisolated struct samplehostMessage: Decodable, Sendable, Equatable {
 
 private nonisolated struct DataList<T: Decodable>: Decodable { let data: [T] }
 private nonisolated struct DataOne<T: Decodable>: Decodable { let data: T }
+/// get-insights-for-a-conversation: a completed run may contain plain text or structured results.
+nonisolated struct samplehostConversationInsight: Decodable {
+    private struct Entry: Decodable {
+        let result: String?
+
+        init(from decoder: Decoder) throws {
+            let fields = try decoder.container(keyedBy: CodingKeys.self)
+            result = try? fields.decode(String.self, forKey: .result)
+        }
+
+        private enum CodingKeys: String, CodingKey { case result }
+    }
+
+    let status: String
+    private let conversation_insights: [Entry]?
+
+    static func summary(in data: Data) throws -> String? {
+        let rows = try JSONDecoder().decode(DataList<Self>.self, from: data).data
+        return rows.lazy.filter { $0.status == "completed" }
+            .compactMap { row in
+                row.conversation_insights?.lazy.compactMap { entry -> String? in
+                    guard let words = entry.result?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !words.isEmpty else { return nil }
+                    if let start = words.first, "{[".contains(start),
+                       (try? JSONSerialization.jsonObject(with: Data(words.utf8))) != nil { return nil }
+                    return words
+                }.first
+            }.first
+    }
+}
+
 /// dial: `data.call_control_id`, `data.call_leg_id`, `data.call_session_id` (proven on a real call, 2026-11-21).
 nonisolated struct samplehostDialed: Decodable, Sendable, Equatable {
     let call_control_id: String
@@ -406,6 +437,12 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
         return try decode(DataList<samplehostMessage>.self, data).data
     }
 
+    /// get-insights-for-a-conversation: `GET /v2/ai/conversations/{id}/conversations-insights`.
+    func conversationSummary(conversationID: String) async throws -> String? {
+        let data = try await send("GET", ["ai", "conversations", conversationID, "conversations-insights"], timeout: 3)
+        return try samplehostConversationInsight.summary(in: data).map(redact)
+    }
+
     /// add-messages-to-ai-assistant: `POST /v2/calls/{id}/actions/ai_assistant_add_messages` with one `tool` message
     /// per tool call id (`tool_call_id`, `content`), so a question the model asked twice is answered for both, and one
     /// `system` message, `trigger_response: true` and `command_id`. The system message is there because GPT Live
@@ -454,9 +491,9 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
     /// retrieve-a-call-status: `GET /v2/calls/{id}` → `is_alive`, and after the end `start_time`, `end_time`,
     /// `call_duration`. nil on 404 (samplehost forgot the call).
     func callStatus(callControlID: String) async throws -> samplehostCallStatus? {
-        do {
-            return try decode(DataOne<samplehostCallStatus>.self, try await send("GET", ["calls", callControlID])).data
-        } catch samplehostError.unexpected(404) { return nil }
+        let result = await Result.of { try await send("GET", ["calls", callControlID]) }
+        if case .failure(samplehostError.unexpected(404)) = result { return nil }
+        return try decode(DataOne<samplehostCallStatus>.self, result.get()).data
     }
 
     /// list-call-events: `GET /v2/call_events?filter[leg_id]=<leg>&filter[type]=webhook&page[size]=50`. samplehost logs every
@@ -537,9 +574,9 @@ nonisolated struct samplehostAPI: Sendable, CustomStringConvertible, CustomDebug
     static func escape(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? "" }
 
     private func send(_ method: String, _ segments: [String], query: [(String, String)] = [], body: Data? = nil,
-                      headers: [String: String] = [:]) async throws -> Data {
+                      headers: [String: String] = [:], timeout: TimeInterval = 20) async throws -> Data {
         guard let url = url(segments, query: query), samplehostEndpoint.allowed(url, base: base) else { throw samplehostError.refusedURL }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 20)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: timeout)
         request.httpMethod = method
         request.httpShouldHandleCookies = false
         request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")

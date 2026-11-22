@@ -59,6 +59,7 @@ nonisolated struct SentTitles: Sendable {
         return messages.map { message in
             guard message.role == .user, let title = title(forStored: message.plainText) else { return message }
             var shown = message
+            if PhoneResultMessage.bubble(forStored: message.plainText) != nil { shown.phoneResultText = message.plainText }
             shown.parts = message.parts.filter { if case .text = $0 { return false } else { return true } } + [.text(title)]
             return shown
         }

@@ -360,6 +360,59 @@ extension PhoneCallsTests {
         XCTAssertTrue(never.isEmpty)
     }
 
+    @MainActor func testSummaryArrivingAfterDeliveryUpdatesHistoryWithoutSendingTwice() async throws {
+        let script = Script()
+        script.summary = nil
+        script.alive = false
+        script.duration = 30
+        script.events = Self.events(answered: true, talk: 30)
+        samplehostStub.reset(script.route)
+        var clock = Date(timeIntervalSince1970: 20_000)
+        let calls = try controller()
+        calls.now = { clock }
+        var sent: [PhoneResultMessage] = []
+        calls.chatSender = { _ in { sent.append($0) } }
+        try await calls.place(sessionID: "s1", to: "+12125550142", purpose: "Book a table")
+        await calls.refresh(Self.callID)
+        clock = clock.addingTimeInterval(19)
+        await calls.refresh(Self.callID)
+        XCTAssertTrue(sent.isEmpty)
+        clock = clock.addingTimeInterval(1)
+        await calls.refresh(Self.callID)
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertFalse(try XCTUnwrap(sent.first?.text).contains("Summary:"))
+        script.summary = "Corner Bistro booked the table under Alex."
+        clock = clock.addingTimeInterval(4)
+        await calls.refresh(Self.callID)
+        XCTAssertEqual(calls.calls.first?.summary, script.summary)
+        XCTAssertTrue(calls.calls.first?.done == true)
+        XCTAssertEqual(sent.count, 1)
+    }
+
+    @MainActor func testSummaryPollingStopsWhenItNeverArrives() async throws {
+        let script = Script()
+        script.summary = nil
+        script.alive = false
+        script.events = Self.events(answered: true)
+        samplehostStub.reset(script.route)
+        var clock = Date(timeIntervalSince1970: 20_000)
+        let calls = try controller()
+        calls.now = { clock }
+        try await calls.place(sessionID: "s1", to: "+12125550142", purpose: "Book a table")
+        await calls.refresh(Self.callID)
+        clock = clock.addingTimeInterval(44)
+        await calls.refresh(Self.callID)
+        XCTAssertFalse(calls.calls.first?.done ?? true)
+        let attempts = samplehostStub.seen.filter { $0.path.hasSuffix("/conversations-insights") }.count
+        XCTAssertGreaterThan(attempts, 1)
+        clock = clock.addingTimeInterval(1)
+        await calls.refresh(Self.callID)
+        XCTAssertEqual(samplehostStub.seen.filter { $0.path.hasSuffix("/conversations-insights") }.count, attempts)
+        let call = try XCTUnwrap(calls.calls.first)
+        XCTAssertTrue(call.done)
+        XCTAssertEqual(PhoneCallPresentation.whatHappened(call), "The call finished.")
+    }
+
     // MARK: Item 7: alerts
 
     @MainActor func testANewQuestionAlertsOnlyWhenItsSheetIsNotOnScreen() async throws {

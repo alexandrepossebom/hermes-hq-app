@@ -472,7 +472,7 @@ extension MacOpenQuickly {
 
     /// A More page that is the Settings window's on the Mac: its category there and how it opens (`movedFromMore`,
     /// Settings › Hermes' and Bots & Tools' rows). Nil for any other page.
-    static func settingsWindowPage(_ root: MainTabController, _ id: String)
+    private static func settingsWindowPage(_ root: MainTabController, _ id: String)
         -> (category: SettingsCategory?, open: (SettingsRouter) -> Void)? {
         switch id {
         case PagesTabs.settingsRowID:

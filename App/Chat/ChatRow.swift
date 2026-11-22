@@ -6,6 +6,7 @@ import UIKit
 nonisolated struct ChatRow: @unchecked Sendable {
     enum Kind {
         case bubble(BubbleRow)
+        case phoneResult(PhoneResultCard, sentAt: Date?)
         case toolRun(ToolRunRow)
         case thought(ThoughtRow)
         /// A day separator at this message time; `now` decides "Today" / "Yesterday" (the label is made at layout
@@ -584,6 +585,12 @@ nonisolated enum ChatRowBuilder {
                                     kind: .notice(text), gapAbove: ChatMetrics.turnGap, variant: 0))
             }
         case .user:
+            if let card = PhoneResultCard(stored: m.phoneResultText ?? m.plainText) {
+                rows.append(ChatRow(id: "\(m.id)|phone", messageId: m.id, scope: input.scope,
+                                    fingerprint: RowHash.of(card.stored), kind: .phoneResult(card, sentAt: m.timestamp),
+                                    gapAbove: ChatMetrics.turnGap, variant: 0))
+                return
+            }
             let text = m.parts.compactMap { if case .text(let t) = $0 { return t } else { return nil } }.joined(separator: "\n")
             let attachments = input.media.attachments[m.id] ?? []                                     // [attachments]
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && m.parts.isEmpty && attachments.isEmpty { return }

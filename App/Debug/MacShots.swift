@@ -342,10 +342,6 @@ enum MacShots {
                 await frameTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
-            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsTools") {   // [mac-favorites] MacShotsTools.swift
-                await toolsTour(window, tabs: tabs, name: name, folder: folder)
-                exit(0)
-            }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsSidebar") {
                 await sidebarTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)

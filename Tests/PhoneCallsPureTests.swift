@@ -328,7 +328,7 @@ struct PhoneProposalTests {
     @Test func voiceOverReadsTheDrawnWords() {
         let reply = "I can call them. [Call +12125550142](hermes://phone-call?to=%2B12125550142&goal=Ask%20for%20a%20table) or [bad](hermes://phone-call?to=1)"
         #expect(PhoneProposal.spoken(reply, scheme: Self.scheme)
-                == "I can call them. Call +1 212 555 0142. Ask for a table or [bad](hermes://phone-call?to=1)", "invalid links stay")
+                == "I can call them. Call +1 212 555 0142. Ask for a table. Review. or [bad](hermes://phone-call?to=1)", "invalid links stay")
         #expect(PhoneProposal.spoken("No links here.", scheme: Self.scheme) == "No links here.")
         #expect(SpokenMarkdown.plain(PhoneProposal.spoken(reply, scheme: Self.scheme)).hasSuffix("or bad"))
     }
@@ -421,10 +421,10 @@ struct PhoneSetupCheckTests {
         #expect(phoneChipWords([]) == nil)
         #expect(phoneChipWords([call("a", .ended)]) == nil, "an ended call shows nothing")
         #expect(phoneChipWords([call("a", .calling)])?.words == "Calling +1 212 555 0142")
-        #expect(phoneChipWords([call("a", .ended), call("b", .live)])?.words == "On a call with +1 212 555 0142")
-        #expect(phoneChipWords([call("a", .ending)])?.words == "Ending the call to +1 212 555 0142")
+        #expect(phoneChipWords([call("a", .ended), call("b", .live)], now: Date(timeIntervalSince1970: 92))?.words == "On a call · 1:32")
+        #expect(phoneChipWords([call("a", .ending)])?.words == "Ending the call")
         var voicemail = call("a", .live); voicemail.voicemail = true
-        #expect(phoneChipWords([voicemail])?.words == "Voicemail answered +1 212 555 0142")
+        #expect(phoneChipWords([voicemail], now: Date(timeIntervalSince1970: 8))?.words == "Voicemail answered · 0:08")
         #expect(phoneChipWords([call("a", .live)])?.asking == false)
     }
 
@@ -432,7 +432,113 @@ struct PhoneSetupCheckTests {
         var asking = call("a", .live)
         asking.question = PhoneTranscript.Question(id: "q", text: "Tuesday or Friday?", choices: [])
         let chip = phoneChipWords([asking])
-        #expect(chip?.words == "The call needs your answer")
+        #expect(chip?.words == "Call needs you")
         #expect(chip?.asking == true)
+    }
+}
+
+
+struct PhoneCallPresentationTests {
+    @Test func timersAndFollowing() {
+        let start = Date(timeIntervalSince1970: 500)
+        #expect(PhoneCallPresentation.timer(from: start, to: start.addingTimeInterval(-1)) == "0:00")
+        #expect(PhoneCallPresentation.timer(from: start, to: start.addingTimeInterval(92.8)) == "1:32")
+        #expect(PhoneCallPresentation.timer(from: start, to: start.addingTimeInterval(8.2)) == "0:08")
+        #expect(PhoneCallPresentation.followsNewest(distanceFromBottom: -10))
+        #expect(PhoneCallPresentation.followsNewest(distanceFromBottom: 32))
+        #expect(!PhoneCallPresentation.followsNewest(distanceFromBottom: 33))
+    }
+
+    @Test(arguments: [
+        (PhoneOutcome.finished, "Finished · 2m 04s", PhoneMark.success, "The call finished."),
+        (.voicemail, "Went to voicemail", .voicemail, "Voicemail answered the call."),
+        (.noAnswer, "No answer", .missed, "Nobody answered the call."),
+        (.busy, "Busy", .missed, "The other line was busy."),
+        (.declined, "Declined", .missed, "The other side declined the call."),
+        (.noSuchNumber, "Couldn't connect", .failed, "The phone number couldn't be reached because it doesn't exist."),
+        (.couldNotConnect("a temporary network problem"), "Couldn't connect", .failed, "The call couldn't connect because of a temporary network problem."),
+        (.couldNotConnect("the other phone is out of service"), "Couldn't connect", .failed, "The other phone is out of service."),
+        (.unknown, "Ended", .ended, "The call ended before its outcome could be confirmed."),
+    ])
+    func heroAndReason(_ outcome: PhoneOutcome, _ title: String, _ mark: PhoneMark, _ reason: String) {
+        var call = PhoneChatTextTests.ended([])
+        call.outcome = outcome
+        call.asked = []
+        #expect(PhoneCallPresentation.title(outcome, duration: 124) == title)
+        #expect(PhoneMark.outcome(outcome) == mark)
+        #expect(PhoneCallPresentation.reason(call) == reason)
+        #expect(PhoneCallPresentation.whatHappened(call) == reason)
+        #expect(PhoneCallPresentation.actions(call) == (outcome == .voicemail ? [.again, .leave] : [.again, .transcript, .share]))
+    }
+
+    @Test func factsAndShare() {
+        var call = PhoneChatTextTests.ended([.init(id: "a", speaker: .them, text: "KEYTEST was spoken.")])
+        call.summary = "Corner Bistro booked your table. KEYTEST"
+        call.name = "Corner Bistro"
+        call.ringSeconds = 6
+        call.result = .pending
+        #expect(PhoneCallPresentation.facts(call, sendsResults: true) == [
+            .init("Rang for", "6s"), .init("Recording", "Off"), .init("Sent to chat", "Waiting for the chat to open")
+        ])
+        let share = PhoneCallPresentation.share(call, redacting: "KEYTEST")
+        #expect(!share.contains("KEYTEST"))
+        #expect(share.contains("Corner Bistro booked your table. •••"))
+        #expect(share.contains("Is Tuesday OK? → Yes"))
+        #expect(share.contains("Them: ••• was spoken."))
+        call.summary = nil
+        #expect(PhoneCallPresentation.whatHappened(call) == "The call finished. You answered “Yes”.")
+        call.outcome = .voicemail
+        call.result = .off
+        call.ringSeconds = 1
+        #expect(PhoneCallPresentation.pickup(call) == "picked up in 1 second")
+        #expect(PhoneCallPresentation.facts(call, sendsResults: false).contains(.init("Message left", "No")))
+        call.voicemailChoice = .leaveMessage
+        #expect(PhoneCallPresentation.actions(call) == [.again, .transcript, .share])
+        #expect(PhoneCallPresentation.facts(call, sendsResults: false).last == .init("Sent to chat", "Off"))
+    }
+
+    @Test func cardFromStoredText() throws {
+        var call = PhoneChatTextTests.ended([])
+        call.summary = "Corner Bistro booked a table at 7:15. They found a quiet table."
+        call.duration = 124
+        let stored = PhoneResultMessage(call)
+        let card = try #require(PhoneResultCard(stored: stored.text))
+        #expect(card.title == "Call finished · 2m 04s")
+        #expect(card.subtitle == "Corner Bistro booked a table at 7:15.")
+        #expect(card.mark == .success)
+        #expect(card.localCall(in: []) == nil)
+        #expect(card.localCall(in: [call])?.id == call.id)
+        #expect(PhoneChatText.shown(stored.text) == stored.display)
+        #expect(PhoneResultCard(stored: PhoneResultMessage(call, includeSummary: false).text)?.localCall(in: [call])?.id == call.id)
+        #expect(PhoneResultCard(stored: "hello") == nil)
+        let message = ChatMessage(id: "result", role: .user, parts: [.text(stored.text)], timestamp: nil, rowId: nil)
+        let shown = SentTitles().applied(to: [message])
+        #expect(shown.first?.plainText == stored.display)
+        #expect(shown.first?.phoneResultText == stored.text)
+        let input = ChatRowBuilder.Input(messages: shown, isRunning: false, botName: "Hermes", expanded: [])
+        let rows = ChatRowBuilder.build(input)
+        #expect(rows.contains { if case .phoneResult(let drawn, _) = $0.kind { return drawn == card }; return false })
+    }
+
+    @Test func insightsOnlyUseCompletedPlainStrings() throws {
+        func summary(_ json: String) throws -> String? { try samplehostConversationInsight.summary(in: Data(json.utf8)) }
+        #expect(try summary(#"{"data":[]}"#) == nil)
+        #expect(try summary(#"{"data":[{"status":"pending","conversation_insights":[{"result":"Early"}]}]}"#) == nil)
+        #expect(try summary(#"{"data":[{"status":"completed","conversation_insights":[{"result":{"answer":"yes"}},{"result":42}]}]}"#) == nil)
+        #expect(try summary(#"{"data":[{"status":"completed","conversation_insights":[{"result":false},{"result":"  The call finished.  "}]}]}"#) == "The call finished.")
+    }
+
+    @Test @MainActor func proposalCarriesNameAndRendersAsABlock() throws {
+        let url = try #require(URL(string: "hermes://phone-call?to=%2B12125550142&goal=Book%20a%20table&name=Corner%20Bistro"))
+        let proposal = try #require(PhoneProposal.parse(url))
+        #expect(proposal.name == "Corner Bistro")
+        #expect(proposal.spokenReview == "Call Corner Bistro. Book a table. Review.")
+        let style = ChatStyle.make(category: .large)
+        let markdown = MarkdownRenderer.render("I can call them.\n[Review](\(url))\nLet me know.", style: style, phoneProposals: true)
+        #expect(markdown.blocks.contains { if case .phoneProposal(_, let card) = $0 { return card == proposal }; return false })
+        let note = PhoneChatNote.text()
+        #expect(note.contains("&name="))
+        let old = "Call the bistro.\n\n" + PhoneChatNote.text(includesName: false)
+        #expect(PhoneChatText.shown(old) == "Call the bistro.")
     }
 }

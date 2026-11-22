@@ -11,7 +11,11 @@ nonisolated struct PhoneTranscript: Equatable, Sendable {
         let id: String
         let speaker: Speaker
         let text: String
+        var isAnswer: Bool? = nil
+        var followsVoicemail: Bool? = nil
     }
+    nonisolated struct OwnerWords: Hashable { let text: String; let isAnswer: Bool }
+
     nonisolated struct Question: Equatable, Sendable, Codable {
         let id: String          // the tool call's id, for add_messages `tool_call_id`
         let text: String
@@ -51,20 +55,24 @@ nonisolated struct PhoneTranscript: Equatable, Sendable {
         let done = answered.union(result.answeredInConversation)
         var newest: (call: samplehostMessage.ToolCall, key: String)?
         var open: [(id: String, key: String)] = []
+        var heardVoicemail = false
         for (index, message) in ordered.enumerated() {
             let raw = (message.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             switch message.role {
             case "assistant", "user":
                 let text = spoken(raw)
                 if !text.isEmpty {
-                    result.lines.append(Line(id: "\(index)|\(message.role)", speaker: message.role == "assistant" ? .assistant : .them, text: text))
+                    let assistant = message.role == "assistant"
+                    result.lines.append(Line(id: "\(index)|\(message.role)", speaker: assistant ? .assistant : .them,
+                                             text: text, followsVoicemail: assistant && heardVoicemail ? true : nil))
+                    if !assistant, phoneSoundsLikeVoicemail(text) { heardVoicemail = true }
                 }
             case "tool":
                 // Our answer, read back as the owner's line. A question asked twice gets one tool message per call
                 // in the same request: they show as one line.
                 if let answer = answeredText(raw), !answer.isEmpty,
                    result.lines.last.map({ $0.speaker != .you || $0.text != answer }) ?? true {
-                    result.lines.append(Line(id: "\(index)|you", speaker: .you, text: answer))
+                    result.lines.append(Line(id: "\(index)|you", speaker: .you, text: answer, isAnswer: true))
                 }
                 // Anything else from a tool is a receipt (`{"http_status":422,…}`, `{"data":{"result":"ok"}}`): hidden.
             case "system":

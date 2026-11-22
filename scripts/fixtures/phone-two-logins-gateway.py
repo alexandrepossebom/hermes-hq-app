@@ -6,7 +6,7 @@ the Phone Calls UI acceptance can switch between two signed-in HQ accounts and p
 samplehost key or calls. The fake samplehost is scripts/fixtures/fake-samplehost.py. Uses sessions-gateway and HQN_REF's
 synthetic auth/WS fixture. No external network.
 """
-import argparse, importlib.util, json, os, pathlib, secrets, ssl, threading
+import argparse, importlib.util, os, pathlib, secrets, ssl, threading
 from http.server import ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -43,14 +43,12 @@ def handler(gateway):
 s.fx.handler = handler
 
 def main():
-    p = argparse.ArgumentParser(); p.add_argument('--port', type=int, required=True); p.add_argument('--credentials', required=True); p.add_argument('--cert', required=True); p.add_argument('--key', required=True); a = p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument('--port', type=int, required=True); p.add_argument('--cert', required=True); p.add_argument('--key', required=True); a = p.parse_args()
     s.reseed()
     for name in ('A', 'B'):
-        username, password = 'phone-simulation-' + name.lower(), secrets.token_urlsafe(18)
+        username = 'phone-simulation-' + name.lower()
+        password = os.environ['HQ_PHONE_FIXTURE_' + name]
         passwords[name] = (username, password)
-        path = a.credentials if name == 'A' else a.credentials + '.b'
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, 'w') as f: json.dump({'url': f'https://127.0.0.1:{a.port}', 'username': username, 'password': password}, f)
     username, password = passwords['A']
     server = ThreadingHTTPServer(('127.0.0.1', a.port), handler(s.fx.auth.Gateway(username, password, True, None)))
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(a.cert, a.key); server.socket = context.wrap_socket(server.socket, server_side=True)

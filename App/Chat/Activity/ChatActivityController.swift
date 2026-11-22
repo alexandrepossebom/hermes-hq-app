@@ -961,7 +961,7 @@ import UIKit
         if let chip = phoneChip {                               // [phone-calls]
             let piece = pieceView(.phone)
             piece.header.leadingIcon.image = UIImage(systemName: chip.asking ? "exclamationmark.circle.fill" : "phone.fill")
-            piece.header.leadingIcon.tintColor = chip.asking ? ChatPalette.orange : ChatPalette.label2
+            piece.header.leadingIcon.tintColor = chip.asking ? ChatPalette.orange : ChatPalette.green
             piece.header.leadingIcon.isHidden = false
             piece.header.set(words: chip.words, spinner: nil)
             piece.header.accessibilityHint = "Opens the call"
@@ -1007,7 +1007,7 @@ import UIKit
             case .phone:
                 // [phone-calls] A call outlives the reply that started it, so it shows with the chat idle too.
                 attention = phoneChip?.asking == true
-                words = attention ? "Call needs you" : "On a call"
+                words = phoneChip?.words ?? "On a call"
                 running = !attention
             case .tasks:
                 words = TodoRules.chipWords(a.liveTodos ?? [], previous: false)
@@ -1020,8 +1020,8 @@ import UIKit
                          accessibilityWords: accessibilityWords, isHistorical: historical)
         }, parentIsRunning: p.statusIsWorking)
         shelf.summaryIcon = opensCallDirectly   // [phone-calls]
-            ? (phoneChip?.asking == true ? "exclamationmark.circle.fill" : "phone.fill",
-               phoneChip?.asking == true ? ChatPalette.orange : ChatPalette.label2) : nil
+            ? (phoneChip?.asking == true ? "exclamationmark" : "phone.fill",
+               phoneChip?.asking == true ? ChatPalette.orange : ChatPalette.green) : nil
         if !shelf.summary.shouldShow(keepingDetailsOpen: shelf.expanded && !openPieces.isEmpty) {
             present.removeAll()
             openPieces.removeAll()

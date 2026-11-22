@@ -12,6 +12,7 @@ Answers only the requests Phone Calls makes, in the shapes samplehost documents:
                                                assistant greeting, instructions, tools); answers call_leg_id/session id
   GET  /v2/call_events?filter[leg_id]=&filter[type]=webhook   list-call-events (rows appear `events_lag` s late)
   GET  /v2/ai/conversations?metadata->call_control_id=eq.<id>   list-conversations
+  GET  /v2/ai/conversations/<id>/conversations-insights    get-insights-for-a-conversation
   GET  /v2/ai/conversations/<id>/messages      get-conversation-messages, released in lagged batches, with emotion
                                                tags, tool receipts and "[long silence]" rows as samplehost writes them
   POST /v2/calls/<id>/actions/ai_assistant_add_messages          add-messages-to-ai-assistant (answers, owner messages)
@@ -34,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
 KEY = 'KEYTEST'
-FROM = '+15550100001'
+FROM = '+12125550100'
 CONNECTION = 'conn-sim'
 ASSISTANT = 'assistant-sim'
 PROFILE = 'ovp-sim'
@@ -48,7 +49,7 @@ lock = threading.RLock()
 def empty():
     return {'requests': [], 'problems': [], 'calls': [], 'answers': [], 'told': [], 'hangups': 0, 'assistants': [],
             'created_keys': [], 'dials': [], 'telephony_updates': [],
-            'scenario': {'name': 'answers', 'lag': 0.0, 'events_lag': 2.0},
+            'scenario': {'name': 'answers', 'lag': 0.0, 'events_lag': 2.0, 'summary_delay': 3.0},
             'telephony': {'default_texml_app_id': 'texml-sim', 'noise_suppression': 'krisp',
                           'recording_settings': {'enabled': True, 'channels': 'dual', 'format': 'mp3'}}}
 state = empty()
@@ -66,9 +67,9 @@ def error(status, code, title, detail):
 def problem(text):
     state['problems'].append(text)
 
-def ask(n, at):
+def ask(n, at, question=QUESTION, choices=None):
     return {'role': 'assistant', 'text': '', 'at': at, 'tool_calls': [{'id': 'call_ask_%d' % n, 'type': 'function', 'function': {
-        'name': 'ask_owner', 'arguments': json.dumps({'question': QUESTION, 'choices': ['Morning', 'Afternoon']})}}]}
+        'name': 'ask_owner', 'arguments': json.dumps({'question': question, 'choices': choices or ['Morning', 'Afternoon']})}}]}
 
 # What each scenario does, in seconds after the dial. `answer` None: never picked up.
 SCENARIOS = {
@@ -93,9 +94,26 @@ SCENARIOS = {
         {'role': 'user', 'text': 'The person you are calling is not available. Please record your message at the tone.', 'at': 2.0},
         {'role': 'system', 'text': '[long silence]', 'at': 3.0},
     ]},
+    'ringing': {'answer': None, 'machine': False, 'end': None, 'cause': None, 'script': lambda: []},
+    'design': {'answer': 1.0, 'machine': False, 'end': None, 'cause': None, 'script': lambda: [
+        {'role': 'assistant', 'text': "Hi, this is an AI assistant calling on behalf of Alex. I'd like to book a table for two tonight at 7.", 'at': 1.2},
+        {'role': 'user', 'text': 'Sure. We have 7:15 or 8:00, which one?', 'at': 1.4},
+        {'role': 'assistant', 'text': 'Let me check with Alex, one moment.', 'at': 4.0},
+        ask(1, 35.0, '7:15 or 8:00 tonight?', ['7:15', '8:00']),
+    ]},
+    'long': {'answer': 1.0, 'machine': False, 'end': None, 'cause': None, 'script': lambda: [
+        {'role': 'assistant', 'text': 'I am calling to arrange a quiet table for two this weekend.', 'at': 1.2},
+        ask(1, 12.0, 'The quiet dining room is full this evening. Would you prefer a table in the main room tonight, or should I check for a quiet table tomorrow?', ['Main room at 7:15', 'Main room at 8:00', 'Quiet room tomorrow', 'Ask about next week']),
+    ]},
+    'no-summary': {'answer': 1.0, 'machine': False, 'end': 5.0, 'cause': 'normal_clearing', 'script': lambda: [
+        {'role': 'assistant', 'text': 'Thanks for checking.', 'at': 2.0},
+        {'role': 'user', 'text': 'You are welcome.', 'at': 3.0},
+    ]},
     'no-answer': {'answer': None, 'machine': False, 'end': 3.0, 'cause': 'timeout', 'script': lambda: []},
     'busy': {'answer': None, 'machine': False, 'end': 1.0, 'cause': 'user_busy', 'script': lambda: []},
 }
+
+SCENARIOS['live'] = dict(SCENARIOS['design'], script=lambda: SCENARIOS['design']['script']()[:-1])
 
 def elapsed(call):
     return time.time() - call['started']
@@ -116,9 +134,9 @@ def finish(call, cause, source):
 def events(call):
     """The webhook events samplehost would have sent, each logged `events_lag` seconds after it happened."""
     plan = SCENARIOS[call['scenario']]
-    lag = state['scenario']['events_lag']
+    lag = call['config']['events_lag']
     out = [('call.initiated', call['started'], {})]
-    if plan['answer'] is not None:
+    if plan['answer'] is not None and (call['ended'] is None or call['ended'] >= call['started'] + plan['answer']):
         out.append(('call.answered', call['started'] + plan['answer'], {}))
         out.append(('call.machine.premium.detection.ended', call['started'] + plan['answer'] + 0.5,
                     {'result': 'machine' if plan['machine'] else 'human'}))
@@ -130,15 +148,15 @@ def events(call):
     rows = []
     for name, at, inner in out:
         if at + lag > now: continue
-        rows.append({'record_type': 'call_event', 'call_leg_id': LEG, 'call_session_id': 'session-sim', 'type': 'webhook',
+        rows.append({'record_type': 'call_event', 'call_leg_id': call['leg'], 'call_session_id': call['session'], 'type': 'webhook',
                      'name': name, 'occurred_at': utc(at), 'metadata': {},
                      'payload': {'event_type': name, 'id': 'ev-%s' % name, 'occurred_at': iso(at),
-                                 'payload': dict(inner, call_control_id=CALL, call_leg_id=LEG)}})
+                                 'payload': dict(inner, call_control_id=call['id'], call_leg_id=call['leg'])}})
     return list(reversed(rows))
 
 def messages(call):
     """What get-conversation-messages returns now: batches appear `lag` seconds late, newest first."""
-    lag = state['scenario']['lag']
+    lag = call['config']['lag']
     now = elapsed(call)
     out = []
     for m in SCENARIOS[call['scenario']]['script']():
@@ -169,8 +187,10 @@ def check_dial(body):
         if not ok: problem('dial ' + name)
 
 def route(method, path, query, body, headers=None):
-    call = state['calls'][0] if state['calls'] else None
-    if call: tick(call)
+    calls = state['calls']
+    for entry in calls: tick(entry)
+    call = next((entry for entry in calls if path.startswith('/v2/calls/' + entry['id'] + '/') or path == '/v2/calls/' + entry['id']), None)
+
     if method == 'GET' and path == '/v2/phone_numbers':
         return 200, {'data': [{'id': '1293384261075731499', 'record_type': 'phone_number', 'phone_number': FROM, 'status': 'active',
                                'connection_id': CONNECTION, 'connection_name': 'Simulated connection'}],
@@ -204,33 +224,53 @@ def route(method, path, query, body, headers=None):
         return 200, {'data': {'id': PROFILE, 'record_type': 'outbound_voice_profile', 'enabled': True, 'whitelisted_destinations': ['US', 'CA']}}
     if method == 'POST' and path == '/v2/calls':
         check_dial(body or {})
-        if call and call['command_id'] == (body or {}).get('command_id'):
-            pass   # samplehost ignores a repeated command_id
-        elif call and call['alive']:
-            return error(422, '90000', 'Busy', 'A simulated call is already going.')
-        else:
+        call = next((entry for entry in calls if entry['command_id'] == (body or {}).get('command_id')), None)
+        if call is None:
+            if any(entry['alive'] for entry in calls):
+                return error(422, '90000', 'Busy', 'A simulated call is already going.')
             assistant = (body or {}).get('assistant') or {}
             state['dials'].append({'to': (body or {}).get('to'), 'greeting': assistant.get('greeting'),
                                    'leaves_message': 'leave one short message' in (assistant.get('instructions') or '')})
-            state['calls'] = [{'id': CALL, 'command_id': (body or {}).get('command_id'), 'alive': True, 'started': time.time(),
-                               'scenario': state['scenario']['name'], 'extra': [], 'ended': None, 'cause': None, 'source': None}]
-        return 200, {'data': {'call_control_id': CALL, 'call_leg_id': LEG, 'call_session_id': 'session-sim', 'is_alive': False, 'record_type': 'call'}}
+            suffix = '' if not calls else '-%d' % (len(calls) + 1)
+            call = {'id': CALL + suffix, 'leg': LEG + suffix, 'session': 'session-sim' + suffix,
+                    'conversation': CONVERSATION + suffix, 'command_id': (body or {}).get('command_id'),
+                    'alive': True, 'started': time.time(), 'scenario': state['scenario']['name'],
+                    'config': dict(state['scenario']), 'extra': [], 'ended': None, 'cause': None, 'source': None}
+            calls.append(call)
+        return 200, {'data': {'call_control_id': call['id'], 'call_leg_id': call['leg'], 'call_session_id': call['session'],
+                              'is_alive': False, 'record_type': 'call'}}
     if method == 'GET' and path == '/v2/call_events':
         if (query.get('filter[type]') or [''])[0] != 'webhook': problem('call_events filter[type]')
         leg = (query.get('filter[leg_id]') or [''])[0]
-        data = events(call) if call and leg == LEG else []
+        call = next((entry for entry in calls if entry['leg'] == leg), None)
+        data = events(call) if call else []
         return 200, {'data': data, 'meta': {'total_pages': 1, 'total_results': len(data), 'page_number': 1, 'page_size': 50}}
     if method == 'GET' and path == '/v2/ai/conversations':
         wanted = (query.get('metadata->call_control_id') or [''])[0]
         if (query.get('limit') or [''])[0] != '1': problem('conversations limit')
-        picked_up = call and SCENARIOS[call['scenario']]['answer'] is not None and elapsed(call) >= SCENARIOS[call['scenario']]['answer']
-        found = picked_up and wanted == 'eq.' + call['id']
-        return 200, {'data': [{'id': CONVERSATION, 'name': '', 'created_at': iso(call['started']) if call else '', 'metadata': {'call_control_id': CALL}}] if found else []}
-    if method == 'GET' and path == '/v2/ai/conversations/%s/messages' % CONVERSATION and call:
-        data = messages(call)
-        return 200, {'data': data, 'meta': {'total_pages': 1, 'total_results': len(data), 'page_number': 1, 'page_size': 100}}
+        call = next((entry for entry in calls if wanted == 'eq.' + entry['id']), None)
+        pickup = SCENARIOS[call['scenario']]['answer'] if call else None
+        found = call and pickup is not None and (call['ended'] or time.time()) >= call['started'] + pickup
+        return 200, {'data': [{'id': call['conversation'], 'name': '', 'created_at': iso(call['started']),
+                               'metadata': {'call_control_id': call['id']}}] if found else []}
+    if method == 'GET' and path.startswith('/v2/ai/conversations/'):
+        call = next((entry for entry in calls if path.startswith('/v2/ai/conversations/' + entry['conversation'] + '/')), None)
+        if call and path.endswith('/messages'):
+            data = messages(call)
+            return 200, {'data': data, 'meta': {'total_pages': 1, 'total_results': len(data), 'page_number': 1, 'page_size': 100}}
+        if call and path.endswith('/conversations-insights'):
+            delay = call['config']['summary_delay']
+            if call['ended'] is None or delay is None or call['scenario'] == 'no-summary':
+                return 200, {'data': [], 'meta': {}}
+            if time.time() < call['ended'] + delay:
+                return 200, {'data': [{'id': 'insight-sim', 'status': 'pending', 'conversation_insights': []}], 'meta': {}}
+            summary = ('Corner Bistro booked a table for two at 7:15 under Alex. A quiet table was requested.'
+                       if call['scenario'] == 'design' else 'The assistant completed the simulated call.')
+            return 200, {'data': [{'id': 'insight-sim', 'status': 'completed', 'created_at': iso(call['ended'] + delay),
+                                   'conversation_insights': [{'insight_id': 'summary', 'result': summary}]}], 'meta': {}}
+    call = next((entry for entry in calls if path.startswith('/v2/calls/' + entry['id'] + '/') or path == '/v2/calls/' + entry['id']), None)
     if call and path == '/v2/calls/' + call['id'] and method == 'GET':
-        data = {'call_control_id': call['id'], 'call_leg_id': LEG, 'call_session_id': 'session-sim', 'is_alive': call['alive'], 'record_type': 'call'}
+        data = {'call_control_id': call['id'], 'call_leg_id': call['leg'], 'call_session_id': call['session'], 'is_alive': call['alive'], 'record_type': 'call'}
         if not call['alive']:
             answered = SCENARIOS[call['scenario']]['answer']
             data.update({'start_time': iso(call['started']), 'end_time': iso(call['ended']),
@@ -287,7 +327,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError: body = None
         if path == '/__fixture/state' and method == 'GET':
             with lock:
-                if state['calls']: tick(state['calls'][0])
+                for call in state['calls']: tick(call)
                 return self.reply(200, public(state))
         if path == '/__fixture/reset' and method == 'POST':
             with lock: state.clear(); state.update(empty())
@@ -296,7 +336,8 @@ class Handler(BaseHTTPRequestHandler):
             name = (body or {}).get('name', 'answers')
             if name not in SCENARIOS: return self.reply(400, {'error': 'unknown scenario'})
             with lock:
-                state['scenario'] = {'name': name, 'lag': float((body or {}).get('lag', 0)), 'events_lag': float((body or {}).get('events_lag', 2))}
+                state['scenario'] = {'name': name, 'lag': float((body or {}).get('lag', 0)), 'events_lag': float((body or {}).get('events_lag', 2)),
+                                     'summary_delay': (body or {}).get('summary_delay', 3)}
             return self.reply(200, {'ok': True})
         auth_ok = self.headers.get('Authorization') == 'Bearer ' + KEY
         with lock:

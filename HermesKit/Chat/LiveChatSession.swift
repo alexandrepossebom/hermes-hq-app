@@ -1280,6 +1280,7 @@ final class LiveChatSession: ChatSessionModel {
         let shown = attachments.isEmpty ? typed : AttachmentSender.bubbleText(typed: typed, attachments: attachments)  // [attachments]
         var bubble = ChatMessage(id: localId, role: .user, parts: [.text(shown)], timestamp: Date(), rowId: nil)
         bubble.isPending = true
+        if PhoneResultMessage.bubble(forStored: text) != nil { bubble.phoneResultText = text }
         appendMessage(bubble)
         if !attachments.isEmpty { noteLocalAttachments(localId, attachments) }                              // [attachments]
         let holdForStop = turn.stopTerminalPending

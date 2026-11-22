@@ -231,201 +231,11 @@ struct PhoneSettingsView: View {
     }
 }
 
-// MARK: - The call sheet (from a chat)
-
-struct PhoneCallView: View {
-    @Environment(\.dismiss) private var dismiss
-    let accountID: String
-    let sessionID: String
-    let profile: String?
-    @State private var controller: PhoneCallController
-    @State private var to = ""
-    @State private var purpose = ""
-    @State private var voicemail: PhoneVoicemailChoice = .hangUp
-    @State private var suggested = false
-    @State private var answers: [String: String] = [:]
-    @State private var messages: [String: String] = [:]
-    @State private var error: String?
-    @State private var confirming = false
-    @State private var busy = false
-
-    init(accountID: String, sessionID: String, profile: String? = nil, proposal: PhoneProposal? = nil) {
-        self.accountID = accountID; self.sessionID = sessionID; self.profile = profile
-        _controller = State(initialValue: .shared(for: accountID))
-        if let proposal {
-            _to = State(initialValue: proposal.to)
-            _purpose = State(initialValue: proposal.goal)
-            _voicemail = State(initialValue: proposal.voicemail)
-            _suggested = State(initialValue: true)
-        }
-    }
-
-    private var destination: String { phoneDestination(to, from: controller.setup?.fromNumber) }
-    private var trimmedPurpose: String { purpose.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var recorded: Bool { controller.setup?.records ?? false }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                if controller.ready {
-                    Section {
-                        if suggested {
-                            Label("Suggested by your agent", systemImage: "sparkles").font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
-                                .accessibilityIdentifier("phone.suggested")
-                        }
-                        TextField("To (+15550100123)", text: $to).keyboardType(.phonePad).accessibilityIdentifier("phone.to")
-                        TextField("Purpose and instructions", text: $purpose, axis: .vertical).accessibilityIdentifier("phone.purpose")
-                        Picker("If voicemail answers", selection: $voicemail) {
-                            ForEach(PhoneVoicemailChoice.allCases, id: \.self) { Text($0.title).tag($0) }
-                        }
-                        .accessibilityIdentifier("phone.voicemail")
-                        Button("Review call") { confirming = true }
-                            .disabled(!phoneIsE164(destination) || trimmedPurpose.isEmpty || busy || controller.hasActiveCall)
-                    } header: { Text("New call") } footer: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if !to.isEmpty && !phoneIsE164(destination) {
-                                Text("Enter a full phone number, like 615 555 0123, or +44 and the number for other countries.")
-                                    .foregroundStyle(.red).accessibilityIdentifier("phone.to.hint")
-                            }
-                            Text("From \(controller.setup?.fromNumber ?? "your samplehost number"). \(PhoneLimits.stayCopy) Calls are billed to your samplehost account.")
-                        }
-                    }
-                } else {
-                    Section { Text("Connect samplehost in Settings › Phone Calls (Beta) to place calls.") }
-                }
-                let mine = Array(controller.calls(for: sessionID).reversed())
-                ForEach(Array(mine.enumerated()), id: \.element.id) { index, call in
-                    PhoneCallSection(controller: controller, call: call, answers: $answers, messages: $messages,
-                                     lagNote: index == 0)
-                }
-                if let error { Section { Text(error).foregroundStyle(.red).accessibilityIdentifier("phone.error") } }
-            }
-            .hqGroupedPage()   // [desktoplook] the page follows the skin
-            .navigationTitle("Phone Calls")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() }.accessibilityIdentifier("phone.close") } }
-            .confirmationDialog("Call \(destination)?", isPresented: $confirming, titleVisibility: .visible) {
-                Button("Place call (billed to samplehost)") { start() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Purpose: \(trimmedPurpose)\nFrom: \(controller.setup?.fromNumber ?? "")\nIf voicemail answers: \(voicemail.title)\n\(recorded ? "This call is recorded." : "Not recorded.")\nAn AI assistant talks for you. \(PhoneLimits.stayCopy) Only call people who expect it.")
-            }
-            .onAppear { controller.sheetAppeared(sessionID) }
-            .onDisappear { controller.sheetDisappeared(sessionID) }
-        }
-    }
-
-    private func start() {
-        guard !busy else { return }
-        busy = true; error = nil
-        let number = destination, goal = trimmedPurpose, choice = voicemail, fromAgent = suggested
-        Task {
-            defer { busy = false }
-            do {
-                try await controller.place(sessionID: sessionID, profile: profile, to: number, purpose: goal,
-                                           voicemail: choice, suggested: fromAgent)
-                to = ""; purpose = ""; voicemail = .hangUp; suggested = false
-            } catch { self.error = phoneMessage(error) }
-        }
-    }
-}
-
-/// One call: its status, transcript, the assistant's question, "Tell the assistant", and Hang up.
-struct PhoneCallSection: View {
-    let controller: PhoneCallController
-    let call: PhoneCallRecord
-    @Binding var answers: [String: String]
-    @Binding var messages: [String: String]
-    /// Says once in the sheet that the transcript trails the call.
-    var lagNote = false
-    var readOnly = false
-
-    var body: some View {
-        Section {
-            Text(call.statusText).font(Font.hq(.headline)).accessibilityIdentifier("phone.call.status")
-            Text(call.purpose).font(Font.hq(.callout)).foregroundStyle(Color.hqLabel2)
-            Text([call.recorded ? "Recorded" : "Not recorded", call.suggested ? "Suggested by your agent" : nil,
-                  "If voicemail answers: \(call.voicemailChoice.title.lowercased())"].compactMap { $0 }.joined(separator: " · "))
-                .font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2).accessibilityIdentifier("phone.call.recorded")
-            if let note = call.straightToVoicemailNote {
-                Text(note).font(Font.hq(.footnote)).accessibilityIdentifier("phone.call.voicemail-note")
-            }
-            if let note = call.endNote { Text(note).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2).accessibilityIdentifier("phone.call.end-note") }
-            ForEach(call.shownLines) { line in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.speaker(line.speaker)).font(Font.hq(.caption)).foregroundStyle(Color.hqLabel2)
-                    Text(line.text)
-                }
-                .accessibilityElement(children: .combine)
-            }
-            if let question = call.question, call.active, !readOnly {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("The assistant asks you").font(Font.hq(.caption)).foregroundStyle(Color.hqLabel2)
-                    Text(question.text).font(Font.hq(.body).weight(.semibold)).accessibilityIdentifier("phone.question")
-                }
-                if call.sendingAnswer == question.id {
-                    Text("Sending your answer…")
-                } else {
-                    ForEach(question.choices, id: \.self) { choice in
-                        Button(choice) { respond(question, choice) }
-                    }
-                    TextField("Your answer", text: Binding(get: { answers[call.id] ?? "" }, set: { answers[call.id] = $0 }))
-                        .accessibilityIdentifier("phone.answer")
-                    Button("Send answer") { respond(question, answers[call.id] ?? "") }
-                        .disabled((answers[call.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            if let last = call.lastAnswer { Text("You answered: \(last)").font(Font.hq(.footnote)) }
-            if call.active, call.state != .ending, !readOnly {
-                // One line with a Send key: with the keyboard up, a tap on the Send row below can be spent closing it.
-                TextField("Tell the assistant", text: Binding(get: { messages[call.id] ?? "" }, set: { messages[call.id] = $0 }))
-                    .submitLabel(.send).onSubmit { tell() }
-                    .accessibilityIdentifier("phone.tell")
-                Button(call.sendingMessage ? "Sending…" : "Send") { tell() }
-                    .disabled(call.sendingMessage || (messages[call.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("phone.tell.send")
-            }
-            if let issue = call.issue { Text(issue).font(Font.hq(.footnote)).foregroundStyle(.red).accessibilityIdentifier("phone.call.issue") }
-            if call.active, !readOnly {
-                Button("Hang up", role: .destructive) { Task { await controller.hangup(call.id) } }
-                    .disabled(call.state == .ending)
-            }
-        } header: {
-            Text("Call to \(phoneShown(call.to)) · \(call.placedAt.formatted(date: .abbreviated, time: .shortened))")
-        } footer: {
-            if lagNote, call.active || !call.lines.isEmpty {
-                Text("The transcript can run a few seconds behind the call.").accessibilityIdentifier("phone.lag-note")
-            }
-        }
-    }
-
-    static func speaker(_ speaker: PhoneTranscript.Line.Speaker) -> String {
-        switch speaker {
-        case .assistant: return "Assistant"
-        case .them: return "Them"
-        case .you: return "You"
-        }
-    }
-
-    private func respond(_ question: PhoneTranscript.Question, _ value: String) {
-        let id = call.id
-        Task {
-            await controller.answer(id, question: question, with: value)
-            if controller.call(id)?.answered.contains(question.id) == true { answers[id] = nil }
-        }
-    }
-
-    private func tell() {
-        let id = call.id, words = messages[call.id] ?? ""
-        Task {
-            if await controller.tell(id, words) { messages[id] = nil }
-        }
-    }
-}
-
 // MARK: - Settings › Phone Calls › Call history
 
 struct PhoneHistoryView: View {
     let accountID: String
+    @State private var selected: PhoneCallRecord?
     private var controller: PhoneCallController { .shared(for: accountID) }
 
     var body: some View {
@@ -436,41 +246,18 @@ struct PhoneHistoryView: View {
             } else {
                 Section {
                     ForEach(calls) { call in
-                        NavigationLink {
-                            PhoneHistoryDetailView(accountID: accountID, callID: call.id)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(phoneShown(call.to)).font(Font.hq(.body))
-                                Text("\(call.placedAt.formatted(date: .abbreviated, time: .shortened)) · \(call.statusText)")
-                                    .font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
-                            }
-                            .accessibilityElement(children: .combine)
-                        }
-                        .accessibilityIdentifier("phone.history.row")
+                        Button { selected = call } label: { PhoneRecentRow(call: call) }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("phone.history.row")
                     }
                 } footer: {
                     Text("Kept on this device for this account: the newest \(PhoneHistoryStore.maxCalls) calls.")
                 }
             }
         }
-        .hqGroupedPage()   // [desktoplook] the page follows the skin
-    }
-}
-
-struct PhoneHistoryDetailView: View {
-    let accountID: String
-    let callID: String
-    @State private var answers: [String: String] = [:]
-    @State private var messages: [String: String] = [:]
-    private var controller: PhoneCallController { .shared(for: accountID) }
-
-    var body: some View {
-        Form {
-            if let call = controller.call(callID) {
-                PhoneCallSection(controller: controller, call: call, answers: $answers, messages: $messages, readOnly: true)
-            }
+        .hqGroupedPage()
+        .sheet(item: $selected) { call in
+            PhoneCallView(accountID: accountID, sessionID: call.sessionID, profile: call.profile, callID: call.id)
         }
-        .hqGroupedPage()   // [desktoplook] the page follows the skin
-        .navigationTitle("Call")
     }
 }

@@ -182,8 +182,13 @@ nonisolated struct TranscriptEntry: Sendable, Equatable {
             for r in m.reactions { w.string(r.emoji); w.string(r.author); w.optionalDouble(r.at) }
             w.optionalInt(m.reactionRow)
         }
-        w.varint(UInt64(m.parts.count))
-        for part in m.parts {
+        var parts = m.parts
+        if let result = m.phoneResultText {
+            parts.removeAll { if case .text = $0 { return true }; return false }
+            parts.append(.text(result))
+        }
+        w.varint(UInt64(parts.count))
+        for part in parts {
             switch part {
             case .text(let t): w.byte(0); w.string(t)
             case .reasoning(let t): w.byte(1); w.string(t)

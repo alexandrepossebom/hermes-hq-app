@@ -447,7 +447,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
                     switch block {
                     case .text(let t), .quote(let t, _), .code(_, _, let t, _): _ = TextKitLayout(t, width: 300)
                     case .table(let t): t.header.forEach { _ = TextKitLayout($0, width: nil) }
-                    case .spacer, .media, .linkChip, .pageCard: break
+                    case .spacer, .media, .linkChip, .pageCard, .phoneProposal: break
                     }
                 }
             }
@@ -677,6 +677,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         tableView.delegate = self
         tableView.prefetchDataSource = self
         tableView.register(ChatBubbleCell.self, forCellReuseIdentifier: ChatBubbleCell.reuse)
+        tableView.register(PhoneResultCell.self, forCellReuseIdentifier: PhoneResultCell.reuse)
         tableView.register(ChatToolCell.self, forCellReuseIdentifier: ChatToolCell.reuse)
         tableView.register(ChatLineCell.self, forCellReuseIdentifier: ChatLineCell.reuse)
         tableView.register(ChatErrorCell.self, forCellReuseIdentifier: ChatErrorCell.reuse)
@@ -2306,6 +2307,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         var reuse: String
         switch row.kind {
         case .bubble: reuse = ChatBubbleCell.reuse
+        case .phoneResult: reuse = PhoneResultCell.reuse
         case .toolRun, .thought, .backgroundResult: reuse = ChatToolCell.reuse
         case .day, .notice, .caption, .stoppedEarly, .sendState, .slashOutput: reuse = ChatLineCell.reuse
         case .error: reuse = ChatErrorCell.reuse
@@ -4590,6 +4592,10 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
 
     func chatCellOpenTable(_ table: MarkdownTable) {   // [transcript] L309
         TableSheetController.open(table, from: self)
+    }
+
+    func chatCellOpenPhoneResult(_ result: PhoneResultCard, sentAt: Date?) {
+        PhoneCallChat.open(result, sentAt: sentAt, from: self)
     }
 
     func chatCellOpen(url: URL) {

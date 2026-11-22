@@ -4,6 +4,14 @@
 import XCTest
 
 extension SessionsTests {
+    func phoneFixtureAccount(_ name: String) throws -> FixtureAccount {
+        let env = ProcessInfo.processInfo.environment
+        let url = try XCTUnwrap(env["HQN_PHONE_GATEWAY"])
+        XCTAssertEqual(URL(string: url)?.host, "127.0.0.1")
+        return FixtureAccount(url: url, username: "phone-simulation-" + name.lowercased(),
+                              password: try XCTUnwrap(env["HQN_PHONE_" + name]))
+    }
+
     /// The fake samplehost's base (TEST_RUNNER_HQN_SAMPLEHOST_URL), reached for its `/__fixture/…` hooks.
     func samplehostFixture() throws -> FixtureAccount {
         guard let url = ProcessInfo.processInfo.environment["HQN_SAMPLEHOST_URL"], !url.isEmpty else {
@@ -62,7 +70,7 @@ extension SessionsTests {
         app.buttons["Connect"].tap()
         XCTAssertTrue(app.staticTexts["Connected, choose a number and assistant"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.secureTextFields["samplehost API key"].exists, "the key is never shown again")
-        XCTAssertTrue(app.buttons["From number, +15550100001"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["From number, +12125550100"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Voice connection, Simulated connection"].exists)
         let create = app.buttons["phone.settings.create-assistant"]
         if !create.waitForExistence(timeout: 5) { app.swipeUp() }   // a long footer can push it under the fold
@@ -88,20 +96,25 @@ extension SessionsTests {
     }
 
     /// From a chat: ⋯ › Phone Call, fill the confirm form, check nothing dialed before confirming, confirm.
-    @MainActor func placeSimulatedCall(_ app: XCUIApplication, _ samplehost: FixtureAccount, to number: String = "+15550100002",
-                                       shotForm: Bool = false) throws {
+    @MainActor func placeSimulatedCall(_ app: XCUIApplication, _ samplehost: FixtureAccount, to number: String = "+12125550142",
+                                       shotForm: Bool = false, goal: String = "Discuss simulated appointment",
+                                       name: String? = nil, previousCalls: Int = 0) throws {
         let to = app.textFields["phone.to"]
         for _ in 0..<3 where !to.exists {
             phoneCallInMenu(app, open: true, timeout: 10); if to.waitForExistence(timeout: 4) { break }
         }
         XCTAssertTrue(to.waitForExistence(timeout: 10)); to.tap(); to.typeText(number)
         let purpose = app.textFields["phone.purpose"].exists ? app.textFields["phone.purpose"] : app.textViews["phone.purpose"]
-        purpose.tap(); purpose.typeText("Discuss simulated appointment")
+        if let name {
+            let field = app.textFields["phone.name"]
+            field.tap(); field.typeText(name)
+        }
+        purpose.tap(); purpose.typeText(goal)
         if shotForm { shot(app, "phone-call-form") }
         app.buttons["Review call"].tap()
         let confirm = app.buttons["Place call (billed to samplehost)"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
-        XCTAssertEqual((try samplehost.control("/__fixture/state")["calls"] as? [[String: Any]])?.count, 0, "review alone must not dial")
+        XCTAssertEqual((try samplehost.control("/__fixture/state")["calls"] as? [[String: Any]])?.count, previousCalls, "review alone must not dial")
         shot(app, "phone-confirm")
         confirm.tap()
     }
@@ -137,10 +150,10 @@ extension SessionsTests {
         XCTAssertTrue(app.staticTexts["Which simulated time works?"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Hello from the simulated agent."].exists, "no emotion tag")
         XCTAssertTrue(app.staticTexts["The simulated recipient has a question."].exists)
-        XCTAssertTrue(app.staticTexts["On the call"].exists)
+        XCTAssertTrue(app.staticTexts["Waiting on you"].exists)
         XCTAssertFalse(app.staticTexts["Request failed"].exists, "the tool's receipt is hidden")
         XCTAssertFalse(app.staticTexts["[long silence]"].exists)
-        XCTAssertTrue(app.staticTexts["Not recorded · If voicemail answers: hang up"].exists)
+        XCTAssertTrue(app.staticTexts["They are holding"].exists)
         shot(app, "phone-question")
         let morning = app.buttons["Morning"]
         for _ in 0..<3 where !morning.isHittable { app.swipeUp() }
@@ -167,7 +180,11 @@ extension SessionsTests {
         XCTAssertTrue(app.buttons["phone.close"].waitForNonExistence(timeout: 10), "sheet must actually close before reopening")
         XCTAssertTrue(phoneCallInMenu(app, open: true, timeout: 10), "Phone Call reopens from the ⋯")
         XCTAssertTrue(app.buttons["phone.close"].waitForExistence(timeout: 10))
-        XCTAssertTrue(statusText(app, prefix: "Finished · ").waitForExistence(timeout: 10), "the ended call is still shown after reopening")
+        let recent = app.buttons["phone.recent.row"].firstMatch
+        XCTAssertTrue(recent.waitForExistence(timeout: 10), "the ended call appears in Recent")
+        recent.tap()
+        XCTAssertTrue(statusText(app, prefix: "Finished · ").waitForExistence(timeout: 10), "the ended call opens its summary")
+        app.buttons["Transcript"].tap()
         XCTAssertTrue(revealed(app, app.staticTexts["Simulated answer received: Morning"]), "the transcript is still there")
         shot(app, "phone-reopened")
 
@@ -184,11 +201,8 @@ extension SessionsTests {
         let samplehost = try samplehostFixture()
         try samplehost.control("/__fixture/reset", [:])
         try account.control("/__fixture/mode", ["prompts": "reply"])
-        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["HQN_PHONE_B"])
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
-        let b = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
         let original = try XCTUnwrap(account)
-        let other = FixtureAccount(url: try XCTUnwrap(b["url"]), username: try XCTUnwrap(b["username"]), password: try XCTUnwrap(b["password"]))
+        let other = try phoneFixtureAccount("B")
         XCTAssertEqual(original.url, other.url, "same gateway, two independently signed-in logins")
         let app = launch(fresh: true, environment: ["HQ_SAMPLEHOST_BASE_URL": samplehost.url + "/v2"])
         let garden = row(app, "s-garden")
@@ -276,12 +290,20 @@ extension SessionsTests {
         let note = app.staticTexts["phone.call.voicemail-note"]
         XCTAssertTrue(revealed(app, note, timeout: 5))
         XCTAssertEqual(note.label, "Voicemail picked up in 1 second, so the phone probably never rang. That is the other phone or its carrier (Do Not Disturb or a Focus, Silence Unknown Callers, a spam filter), not your samplehost setup.")
-        XCTAssertTrue(revealed(app, app.staticTexts["The person you are calling is not available. Please record your message at the tone."]))
+        XCTAssertTrue(app.staticTexts["+1 212 555 0142 · picked up in 1 second"].exists)
+        XCTAssertTrue(app.buttons["Leave a message"].exists)
         XCTAssertFalse(app.buttons["Hang up"].exists)
         shot(app, "phone-voicemail-note")
+        app.buttons["phone.call.options"].tap()
+        app.buttons["Transcript"].tap()
+        XCTAssertTrue(revealed(app, app.staticTexts["The person you are calling is not available. Please record your message at the tone."]))
+        app.buttons["sheet.back"].tap()
+        app.buttons["Leave a message"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Leave a short message'")).firstMatch.exists)
         let state = try samplehost.control("/__fixture/state")
         XCTAssertEqual((state["dials"] as? [[String: Any]])?.first?["to"] as? String, "+12125550142", "typed without +1")
         XCTAssertEqual(state["hangups"] as? Int, 0, "the far side ended it")
+        XCTAssertEqual((state["dials"] as? [[String: Any]])?.count, 1, "Leave a message only opens the pre-filled form")
         XCTAssertEqual(state["problems"] as? [String], [])
         try assertKeyOnlyInHeader(samplehost)
     }
@@ -309,7 +331,7 @@ extension SessionsTests {
         XCTAssertEqual(answers.count, 1, "one request")
         XCTAssertEqual(Set(answers.first?["tool_call_ids"] as? [String] ?? []), ["call_ask_1", "call_ask_2"])
         XCTAssertEqual(answers.first?["roles"] as? [String], ["tool", "tool", "system"])
-        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == 'Morning'")).count >= 1, true, "the You line")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == 'You answered: Morning'")).count >= 1, true, "the You line")
         let hangup = app.buttons["Hang up"]
         for _ in 0..<3 where !hangup.isHittable { app.swipeUp() }
         hangup.tap()
@@ -321,9 +343,9 @@ extension SessionsTests {
     /// Tell the assistant: the words show as a You line at once and reach the call as the owner's message.
     @MainActor func testPhoneCallsTellTheAssistant() throws {
         let samplehost = try samplehostFixture()
-        let app = try phoneChat(samplehost, scenario: "answers")
+        let app = try phoneChat(samplehost, scenario: "design")
         try placeSimulatedCall(app, samplehost)
-        XCTAssertTrue(app.staticTexts["Hello from the simulated agent."].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Hi, this is an AI assistant calling on behalf of Alex. I'd like to book a table for two tonight at 7."].waitForExistence(timeout: 20))
         XCTAssertTrue(revealed(app, app.staticTexts["phone.lag-note"]), "says once that the transcript trails the call")
         XCTAssertEqual(app.staticTexts.matching(identifier: "phone.lag-note").count, 1)
         let tell = app.textFields["phone.tell"]
@@ -331,9 +353,9 @@ extension SessionsTests {
         tell.tap(); tell.typeText("Ask for the earliest slot.")
         XCTAssertTrue(app.buttons["phone.tell.send"].isEnabled, "Send lights up once there are words")
         tell.typeText("\n")   // the keyboard's Send key
-        XCTAssertTrue(revealed(app, app.staticTexts["Ask for the earliest slot."], timeout: 5), "shown at once")
+        XCTAssertTrue(revealed(app, app.staticTexts["You told it: Ask for the earliest slot."], timeout: 5), "shown at once")
         XCTAssertTrue(revealed(app, app.staticTexts["Simulated note received: Ask for the earliest slot."], timeout: 15))
-        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == 'Ask for the earliest slot.'")).count, 1,
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == 'You told it: Ask for the earliest slot.'")).count, 1,
                        "one You line once the conversation returns it")
         XCTAssertEqual(try samplehost.control("/__fixture/state")["told"] as? [String], ["Ask for the earliest slot."])
         shot(app, "phone-tell")
@@ -342,8 +364,10 @@ extension SessionsTests {
         let notice = app.buttons["chat.shelf.summary"]
         XCTAssertTrue(notice.waitForExistence(timeout: 10), "the chat shows the call while it is on")
         shot(app, "phone-chat-notice")
-        // This scenario's assistant has asked its question by now, so the notice asks for the answer.
-        XCTAssertTrue(notice.label.contains("needs your answer"), notice.label)
+        XCTAssertTrue(notice.label.contains("On a call · "), notice.label)
+        let first = notice.label
+        XCTAssertTrue(waitUntil(4) { notice.label != first }, "the notice timer advances")
+        XCTAssertTrue(waitUntil(35) { notice.label.contains("Call needs you") }, "the notice switches to the question")
         notice.tap()
         XCTAssertTrue(app.textFields["phone.tell"].waitForExistence(timeout: 10) || revealed(app, app.textFields["phone.tell"]),
                       "one tap on the notice opens the call sheet")
@@ -375,11 +399,11 @@ extension SessionsTests {
         history.tap()
         let rowEntry = again.buttons.matching(NSPredicate(format: "identifier == 'phone.history.row'")).firstMatch
         XCTAssertTrue(rowEntry.waitForExistence(timeout: 10))
-        XCTAssertTrue(rowEntry.label.contains("+1 555 010 0002") && rowEntry.label.contains("Busy"), rowEntry.label)
+        XCTAssertTrue(rowEntry.label.contains("+1 212 555 0142") && rowEntry.label.contains("Busy"), rowEntry.label)
         shot(again, "phone-history")
         rowEntry.tap()
         XCTAssertTrue(statusText(again, prefix: "Busy").waitForExistence(timeout: 10))
-        again.navigationBars.buttons.firstMatch.tap()
+        again.buttons["phone.close"].tap()
         again.navigationBars.buttons.firstMatch.tap()
 
         let check = again.buttons["phone.settings.check"]
@@ -407,7 +431,7 @@ extension SessionsTests {
     /// back into the chat as the next message (the gateway's prompt.submit log).
     @MainActor func testPhoneCallsAgentProposal() throws {
         let samplehost = try samplehostFixture()
-        let link = "phone-call?to=%2B12125550142&goal=Ask%20for%20a%20table%20for%20two%20at%207&voicemail=leave"
+        let link = "phone-call?to=%2B12125550142&goal=Ask%20for%20a%20table%20for%20two%20at%207&voicemail=leave&name=Corner%20Bistro"
         try account.control("/__fixture/reset", [:])
         try account.control("/__fixture/rows", ["id": "s-garden", "set": ["messages": [
             ["role": "user", "content": "Can you call the restaurant and book a table for two at 7?"],
@@ -420,8 +444,9 @@ extension SessionsTests {
         XCTAssertFalse(app.textFields["phone.to"].exists, "no sheet from outside")
         XCTAssertTrue(try samplehostRequests(samplehost).allSatisfy { ($0["path"] as? String) != "/v2/calls" })
 
-        let proposal = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Call +1 212 555 0142")).firstMatch
-        XCTAssertTrue(proposal.waitForExistence(timeout: 15), "drawn as an action: Call and the number")
+        let proposal = app.buttons["phone.chat.proposal"]
+        XCTAssertTrue(proposal.waitForExistence(timeout: 15), "drawn as a call card")
+        XCTAssertTrue(proposal.label.contains("Call Corner Bistro") && proposal.label.hasSuffix("Review."))
         XCTAssertTrue(proposal.label.contains("Ask for a table for two at 7"), "the goal under it: \(proposal.label)")
         shot(app, "phone-proposal-chat")
         proposal.tap()
@@ -429,6 +454,7 @@ extension SessionsTests {
         XCTAssertTrue(to.waitForExistence(timeout: 10), "the call sheet opens")
         XCTAssertTrue(app.descendants(matching: .any)["phone.suggested"].exists, "Suggested by your agent")
         XCTAssertEqual(to.value as? String, "+12125550142")
+        XCTAssertEqual(app.textFields["phone.name"].value as? String, "Corner Bistro")
         let purpose = app.textFields["phone.purpose"].exists ? app.textFields["phone.purpose"] : app.textViews["phone.purpose"]
         XCTAssertEqual(purpose.value as? String, "Ask for a table for two at 7")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Leave a short message'")).firstMatch.exists)
@@ -457,8 +483,12 @@ extension SessionsTests {
         XCTAssertTrue(submitted.first?.contains("To: +12125550142") == true)
         XCTAssertTrue(submitted.first?.contains("Goal: Ask for a table for two at 7") == true)
         XCTAssertTrue(submitted.first?.contains("Outcome: busy") == true)
-        let bubble = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Call to +1 212 555 0142: busy")).firstMatch
-        XCTAssertTrue(bubble.waitForExistence(timeout: 15), "the bubble is the short line")
+        let card = app.buttons["phone.chat.result"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "the chat shows one call result card")
+        XCTAssertTrue(card.label.contains("Busy") && card.label.contains("+1 212 555 0142"))
+        card.tap()
+        XCTAssertTrue(statusText(app, prefix: "Busy").waitForExistence(timeout: 10), "the card opens its saved call")
+        app.buttons["phone.close"].tap()
         shot(app, "phone-result-in-chat")
         Thread.sleep(forTimeInterval: 8)
         let again = (try account.control("/__fixture/state")["rpc"] as? [[String: Any]] ?? [])
@@ -467,4 +497,153 @@ extension SessionsTests {
         XCTAssertEqual(try samplehost.control("/__fixture/state")["problems"] as? [String], [])
         try assertKeyOnlyInHeader(samplehost)
     }
+
+    @MainActor func testPhoneCallsRingingCancel() throws {
+        let samplehost = try samplehostFixture()
+        let app = try phoneChat(samplehost, scenario: "ringing")
+        try placeSimulatedCall(app, samplehost)
+        let cancel = app.buttons["Cancel call"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+        XCTAssertTrue(statusText(app, prefix: "Ringing").exists)
+        XCTAssertGreaterThanOrEqual(cancel.frame.height, 44)
+        cancel.tap()
+        XCTAssertTrue(statusText(app, prefix: "No answer").waitForExistence(timeout: 20))
+        XCTAssertFalse(cancel.exists)
+        XCTAssertEqual(try samplehost.control("/__fixture/state")["hangups"] as? Int, 1)
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
+    @MainActor func testPhoneCallsDesignLight() throws { try phoneDesign(dark: false) }
+    @MainActor func testPhoneCallsDesignDark() throws { try phoneDesign(dark: true) }
+
+    @MainActor private func phoneDesign(dark: Bool) throws {
+        let samplehost = try samplehostFixture()
+        let mode = dark ? "dark" : "light"
+        let link = "hermes://phone-call?to=%2B12125550142&goal=Book%20a%20table%20for%20two%20at%207%20tonight"
+        try account.control("/__fixture/rows", ["id": "s-garden", "set": ["messages": [
+            ["role": "user", "content": "Call Corner Bistro and book a table for two at 7"],
+            ["role": "assistant", "content": "[Call +12125550142](\(link))"],
+        ]]])
+        let app = try phoneChat(samplehost, scenario: "ringing", extra: ["-HQDebugAppearance", mode])
+        try placeSimulatedCall(app, samplehost, goal: "Book a table for two at 7 tonight", name: "Corner Bistro")
+        XCTAssertTrue(app.buttons["Cancel call"].waitForExistence(timeout: 10))
+        shot(app, "phone-1-ringing-\(mode)")
+        app.buttons["Cancel call"].tap()
+        XCTAssertTrue(statusText(app, prefix: "No answer").waitForExistence(timeout: 20))
+        app.buttons["Call again"].tap()
+        XCTAssertEqual(app.textFields["phone.to"].value as? String, "+12125550142")
+        XCTAssertEqual(app.textFields["phone.name"].value as? String, "Corner Bistro")
+        let purpose = app.textViews["phone.purpose"].exists ? app.textViews["phone.purpose"] : app.textFields["phone.purpose"]
+        XCTAssertEqual(purpose.value as? String, "Book a table for two at 7 tonight")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Hang up'")).firstMatch.exists, "same voicemail choice")
+        shot(app, "phone-new-call-\(mode)")
+        try samplehost.control("/__fixture/scenario", ["name": "design", "summary_delay": 5])
+        app.buttons["Review call"].tap()
+        let confirm = app.buttons["Place call (billed to samplehost)"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        XCTAssertEqual((try samplehost.control("/__fixture/state")["dials"] as? [[String: Any]])?.count, 1)
+        confirm.tap()
+        XCTAssertTrue(statusText(app, prefix: "On the call").waitForExistence(timeout: 12))
+        let newest = app.staticTexts["Let me check with Alex, one moment."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 12))
+        let tell = app.textFields["phone.tell"]
+        tell.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(tell.isHittable && app.buttons["Hang up"].isHittable)
+        XCTAssertTrue(newest.isHittable, "the newest line stays above the keyboard")
+        shot(app, "phone-keyboard-\(mode)")
+        tell.typeText("Ask for a quiet table.\n")
+        XCTAssertTrue(app.staticTexts["You told it: Ask for a quiet table."].waitForExistence(timeout: 10))
+        if app.keyboards.firstMatch.exists { app.staticTexts["phone.call.status"].tap() }
+        shot(app, "phone-2-live-\(mode)")
+        let question = app.staticTexts["phone.question"]
+        XCTAssertTrue(question.waitForExistence(timeout: 35))
+        XCTAssertEqual(question.label, "7:15 or 8:00 tonight?")
+        let choice = app.buttons["7:15"]
+        XCTAssertGreaterThanOrEqual(choice.frame.height, 44)
+        shot(app, "phone-3-question-\(mode)")
+        choice.tap()
+        XCTAssertTrue(app.staticTexts["You answered: 7:15"].waitForExistence(timeout: 10))
+        XCTAssertFalse(question.exists)
+        XCTAssertEqual((try samplehost.control("/__fixture/state")["answers"] as? [[String: Any]])?.count, 1, "one tap sent one answer")
+        app.buttons["Hang up"].tap()
+        let summary = app.staticTexts["phone.call.summary"]
+        XCTAssertTrue(statusText(app, prefix: "Finished").waitForExistence(timeout: 20))
+        XCTAssertTrue(waitUntil(20) { summary.exists && summary.label.contains("Corner Bistro booked a table for two at 7:15 under Alex.") })
+        XCTAssertTrue(app.staticTexts["WHAT HAPPENED"].exists)
+        XCTAssertTrue(try samplehostRequests(samplehost).contains { ($0["path"] as? String)?.hasSuffix("/conversations-insights") == true })
+        let delivered = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS 'Sent to chat' AND label CONTAINS 'Yes'")).firstMatch
+        XCTAssertTrue(delivered.waitForExistence(timeout: 20))
+        shot(app, "phone-4-summary-\(mode)")
+        app.buttons["Transcript"].tap()
+        XCTAssertTrue(app.staticTexts["Transcript"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["You answered: 7:15"].exists)
+        XCTAssertFalse(app.textFields["phone.tell"].exists)
+        shot(app, "phone-transcript-\(mode)")
+        app.buttons["sheet.back"].tap()
+        app.buttons["phone.close"].tap()
+        let result = app.buttons.matching(identifier: "phone.chat.result").matching(NSPredicate(format: "label BEGINSWITH 'Call finished'")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 35))
+        XCTAssertTrue(result.label.contains("Corner Bistro booked a table for two at 7:15 under Alex."))
+        let proposal = app.buttons["phone.chat.proposal"]
+        XCTAssertTrue(proposal.exists && proposal.label.hasSuffix("Review."))
+        result.tap()
+        XCTAssertTrue(summary.waitForExistence(timeout: 10))
+        app.buttons["phone.close"].tap()
+        try samplehost.control("/__fixture/scenario", ["name": "live"])
+        try placeSimulatedCall(app, samplehost, goal: "Book a table for two at 7 tonight", previousCalls: 2)
+        XCTAssertTrue(statusText(app, prefix: "On the call").waitForExistence(timeout: 12))
+        app.buttons["phone.close"].tap()
+        let timer = app.buttons["chat.shelf.summary"]
+        XCTAssertTrue(timer.waitForExistence(timeout: 10))
+        XCTAssertTrue(timer.label.contains("On a call · "), timer.label)
+        XCTAssertGreaterThan(timer.frame.width, app.frame.width * 0.8, "the notice spans the chat")
+        XCTAssertGreaterThanOrEqual(timer.frame.height, 44)
+        shot(app, "phone-6-chat-\(mode)")
+        timer.tap()
+        XCTAssertTrue(app.buttons["Hang up"].waitForExistence(timeout: 10))
+        app.buttons["Hang up"].tap()
+        XCTAssertTrue(app.staticTexts["You hung up"].waitForExistence(timeout: 10))
+        app.buttons["phone.close"].tap()
+        try samplehost.control("/__fixture/scenario", ["name": "voicemail"])
+        try placeSimulatedCall(app, samplehost, goal: "Book a table for two at 7 tonight", previousCalls: 3)
+        XCTAssertTrue(statusText(app, prefix: "Went to voicemail").waitForExistence(timeout: 25))
+        XCTAssertTrue(app.staticTexts["WHY"].exists)
+        shot(app, "phone-5-voicemail-\(mode)")
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
+    @MainActor func testPhoneCallsLargeText() throws {
+        let samplehost = try samplehostFixture()
+        let goal = "Please book a quiet table for two this weekend. Ask about the dining room away from the entrance, and check whether a later time is available if the first seating is full."
+        let name = "Corner Bistro and the Quiet Dining Room on the Second Floor"
+        let app = try phoneChat(samplehost, scenario: "long")
+        try placeSimulatedCall(app, samplehost, goal: goal, name: name)
+        XCTAssertTrue(app.staticTexts["phone.call.goal"].waitForExistence(timeout: 8))
+        shot(app, "phone-long-name-goal")
+        XCTAssertTrue(app.staticTexts["phone.question"].waitForExistence(timeout: 25))
+        for text in ["Main room at 7:15", "Main room at 8:00", "Quiet room tomorrow", "Ask about next week"] {
+            XCTAssertTrue(app.buttons[text].isHittable, text)
+        }
+        shot(app, "phone-long-question-four-choices")
+        app.buttons["phone.close"].tap()
+        app.terminate()
+        let large = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"],
+                           environment: ["HQ_SAMPLEHOST_BASE_URL": samplehost.url + "/v2"])
+        row(large, "s-garden").tap()
+        let notice = large.buttons["chat.shelf.summary"]
+        if !notice.waitForExistence(timeout: 10) { shot(large, "phone-accessibility-chat-entry") }
+        XCTAssertTrue(notice.exists, "the active call is reachable from the chat shelf after relaunch")
+        notice.tap()
+        XCTAssertTrue(large.textFields["phone.tell"].waitForExistence(timeout: 12))
+        XCTAssertTrue(waitUntil(7) { large.staticTexts["phone.question"].isHittable },
+                      "the question starts in view at the largest text size")
+        XCTAssertTrue(large.buttons["Hang up"].isHittable, "the dock remains reachable at the largest text size")
+        shot(large, "phone-accessibility-text")
+        large.buttons["Hang up"].tap()
+        XCTAssertTrue(statusText(large, prefix: "Finished").waitForExistence(timeout: 30))
+        try assertKeyOnlyInHeader(samplehost)
+    }
+
 }

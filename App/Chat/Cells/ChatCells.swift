@@ -12,6 +12,7 @@ import UIKit
     func chatCellToggleFiles(rowId: String)
     func chatCellOpenStep(rowId: String, index: Int)
     func chatCellOpen(url: URL)
+    func chatCellOpenPhoneResult(_ result: PhoneResultCard, sentAt: Date?)
     /// [transcript] A link held in a bubble or a link chip: its own menu (Open, Open in Safari, Copy Link, Share…), titled
     /// with the whole address (docs/spec/3x-transcript.md L492, L568); nil keeps the message's menu.
     func chatCellLinkMenu(url: URL, source: UIView) -> UIMenu?
@@ -54,6 +55,7 @@ extension ChatCellDelegate {
     func chatCellShowAllSteps(rowId: String) {}
     func chatCellShowLiveSteps() {}
     func chatCellOpenTable(_ table: MarkdownTable) {}
+    func chatCellOpenPhoneResult(_ result: PhoneResultCard, sentAt: Date?) {}
     func chatCellRemoveReaction(rowId: String) {}
     func chatCellCanReply(rowId: String) -> Bool { false }
     func chatCellReply(rowId: String) {}
@@ -681,7 +683,8 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
         shape.isReply = !b.mine
         shape.fill = b.mine ? ChatPalette.meBubble : ChatPalette.botBubble
         shape.key = b.shape
-        shape.isHidden = b.mediaOnly                                                               // [attachments] the photos are the bubble
+        let phoneOnly = b.blocks.count == 1 && b.blocks.contains { if case .phoneProposal = $0.block { true } else { false } }
+        shape.isHidden = b.mediaOnly || phoneOnly                                                               // [attachments] the photos are the bubble
         let mediaStyle = ChatStyleCache.shared.style(for: traitCollection.preferredContentSizeCategory)
         mediaView.configure(b, messageId: row.messageId, style: mediaStyle)                        // [attachments]
         // Blocks
@@ -785,11 +788,11 @@ final class ChatBubbleCell: ChatBaseCell, UIContextMenuInteractionDelegate {
                 element.accessibilityCustomActions = bubble.accessibilityCustomActions
                 // A page card is its own button: the words leave its block out, or a touch on the card (VoiceOver's,
                 // a UI test's) finds the words first. A card alone keeps the frame but comes after the card.
-                let words = zip(b.blocks, blockViews).filter { !$1.showsPageCard }.map(\.0.frame)
+                let words = zip(b.blocks, blockViews).filter { !$1.showsStandaloneCard }.map(\.0.frame)
                 element.accessibilityFrameInContainerSpace = (words.isEmpty ? b.blocks.map(\.frame) : words).reduce(CGRect.null) { $0.union($1) }
                 if words.isEmpty {
                     elements += controls
-                    elements.append(element)
+                    if !phoneOnly { elements.append(element) }
                 } else {
                     elements.append(element)
                     elements += controls
