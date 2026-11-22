@@ -1,7 +1,7 @@
 // [quick-actions] The Quick Actions page (docs/spec/3x-morepages.md §25; owner 2026-11-21: "I want everyone to be able
 // to build a custom quick action page so every thing they would need is one click away after triggering the shortcut
 // to open the quick action"). Tiles in two columns, Small or Wide; one tap runs one (`QuickActionsRouter.run`). Edit
-// removes (−), resizes (the corner arrows), reorders (drag) and adds (＋ Add Action); holding a tile out of Edit offers Small, Wide, Edit… and Remove.
+// removes (−), resizes (drag the corner handle), reorders (drag) and adds (＋ Add Action); holding a tile out of Edit offers Small, Wide, Edit… and Remove.
 // The list is this device's (`QuickTileStore`, `hqn.quickActions`). Opened as a sheet by every shortcut and link, and
 // pushed from More › Quick Actions or shown as a tab.
 
@@ -212,6 +212,35 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         change { $0.setShort(id, short) }
     }
 
+    /// The corner drag's start: the tile's size and its frame then (thresholds stay put while the tile changes).
+    private var resizeStart: (id: String, wide: Bool, short: Bool, size: CGSize)?
+
+    /// 3x-morepages Q14: the size snaps as the finger passes a third of the tile (a quarter, back to Small), with a tick.
+    private func resizeDrag(_ id: String, moved: CGPoint, state: UIGestureRecognizer.State, cell: UICollectionViewCell) {
+        switch state {
+        case .began:
+            guard let tile = list.tiles.first(where: { $0.id == id }) else { return }
+            resizeStart = (id, tile.wide, tile.short, cell.bounds.size)
+        case .changed:
+            guard let start = resizeStart, start.id == id, let tile = list.tiles.first(where: { $0.id == id }) else { return }
+            let wide = start.wide ? moved.x > -start.size.width * 0.25 : moved.x > start.size.width * 0.3
+            let short = start.short ? moved.y < start.size.height * 0.3 : moved.y < -start.size.height * 0.3
+            guard wide != tile.wide || short != tile.short else { return }
+            PagesHaptics.selection()
+            change { list in
+                list.setWide(id, wide)
+                list.setShort(id, short)
+            }
+        default:
+            if resizeStart?.id == id {
+                resizeStart = nil
+                if let tile = list.tiles.first(where: { $0.id == id }) {
+                    HQAnnounce.say("\(tile.wide ? "Wide" : "Small"), \(tile.short ? "Short" : "Tall")")
+                }
+            }
+        }
+    }
+
     private func step(_ id: String, by delta: Int) -> Bool {
         var moved = false
         change { moved = $0.step(id, by: delta) }
@@ -288,6 +317,10 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         cell.badgeLabel = "Remove \(tile.name)"
         // A single-column page (largest text) draws every tile full width, so its size can't show: no size button.
         cell.onResize = isEditing && !stacked ? { [weak self] in self?.setWide(tile.id, !tile.wide) } : nil
+        cell.onResizeDrag = isEditing && !stacked ? { [weak self, weak cell] moved, state in
+            guard let self, let cell else { return }
+            self.resizeDrag(tile.id, moved: moved, state: state, cell: cell)
+        } : nil
         cell.setResize(wide: tile.wide, name: tile.name)
         cell.setWiggling(isEditing)
     }
@@ -460,6 +493,9 @@ final class QuickTileCell: UICollectionViewCell {
     /// [quick-actions] Owner 2026-11-21: "There isn't a way to change the size of the card." Edit's corner button
     /// flips a tile between Small and Wide (the hold menu out of Edit was the only way, and nothing showed it).
     var onResize: (() -> Void)? { didSet { resize.isHidden = onResize == nil } }
+    /// [quick-actions] Owner 2026-11-21: "Can we not just like click and drag from the corner to resize?" The corner
+    /// handle drags: its translation (in the cell's superview) and the gesture's state; the page snaps the size.
+    var onResizeDrag: ((CGPoint, UIGestureRecognizer.State) -> Void)?
     private let badge = UIButton(type: .system)
     private let resize = UIButton(type: .system)
     private let dash = CAShapeLayer()
@@ -495,6 +531,7 @@ final class QuickTileCell: UICollectionViewCell {
         resize.isHidden = true
         resize.accessibilityIdentifier = "quick-tile.resize"
         resize.addAction(UIAction { [weak self] _ in self?.onResize?() }, for: .primaryActionTriggered)
+        resize.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(resizeDragged(_:))))
         resize.translatesAutoresizingMaskIntoConstraints = false
         addSubview(resize)
         NSLayoutConstraint.activate([
@@ -512,12 +549,15 @@ final class QuickTileCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// Edit's size button: arrows out on a Small tile (make it Wide), arrows in on a Wide one.
+    /// Edit's resize handle: drag it (right Wide, left Small, up Short, down Tall), or tap it for Small ↔ Wide.
     func setResize(wide: Bool, name: String) {
-        resize.configuration?.image = UIImage(systemName: wide ? "arrow.right.and.line.vertical.and.arrow.left"
-                                                               : "arrow.left.and.line.vertical.and.arrow.right",
+        resize.configuration?.image = UIImage(systemName: "arrow.up.left.and.arrow.down.right",
                                               withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .bold))
         resize.accessibilityLabel = wide ? "Make \(name) Small" : "Make \(name) Wide"
+    }
+
+    @objc private func resizeDragged(_ pan: UIPanGestureRecognizer) {
+        onResizeDrag?(pan.translation(in: superview), pan.state)
     }
 
     /// The card: the sheet's card in the page's sheet, the page's card when pushed; outlined in the Desktop Look. The
@@ -570,6 +610,7 @@ final class QuickTileCell: UICollectionViewCell {
         super.prepareForReuse()
         onRemove = nil
         onResize = nil
+        onResizeDrag = nil
         layer.removeAnimation(forKey: "wiggle")
     }
 

@@ -104,11 +104,21 @@ final class QuickActionsUITests: MorePagesCase {
         XCTAssertTrue(waitUntil(5) { self.tile("starter-talk").frame.width > self.tile("starter-memo").frame.width * 1.6 },
                       "Size › Wide makes Talk Wide")
         shot("quick-actions-editing-resize")
-        // Edit's corner arrows (bottom right) flip it back to Small.
-        let talk = tile("starter-talk")
-        talk.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -6, dy: -6)).tap()
+        // Edit's corner handle (bottom right) drags (owner 2026-11-21: "click and drag from the corner to resize"):
+        // left makes Talk Small, up makes it Short, down Tall again.
+        func handle() -> XCUICoordinate {
+            tile("starter-talk").coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -6, dy: -6))
+        }
+        let wideWidth = tile("starter-talk").frame.width
+        handle().press(forDuration: 0.05, thenDragTo: handle().withOffset(CGVector(dx: -wideWidth * 0.45, dy: 0)))
         XCTAssertTrue(waitUntil(5) { abs(self.tile("starter-talk").frame.width - self.tile("starter-memo").frame.width) < 2 },
-                      "the corner arrows make Talk Small again")
+                      "dragging the corner left makes Talk Small")
+        let tall = tile("starter-talk").frame.height
+        handle().press(forDuration: 0.05, thenDragTo: handle().withOffset(CGVector(dx: 0, dy: -tall * 0.6)))
+        XCTAssertTrue(waitUntil(5) { self.tile("starter-talk").frame.height < tall * 0.75 }, "dragging the corner up makes Talk Short")
+        shot("quick-actions-drag-short")
+        handle().press(forDuration: 0.05, thenDragTo: handle().withOffset(CGVector(dx: 0, dy: tall * 0.6)))
+        XCTAssertTrue(waitUntil(5) { self.tile("starter-talk").frame.height > tall * 0.9 }, "and down makes it Tall again")
 
         // Reorder: Search Chats dragged to the front.
         tile("starter-search").press(forDuration: 0.9, thenDragTo: tile("starter-memo"))
