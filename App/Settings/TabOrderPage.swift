@@ -14,6 +14,7 @@ struct TabOrderPage: View {
     @State private var shown = TabOrder.tabs
     #if targetEnvironment(macCatalyst)
     @State private var botsInSidebar = MacSidebar.botsInSidebar   // [bots-place]
+    @State private var pinnedOnly = MacSidebar.pinnedOnly         // [pinned-only]
     #endif
     /// [kanban-tab-one] The Kanban Tab choice; nil while there is none to make (`kanbanChoice`).
     @State private var kanban: KanbanTabOverride?
@@ -133,6 +134,21 @@ struct TabOrderPage: View {
                 Text(botsInSidebar ? "Your bots are listed in the sidebar. Turn this off to have a Bots row that opens the list beside the sidebar, as Sessions does."
                      : "Bots is a row in the sidebar, and the list of bots opens beside it, as Sessions does.")
             } }
+            // [pinned-only] Owner 2026-11-22: only the pinned bots in the sidebar. The footer says what the name
+            // can't: a bot that isn't pinned is still listed while it wants you.
+            if botsInSidebar {
+                Section {
+                    SwitchRow(title: "Pinned Bots Only", isOn: Binding(get: { pinnedOnly }, set: { on in
+                        Haptics.play(.selection)
+                        pinnedOnly = on
+                        MacSidebar.pinnedOnly = on
+                    }))
+                    .accessibilityIdentifier("tab-order.pinned-only")
+                    .onReceive(NotificationCenter.default.publisher(for: MacSidebar.pinnedOnlyChanged)) { _ in pinnedOnly = MacSidebar.pinnedOnly }
+                } footer: { HQSectionFooter {
+                    Text("A bot that isn’t pinned still shows while it’s working or has a reply you haven’t read.")
+                } }
+            }
         }
         #endif
     }

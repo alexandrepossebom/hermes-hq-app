@@ -250,6 +250,15 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   Bots), so one list shows at a time. Sessions keeps its Chats | Projects switch. The switch is in Settings › Sidebar
   and in the sidebar's own menu (a right click between rows, the foot's +), only while Bots is a place. Check:
   `-HQMacBotsInSidebar NO` with `-HQDebugMacShots <name>`.
+- **Pinned Bots Only** (owner 2026-11-22: "I'd like to have the ability to pin only certain bots to the sidebar on
+  Mac"). Off, as it was and unless turned on: every bot. On (`MacSidebar.pinnedOnly`, kept in `HQMacSidebarPinnedOnly`,
+  this Mac only): the sidebar, open or folded, lists the pinned bots and group chats, and any other only while it
+  wants the person (working, waiting for an answer, unread) or is the chat on show (`BotList.pinnedOnly`, applied to
+  `railSections` in `MacSidebar.botsChanged`); a group left with nothing has no heading. Hidden follows Show Hidden
+  Bots as before, and with nothing pinned every bot shows (an empty sidebar would read as no bots). The pins are the
+  list's own, shared with the iPhone's tiles: there is no second, Mac-only set. The bots left out are in ⌘K and the
+  Bots list. The switch is in Settings › Sidebar and in the sidebar's own menu, under Bots in Sidebar and only while
+  that is on. Check: `-HQMacSidebarPinnedOnly YES` with `-HQDemoLists -HQDebugMacShots <name>`.
 - **Tools** = More's Workspace and Insights pages (`PagesTabs.toolSections`, `toolIDs`, `isTool`). Each is a page tab
   as one added from More is; `MainTabController.setViewControllers` places them after the Settings › Tabs places.
   A tool's menu has Move to Places. Folded, Tools is one button whose menu clicks the hidden rows.
