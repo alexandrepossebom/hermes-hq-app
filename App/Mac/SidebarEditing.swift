@@ -181,12 +181,6 @@ import UIKit
             view.append(UIAction(title: "Bots in Sidebar", state: MacSidebar.botsInSidebar ? .on : .off) { _ in
                 MacSidebar.botsInSidebar.toggle()
             })
-            // [pinned-only] Only the pinned bots (and one that wants you), while the bots are in the sidebar.
-            if MacSidebar.botsInSidebar {
-                view.append(UIAction(title: "Pinned Bots Only", state: MacSidebar.pinnedOnly ? .on : .off) { _ in
-                    MacSidebar.pinnedOnly.toggle()
-                })
-            }
         }
         return UIMenu(children: [UIMenu(options: .displayInline, children: [add]), UIMenu(options: .displayInline, children: view),
                                  UIMenu(options: .displayInline, children: [settings])])
