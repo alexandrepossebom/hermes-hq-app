@@ -7,6 +7,49 @@ import UniformTypeIdentifiers
 // kept until the sheet closes; Copy puts the image data on the pasteboard with its type. Each says how it went: "Saved"
 // or "Copied" (the HUD Select Text uses), "Preparing…" while Share fetches the original, and an alert that can try
 // again when one fails.
+// Owner 2026-11-22 ("You can't click to copy or save etc an image when you open the image in HQ"): the same menu on
+// the picture in every full-screen viewer (chat photos, Artifacts images, a tool card's picture), so each action works
+// from a `MediaSource` (a name and a way to fetch the bytes), not only a chat attachment.
+
+/// An image the actions can work on: its name (for the shared/saved copy) and how to get its bytes as a file.
+struct MediaSource {
+    let name: String
+    let fetch: @MainActor () async throws -> URL
+    /// What a failed fetch says; nil: the photo viewer's words.
+    var explain: ((Error) -> String)?
+
+    init(name: String, explain: ((Error) -> String)? = nil, fetch: @escaping @MainActor () async throws -> URL) {
+        self.name = name
+        self.explain = explain
+        self.fetch = fetch
+    }
+
+    /// A chat attachment: its original, loaded or downloaded if needed.
+    @MainActor static func item(_ item: MediaItem) -> MediaSource {
+        MediaSource(name: item.attachment.name) { try await MediaActions.original(item) }
+    }
+
+    /// A picture already in memory (a tool card's screenshot): written as PNG to a temporary file.
+    @MainActor static func image(_ image: @escaping @MainActor () -> UIImage, name: String) -> MediaSource {
+        MediaSource(name: name) {
+            let picture = image()
+            let data = await Task.detached(priority: .userInitiated) { picture.pngData() }.value
+            guard let data else { throw CocoaError(.fileWriteUnknown) }
+            return try temporaryFile(data, name: name, ext: "png")
+        }
+    }
+
+    /// Bytes read from somewhere (the gateway), written to a temporary file for the actions.
+    static func temporaryFile(_ data: Data, name: String, ext: String? = nil) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "HQNViewer-" + UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var file = AttachmentStaging.safeName(name.isEmpty ? "image" : name)
+        if let ext, (file as NSString).pathExtension.isEmpty { file += "." + ext }
+        let url = folder.appending(path: file)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+}
 
 @MainActor enum MediaActions {
     enum SaveOutcome { case saved, denied, failed(String) }
@@ -18,16 +61,19 @@ import UniformTypeIdentifiers
     }
 
     /// What a failed fetch says (the same words as the viewer's "Couldn’t Load the Photo").
-    private static func message(_ error: Error) -> String {
-        (error as? MediaLoadError)?.fileMessage ?? MediaLoadError.unreachable.fileMessage
+    private static func message(_ error: Error, _ source: MediaSource) -> String {
+        if let explain = source.explain { return explain(error) }
+        return (error as? MediaLoadError)?.fileMessage ?? MediaLoadError.unreachable.fileMessage
     }
 
-    static func save(_ item: MediaItem) async -> SaveOutcome {
+    static func save(_ item: MediaItem) async -> SaveOutcome { await save(.item(item)) }
+
+    static func save(_ source: MediaSource) async -> SaveOutcome {
         let url: URL
-        do { url = try await original(item) } catch { return .failed(message(error)) }
+        do { url = try await source.fetch() } catch { return .failed(message(error, source)) }
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else { return .denied }
-        let named = namedCopy(url, item: item)
+        let named = namedCopy(url, name: source.name)
         defer { if let named { try? FileManager.default.removeItem(at: named.deletingLastPathComponent()) } }
         do {
             // Photos runs the change block on its own queue: it must not be main-actor isolated.
@@ -68,6 +114,10 @@ import UniformTypeIdentifiers
     /// The share sheet with a copy named after the image (R:src/image-names.ts:5-30); the copy goes when it closes.
     /// "Preparing…" shows while the original is fetched, when that isn't instant.
     static func share(_ item: MediaItem, from vc: UIViewController, anchor: UIView?, barItem: UIBarButtonItem? = nil) async {
+        await share(.item(item), from: vc, anchor: anchor, barItem: barItem)
+    }
+
+    static func share(_ source: MediaSource, from vc: UIViewController, anchor: UIView?, barItem: UIBarButtonItem? = nil) async {
         let pending = Task { @MainActor [weak vc] () -> UIView? in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return nil }
@@ -76,18 +126,18 @@ import UniformTypeIdentifiers
         let named: URL?
         let failure: String?
         do {
-            named = namedCopy(try await original(item), item: item)
+            named = namedCopy(try await source.fetch(), name: source.name)
             failure = named == nil ? "A copy of the image to share couldn’t be made." : nil
         } catch {
             named = nil
-            failure = message(error)
+            failure = message(error, source)
         }
         pending.cancel()
         MenusHUD.hide(await pending.value)
         guard let named else {
             showFailure("Couldn’t Share", message: failure ?? MediaLoadError.unreachable.fileMessage, on: vc) { [weak vc, weak anchor] in
                 guard let vc else { return }
-                Task { await share(item, from: vc, anchor: anchor, barItem: barItem) }
+                Task { await share(source, from: vc, anchor: anchor, barItem: barItem) }
             }
             return
         }
@@ -99,7 +149,9 @@ import UniformTypeIdentifiers
 
     /// [mac-audit] Owner 2026-11-02 (Mac audit J1): Save As…: the original fetched as Share… fetches it ("Preparing…"
     /// when that isn't instant), named as Share names it, then the Mac's save panel; the copy goes when the panel closes.
-    static func saveAs(_ item: MediaItem, from vc: UIViewController) async {
+    static func saveAs(_ item: MediaItem, from vc: UIViewController) async { await saveAs(.item(item), from: vc) }
+
+    static func saveAs(_ source: MediaSource, from vc: UIViewController) async {
         let pending = Task { @MainActor [weak vc] () -> UIView? in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return nil }
@@ -108,18 +160,18 @@ import UniformTypeIdentifiers
         let named: URL?
         let failure: String?
         do {
-            named = namedCopy(try await original(item), item: item)
+            named = namedCopy(try await source.fetch(), name: source.name)
             failure = named == nil ? "A copy of the image to save couldn’t be made." : nil
         } catch {
             named = nil
-            failure = message(error)
+            failure = message(error, source)
         }
         pending.cancel()
         MenusHUD.hide(await pending.value)
         guard let named else {
             showFailure("Couldn’t Save", message: failure ?? MediaLoadError.unreachable.fileMessage, on: vc) { [weak vc] in
                 guard let vc else { return }
-                Task { await saveAs(item, from: vc) }
+                Task { await saveAs(source, from: vc) }
             }
             return
         }
@@ -127,9 +179,11 @@ import UniformTypeIdentifiers
     }
 
     /// Copies the image: nil when it went, otherwise what went wrong.
-    static func copy(_ item: MediaItem) async -> String? {
+    static func copy(_ item: MediaItem) async -> String? { await copy(.item(item)) }
+
+    static func copy(_ source: MediaSource) async -> String? {
         let url: URL
-        do { url = try await original(item) } catch { return message(error) }
+        do { url = try await source.fetch() } catch { return message(error, source) }
         // The bytes keep their own type; a type many apps can't paste (WebP, HEIC) also carries a PNG (L1003).
         let payload = await Task.detached(priority: .userInitiated) { () -> (Data, String, Data?)? in
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
@@ -153,9 +207,11 @@ import UniformTypeIdentifiers
     }
 
     /// A temporary copy named `<name>.<ext of the bytes>` (`image.<ext>` without a name).
-    static func namedCopy(_ url: URL, item: MediaItem) -> URL? {
+    static func namedCopy(_ url: URL, item: MediaItem) -> URL? { namedCopy(url, name: item.attachment.name) }
+
+    static func namedCopy(_ url: URL, name: String) -> URL? {
         let ext = imageType(of: url).preferredFilenameExtension ?? "jpg"
-        var stem = (item.attachment.name as NSString).deletingPathExtension
+        var stem = (name as NSString).deletingPathExtension
         if stem.isEmpty || stem == "Photo" || stem == "Image" { stem = "image" }
         let folder = FileManager.default.temporaryDirectory.appending(path: "HQNShare-" + UUID().uuidString, directoryHint: .isDirectory)
         let target = folder.appending(path: AttachmentStaging.safeName(stem + "." + ext))
@@ -169,8 +225,10 @@ import UniformTypeIdentifiers
     }
 
     /// Menu Save to Photos: "Saved", the Settings alert, or what went wrong with Try Again.
-    static func saveFromMenu(_ item: MediaItem, from vc: UIViewController) async {
-        switch await save(item) {
+    static func saveFromMenu(_ item: MediaItem, from vc: UIViewController) async { await saveFromMenu(.item(item), from: vc) }
+
+    static func saveFromMenu(_ source: MediaSource, from vc: UIViewController) async {
+        switch await save(source) {
         case .saved:
             Haptics.play(.success)
             MenusHUD.show("Saved", in: vc.view)
@@ -179,17 +237,19 @@ import UniformTypeIdentifiers
         case .failed(let message):
             showFailure("Couldn’t Save", message: message, on: vc) { [weak vc] in
                 guard let vc else { return }
-                Task { await saveFromMenu(item, from: vc) }
+                Task { await saveFromMenu(source, from: vc) }
             }
         }
     }
 
     /// Menu Copy Image: "Copied", or what went wrong with Try Again.
-    static func copyFromMenu(_ item: MediaItem, from vc: UIViewController) async {
-        if let message = await copy(item) {
+    static func copyFromMenu(_ item: MediaItem, from vc: UIViewController) async { await copyFromMenu(.item(item), from: vc) }
+
+    static func copyFromMenu(_ source: MediaSource, from vc: UIViewController) async {
+        if let message = await copy(source) {
             showFailure("Couldn’t Copy", message: message, on: vc) { [weak vc] in
                 guard let vc else { return }
-                Task { await copyFromMenu(item, from: vc) }
+                Task { await copyFromMenu(source, from: vc) }
             }
         } else {
             Haptics.play(.success)
@@ -200,26 +260,53 @@ import UniformTypeIdentifiers
     /// The long-press menu on a chat image (spec §9.6): Save to Photos, Share…, Copy. [mac-audit] On the Mac, Save As…
     /// after Save to Photos (Mac audit J1: a picture could only go to Photos or the share sheet).
     static func menu(for item: MediaItem, from vc: UIViewController, anchor: UIView) -> UIMenu {
+        menu(for: .item(item), from: vc, anchor: anchor)
+    }
+
+    /// The same menu for any image (`MediaSource`): also the full-screen viewers' press-and-hold / right-click.
+    static func menu(for source: MediaSource, from vc: UIViewController, anchor: UIView) -> UIMenu {
         let saving: [UIMenuElement] = !FileSaver.offered ? [] : [FileSaver.action { [weak vc] in
             guard let vc else { return }
-            Task { @MainActor in await saveAs(item, from: vc) }
+            Task { @MainActor in await saveAs(source, from: vc) }
         }]
         // Beside Save As… the Photos item takes the Photos glyph (the phone keeps its own).
         let photos: [UIMenuElement] = [
             UIAction(title: "Save to Photos", image: UIImage(systemName: FileSaver.offered ? "photo.badge.plus" : "square.and.arrow.down")) { [weak vc] _ in
                 guard let vc else { return }
-                Task { @MainActor in await saveFromMenu(item, from: vc) }
+                Task { @MainActor in await saveFromMenu(source, from: vc) }
             },
         ]
         return UIMenu(children: photos + saving + [
             UIAction(title: "Share…", image: UIImage(systemName: "square.and.arrow.up")) { [weak vc, weak anchor] _ in
                 guard let vc else { return }
-                Task { @MainActor in await share(item, from: vc, anchor: anchor) }
+                Task { @MainActor in await share(source, from: vc, anchor: anchor) }
             },
             UIAction(title: "Copy Image", image: UIImage(systemName: "doc.on.doc")) { [weak vc] _ in
                 guard let vc else { return }
-                Task { @MainActor in await copyFromMenu(item, from: vc) }
+                Task { @MainActor in await copyFromMenu(source, from: vc) }
             },
         ] as [UIMenuElement])
+    }
+}
+
+/// Owner 2026-11-22: press and hold (right-click on the Mac) on a full-screen viewer's picture opens
+/// `MediaActions.menu`. The viewer keeps this object (an interaction holds its delegate weakly); `menu` returns nil
+/// while there is no picture yet.
+@MainActor final class ViewerImageMenu: NSObject, UIContextMenuInteractionDelegate {
+    private let menu: () -> UIMenu?
+
+    init(menu: @escaping () -> UIMenu?) {
+        self.menu = menu
+    }
+
+    /// Adds the menu to `view` (made to take touches; its taps still reach the scroll view's recognizers).
+    func attach(to view: UIView) {
+        view.isUserInteractionEnabled = true
+        view.addInteraction(UIContextMenuInteraction(delegate: self))
+    }
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        guard let menu = menu() else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in menu }
     }
 }

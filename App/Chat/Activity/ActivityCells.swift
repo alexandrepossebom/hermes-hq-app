@@ -1041,6 +1041,8 @@ final class ActivityImageViewer: UIViewController, UIScrollViewDelegate {
     private var shareItem: UIBarButtonItem!
     private var failedCaption: UIButton?
     private var fling: PhotoFling?
+    /// Owner 2026-11-22: press and hold (right-click on the Mac) on the picture: Save to Photos, Share…, Copy Image.
+    private var imageMenu: ViewerImageMenu?
 
     /// Presents the viewer over `presenter`, zooming from `source` (the card's picture).
     static func present(from presenter: UIViewController, source: UIView, image: UIImage, name: String, loadFull: (() async throws -> UIImage)?) {
@@ -1100,6 +1102,13 @@ final class ActivityImageViewer: UIViewController, UIScrollViewDelegate {
         imageView.accessibilityTraits = .image
         fling = PhotoFling(host: self, directions: .up, flyOff: false, content: { [weak self] in self?.scroll },
                            canBegin: { [weak self] in self?.isAtMinimumZoom ?? true })
+        let menu = ViewerImageMenu { [weak self] in
+            guard let self else { return nil }
+            let source = MediaSource.image({ [weak self] in self?.image ?? UIImage() }, name: self.name)
+            return MediaActions.menu(for: source, from: self, anchor: self.imageView)
+        }
+        menu.attach(to: imageView)
+        imageMenu = menu
         loadWhole()
     }
 
