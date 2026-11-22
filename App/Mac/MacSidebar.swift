@@ -794,7 +794,7 @@ final class MacSidebar: UIView {
             button.showsMenuAsPrimaryAction = true
             MacHover.drawsOwnHover(button)   // [Mac AAA 2026-11-16] the row under it draws the hover (as every rail row)
             button.menu = UIMenu(title: "Tools", children: toolRows.map { tool in
-                UIAction(title: tool.item.title ?? "", image: tool.item.image) { [weak tool] _ in tool?.sendActions(for: .touchUpInside) }
+                UIAction(title: tool.item.title ?? "", image: SidebarEditing.menuImage(tool.item)) { [weak tool] _ in tool?.sendActions(for: .touchUpInside) }
             })
             button.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(button)
