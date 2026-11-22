@@ -598,8 +598,10 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 },
                 onNewChatWith: { [weak self] in self?.organizer?.newChat(inProject: key, profile: nil, asks: true) })
             let prCounts = self.projectPRCounts(key)
+            // [project-header-repo] The folder its Repository… page points at, when one is linked.
+            let place = ProjectPageHeader.place(key: key, linked: self.store?.prRepo(forProject: key)?.path, branch: group.branch)
             let header = ProjectPageHeader(
-                name: group.latestTitle ?? key, folder: key, branch: group.branch, bots: bots,
+                name: group.latestTitle ?? key, folder: place.folder, branch: place.branch, bots: bots,
                 needs: group.needs, ready: group.ready, working: group.busy, total: group.total,
                 onJump: { [weak self] count in self?.pickPageCount(count) },
                 lit: self.store?.statusChip.map { $0 == .working ? ["working"] : ["needs", "ready"] } ?? [],
@@ -1634,7 +1636,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                         "\(page.needs)|\(page.ready)|\(page.busy)|\(page.total)|\(Theme.isDesktop)|\(store?.statusChip?.rawValue ?? "")", prSign,
                         "\(page.pageKey.map { store?.isProjectPinsLocal($0) ?? false } ?? false)",
                         page.pageKey.map { store?.projectSort($0).rawValue ?? "" } ?? "",                          // [project-pins]
-                        page.pageKey.map { projectSettingsSign($0) } ?? ""].joined(separator: "|")                 // [project-settings]
+                        page.pageKey.map { projectSettingsSign($0) } ?? "",                                         // [project-settings]
+                        page.pageKey.flatMap { store?.prRepo(forProject: $0)?.path } ?? ""].joined(separator: "|") // [project-header-repo]
             if sign != pageSign, snapshot.itemIdentifiers.contains(Self.pageKey) { snapshot.reconfigureItems([Self.pageKey]) }
             pageSign = sign
         }

@@ -328,6 +328,14 @@ import Testing
         #expect(show(.date).prefix(2) == ["Bot Faces", "Projects"] && !show(.status).contains("Bot Faces") && !show(.status).contains("Projects"))
         #expect(ProjectPageHeader.meta(folder: "/Users/me/code/site", branch: "main", bots: ["Otto", "Ivy"]) == "~/code/site · main · Otto, Ivy")
         #expect(ProjectPageHeader.meta(folder: "id:x/p", branch: nil, bots: ["Otto", "Ivy", "Wren", "Juno"]) == "Otto, Ivy and 2 more")
+        // [project-header-repo] A linked repository's folder is the one the header says; the branch only when it is that folder's.
+        let elsewhere = ProjectPageHeader.place(key: "/Users/me/code/old", linked: "/Users/me/code/app/", branch: "main")
+        #expect(elsewhere.folder == "/Users/me/code/app" && elsewhere.branch == nil)
+        #expect(ProjectPageHeader.meta(folder: elsewhere.folder, branch: elsewhere.branch, bots: ["Otto"]) == "~/code/app · Otto")
+        let same = ProjectPageHeader.place(key: "/Users/me/code/app", linked: "/Users/me/code/app", branch: "main")
+        #expect(same.folder == "/Users/me/code/app" && same.branch == "main")
+        let unlinked = ProjectPageHeader.place(key: "id:x/p", linked: nil, branch: "dev")
+        #expect(unlinked.folder == "id:x/p" && unlinked.branch == "dev")
         var prefs = SessionsViewPrefs(); prefs.pills = .projects
         #expect(prefs.groupBy == .project)
         prefs.pills = .bots

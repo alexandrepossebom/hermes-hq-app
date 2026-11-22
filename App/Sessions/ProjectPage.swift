@@ -84,6 +84,16 @@ struct ProjectPageHeader: View {
         return [shortFolder(folder), branch ?? "", who].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
+    /// [project-header-repo] Owner 2026-11-22 (the Repository page on hermes-hq-native, the header still on the folder
+    /// the project is named for): "This project folder showing on the project card doesn't match the folder that I'm
+    /// pointing the project to". With a repository linked, the header says that folder. The branch beside it is the
+    /// newest chat's in the folder it ran in, so it is said only when that is the linked folder.
+    static func place(key: String, linked: String?, branch: String?) -> (folder: String, branch: String?) {
+        guard let linked = linked.map(SessionStore.tidyFolder), linked.hasPrefix("/"),
+              linked != SessionStore.tidyFolder(key) else { return (key, branch) }
+        return (linked, nil)
+    }
+
     /// Count verified answers once per project chat, including archived chats. [pr-multi] A chat counts under each
     /// state one of its pull requests or branches is in (a merged one and an open one: under both), so two waiting
     /// in one chat never hide behind one mark; the counts stay counts of chats, as the filter they pick shows chats.
