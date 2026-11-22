@@ -888,6 +888,48 @@ import Testing
         #expect(active { $0.projectsByNewest = ["/elsewhere"] } == ["s0", "s3", "s1", "s2"])
     }
 
+    /// [project-by-status] Owner 2026-11-22 (T3 Code's sidebar): Sort › By Status splits Active into Needs You, New,
+    /// Working and Earlier, each section only when it has a chat; a chat read since the page was last left stays under
+    /// New; another project's page keeps its one Active run.
+    @Test func byStatusSplitsAProjectPageIntoStateSections() {
+        let entries = SessionProjects.menuEntries(Self.projects, order: ["default"])
+        var rows = Self.projectRows(5)   // s0 and s3 unread
+        rows[1].status = .needsInput
+        rows[2].status = .working
+        func page(_ edit: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(rows) {
+                $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries
+                $0.prefs.projectFilter = ["/home/hermes/site"]
+                $0.projectsByStatus = ["/home/hermes/site"]
+                edit(&$0)
+            }
+        }
+        func ids(_ groups: [SessionGroup]) -> [String: [String]] {
+            Dictionary(groups.filter { $0.id != SessionListPipeline.pageId }.map { ($0.id, $0.sessions.map(\.id)) },
+                       uniquingKeysWith: { a, _ in a })
+        }
+        let split = page()
+        #expect(split.map(\.id).filter { $0 != SessionListPipeline.pageId } ==
+                ["state-needs", "state-new", "state-working", "state-earlier"])
+        #expect(ids(split) == ["state-needs": ["s1"], "state-new": ["s0", "s3"], "state-working": ["s2"],
+                               "state-earlier": ["s4"]])
+        #expect(split.first { $0.id == "state-new" }?.title == "New")
+        #expect(SessionListPipeline.pageSectionState("state-needs") == .needsYou)
+        #expect(SessionListPipeline.pageSectionState("state-new") == .ready)
+        #expect(SessionListPipeline.pageSectionState("state-working") == .working)
+        #expect(SessionListPipeline.pageSectionState("state-earlier") == nil)
+        #expect(SessionListPipeline.pageSectionState("state-active") == nil)
+        // Read on the page: held under New until the page is left, then Earlier.
+        rows[3].unread = false; rows[3].status = .idle
+        #expect(ids(page { $0.keepNew = ["default\u{1F}s3"] })["state-new"] == ["s0", "s3"])
+        #expect(ids(page())["state-new"] == ["s0"] && ids(page())["state-earlier"]?.contains("s3") == true)
+        // An empty state draws no section.
+        rows[2].status = .idle
+        #expect(page().contains { $0.id == "state-working" } == false)
+        // Not this project's choice: one Active run, as before.
+        #expect(ids(page { $0.projectsByStatus = ["/elsewhere"] }).keys.sorted() == ["state-active"])
+    }
+
     // MARK: New for You and folded projects (owner, 2026-10-31)
 
     /// [sessions-layout] New for You: every unread chat and every chat waiting on the user, newest first, out of

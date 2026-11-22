@@ -371,6 +371,7 @@ extension SessionStore {
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
                                                     archivedProjects: archivedProjects, projectPins: projectPinKeys,
                                                     projectsByNewest: Set(device.projectSorts.filter { $0.value == ProjectPageSort.newest.rawValue }.keys),
+                                                    projectsByStatus: Set(device.projectSorts.filter { $0.value == ProjectPageSort.byStatus.rawValue }.keys),
                                                     keptProjects: keptProjects, projectAutoDone: projectAutoDoneRules,
                                                     botNames: botNames, statusChip: statusChip,
                                                     projectPRState: projectPRFilter.flatMap { view.projectFilter == [$0.key] && isCodingProject($0.key) ? $0.state : nil },

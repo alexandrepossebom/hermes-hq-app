@@ -773,7 +773,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         let pageSection = !searching && SessionListPipeline.isPageSection(id)
         let view = SessionDateHeaderView(title: title, onNewChat: onNewChat, onRename: onRename, onDelete: onDelete, fold: fold,
                                          order: order, dropTarget: dropTarget, summary: summary, badge: badge,
-                                         mark: nil,   // [three-piles] the piles have no state of their own (each row says its own)
+                                         // [three-piles] the piles have no state of their own (each row says its own);
+                                         // [project-by-status] By Status's sections do.
+                                         mark: pageSection ? SessionListPipeline.pageSectionState(id) : nil,
                                          tally: pageSection ? group.total : nil,
                                          caption: firstProject ? SessionListPipeline.projectsTitle : nil, onEditCaption: onEdit,
                                          onFoldCaption: onFoldCaption, seeAll: seeAll,
