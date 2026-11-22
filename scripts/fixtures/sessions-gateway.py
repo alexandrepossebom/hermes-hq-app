@@ -45,6 +45,7 @@ Filter & Sort, chips, Session Info and the reconnect probe (docs/spec/3x-session
                           process runs; serve/working answers 503 as outside the serving process)
                           {"live":{"s-trip":"waiting"}} (session.active_list names those chats with that status,
                           Hermes's own word on a turn or a request this app isn't attached to)
+  POST /__fixture/projects {"profile":"atlas","add":{"id":…,"label":…,"path":…}} a project made in another app
   POST /__fixture/read    {"id":"s-trip","unread":false} the person's other device reads the chat (or marks it unread):
                           the read watermark is stamped as PATCH /api/sessions/{id} {"unread":…} stamps it, and
                           sessions.changed goes out
@@ -999,6 +1000,11 @@ def handler(gateway):
                 with lock: answer = patch_row(body)
                 if body.get('event'): broadcast()
                 return self.reply(200, answer)
+            if path == '/__fixture/projects':         # [projects-all-bots] a project made in another app (the desktop)
+                body = self.body_json()
+                project = {'repos': [], 'sessionCount': 0, **(body.get('add') or {})}
+                with lock: PROJECTS.setdefault(body.get('profile') or 'default', []).append(project)
+                return self.reply(200, {'ok': True, 'project': project})
             if path == '/__fixture/read':             # [read-sync] the person's other device
                 body = self.body_json()
                 with lock:

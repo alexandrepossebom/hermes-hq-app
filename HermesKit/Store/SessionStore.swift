@@ -389,6 +389,8 @@ final class SessionStore {
     @ObservationIgnored var readOnlyGateway = false
     /// Owner names by profile (from the Bots roster); a profile missing here reads "Hermes" / its readable name.
     @ObservationIgnored var profileDisplayNames: [String: String] = [:]
+    /// [projects-all-bots] The roster's shown bots (profiles): each one's projects are read, chats listed or not.
+    @ObservationIgnored var projectBots: [String] = []
 
     @ObservationIgnored let client: any GatewayClient
     // Per-store (and therefore per gateway) cache; a profile and stored id form the identity.
@@ -825,6 +827,8 @@ final class SessionStore {
             waits += 1
         }
         await readTask(probeFirst: false).value
+        // [projects-all-bots] A project made elsewhere (the desktop, another phone) shows on the pull, not a minute on.
+        if !projectsByProfile.isEmpty { loadProjects(force: true) }
     }
 
     // MARK: - Reads for the UI

@@ -334,6 +334,20 @@ nonisolated enum SessionListPipeline {
                 let key = project(session)
                 return (projectPrefix + key, labels[key] ?? SessionProjects.homeLabel)
             }
+            // [projects-all-bots] Owner 2026-11-22 ("I just created a new project … and I can't see it in my list"): the
+            // Projects side lists every project, a new one with no chat yet too (last, as the quietest), not only the
+            // projects a chat is in. Saved projects only: a folder Hermes found on the disk by itself (`isAuto`) shows
+            // once a chat is in it. Not while a status filter narrows the list (an empty project matches nothing).
+            if prefs.groupBy == .project, prefs.statusFilter.isEmpty, picked.isEmpty {
+                let present = Set(groups.map(\.id))
+                let saved = Set(input.projectsByProfile.flatMap { profile, projects in
+                    projects.filter { $0.isAuto != true }.map { SessionProjects.key($0, profile: profile) }
+                })
+                for entry in input.projects where entry.key != SessionProjects.homeKey && saved.contains(entry.key)
+                    && !hidden.contains(entry.key) && !present.contains(projectPrefix + entry.key) {
+                    groups.append(SessionGroup(id: projectPrefix + entry.key, title: entry.label, sessions: []))
+                }
+            }
             // A project's place is its newest chat's; Home goes last.
             let home = projectPrefix + SessionProjects.homeKey
             let newest = Dictionary(groups.map { ($0.id, $0.sessions.map(recency).max() ?? -.infinity) }, uniquingKeysWith: { first, _ in first })

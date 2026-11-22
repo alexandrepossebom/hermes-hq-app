@@ -586,12 +586,16 @@ extension SessionStore {
 
     // MARK: - Projects (§3.4)
 
-    /// Asks for the projects of every bot that owns a listed chat (and the chip's bot): the first time the Filter menu
-    /// opens or Group By Project is on, then at most once a minute per bot, and again (`force`) after one is created.
+    /// Asks for the projects of every bot on the gateway (the roster's shown bots, under All Bots), every bot that owns
+    /// a listed chat, and the chip's bot: the first time the Filter menu opens or Group By Project is on, then at most
+    /// once a minute per bot, and again (`force`) after one is created or on pull to refresh.
     /// `also`: bots to ask whether or not they own a listed chat (the bot a project was just created for).
     /// At most `projectsWindow` asks are in the air; the rest wait their turn.
+    /// [projects-all-bots] Owner 2026-11-22: a project made in another app on a bot with no chat on the loaded page
+    /// never reached the Projects view, because only the listed chats' bots were asked.
     func loadProjects(force: Bool = false, also extra: [String] = []) {
         var owners = Set(listedRows.map(\.profile)).union(extra)
+        if allBots { owners.formUnion(projectBots) }
         if let botFilter { owners.insert(botFilter) }
         var queued = 0
         for profile in owners.sorted() where !projectReads.contains(profile) && !projectQueue.contains(profile) {

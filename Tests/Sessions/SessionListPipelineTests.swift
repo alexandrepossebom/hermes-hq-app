@@ -204,6 +204,34 @@ import Testing
         #expect(groups.last?.sessions.map(\.id) == ["home-new"])
     }
 
+    /// [projects-all-bots] Owner 2026-11-22: a project with no chat yet (made a moment ago, on any bot) is on the
+    /// Projects side too, after the ones with chats and before Home; a status filter or a picked project leaves it out,
+    /// an archived one stays hidden, and a folder Hermes found on the disk by itself waits for a chat.
+    @Test func groupByProjectListsAProjectWithNoChatYet() {
+        var projects = Self.projects
+        projects["atlas"] = [SessionProject(id: "a1", label: "Side Gig", root: "/home/hermes/sidegig", paths: ["/home/hermes/sidegig"])]
+        let entries = SessionProjects.menuEntries(projects, order: ["default", "research", "atlas"])
+        let rows = [Self.chat("home-new", ago: 5), Self.chat("site", ago: 100, cwd: "/home/hermes/site/src")]
+        func run(_ change: (inout SessionListInput) -> Void = { _ in }) -> [SessionGroup] {
+            Self.run(rows) {
+                $0.prefs.groupBy = .project; $0.projectsByProfile = projects; $0.projects = entries
+                change(&$0)
+            }
+        }
+        let groups = run()
+        #expect(groups.map(\.title) == ["Site", "Reading", "Side Gig", "Home"])
+        #expect(groups.first { $0.title == "Side Gig" }.map { $0.sessions.isEmpty && $0.total == 0 } == true)
+        #expect(!run { $0.prefs.statusFilter = [.unread] }.contains { $0.title == "Side Gig" })
+        #expect(!run { $0.prefs.projectFilter = ["/home/hermes/site"] }.contains { $0.title == "Side Gig" })
+        #expect(!run { $0.archivedProjects = ["/home/hermes/sidegig"]; $0.prefs.pills = .projects }.contains { $0.title == "Side Gig" })
+        // A folder Hermes found by itself is no saved project: it shows once a chat is in it.
+        var found = projects
+        found["atlas"]?[0].isAuto = true
+        #expect(!Self.run(rows) {
+            $0.prefs.groupBy = .project; $0.projectsByProfile = found; $0.projects = entries
+        }.contains { $0.title == "Side Gig" })
+    }
+
     /// [sessions-shape] Group By Recent's Projects is a shortcut: the starred projects (the newest two while none is
     /// starred), no See All; a filter narrowing the list shows every project it finds. Recent lists every chat.
     /// [chats-projects] All of it with Show › Projects on (`theChatsSideHasNoProjectsUnlessShown`).
@@ -425,8 +453,9 @@ import Testing
         #expect(byProject[0].sessions.map(\.id) == ["a"] && byProject.last?.sessions.map(\.id) == ["home-pin", "home"])
 
         // Every chat pinned: the project is still listed, and Home with its pinned chat alone under Group By Project.
-        #expect(run(.project, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["project-/p/a"])
-        #expect(run(.project, [Self.chat("home-pin", pinned: true)]).map(\.id) == ["project-home"])
+        // [projects-all-bots] B and C, with no chat here, are listed too (after the ones with chats, before Home).
+        #expect(run(.project, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["project-/p/a", "project-/p/b", "project-/p/c"])
+        #expect(run(.project, [Self.chat("home-pin", pinned: true)]).map(\.id) == ["project-/p/a", "project-/p/b", "project-/p/c", "project-home"])
         #expect(run(nil, [Self.chat("a", ago: 60, pinned: true, cwd: "/p/a")]).map(\.id) == ["pinned", "project-/p/a"])
     }
 
@@ -750,9 +779,10 @@ import Testing
             $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries
             $0.collapsedGroups = ["pinned"]
         }
-        #expect(groups.map(\.id) == ["project-/home/hermes/site", "project-home"])     // [three-piles] the pinned chat is in Home
+        // [three-piles] the pinned chat is in Home; [projects-all-bots] Reading, with no chat, is listed too
+        #expect(groups.map(\.id) == ["project-/home/hermes/site", "project-/home/hermes/reading", "project-home"])
         #expect(groups.allSatisfy { $0.collapsed && $0.sessions.isEmpty && $0.more == 0 })
-        #expect(groups.map(\.total) == [3, 1])
+        #expect(groups.map(\.total) == [3, 0, 1])
         // A closed project that was opened with Show More stays closed (no Show Less row under a closed header).
         let both = Self.run(Self.projectRows(9, unread: false)) {
             $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries
@@ -911,7 +941,8 @@ import Testing
             Self.run(rows) { $0.prefs.groupBy = .project; $0.projectsByProfile = Self.projects; $0.projects = entries; edit(&$0) }
         }
         let folded = run()
-        #expect(folded.map(\.id) == [reading, "project-home"])          // [three-piles] the projects alone
+        // [three-piles] the projects alone; [projects-all-bots] Site, with no chat, too
+        #expect(folded.map(\.id) == [reading, SessionListPipeline.projectPrefix + "/home/hermes/site", "project-home"])
         let projects = folded
         #expect(projects.allSatisfy { $0.collapsed && $0.sessions.isEmpty && $0.more == 0 })
         let summary = projects[0]

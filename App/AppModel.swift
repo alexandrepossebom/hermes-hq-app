@@ -577,6 +577,7 @@ final class AppModel: AppServices {
         if UserDefaults.standard.bool(forKey: "HQDebugNoWarmer") { self.warmer = nil }
         #endif
         sessions.profileDisplayNames = Self.displayNames(bots.bots)
+        sessions.projectBots = Self.projectBots(bots.bots)
         bots.setListVisible(true)
         sessions.setListVisible(sessionsListShown)
         bots.start()
@@ -754,6 +755,7 @@ final class AppModel: AppServices {
 
     private func botsChanged() {
         sessionStore?.profileDisplayNames = Self.displayNames(bots)
+        sessionStore?.projectBots = Self.projectBots(bots)
         warmer?.rosterChanged(bots)
         refreshOpenChatIdentities()
         presence?.botsChanged()                       // [presence] a bot came, went or was renamed: its browser line follows
@@ -805,6 +807,9 @@ final class AppModel: AppServices {
     private static func displayNames(_ bots: [Bot]) -> [String: String] {
         Dictionary(bots.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
+
+    /// [projects-all-bots] The bots whose projects the Sessions list reads: every shown bot on the gateway.
+    private static func projectBots(_ bots: [Bot]) -> [String] { bots.filter { !$0.hidden }.map(\.id) }
 
     private func connectionChanged(_ state: ConnectionState) {
         guard state != connection else { return }
