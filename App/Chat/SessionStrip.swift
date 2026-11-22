@@ -269,6 +269,14 @@ extension SessionStripRules {
         NotificationCenter.default.post(name: listChanged, object: nil)
     }
 
+    /// [spring-drop] The chat an entry opens from `screen`, for files let go on its tab or row: the one on show is the
+    /// screen itself.
+    static func dropChat(_ entry: SessionStripEntry, screen: ChatViewController) -> DroppedFilesHandOff.Chat {
+        if entry.current { return .screen(ObjectIdentifier(screen)) }
+        let profile = screen.session.profile.isEmpty ? "default" : screen.session.profile
+        return entry.isBotChat ? .botChat(profile: profile) : .session(profile: "", id: entry.id)
+    }
+
     /// That chat opens in this one's place: a quick fade, the bar and the strip staying where they are.
     static func open(_ entry: SessionStripEntry, from screen: ChatViewController, app: AppModel) {
         guard !entry.current, let navigation = screen.navigationController else { return }
@@ -378,6 +386,29 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
     /// The pill of the chat on screen is kept in view as the pills change, until the person scrolls the strip.
     private var personScrolled = false
     private var placedCurrent = false
+    /// [spring-drop] Each drawn tab or pill's chat, for a file drag held over it.
+    private var pillEntries: [ObjectIdentifier: SessionStripEntry] = [:]
+    /// [spring-drop] Files dragged in from outside the app: a tab held under them opens its chat in this one's place.
+    private lazy var fileDrop: SessionFileDrop = {
+        let drop = SessionFileDrop(list: view)
+        drop.target = { [weak self] point in self?.fileDropTarget(at: point) }
+        return drop
+    }()
+    private lazy var fileDropInteraction = SessionFileDropInteraction(drop: fileDrop)
+
+    private func fileDropTarget(at point: CGPoint) -> SessionFileDrop.Target? {
+        guard let screen, let app else { return nil }
+        for pill in row.arrangedSubviews where !pill.isHidden {
+            guard let entry = pillEntries[ObjectIdentifier(pill)], pill.convert(pill.bounds, to: view).contains(point) else { continue }
+            return SessionFileDrop.Target(key: entry.isBotChat ? "bot" : entry.id, view: pill, cornerRadius: tabs ? 6 : pill.bounds.height / 2,
+                                          chat: SessionStrip.dropChat(entry, screen: screen),
+                                          open: { [weak screen, weak app] in
+                                              guard let screen, let app else { return }
+                                              SessionStrip.open(entry, from: screen, app: app)
+                                          })
+        }
+        return nil
+    }
 
     init(screen: ChatViewController, app: AppModel) {
         self.screen = screen
@@ -493,6 +524,7 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.accessibilityIdentifier = "chat.strip"
+        view.addInteraction(UIDropInteraction(delegate: fileDropInteraction))   // [spring-drop]
         // The chat's own soft top edge, carried on under the pills: the rows scroll up under it, as under the bar.
         backing.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(backing)
@@ -649,8 +681,11 @@ final class SessionStripController: UIViewController, UIScrollViewDelegate {
         row.arrangedSubviews.forEach { $0.removeFromSuperview() }
         tabCaps = []
         fittedFor = -1
+        pillEntries = [:]
         for (index, entry) in entries.enumerated() {
-            row.addArrangedSubview(pill(entry, index: index))
+            let pill = pill(entry, index: index)
+            pillEntries[ObjectIdentifier(pill)] = entry
+            row.addArrangedSubview(pill)
             if tabs, index == 0, entry.isBotChat, entries.count > 1 { row.addArrangedSubview(divider()) }
         }
         if tabs { DispatchQueue.main.async { [weak self] in self?.view.setNeedsLayout(); self?.view.layoutIfNeeded(); self?.placeFade() } }

@@ -170,6 +170,7 @@ enum DebugHooks {
         AnimationWatch.start()                  // [perf] -HQDebugAnimationWatch (App/Debug/AnimationWatch.swift)
         TalkDebugHooks.applyAfterLaunch(root)   // [talk] -HQDebugTalkProbe
         PopLoopDebugHook.start(root)            // [perf] -HQDebugPopLoop (App/Debug/PopLoopDebugHook.swift)
+        SpringDropDebugHook.start(root)         // [spring-drop] -HQDebugSpringDrop (App/Debug/SpringDropDebugHook.swift)
         DuoDebugHooks.applyAfterLaunch(root)    // [duo] -HQDebugDuoTurn (App/Debug/DuoDebugHooks.swift)
         if let state = defaults.string(forKey: "HQDebugAddOnUpdate") {
             // [addon-progress] The add-on update sheet in one state (AddOnUpdate.demo), over whatever the other hooks

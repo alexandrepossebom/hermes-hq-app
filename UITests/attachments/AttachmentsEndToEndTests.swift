@@ -747,6 +747,38 @@ final class AttachmentsEndToEndTests: XCTestCase {
         shot(app, "a20-scroll-bar-bottom")
     }
 
+    // MARK: 21. Files held on a bot's row open its chat; let go there, they're in its tray
+
+    /// [spring-drop] Owner 2026-11-22. `-HQDebugSpringDrop` walks the Bots list's own file-drop code with a drop session
+    /// carrying a real file (a UI test cannot start a drag in another app): held on the row, the chat opens by itself;
+    /// let go on the row, the chat opens with the file in its tray and the file uploads.
+    @MainActor func test21_FilesHeldOnABotRowOpenItsChat() throws {
+        let table = { (app: XCUIApplication) in app.tables["chat.table"] }
+        let open = { (mode: String) -> XCUIApplication in
+            let app = XCUIApplication()
+            app.launchArguments = ["-HQDebugResetAccounts", "YES", "-HQDebugSpringDrop", self.path("report.pdf"),
+                                   "-HQDebugSpringDropMode", mode]
+            app.launch()
+            let form = app.textFields["sign-in-address"]
+            _ = self.waitUntil(timeout: 15) { table(app).exists || form.exists || app.cells["bot-row-default"].exists }
+            if form.exists { self.signIn(app) }
+            return app
+        }
+        let held = open("hold")
+        XCTAssertTrue(table(held).waitForExistence(timeout: 45), "held on the bot's row, its chat opens")
+        sleep(1)
+        XCTAssertFalse(held.buttons["composer.tray.tile.0"].exists, "only opened: nothing was let go")
+        shot(held, "a21-held-opened")
+        held.terminate()
+
+        let dropped = open("drop")
+        XCTAssertTrue(table(dropped).waitForExistence(timeout: 45), "let go on the bot's row, its chat opens")
+        XCTAssertTrue(dropped.buttons["composer.tray.tile.0"].waitForExistence(timeout: 20), "the file is in its tray")
+        XCTAssertTrue(waitUntil(timeout: 20) { self.uploads().contains { ($0["path"] as? String)?.hasSuffix("/report.pdf") == true } },
+                      "the file uploads")
+        shot(dropped, "a21-dropped-in-tray")
+    }
+
     // MARK: Helpers
 
     private func closeButton(_ app: XCUIApplication) -> XCUIElement {

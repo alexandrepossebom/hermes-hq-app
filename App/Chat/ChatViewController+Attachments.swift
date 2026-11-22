@@ -167,3 +167,15 @@ extension ChatViewController: ChatMediaCellDelegate {
         return true
     }
 }
+
+extension ChatViewController {
+    /// [spring-drop] Files let go on this chat's row in a list (`DroppedFilesHandOff`): into the tray, as a drop on the
+    /// chat itself puts them, as many as it has room for.
+    func attachDropped(_ providers: [NSItemProvider]) {
+        guard let attachments else {
+            AppLog.note("attach", "spring drop: this chat takes no files")
+            return
+        }
+        attachments.acceptDropped(providers)
+    }
+}

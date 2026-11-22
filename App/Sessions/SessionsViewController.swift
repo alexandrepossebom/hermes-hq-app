@@ -151,6 +151,12 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     // [/sessions-m9]
     /// Rows whose Delete is on its way (dimmed, a spinner).
     private var busy: Set<String> = []
+    /// [spring-drop] Files dragged in from outside the app: a chat's row held under them opens it.
+    private(set) lazy var fileDrop: SessionFileDrop = {
+        let drop = SessionFileDrop(list: collectionView)
+        drop.target = { [weak self] point in self?.fileDropTarget(at: point) }
+        return drop
+    }()
     private var barCapsule: PageBarCapsule?
     /// [Mac full pass 2026-11-14] The Mac's "All Bots ⌄", in the bar where Jobs, Artifacts and Tasks have theirs (it
     /// stood in a row of its own under the bar, the one list that put it there).
@@ -1884,6 +1890,17 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     var paneOrder: [String] {
         guard isViewLoaded, dataSource != nil else { return [] }
         return dataSource.snapshot().itemIdentifiers.filter { sessionsByID[$0] != nil && !Self.isCopy($0) && !busy.contains($0) }
+    }
+
+    /// [spring-drop] The chat's row under a file drag (`point` in the list), with what opening it does.
+    private func fileDropTarget(at point: CGPoint) -> SessionFileDrop.Target? {
+        guard let path = collectionView.indexPathForItem(at: point), let item = dataSource.itemIdentifier(for: path),
+              let cell = collectionView.cellForItem(at: path) else { return nil }
+        let key = Self.realKey(item)
+        guard let session = sessionsByID[key], !busy.contains(key) else { return nil }
+        return SessionFileDrop.Target(key: item, view: cell, rect: cell.bounds.insetBy(dx: 6, dy: 2), cornerRadius: 14,
+                                      chat: .session(profile: session.profile, id: session.id),
+                                      open: { [weak self] in self?.open(key) })
     }
 
     /// `key`: the row's item key (`Self.key(_:)`, profile + stored id).

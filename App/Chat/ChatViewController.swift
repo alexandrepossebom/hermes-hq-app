@@ -1671,6 +1671,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         #endif
         ChatPerf.mark("chat.viewDidAppear")
         chatAppeared = true
+        DroppedFilesHandOff.claim(self)   // [spring-drop] files let go on this chat's row in a list
         edgeStandIn.handOver()
         // [desktoplook4] Panels that joined the window during the push sat under its dimming wrapper then: flatten
         // whatever is still glass now that it's done.

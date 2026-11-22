@@ -337,6 +337,14 @@ private extension AttachmentPrepareError {
 
     private let dropTarget = AttachmentDropTarget()
 
+    /// [spring-drop] Files let go on this chat's row in a list: as many as the tray has room for.
+    func acceptDropped(_ providers: [NSItemProvider]) {
+        let room = max(0, AttachmentStaging.maxPerMessage - count)
+        let taken = Array(providers.filter { AttachmentDrop.attachable($0.registeredTypeIdentifiers) }.prefix(room))
+        AppLog.note("attach", "spring drop: \(taken.count) of \(providers.count) into the tray")
+        drop(taken)
+    }
+
     /// Dropped or pasted files: each is copied out of its provider by its own import.
     private func drop(_ providers: [NSItemProvider]) {
         guard !providers.isEmpty else { return }

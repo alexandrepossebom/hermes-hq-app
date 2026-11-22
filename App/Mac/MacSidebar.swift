@@ -242,6 +242,33 @@ final class MacSidebar: UIView {
     private var footEdgeHeight: NSLayoutConstraint!
     private var footBottom: NSLayoutConstraint!
     private var heads: [String: MacRailHead] = [:]
+    /// [spring-drop] Files dragged in from the Finder: a bot's row (its own chat) or a chat under it, held under them,
+    /// opens beside the sidebar.
+    private lazy var fileDrop: SessionFileDrop = {
+        let drop = SessionFileDrop(list: scroll)
+        drop.target = { [weak self] point in self?.fileDropTarget(at: point) }
+        return drop
+    }()
+
+    private func fileDropTarget(at point: CGPoint) -> SessionFileDrop.Target? {
+        let hit: (UIView) -> Bool = { [scroll] view in
+            !view.isHidden && view.window != nil && view.convert(view.bounds, to: scroll).contains(point)
+        }
+        if let row = chatRows.values.first(where: hit), let session = row.session {
+            return SessionFileDrop.Target(key: "chat:" + row.bot + "\u{1F}" + session.id, view: row, cornerRadius: 8,
+                                          chat: .session(profile: session.profile, id: session.id),
+                                          open: { [weak self, weak row] in
+                                              guard let self, let row, let tabs = self.tabs else { return }
+                                              self.showBots(marking: row.bot + "\u{1F}" + session.id)
+                                              tabs.botsViewController.openRailChat(session)
+                                          })
+        }
+        if let head = heads.values.first(where: hit), let bot = head.item.bot {
+            return SessionFileDrop.Target(key: "bot:" + bot.id, view: head, cornerRadius: 8, chat: .botChat(profile: bot.id),
+                                          open: { [weak self] in self?.openBotChat(bot.id) })
+        }
+        return nil
+    }
     /// [chats-under] The chats under the bot rows (and their "N more"), by bot id + U+001F + session id (or "more").
     private var chatRows: [String: MacSidebarChat] = [:]
     private var chatsToken: [NSObjectProtocol] = []
@@ -2031,10 +2058,13 @@ extension MacSidebar: UIContextMenuInteractionDelegate, UIDragInteractionDelegat
 
     func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
         let box = session.localDragSession?.items.first?.localObject
-        return box is SidebarEditing.DragBox || box is MacBotsRail.DragBox
+        return box is SidebarEditing.DragBox || box is MacBotsRail.DragBox || SessionFileDrop.carriesFiles(session)   // [spring-drop]
     }
 
     func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+        if session.localDragSession == nil {   // [spring-drop] files from the Finder: a chat's row held under them opens
+            return UIDropProposal(operation: interaction.view === foot ? .cancel : fileDrop.update(session))
+        }
         if let bot = railDragBot(session) {   // [rail-more]
             guard interaction.view !== foot, let landing = railLanding(bot, at: session.location(in: stack).y) else {
                 dropLine.isHidden = true
@@ -2056,11 +2086,22 @@ extension MacSidebar: UIContextMenuInteractionDelegate, UIDragInteractionDelegat
         return UIDropProposal(operation: .move)
     }
 
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) { dropLine.isHidden = true }
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) { dropLine.isHidden = true }
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+        dropLine.isHidden = true
+        if interaction.view !== foot { fileDrop.exit() }
+    }
+
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) {
+        dropLine.isHidden = true
+        fileDrop.exit()
+    }
 
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
         dropLine.isHidden = true
+        if session.localDragSession == nil {   // [spring-drop]
+            if interaction.view !== foot { fileDrop.perform(session) }
+            return
+        }
         if let bot = railDragBot(session) {   // [rail-more]
             if interaction.view !== foot, let landing = railLanding(bot, at: session.location(in: stack).y) { railDrop(bot, landing) }
             return
