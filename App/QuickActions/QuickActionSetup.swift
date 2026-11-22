@@ -475,21 +475,16 @@ struct QuickActionSetupView: View {
                 }
                 // [quick-actions] Owner 2026-11-21: "There isn't a way to change the size of the card."
                 LabeledContent("Size") {
-                    Picker("Size", selection: $draft.tile.wide) {
-                        Text("Small").tag(false)
-                        Text("Wide").tag(true)
-                    }
-                    .pickerStyle(.segmented)
+                    // The app's segments (the system's on iOS, the Desktop Look's strip there), not .segmented alone.
+                    HQSegmentedPicker("Size", options: [("Small", false), ("Wide", true)], selection: $draft.tile.wide,
+                                      wholeLabels: true)
                     .fixedSize()
                     .accessibilityIdentifier("quick.setup.size")
                 }
                 // [quick-actions] Owner 2026-11-21: "I also want to be able to change the height to make them shorter."
                 LabeledContent("Height") {
-                    Picker("Height", selection: $draft.tile.short) {
-                        Text("Tall").tag(false)
-                        Text("Short").tag(true)
-                    }
-                    .pickerStyle(.segmented)
+                    HQSegmentedPicker("Height", options: [("Tall", false), ("Short", true)], selection: $draft.tile.short,
+                                      wholeLabels: true)
                     .fixedSize()
                     .accessibilityIdentifier("quick.setup.height")
                 }
