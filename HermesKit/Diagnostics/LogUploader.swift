@@ -32,6 +32,11 @@
 // Settings › About › Send Performance Logs to Your Computer (on by default, `perf-log.ts` setPerfLogEnabled) turns it
 // off: nothing is queued or sent then, and what was waiting is deleted. Mark a Janky Moment queues a `mark {by, id}`
 // event and sends at once.
+//
+// [#349] Two locks. `files` covers the outbox files (every read, write, move and delete of them) and is only ever taken
+// on the log's and the uploader's own utility queues. `lock` covers the small fields and never a file: the main thread
+// takes it (`hold` when the link comes back, `pendingBytes`), so a slow disk under a utility thread's write can no
+// longer stall the window (it did for 2 s on a Mac returning to the app). `files` first, then `lock`, never the reverse.
 
 import Foundation
 import UIKit
@@ -48,6 +53,9 @@ nonisolated final class LogUploader: @unchecked Sendable {
     static let maxString = 120
 
     private let queue = DispatchQueue(label: "ai.hermes.hqnative.logupload", qos: .utility)
+    /// The outbox files (see the top). Never taken on the main thread.
+    private let files = NSLock()
+    /// The fields below; never held across file work, and taken after `files` when both are.
     private let lock = NSLock()
     /// Sends one request body; set by the app once it has a gateway client (nil while signed out).
     private var sender: (@Sendable (Data) async throws -> Void)?
@@ -87,15 +95,16 @@ nonisolated final class LogUploader: @unchecked Sendable {
             kick("enabled")
         } else {
             queue.async { [self] in
-                lock.lock(); defer { lock.unlock() }
+                files.lock(); defer { files.unlock() }
+                let (busy, onItsWay) = lock.withLock { (inFlight, sending) }
                 // Every account's outbox (and every batch not on its way).
                 let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
                 for name in names where name.hasSuffix(".jsonl") && (name.hasPrefix("outbox") || name.hasPrefix("sending")) {
                     let url = directory.appendingPathComponent(name)
-                    if inFlight, url == sending { continue }
+                    if busy, url == onItsWay { continue }
                     try? FileManager.default.removeItem(at: url)
                 }
-                lostLines = false
+                lock.withLock { lostLines = false }
             }
         }
     }
@@ -195,9 +204,10 @@ nonisolated final class LogUploader: @unchecked Sendable {
     }
 
     private func append(_ lines: [String]) {
-        lock.lock(); defer { lock.unlock() }
+        files.lock(); defer { files.unlock() }
+        let outbox = lock.withLock { self.outbox }   // the owner only changes under `files`
         let size = (try? outbox.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        guard size < Self.maxOutboxBytes else { lostLines = true; return }
+        guard size < Self.maxOutboxBytes else { lock.withLock { lostLines = true }; return }
         let data = Data(lines.map { $0 + "\n" }.joined().utf8)
         if let handle = try? FileHandle(forWritingTo: outbox) {
             _ = try? handle.seekToEnd()
@@ -352,16 +362,20 @@ nonisolated final class LogUploader: @unchecked Sendable {
     // MARK: Sending
 
     /// `account`: the gateway account it sends to; lines logged from now on wait for that account's sends.
+    /// [#349] Takes effect on the uploader's queue (the main thread calls it, and a new account moves files), before any
+    /// kick asked for after it.
     func setSender(_ sender: (@Sendable (Data) async throws -> Void)?, account: String? = nil) {
-        lock.lock()
-        self.sender = sender
-        if let account { use(owner: Self.ownerKey(account)) }
-        lock.unlock()
+        queue.async { [self] in
+            files.lock(); defer { files.unlock() }
+            if let account { use(owner: Self.ownerKey(account)) }
+            lock.withLock { self.sender = sender }
+        }
         if sender != nil { kick("signed-in") }
     }
 
-    /// Under `lock`.
+    /// Under `files`.
     private func use(owner next: String) {
+        let owner = lock.withLock { self.owner }
         guard next != owner else { return }
         let fm = FileManager.default
         if owner.isEmpty {
@@ -371,22 +385,25 @@ nonisolated final class LogUploader: @unchecked Sendable {
                 try? fm.moveItem(at: from, to: to)
             }
         }
-        owner = next
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
         try? next.write(to: ownerFile, atomically: true, encoding: .utf8)
-        // The other gateway's back-off and failed tries are not this one's.
-        failures = 0
-        batchFailures = 0
-        notBefore = .distantPast
+        lock.withLock {
+            self.owner = next
+            // The other gateway's back-off and failed tries are not this one's.
+            failures = 0
+            batchFailures = 0
+            notBefore = .distantPast
+        }
     }
 
     /// Remove Gateway: what waited for that account goes (it is never sent anywhere else).
     func forget(account: String) {
         let key = Self.ownerKey(account)
         queue.async { [self] in
-            lock.lock(); defer { lock.unlock() }
+            files.lock(); defer { files.unlock() }
+            let onItsWay = lock.withLock { inFlight && key == owner }
             try? FileManager.default.removeItem(at: outbox(key))
-            if !(inFlight && key == owner) { try? FileManager.default.removeItem(at: sending(key)) }
+            if !onItsWay { try? FileManager.default.removeItem(at: sending(key)) }
         }
     }
 
@@ -398,6 +415,11 @@ nonisolated final class LogUploader: @unchecked Sendable {
         lock.lock(); notBefore = .distantPast; lock.unlock()
     }
 
+    #if DEBUG
+    /// Tests: runs `body` holding the outbox files' lock, as a write the disk is slow with does (#349).
+    func whileWritingFiles(_ body: () -> Void) { files.withLock(body) }
+    #endif
+
     /// No upload before `date` unless forced: what waits stays in the outbox (and the periodic kick stays quiet).
     func hold(until date: Date) {
         lock.lock(); quietUntil = date; lock.unlock()
@@ -408,19 +430,22 @@ nonisolated final class LogUploader: @unchecked Sendable {
     /// there was nothing to send.
     func kick(_ reason: String, force: Bool = false, done: (@Sendable () -> Void)? = nil) {
         queue.async { [self] in
+            files.lock()
             lock.lock()
-            guard force || Date() >= quietUntil else { lock.unlock(); done?(); return }
+            guard force || Date() >= quietUntil else { lock.unlock(); files.unlock(); done?(); return }
             lastKick = Date()
-            guard Self.isEnabled, let sender, !inFlight, Date() >= notBefore else { lock.unlock(); done?(); return }
-            if !FileManager.default.fileExists(atPath: sending.path) {
-                guard FileManager.default.fileExists(atPath: outbox.path) else { lock.unlock(); done?(); return }
-                try? FileManager.default.moveItem(at: outbox, to: sending)
-            }
-            let lost = lostLines
-            lostLines = false
-            inFlight = true
-            let batch = sending
+            guard Self.isEnabled, let sender, !inFlight, Date() >= notBefore else { lock.unlock(); files.unlock(); done?(); return }
+            let outbox = self.outbox, batch = sending
             lock.unlock()
+            if !FileManager.default.fileExists(atPath: batch.path) {
+                guard FileManager.default.fileExists(atPath: outbox.path) else { files.unlock(); done?(); return }
+                try? FileManager.default.moveItem(at: outbox, to: batch)
+            }
+            let lost = lock.withLock {
+                defer { lostLines = false; inFlight = true }
+                return lostLines
+            }
+            files.unlock()
             let lines = ((try? String(contentsOf: batch, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
             let device = Self.device, app = Self.appLabel
             Task.detached(priority: .utility) { [self] in
@@ -455,41 +480,46 @@ nonisolated final class LogUploader: @unchecked Sendable {
     /// had not sent yet.
     private func finish(status: Int, batch: URL, rest: [String]?) {
         queue.async { [self] in
-            lock.lock(); defer { lock.unlock() }
-            inFlight = false
-            lastUploadAt = Date()
-            lastStatus = status
+            files.lock(); defer { files.unlock() }
+            let current = lock.withLock {
+                inFlight = false
+                lastUploadAt = Date()
+                lastStatus = status
+                return sending
+            }
             if let rest, Self.isEnabled, ![400, 413, 422].contains(status) {
                 // [13-10] Part of it arrived: only what didn't goes again (it was all sent again, twice in the log).
                 try? Data(rest.map { $0 + "\n" }.joined().utf8).write(to: batch, options: .atomic)
             }
-            guard batch == sending else {
+            guard batch == current else {
                 // Signed in elsewhere meanwhile: that account's batch waits for its own sign-in, and this gateway's
                 // back-off is not touched.
                 if status == 0 { try? FileManager.default.removeItem(at: batch) }
                 return
             }
-            if status == 0 {
-                try? FileManager.default.removeItem(at: sending)
-                failures = 0
-                batchFailures = 0
-                notBefore = .distantPast
-            } else if [400, 413, 422].contains(status) {
-                // Refused for good: sending it again can only fail again, and the outbox would fill up behind it.
-                try? FileManager.default.removeItem(at: sending)
-                failures = 0
-                batchFailures = 0
-                lostLines = true
-            } else {
-                failures += 1
-                batchFailures = rest == nil ? batchFailures + 1 : 1   // what is left after some went is a new batch
-                notBefore = Date().addingTimeInterval(status == 404 ? 6 * 3600 : min(1800, 30 * pow(2, Double(failures - 1))))
-                if batchFailures >= Self.maxBatchFailures {
-                    try? FileManager.default.removeItem(at: sending)   // the back-off stays; the next batch is a new one
+            let letGo: Bool = lock.withLock {
+                if status == 0 {
+                    failures = 0
+                    batchFailures = 0
+                    notBefore = .distantPast
+                    return true
+                } else if [400, 413, 422].contains(status) {
+                    // Refused for good: sending it again can only fail again, and the outbox would fill up behind it.
+                    failures = 0
                     batchFailures = 0
                     lostLines = true
+                    return true
+                } else {
+                    failures += 1
+                    batchFailures = rest == nil ? batchFailures + 1 : 1   // what is left after some went is a new batch
+                    notBefore = Date().addingTimeInterval(status == 404 ? 6 * 3600 : min(1800, 30 * pow(2, Double(failures - 1))))
+                    guard batchFailures >= Self.maxBatchFailures else { return false }
+                    batchFailures = 0   // the back-off stays; the next batch is a new one
+                    lostLines = true
+                    return true
                 }
             }
+            if letGo { try? FileManager.default.removeItem(at: current) }
         }
     }
 }
