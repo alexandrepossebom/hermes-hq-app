@@ -442,6 +442,13 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                 list.contentInsets.trailing = ProjectCard.inset
                 list.supplementaryContentInsetsReference = .none
             }
+            // [mac] The scroller runs in a lane of its own, beside the project's card and the cards under it, not over
+            // them. (Not the collection view's own right inset: the list then scrolled sideways by that much.) On Soft
+            // Cards the soft card keeps the lane (`BackdropCards.card`), as on every list.
+            let lane = BackdropCards.on(self) ? 0 : ScrollBarLane.listTrailing
+            list.contentInsets.trailing += lane
+            // A header (its Edit, See All; an open card's top) lays itself out across the list: it narrows with its rows.
+            list.boundarySupplementaryItems.forEach { $0.contentInsets.trailing += lane }
             if let self {
                 // [backdrop-cards] On Soft Cards a section is a soft card. The projects, which stand one under the other
                 // with "Projects" over the first, share one card, open or closed (an open one draws no card of its own

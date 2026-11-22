@@ -45,6 +45,48 @@ extension MacShots {
                 list.pickProject(key)
                 await wait(1.5)
                 snap("\(pass)c-project-page")
+                // [mac] The scroller beside the project's card, not over it (owner 2026-11-22): on the page of a project
+                // long enough to scroll, shown and photographed, then the same without the lane (the picture before).
+                if pass == 1, let cv = list.collectionView {
+                    let was = window.windowScene?.effectiveGeometry.systemFrame ?? .zero
+                    window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: was.minX, y: was.minY, width: 1100, height: 520))) { _ in }
+                    await wait(1.5)
+                    for candidate in list.debugProjectKeys.prefix(40) where cv.contentSize.height <= cv.bounds.height + 40 {
+                        list.pickProject(candidate)
+                        await wait(0.8)
+                    }
+                    func scrollerShot(_ label: String) async {
+                        cv.collectionViewLayout.invalidateLayout()
+                        cv.layoutIfNeeded()
+                        await wait(0.6)
+                        cv.flashScrollIndicators()
+                        await wait(0.15)
+                        snap(label)
+                        let card = cv.visibleCells.first { $0.accessibilityIdentifier == "sessions.projectPage" }
+                        log += "\(label): list \(cv.bounds.size) content \(cv.contentSize), lane \(ScrollBarLane.listTrailing), "
+                            + "header cell maxX \(card.map { "\($0.frame.maxX)" } ?? "none"), section headers maxX "
+                            + "\(cv.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).map { Int($0.frame.maxX) })\n"
+                    }
+                    await scrollerShot("1c1-scroller")
+                    ScrollBarLane.debugOff = true
+                    await scrollerShot("1c0-scroller-no-lane")
+                    list.pickProject(nil)
+                    await wait(1)
+                    await scrollerShot("1b0-projects-no-lane")
+                    ScrollBarLane.debugOff = false
+                    await scrollerShot("1b1-projects-scroller")
+                    list.pickPills(.bots)
+                    await wait(1)
+                    ScrollBarLane.debugOff = true
+                    await scrollerShot("1a0-bots-no-lane")
+                    ScrollBarLane.debugOff = false
+                    await scrollerShot("1a1-bots-scroller")
+                    list.pickPills(.projects)
+                    await wait(1)
+                    list.pickProject(key)
+                    window.windowScene?.requestGeometryUpdate(.Mac(systemFrame: was)) { _ in }
+                    await wait(1.5)
+                }
                 // [mac-coding-project] The same page as a Coding Project (the ⋯'s switch, set here as the menu sets
                 // it): the header's pull request counts and each row's mark; then the icon guide (Project Settings ›
                 // Icon Guide, here as a sheet of its own). Switched back off.
