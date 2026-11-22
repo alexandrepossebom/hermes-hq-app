@@ -45,12 +45,19 @@ nonisolated enum Hydration {
     /// Turn context Hermes keeps in a photo turn's stored row (a multimodal message takes it as a durable text part,
     /// `H:agent/turn_context.py` `_append_multimodal_context`): our plugins' `(Hermes HQ: …)` steer and recalled
     /// `<memory-context>`. Only at the very end of the row, so the user's own words are never touched.
+    /// Also the surface-switch note (`H:agent/surface_switch.py`) a chat gets when it moves between the phone and
+    /// the desktop: its own line, then the new interface's whole guidance, then whatever notes follow it — all
+    /// Hermes' to the row's end.
     private static let turnContextRE = try! NSRegularExpression(
-        pattern: #"(?:^|\n)[ \t]*(?:\(Hermes HQ: [\s\S]*\)|<memory-context>[\s\S]*?</memory-context>)\s*$"#)
+        pattern: #"(?:^|\n)[ \t]*(?:\(Hermes HQ: [\s\S]*\)|<memory-context>[\s\S]*?</memory-context>|\#(surfaceSwitchNote)[\s\S]*)\s*$"#)
+
+    /// The opening of Hermes' surface-switch note, quoted for the pattern above.
+    static let surfaceSwitchNote = #"\[System: This conversation is now being answered on a different interface: "#
 
     /// `text` without the turn context Hermes appended to it (repeatedly: memory, then the plugin's steer).
     static func strippingTurnContext(_ text: String) -> String {
-        guard text.contains("(Hermes HQ: ") || text.contains("</memory-context>") else { return text }
+        guard text.contains("(Hermes HQ: ") || text.contains("</memory-context>")
+            || text.contains("[System: This conversation is now being answered on a different interface: ") else { return text }
         var s = text
         while let m = turnContextRE.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)), let r = Range(m.range, in: s) {
             s.removeSubrange(r)

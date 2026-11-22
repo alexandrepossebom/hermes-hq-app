@@ -400,6 +400,26 @@ struct CaptionedScreenshotTests {
         #expect(wide.mediaGroups.first?.fits == false)
     }
 
+    @Test func surfaceSwitchNoteLeavesThePhotoRow() {
+        // The stored shape of a photo sent alone right after the chat moved to the desktop (state.db row, 2026-11-21).
+        let note = "[System: This conversation is now being answered on a different interface: desktop — any earlier "
+            + "interface guidance in this conversation is superseded — follow the guidance below for formatting, file "
+            + "delivery and any interface-specific capability.]\nYou are chatting inside the Hermes desktop app.\n\n"
+            + "Widgets talk back (or window.hermes.send(\"prompt\")).\n[System: These tools stay listed: focus_pane.]"
+        let steer = "(Hermes HQ: if you use your browser and meet a sign-in, sign in yourself.)"
+        let photo = "What do you see in this image?\n\n[Image attached at: /tmp/a.jpg]\n[screenshot]\n"
+        #expect(Hydration.strippingTurnContext(photo + note + "\n" + steer) == "What do you see in this image?\n\n[Image attached at: /tmp/a.jpg]\n[screenshot]")
+        #expect(Hydration.strippingTurnContext("Hi\n" + note) == "Hi")
+        let quoted = "Why does it say [System: This conversation is now being answered on a different interface: desktop?"
+        #expect(Hydration.strippingTurnContext(quoted) == quoted, "mid-line: theirs")
+        let rows: [JSONValue] = [.object(["role": "user", "id": 1, "timestamp": 1, "content": .string(photo + note + "\n" + steer)])]
+        let folded = Hydration.fold(rows, pageSeq: 1)
+        let text = folded.messages.first?.parts.compactMap { part -> String? in if case .text(let t) = part { t } else { nil } }.joined() ?? ""
+        #expect(!text.contains("[System:"))
+        #expect(ChatText.trimmed(text) == AttachmentSender.defaultQuestion, "the photo's own question, which the bubble hides")
+        #expect(folded.messages.first.flatMap { folded.meta[$0.id]?.attachments.count } == 1)
+    }
+
     @Test func pluginSteerAndMemoryLeaveTheStoredRow() {
         let steer = "(Hermes HQ: for websites use your own browser tools (browser_exec). Sign in yourself.)"
         let memory = "<memory-context>\n[System note: recalled]\n\n- likes tea\n</memory-context>"
