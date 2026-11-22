@@ -6,18 +6,6 @@
 import Foundation
 
 nonisolated enum SettingsWords {
-    // MARK: Jobs Badge footer ([jobs-badge])
-
-    static let jobsBadgeLead = "The red number on Jobs counts the jobs under Needs Attention: a failed run, a late run or an error. Paused jobs never count."
-
-    /// The footer under the Jobs Badge picker (Settings › Appearance › Tabs): what the number counts, and when it clears.
-    static func jobsBadgeFooter(_ clear: JobsBadgeClear) -> String {
-        switch clear {
-        case .whenFixed: "\(jobsBadgeLead) When Fixed: a job counts until it runs without a problem, or you pause or delete it."
-        case .whenSeen: "\(jobsBadgeLead) When Seen: the number clears once you open Jobs, and a job counts again if it fails or runs late again."
-        }
-    }
-
     // MARK: Kanban Tab footer (#62)
 
     static let kanbanLead = "A task board your bots work from."
@@ -129,6 +117,19 @@ nonisolated enum SettingsWords {
         }
     }
 
+    // MARK: On Your Gateway footer (UX study 2026-10-21 #50, #117, #186)
+
+    /// Whose settings these are (the gateway's default profile, the main bot) and the few rows in the group kept on this
+    /// device instead. `defaultBot`: the main bot's name when known; `otherBots`: the roster has more than it.
+    static func gatewayFooter(defaultBot: String?, otherBots: Bool) -> String {
+        var text = "Saved on \(HostWord.phrase), so they apply wherever you use Hermes."
+        if let defaultBot, !defaultBot.isEmpty {
+            text = "\(possessive(defaultBot)) settings, saved on \(HostWord.phrase) so they apply wherever you use Hermes."
+            if otherBots { text += " Other bots keep their own." }
+        }
+        return text + " Voice’s Read Replies Aloud and Send Memo on Release, and the default project folder, are kept on this \(DeviceWord.name)."
+    }
+
     // MARK: Default Model (tester batch 3: "Changing the model in Settings only changes it for default.")
 
     /// Settings › Model › Main Model's section header: whose default model it is. `defaultBot`: the main bot's name.
@@ -199,11 +200,8 @@ nonisolated enum SettingsWords {
     }
 
     /// Settings › Model › Mixture of Agents (`/api/model/moa`: the default profile's presets; no other bot has the page).
-    /// [moa-setup] Under its switch: how a chat comes to use it (nothing on the page does that), or that it is off.
-    static func moaFooter(defaultBot: String?, on: Bool = true) -> String {
-        let what = on ? "To use it, pick Mixture of Agents in a chat’s model menu, or send /moa with a message."
-                      : "Off, it is in no model menu."
-        return "\(what) \(appliesOnly(to: defaultBot))"
+    static func moaFooter(defaultBot: String?) -> String {
+        "Several models answer each turn, and an aggregator model writes the reply from their answers. \(appliesOnly(to: defaultBot))"
     }
 
     /// A custom provider's Make Default: it becomes the default bot's model (`/api/providers/custom-endpoints/<id>/activate`
@@ -258,7 +256,7 @@ nonisolated enum SettingsWords {
 /// search finds a row by these words on both devices (`SettingsSearch.appRows`); the iPhone keeps its paragraph.
 nonisolated enum ChatRowNotes {
     static let fewerTimestamps = "Shows a day line only when the date changes, and a time only under the bot’s replies."
-    static let showFileChanges = "The “files changed” card under a reply that edited files: Folded is one line that opens on it, Open shows it whole; with it off, ⋯ › Changes still lists them."
+    static let showFileChanges = "Puts a “files changed” card under a reply that edited files; with it off, ⋯ › Changes still lists them."
     static let newChatAsksProject = "Off, New Chat with a bot picked on Sessions starts in no project at once, with no sheet."
     static func sendWhileBusy(mac: Bool = DeviceWord.isMac) -> String {
         "What Send does while a reply runs: Steer adds your message to that reply, Queue sends it when the reply finishes."

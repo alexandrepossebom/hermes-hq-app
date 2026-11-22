@@ -527,19 +527,6 @@ private func swiftSources(_ folders: [String]) -> [(file: String, lines: [String
         #expect(BackgroundTaskText.line(command: String(repeating: "x", count: 500), status: nil, exitCode: nil, tail: nil).count <= 240)
     }
 
-    @Test func backgroundTaskIsNamedByWhatItRunsNotItsSetup() {
-        // The shape of a real row that read only "cd ~/Projects/…".
-        let archive = "cd ~/Projects/app-wt/ship-42-mac && PLATFORM=mac BUILD=42 python3 scripts/ship.py archive > /tmp/archive.log 2>&1; echo $? > /tmp/rc"
-        #expect(BackgroundTaskText.title(command: archive) == "python3 scripts/ship.py archive · ship-42-mac")
-        #expect(BackgroundTaskText.title(command: "# Archiving Mac build 42\ncd ~/x && make") == "Archiving Mac build 42", "a leading comment names the job")
-        #expect(BackgroundTaskText.title(command: "export A=1; source .venv/bin/activate && pytest -q tests | tee log") == "pytest -q tests")
-        #expect(BackgroundTaskText.title(command: "cd \"/Users/me/My App/\"") == "cd My App")
-        #expect(BackgroundTaskText.title(command: "#!/bin/bash\nnpm run dev") == "npm run dev", "a shebang is not a name")
-        #expect(BackgroundTaskText.title(command: "   ") == "background process")
-        #expect(BackgroundTaskText.line(command: archive, status: "exited", exitCode: 0, tail: nil)
-                == "Background task finished: python3 scripts/ship.py archive · ship-42-mac (exit 0)")
-    }
-
     @Test func onlyTheTwoCreditKeysRaiseAnAlert() {
         #expect(NotificationHub.creditKeys == ["credits.depleted", "credits.restored"])
     }

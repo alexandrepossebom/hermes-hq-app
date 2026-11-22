@@ -238,7 +238,7 @@ nonisolated private func started(_ commands: [LiveActivityCommand]) -> [LiveActi
 
     @Test func theSettingsFooterNamesTheIslandOnlyOnAnIPhoneAndSaysTalkIsUnaffected() {
         #expect(LiveActivityWords.footer(island: true)
-                == "A bot’s reply that’s still going when you leave the app, or a job you run from Jobs, shows on the Lock Screen and in the Dynamic Island until it’s done. Your voice chat’s own Lock Screen controls aren’t affected.")
+                == "A bot’s reply that’s still going when you leave the app, or a job you run from Jobs, shows on the Lock Screen and in the Dynamic Island with how long it has run, until it’s done. A reply also names the step its bot is on. Your voice chat’s own Lock Screen controls aren’t affected.")
         #expect(!LiveActivityWords.footer(island: false).contains("Dynamic Island"))
         #expect(!LiveActivityWords.footer(island: true).contains("Dispatch"))
         #expect(LiveActivityWords.footer(island: true).contains("voice chat"), "says plainly that Talk's own controls stay as they are")

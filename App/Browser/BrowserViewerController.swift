@@ -30,8 +30,6 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     private static weak var current: BrowserViewerController?
     /// [presence] ✕ was tapped (or the viewer is leaving to ask the main bot): it no longer counts as open.
     private var closing = false
-    /// [#351] The Mac window it had to itself has closed (its red button): nothing is left to dismiss.
-    private var windowGone = false
     /// [presence] "Ask Hermes to Install It" was tapped: the button reads "Asking…" and takes no second tap.
     private var asking = false
     private var emptyProblemText: String?
@@ -106,24 +104,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
                         canAsk: (() throws -> Void)? = nil, askToInstall: ((String) async throws -> Void)? = nil,
                         openPlugins: (() -> UIViewController?)? = nil, helper: String? = nil, cloudGateway: Bool = false,
                         updateAddOn: (() -> Void)? = nil) {
-        // [#351] On the Mac the viewer has a window of its own and the main window stays usable beside it: the same
-        // bot's browser asked for again comes to the front, another bot's takes its place once the first has gone
-        // (a held browser handed back). iPhone and iPad: one at a time.
-        let shown = current
-        switch ViewerReopen.decide(shown: shown?.scope.profile, leaving: shown?.closing ?? false, asked: scope.profile,
-                                   ownWindow: shown.map { ViewerWindow.owns($0) } ?? false) {
-        case .ignore: return
-        case .front:
-            if let shown { ViewerWindow.bringForward(shown) }
-            return
-        case .replace:
-            shown?.close {
-                present(scope: scope, service: service, from: presenter, canAsk: canAsk, askToInstall: askToInstall,
-                        openPlugins: openPlugins, helper: helper, cloudGateway: cloudGateway, updateAddOn: updateAddOn)
-            }
-            return
-        case .open: break
-        }
+        guard current == nil else { return }
         let viewer = BrowserViewerController(service: service, scope: scope)
         viewer.askToInstall = askToInstall
         viewer.canAsk = canAsk
@@ -131,17 +112,10 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         viewer.openPlugins = openPlugins
         viewer.cloudGateway = cloudGateway
         viewer.updateAddOn = updateAddOn
+        let navigation = UINavigationController(rootViewController: viewer)
         current = viewer
         Haptics.play(.selection)
-        // [#351] Mac: a window of its own, resizable, zoomable and full screen; over the right pane only if the Mac
-        // gives no window.
-        let opened = ViewerWindow.open(viewer, title: "\(viewer.name)’s Browser") { [weak viewer, weak presenter] in
-            guard let viewer, !viewer.closing else { return }
-            guard let presenter, presenter.viewIfLoaded?.window != nil else { viewer.close(); return }
-            PaneViewer.present(UINavigationController(rootViewController: viewer), from: presenter)
-        }
-        if opened { return }
-        PaneViewer.present(UINavigationController(rootViewController: viewer), from: presenter)   // [mac] over the right pane; full screen elsewhere
+        PaneViewer.present(navigation, from: presenter)   // [mac] over the right pane; full screen elsewhere
     }
 
     init(service: BrowserService, scope: BrowserScope) {
@@ -170,7 +144,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
         // title floating over no bar).
         view.backgroundColor = HQPalette.plainPage
         if DeviceWord.isMac { view.backgroundColor = HQPalette.groupedPage }   // [mac] Stress test 2026-10-28 round 7: the grouped page, as the other Mac pages
-        title = "\(name)’s Browser"   // [#351] also its Mac window's name (present)
+        title = "\(name)’s Browser"
         if let account = service.accountId, let saved = BrowserLastPages.shared.page(account: account, profile: scope.profile),
            saved.fits(scope) {
             lastPage = saved
@@ -623,7 +597,7 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
             self.subscription?.cancel()
             self.subscription = nil
             // [presence] Through the one way out, so a page presented over the viewer goes with it.
-            if self.presentingViewController != nil || ViewerWindow.owns(self) { self.close() }
+            if self.presentingViewController != nil { self.close() }
         }
     }
 
@@ -982,16 +956,14 @@ final class BrowserViewerController: UIViewController, BrowserStageHost, UITextF
     /// before whoever waits in `afterClose`. Should the dismissal not take, the viewer is put back to work instead.
     private func leave(_ gone: (() -> Void)? = nil) {
         let host: UIViewController = navigationController ?? self
-        // [#351] The Mac: the viewer's own window closes (already gone when its red button closed it).
-        if windowGone || ViewerWindow.close(self) { leaveEnded(host, gone, windowClosed: true); return }
         guard let presenter = host.presentingViewController else { leaveEnded(host, gone); return }
         presenter.dismiss(animated: true) { [self] in leaveEnded(host, gone) }
     }
 
-    private func leaveEnded(_ host: UIViewController, _ gone: (() -> Void)?, windowClosed: Bool = false) {
+    private func leaveEnded(_ host: UIViewController, _ gone: (() -> Void)?) {
         let waiting = afterClose
         afterClose = []
-        if !windowClosed, host.presentingViewController != nil || viewIfLoaded?.window != nil {
+        if host.presentingViewController != nil || viewIfLoaded?.window != nil {
             // Still on screen: ✕ and the buttons answer again, and the page comes back live.
             AppLog.note("browser", "viewer close did not take")
             closing = false
@@ -1444,15 +1416,4 @@ enum BrowserSetupPrompt {
 
     When you're done, tell me in a sentence or two what you did.
     """
-}
-
-/// [#351] The Mac's Browser window closed by its red button (or by the window's own ⌘W): the browser is handed back
-/// and the stream stops, as with ✕.
-extension BrowserViewerController: MacWindowPage {
-    func windowClosed() {
-        windowGone = true
-        updateShown()
-        flushLastPage()
-        close()
-    }
 }

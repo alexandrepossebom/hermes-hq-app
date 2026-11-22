@@ -28,10 +28,6 @@ nonisolated struct SessionStoreTiming: Sendable {
     /// Polls used only when the gateway does not broadcast `sessions.changed`.
     var fallbackOnScreenPoll: Duration = .seconds(30)
     var fallbackOffScreenPoll: Duration = .seconds(120)
-    /// [#440] How long a chat started here keeps its own row while no page lists it (`SessionStore.listStartedChat`).
-    var startedRowLife: Duration = .seconds(600)
-    /// [#440] A page read this long after that chat's first turn ended which still leaves it out is believed.
-    var startedRowSettle: Duration = .seconds(5)
     /// Read each shown chat's newest message for its row (SessionStore+Latest.swift).
     var readsLatest = true
     static let standard = SessionStoreTiming()
@@ -94,34 +90,11 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     /// [own-folder] Each bot's own folder (profile → the folder its own chat runs in), as last learned
     /// (SessionStore+OwnFolder.swift).
     var botFolders: [String: String] = [:]
-    /// [own-folder-everywhere] Each bot's `terminal.cwd` as last read (profile → folder), the other way its own folder is
-    /// known.
-    var botConfigFolders: [String: String] = [:]
     /// [project-default-bot] The bot each project's New Chat starts with (project key → profile, or
     /// `ProjectDefaultBot.ask`); a project not named has nothing chosen.
     var projectBots: [String: String] = [:]
     /// Explicit project designation; false is retained so sync can propagate turning it off.
     var codingProjects: [String: Bool] = [:]
-    /// [project-pins] Projects whose page pins stay on the page (key → on; false kept so sync carries turning it off):
-    /// Pin there marks the chat in that project only, not the gateway's Pinned every list shows.
-    var projectPinsLocal: [String: Bool] = [:]
-    /// [project-pins] The chats pinned on a project's page alone: project key → row keys (`SessionListPipeline.key`).
-    var projectPins: [String: [String]] = [:]
-    /// [project-sort] Each project page's Sort (key → `ProjectPageSort` raw); absent: Needs Me First.
-    var projectSorts: [String: String] = [:]
-    /// [project-keep] Projects whose chats stay on their own page (key → on; false kept so sync carries turning it off).
-    var projectKeep: [String: Bool] = [:]
-    /// [project-auto-done] Move Quiet Chats to Done (key → `ProjectAutoDone.raw`); absent: Never.
-    var projectAutoDone: [String: String] = [:]
-    /// [project-mute] Each project's Notifications (key → `ProjectNotify` raw); absent: All.
-    var projectNotify: [String: String] = [:]
-    /// [project-new-chat-model] The model and reasoning a project's New Chat starts with; an empty one is kept so sync
-    /// carries going back to the bot's default.
-    var projectNewChat: [String: ProjectNewChat] = [:]
-    /// [project-look] Each project's emoji and colour; an empty one is kept so sync carries clearing it.
-    var projectLooks: [String: ProjectLook] = [:]
-    /// [project-branch-rows] Coding projects whose rows start with the chat's branch (key → on).
-    var projectBranchRows: [String: Bool] = [:]
 
     init() {}
 
@@ -129,8 +102,7 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case unread, showBackgroundRuns, showOutsideChats, colors, view, projects, latest, pins, collapsedGroups
         case chatOrder, projectOrder, projectPillOrder, botGroupOrder, favoriteProjects, openGroups, archivedProjects, botFolders
-        case botConfigFolders, projectBots, codingProjects, projectPinsLocal, projectPins, projectSorts
-        case projectKeep, projectAutoDone, projectNotify, projectNewChat, projectLooks, projectBranchRows
+        case projectBots, codingProjects
     }
 
     init(from decoder: Decoder) throws {
@@ -152,18 +124,8 @@ nonisolated struct SessionsDeviceState: Codable, Sendable, Hashable {
         openGroups = (try? c.decodeIfPresent([String: [String]].self, forKey: .openGroups)) ?? [:]
         archivedProjects = (try? c.decodeIfPresent([String].self, forKey: .archivedProjects)) ?? []
         botFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botFolders)) ?? [:]
-        botConfigFolders = (try? c.decodeIfPresent([String: String].self, forKey: .botConfigFolders)) ?? [:]
         projectBots = (try? c.decodeIfPresent([String: String].self, forKey: .projectBots)) ?? [:]
         codingProjects = (try? c.decodeIfPresent([String: Bool].self, forKey: .codingProjects)) ?? [:]
-        projectPinsLocal = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectPinsLocal)) ?? [:]
-        projectPins = (try? c.decodeIfPresent([String: [String]].self, forKey: .projectPins)) ?? [:]
-        projectSorts = (try? c.decodeIfPresent([String: String].self, forKey: .projectSorts)) ?? [:]
-        projectKeep = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectKeep)) ?? [:]
-        projectAutoDone = (try? c.decodeIfPresent([String: String].self, forKey: .projectAutoDone)) ?? [:]
-        projectNotify = (try? c.decodeIfPresent([String: String].self, forKey: .projectNotify)) ?? [:]
-        projectNewChat = (try? c.decodeIfPresent([String: ProjectNewChat].self, forKey: .projectNewChat)) ?? [:]
-        projectLooks = (try? c.decodeIfPresent([String: ProjectLook].self, forKey: .projectLooks)) ?? [:]
-        projectBranchRows = (try? c.decodeIfPresent([String: Bool].self, forKey: .projectBranchRows)) ?? [:]
     }
 }
 
@@ -178,43 +140,6 @@ nonisolated struct SessionMarksCacheFile: Codable, Sendable {
         var number: Int?
         var url: String?
         var manual: Bool?
-        /// [pr-multi] nil: an add-on that lists none (or a file from before 0.9.75).
-        var items: [Item]?
-        /// [pr-review-facts] nil: not known, or a file from before them. Never files or check runs.
-        var size: SessionPRSize?
-        var checks: Checks?
-        var title: String?
-        var base: String?
-        struct Item: Codable, Sendable {
-            var state: String
-            var repo: String?
-            var branch: String?
-            var number: Int?
-            var url: String?
-            var source: String?
-            var size: SessionPRSize?
-            var checks: Checks?
-            var title: String?
-            var base: String?
-        }
-        /// [pr-review-facts] The counts of a checks answer, without its runs.
-        struct Checks: Codable, Sendable {
-            var state: String
-            var passed: Int
-            var failed: Int
-            var running: Int
-
-            init(_ checks: SessionPRChecks) {
-                state = checks.state.rawValue; passed = checks.passed; failed = checks.failed; running = checks.running
-            }
-
-            /// Read back as the wire's rules read it: an unknown state or a negative count is no answer.
-            var checks: SessionPRChecks? {
-                guard let state = SessionPRChecks.State(rawValue: state), passed >= 0, failed >= 0, running >= 0,
-                      passed + failed + running > 0 else { return nil }
-                return SessionPRChecks(state: state, passed: passed, failed: failed, running: running)
-            }
-        }
     }
     var at: Double                   // ms since the epoch
     var marks: [String: Mark]
@@ -365,9 +290,6 @@ final class SessionStore {
     @ObservationIgnored var pendingLine: ((_ profile: String, _ storedId: String) -> SessionPending?)?
     /// Stored ids of chats where a prompt waits for the user.
     @ObservationIgnored var needsInput: Set<String> = []
-    @ObservationIgnored var inputDetails: [String: String] = [:]
-    /// [tile-chats] Tile chats this run has asked the gateway to hide (write keys): each is asked once.
-    @ObservationIgnored var tileChatsHiding: Set<String> = []
     /// When each bot's projects were last asked for, and the asks in the air.
     @ObservationIgnored var projectsReadAt: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored var projectReads: Set<String> = []
@@ -393,17 +315,10 @@ final class SessionStore {
     @ObservationIgnored var readOnlyGateway = false
     /// Owner names by profile (from the Bots roster); a profile missing here reads "Hermes" / its readable name.
     @ObservationIgnored var profileDisplayNames: [String: String] = [:]
-    /// [projects-all-bots] The roster's shown bots (profiles): each one's projects are read, chats listed or not.
-    @ObservationIgnored var projectBots: [String] = []
 
     @ObservationIgnored let client: any GatewayClient
     // Per-store (and therefore per gateway) cache; a profile and stored id form the identity.
     private var pullRequests: [String: SessionPRStatus] = [:]
-    /// [repo-pickers] The GitHub repositories (owner/repo) chats' pull requests and branches were read against, for the
-    /// Repository… page's Public Repository choices.
-    var pullRequestRepos: [String] {
-        pullRequests.values.flatMap { status in [status.repo] + (status.items ?? []).map(\.repo) }.compactMap { $0 }
-    }
     @ObservationIgnored private var prInFlight: Set<String> = []
     @ObservationIgnored private var prCheckedAt: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var prGeneration = 0
@@ -445,18 +360,6 @@ final class SessionStore {
     /// [read-sync] The archived read a list page asked for (`refreshArchivedIfMoved`), one at a time.
     @ObservationIgnored private var archivedRefresh: Task<Void, Never>?
     @ObservationIgnored var leaving: Set<String> = []
-    /// [#440] Chats started here whose row no page has listed yet, by write key, and when each was listed here
-    /// (`listStartedChat`).
-    @ObservationIgnored var startedRows: [String: StartedRow] = [:]
-
-    /// [#440] A started chat's own row (`listStartedChat`).
-    struct StartedRow {
-        var row: SidebarSessionRow
-        var at: ContinuousClock.Instant
-        /// When its first turn ended (sent, answered or refused): a page read after that which still leaves it out says
-        /// the gateway doesn't list it (a send it refused, or an id it doesn't list by).
-        var settledAt: ContinuousClock.Instant?
-    }
     /// Projects opened with Show More, by the chip's bot ("*" for All); not kept across launches.
     @ObservationIgnored var expandedGroups: [String: Set<String>] = [:]
     /// [sessions-layout] Chats kept in New for You until the page is left (row keys), read or not (`holdNew`).
@@ -468,8 +371,6 @@ final class SessionStore {
     @ObservationIgnored private var running: Set<String> = []
     /// [toolnow] Stored id → the running turn's newest step in a few words (LiveSteps).
     @ObservationIgnored private var steps: [String: String] = [:]
-    /// Runtime-to-stored bindings learned from session.info, scoped to this account and connection.
-    @ObservationIgnored private var resultBindings: [String: (profile: String, id: String)] = [:]
     /// The selected chat (the web's `$selectedStoredSessionId`): set when a chat is focused and kept after the user
     /// leaves it, until another chat is focused. Its stored count is absorbed on every read and its local dot is
     /// skipped, so the chat the user just used does not come back unread (the server's own flag still shows).
@@ -562,16 +463,12 @@ final class SessionStore {
         showBackgroundRuns = device.showBackgroundRuns
         showOutsideChats = device.showOutsideChats
         view = device.view                              // [sessions-m9]
-        // [sessions-m9] [own-folder-everywhere] As kept, less any group now known to be a bot's own folder.
-        projectsByProfile = SessionProjects.droppingOwnFolders(device.projects, ownFolders: ownFolders)
+        projectsByProfile = device.projects             // [sessions-m9]
         // [pr-instant] The marks as last known, drawn at once; each is asked for again as its row shows.
         for (key, mark) in RosterDisk.read(SessionMarksCacheFile.self, from: marksURL)?.marks ?? [:] {
             guard let state = SessionPRStatus.State(rawValue: mark.state), state != .unknown else { continue }
             pullRequests[key] = SessionPRStatus(state: state, repo: mark.repo, branch: mark.branch, number: mark.number,
-                                                url: mark.url.flatMap(Self.validPRURL), manual: mark.manual ?? false,
-                                                items: mark.items.map { $0.compactMap(Self.prItem) },
-                                                size: Self.validSize(mark.size), checks: mark.checks?.checks,
-                                                title: Self.cachedWord(mark.title, limit: PRFacts.titleLimit), base: Self.cachedWord(mark.base))
+                                                url: mark.url.flatMap(Self.validPRURL), manual: mark.manual ?? false)
         }
         if let cached = RosterDisk.read(SessionsCacheFile.self, from: cacheURL) {
             recents = cached.recents; cron = cached.cron; messaging = cached.messaging
@@ -620,10 +517,8 @@ final class SessionStore {
         isRefreshing = false
         forceNextNotify = false
         chatFocused = false
-        startedRows.removeAll()                         // [#440]
         lastProbeMatchAt = nil
         latestQueue = []
-        resultBindings.removeAll()
     }
 
     func removeCachedData() {
@@ -707,7 +602,6 @@ final class SessionStore {
         onScreenSessionId = id
         if let id, prFocusedRow?.id != id { prFocusedRow = nil }
         schedulePRDiscovery()
-        if let id { refreshOpenedChatPullRequest(id) }
         shareOnScreenRead()
         rebuild()
     }
@@ -761,58 +655,6 @@ final class SessionStore {
         }
     }
 
-    /// [#440] A chat started on this device (New Chat, a project's New Chat) whose first message just went out: its row
-    /// is on the lists now (Sessions, and the chats under its bot on the Bots page and the Mac's sidebar), not with the
-    /// next list read, which waits up to 150 s while a chat is on screen beside a list other than Sessions. It is named
-    /// by that message until the gateway names it (the chat's title event reaches the row through `applyTitle`). Pages
-    /// that don't list it yet keep it and the first that does takes over (`keepStartedRows`). Hidden chats (a task's, a
-    /// tile's) never come here.
-    func listStartedChat(id: String, profile: String, title: String? = nil, firstMessage: String?, cwd: String? = nil,
-                         now: Date = Date()) {
-        let key = Self.writeKey(id: id, profile: profile)
-        if startedRows[key] != nil { startedRows[key]?.settledAt = nil; return }   // another turn: wait for it too
-        guard !id.isEmpty, started, !stopped, allBots || profile == routingProfile,
-              listedRow(id: id, profile: profile) == nil else { return }
-        let seconds = now.timeIntervalSince1970
-        var row = SidebarSessionRow(id: id, profile: profile, title: RosterText.nonBlank(title), preview: firstMessage,
-                                    source: "desktop", lastActive: seconds, unread: false)
-        row.startedAt = seconds
-        row.cwd = cwd
-        startedRows[key] = StartedRow(row: row, at: .now)
-        recents.insert(row, at: 0)
-        AppLog.trace("sessions", "new chat \(AppLog.tag(id)) listed before the gateway's page")
-        rebuild()
-    }
-
-    /// [#440] The started chat's first turn ended (`StartedRow.settledAt`).
-    func startedChatSettled(id: String, profile: String) {
-        let key = Self.writeKey(id: id, profile: profile)
-        guard startedRows[key]?.settledAt == nil else { return }
-        startedRows[key]?.settledAt = .now
-    }
-
-    /// [#440] After a page: a started chat it lists is the gateway's row from now on. One it doesn't list yet stays on (a
-    /// read that began before the first message was stored can't know it), unless the read began after the first turn
-    /// had ended, or `startedRowLife` has passed.
-    private func keepStartedRows(_ payload: SidebarPayload, readStartedAt: ContinuousClock.Instant) {
-        guard !startedRows.isEmpty else { return }
-        let paged = [payload.recents.rows, payload.cron.rows, payload.messaging.rows].compactMap { $0 }.joined()
-        let listed = Set(paged.map { Self.writeKey(id: $0.id, profile: $0.profile) })
-        let now = ContinuousClock.now
-        for (key, held) in startedRows {
-            let believed = held.settledAt.map { readStartedAt > $0 + timing.startedRowSettle } ?? false
-            if listed.contains(key) || leaving.contains(key) || now - held.at > timing.startedRowLife {
-                startedRows[key] = nil
-            } else if believed, payload.recents.rows != nil {
-                startedRows[key] = nil
-                recents.removeAll { $0.id == held.row.id && $0.profile == held.row.profile }
-                AppLog.note("sessions", "new chat \(AppLog.tag(held.row.id)) not on the gateway's page after its turn: its row goes")
-            } else if !recents.contains(where: { $0.id == held.row.id && $0.profile == held.row.profile }) {
-                recents.insert(held.row, at: 0)
-            }
-        }
-    }
-
     /// Mark as Unread, here (the marker) or on any device (the watermark at 0).
     private func markedUnread(_ row: SidebarSessionRow) -> Bool {
         row.lastReadAt == 0 || device.unread.markers[row.profile]?.contains(row.id) == true
@@ -857,25 +699,6 @@ final class SessionStore {
         if device.unread.owed != owed { persistState() }
     }
 
-    /// [tile-chats] Tile chats the gateway still lists (an older app made them in the open): each is hidden there once
-    /// (`PATCH {hidden: true}`, as Hermes's own hide does), so no other device, the desktop app or search shows it
-    /// either. The lists here already leave them out (`SessionRules.isBotChat`). A refused write is asked again next run.
-    private func hideTileChats(_ rows: [SidebarSessionRow]) {
-        guard !readOnlyGateway, !stopped else { return }
-        let owed = TileChats.toHide(rows).filter { tileChatsHiding.insert(Self.writeKey(id: $0.id, profile: $0.profile)).inserted }
-        guard !owed.isEmpty else { return }
-        AppLog.note("sessions", "hiding \(owed.count) tile chat(s) the gateway still lists")
-        let client = self.client
-        Task {
-            var failed = 0
-            for row in owed {
-                let outcome = await Result.of { try await SessionWrite.patch(client, id: row.id, profile: row.profile, ["hidden": .bool(true)]) }
-                if case .failure = outcome { failed += 1 }
-            }
-            if failed > 0 { AppLog.note("sessions", "\(failed) of \(owed.count) tile chat(s) couldn’t be hidden") }
-        }
-    }
-
     /// [toolnow] The running chats' newest steps by stored id: a row names its step instead of "Working…".
     func setSteps(_ next: [String: String]) {
         guard next != steps else { return }
@@ -896,8 +719,6 @@ final class SessionStore {
             waits += 1
         }
         await readTask(probeFirst: false).value
-        // [projects-all-bots] A project made elsewhere (the desktop, another phone) shows on the pull, not a minute on.
-        if !projectsByProfile.isEmpty { loadProjects(force: true) }
     }
 
     // MARK: - Reads for the UI
@@ -1076,7 +897,6 @@ final class SessionStore {
             }
         }
         update(&recents); update(&cron); update(&messaging)
-        for (key, held) in startedRows where held.row.id == id { startedRows[key]?.row.title = value }   // [#440]
         guard changed else { return }
         lastFingerprint = nil
         writeCache()
@@ -1104,7 +924,6 @@ final class SessionStore {
 
     /// MENUS (⋯ › Archive, Delete Chat): the chat leaves every list at once.
     func forget(id: String, profile: String) {
-        startedRows[Self.writeKey(id: id, profile: profile)] = nil   // [#440]
         let before = recents.count + cron.count + messaging.count
         recents.removeAll { $0.id == id && $0.profile == profile }
         cron.removeAll { $0.id == id && $0.profile == profile }
@@ -1173,23 +992,7 @@ final class SessionStore {
         switch event.type {
         case "sessions.changed":
             throttle?.mark()
-        case "session.info":
-            guard !event.replayed, !event.sessionId.isEmpty else { break }
-            // Never guess a runtime's owner, particularly where two profiles share a stored id.
-            if let id = event.payload["session_key"]?.nonEmptyString ?? event.payload["stored_session_id"]?.nonEmptyString {
-                let profile = event.payload["profile"]?.nonEmptyString
-                let candidates = (recents + cron + messaging + archivedRows).filter {
-                    $0.id == id && (profile == nil || $0.profile == profile)
-                }
-                resultBindings[event.sessionId] = candidates.count == 1 ? (candidates[0].profile, id) : nil
-            }
-        case "message.complete":
-            guard !event.replayed, let binding = resultBindings[event.sessionId],
-                  event.payload["status"]?.string == "complete", !event.payload["error"].isTruthy,
-                  let text = event.payload["text"]?.string else { break }
-            noteConfirmedReply(profile: binding.profile, sessionId: binding.id, text: text)
         case "gateway.ready":
-            resultBindings.removeAll()
             changeEvents = event.payload["change_events"]?.bool ?? false
             // A reconnect: probe first while the last full read is fresh, else read in full.
             // [offline] §6.4: reconnects within 3 s of each other share one refresh (a failed one is not shared).
@@ -1464,7 +1267,6 @@ final class SessionStore {
         if let rows = placed(payload.recents.rows, into: recents, limit: topLimits?.0) { recents = rows }
         if let rows = placed(payload.cron.rows, into: cron, limit: topLimits?.1) { cron = rows }
         if let rows = placed(payload.messaging.rows, into: messaging, limit: topLimits?.2) { messaging = rows }
-        keepStartedRows(payload, readStartedAt: readStartedAt)   // [#440]
         refreshArchivedIfMoved(from: prior.recents)
         // [sessions-m9] The page's fingerprint is kept even while our own read marks are in the air (§11.2).
         // [perf-returns] A top page's fingerprint compares with a probe's as a full read's does: the same newest rows,
@@ -1489,7 +1291,6 @@ final class SessionStore {
         absorbSelected()
         shareOnScreenRead()
         sendOwedReads()
-        hideTileChats(recents + messaging)
         let rowsMoved = recents != prior.recents || cron != prior.cron || messaging != prior.messaging
         // [diagnostics] Added/removed/changed per list, keyed by (id, profile): what the read actually moved.
         func diff(_ old: [SidebarSessionRow], _ new: [SidebarSessionRow]) -> String {
@@ -1607,15 +1408,6 @@ final class SessionStore {
         await refreshPullRequests(for: [row])
     }
 
-    /// [pr-multi] A coding chat came on screen: where its code stands is asked again at once, fresh from GitHub, so a
-    /// pull request merged a minute ago shows merged in the chat (the list's own pass may be up to a minute away).
-    private func refreshOpenedChatPullRequest(_ id: String) {
-        guard started, !stopped, appActive, !prRouteMissing, device.codingProjects.values.contains(true),
-              let row = (sessions + cronSessions + messagingSessions + archivedSessions).first(where: { $0.id == id }),
-              isCodingSession(profile: row.profile, cwd: row.cwd) else { return }
-        Task { [weak self] in await self?.refreshPullRequests(for: [row], force: true) }
-    }
-
     /// Invalidate responses already in flight as well as cached values when project eligibility changes.
     func codingProjectsChanged() {
         prGeneration &+= 1
@@ -1644,9 +1436,6 @@ final class SessionStore {
         prInFlight.formUnion(reserved)
         let generation = prGeneration
         defer { if generation == prGeneration { prInFlight.subtract(reserved) } }
-        // [pr-multi] Asked for by hand (a chat opened, a mark set): its waiting pull requests are asked of GitHub again
-        // rather than read from the add-on's three-minute cache, so a merge shows in seconds. Never a whole list.
-        let fresh = force && unique.count <= 4
         // [pr-instant] The chunks are asked for together (three at a time) and each is drawn as it answers: a
         // project of 80 chats took three answers one after another (owner's phone 2026-11-19: 6.6 s, 5.7 s, 1.8 s).
         var changed = false
@@ -1655,7 +1444,7 @@ final class SessionStore {
             var waiting = chunks.makeIterator()
             for _ in 0..<3 {
                 guard let chunk = waiting.next() else { break }
-                group.addTask { [weak self] in await self?.askPullRequests(chunk, fresh: fresh) ?? PRChunkAnswer(keys: [], answers: nil, missing: false) }
+                group.addTask { [weak self] in await self?.askPullRequests(chunk) ?? PRChunkAnswer(keys: [], answers: nil, missing: false) }
             }
             while let answer = await group.next() {
                 if answer.missing { prRouteMissingSince = .now }
@@ -1699,31 +1488,6 @@ final class SessionStore {
         }
     }
 
-    /// [pr-card-detail] The PR card's own ask: this one chat, fresh, with its files and check runs (`detail: true`).
-    /// The answer's facts, without files and runs, also update the chat's mark. nil: no answer for it.
-    func pullRequestDetail(profile: String, id: String) async -> SessionPRStatus? {
-        guard !prRouteMissing else { return nil }
-        let chat = SessionSummary(id: id, profile: profile, title: "", preview: nil, lastActive: nil, source: nil,
-                                  unread: false, isRunning: false)
-        let answer = await askPullRequests([chat], fresh: true, detail: true)
-        let key = Self.writeKey(id: id, profile: profile)
-        guard let status = answer.answers?[key] else { return nil }
-        var kept = status
-        kept.items = status.items?.map { item in
-            var item = item
-            item.files = nil
-            item.checks?.runs = nil
-            return item
-        }
-        prCheckedAt[key] = .now
-        if pullRequests[key] != kept {
-            pullRequests[key] = kept
-            rebuild()
-            saveMarks()
-        }
-        return status
-    }
-
     private struct PRChunkAnswer: Sendable {
         var keys: Set<String>
         /// nil: no answer (the request failed).
@@ -1732,14 +1496,9 @@ final class SessionStore {
         var missing: Bool
     }
 
-    private func askPullRequests(_ chunk: [SessionSummary], fresh: Bool = false, detail: Bool = false) async -> PRChunkAnswer {
+    private func askPullRequests(_ chunk: [SessionSummary]) async -> PRChunkAnswer {
         let keys = Set(chunk.map { Self.writeKey(id: $0.id, profile: $0.profile) })
-        var fields: [String: JSONValue] = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
-        if fresh { fields["fresh"] = .bool(true) }   // an add-on before 0.9.75 ignores it
-        // [pr-review-facts] Files and check runs: only for the one chat whose PR card is open (the add-on honours it for
-        // 4 chats or fewer; an older one ignores it).
-        if detail && chunk.count <= 4 { fields["detail"] = .bool(true) }
-        let body = JSONValue.object(fields)
+        let body: JSONValue = ["sessions": .array(chunk.map { ["profile": .string($0.profile), "id": .string($0.id)] })]
         // The outcome is bound first and the answer built from it after (ChildTasks.swift: a value returned from
         // inside a `do` around `try await` can be lost in an optimized build).
         let client = self.client
@@ -1759,38 +1518,20 @@ final class SessionStore {
                 let key = Self.writeKey(id: id, profile: profile)
                 guard keys.contains(key) else { continue }
                 let state = item["state"]?.string.flatMap(SessionPRStatus.State.init(rawValue:)) ?? .unknown
-                answers[key] = Self.prStatus(item, state: state, detail: detail)
+                answers[key] = SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
+                                               number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
+                                               manual: item["manual"]?.bool ?? false)
             }
             answer.answers = answers
         }
         return answer
     }
 
-    /// One answer of `pr-status` (the wire contract: docs/spec/3x-sessions.md [pr-review-facts]). `detail`: a `detail: true`
-    /// answer, whose items' `files` and `checks.runs` are read too.
-    static func prStatus(_ item: JSONValue, state: SessionPRStatus.State, detail: Bool) -> SessionPRStatus {
-        SessionPRStatus(state: state, repo: item["repo"]?.string, branch: item["branch"]?.string,
-                        number: item["number"]?.int, url: item["url"]?.string.flatMap(Self.validPRURL),
-                        manual: item["manual"]?.bool ?? false,
-                        items: Self.prItems(item["items"], detail: detail),
-                        size: PRFacts.size(item["size"]), checks: PRFacts.checks(item["checks"], runs: false),
-                        title: PRFacts.title(item["title"]), base: PRFacts.base(item["base"]))
-    }
-
-    /// [pr-instant] The answers as they stand, for the next launch. [pr-review-facts] With their size, checks (no
-    /// runs), title and base; never files.
+    /// [pr-instant] The answers as they stand, for the next launch.
     private func saveMarks() {
         let marks = pullRequests.filter { $0.value.state != .unknown }.mapValues {
             SessionMarksCacheFile.Mark(state: $0.state.rawValue, repo: $0.repo, branch: $0.branch, number: $0.number,
-                                       url: $0.url?.absoluteString, manual: $0.manual ? true : nil,
-                                       items: $0.items?.map {
-                                           .init(state: $0.state.rawValue, repo: $0.repo, branch: $0.branch, number: $0.number,
-                                                 url: $0.url?.absoluteString, source: $0.source.rawValue,
-                                                 size: $0.size, checks: $0.checks.map(SessionMarksCacheFile.Mark.Checks.init),
-                                                 title: $0.title, base: $0.base)
-                                       },
-                                       size: $0.size, checks: $0.checks.map(SessionMarksCacheFile.Mark.Checks.init),
-                                       title: $0.title, base: $0.base)
+                                       url: $0.url?.absoluteString, manual: $0.manual ? true : nil)
         }
         RosterDisk.write(SessionMarksCacheFile(at: Date().timeIntervalSince1970 * 1000, marks: marks), to: marksURL,
                          keepNewest: (RosterDisk.sessionMarksKind, 3))
@@ -1810,44 +1551,6 @@ final class SessionStore {
               path[2].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }),
               path[2] != ".", path[2] != ".." else { return nil }
         return parts.url
-    }
-
-    /// [pr-multi] The add-on's list (0.9.75), at most 12, each checked like the one answer. No list: nil (an add-on
-    /// that names only the one answer, or a chat with nothing of its own to list).
-    /// [pr-review-facts] Each entry's size, checks, title and base too; with `detail`, its files and check runs.
-    static func prItems(_ value: JSONValue?, detail: Bool = false) -> [SessionPRItem]? {
-        guard let rows = value?.array else { return nil }
-        return rows.prefix(12).compactMap { row in
-            guard var item = Self.prItem(.init(state: row["state"]?.string ?? "", repo: row["repo"]?.string, branch: row["branch"]?.string,
-                                               number: row["number"]?.int, url: row["url"]?.string, source: row["source"]?.string))
-            else { return nil }
-            item.size = PRFacts.size(row["size"])
-            item.checks = PRFacts.checks(row["checks"], runs: detail)
-            item.title = PRFacts.title(row["title"])
-            item.base = PRFacts.base(row["base"])
-            if detail { item.files = PRFacts.files(row["files"]) }
-            return item
-        }
-    }
-
-    static func prItem(_ item: SessionMarksCacheFile.Mark.Item) -> SessionPRItem? {
-        guard let state = SessionPRStatus.State(rawValue: item.state) else { return nil }
-        return SessionPRItem(state: state, repo: item.repo, branch: item.branch, number: item.number.flatMap { $0 > 0 ? $0 : nil },
-                             url: item.url.flatMap(validPRURL), source: item.source.flatMap(SessionPRItem.Source.init(rawValue:)) ?? .git,
-                             size: validSize(item.size), checks: item.checks?.checks,
-                             title: cachedWord(item.title, limit: PRFacts.titleLimit), base: cachedWord(item.base))
-    }
-
-    /// [pr-review-facts] A cached size read back as the wire's rule reads it: no negative count.
-    static func validSize(_ size: SessionPRSize?) -> SessionPRSize? {
-        guard let size, size.files >= 0, size.additions >= 0, size.deletions >= 0 else { return nil }
-        return size
-    }
-
-    /// [pr-review-facts] A cached title or base read back: trimmed, empty is none.
-    static func cachedWord(_ text: String?, limit: Int = 200) -> String? {
-        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-        return String(text.prefix(limit))
     }
 
     private func schedulePRDiscovery() {
@@ -1926,19 +1629,12 @@ final class SessionStore {
         summary.cost = row.costUsd
         summary.cwd = row.cwd
         summary.owner = row.userId
-        // Only the message read for this exact list revision can describe its latest outcome.
-        // Older cached previews are still useful elsewhere, but must not overrule newer activity here.
-        if let message = device.latest[key], message.at == row.recency,
-           !TimelineNotes.isTaskSnapshot(message.text) {
-            summary.lastResult = message.codingResult
-        } else if row.messageCount == 0 { summary.lastResult = "No activity yet" }
         summary.pullRequest = isCodingSession(profile: row.profile, cwd: row.cwd)
             ? (pullRequests[key] ?? SessionPRStatus(state: .unknown)) : nil
         summary.branch = row.gitBranch.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         summary.metadata = SessionRowWords.metadata(branch: row.gitBranch, model: row.model, messages: row.messageCount,
                                                     toolCalls: row.toolCallCount)
         summary.pending = pendingLine?(row.profile, row.id)
-        summary.inputDetail = inputDetails[key]
         summary.status = row.liveId(where: needsInput.contains) != nil ? .needsInput : summary.isRunning ? .working : summary.unread ? .unread
             : summary.pending.map { !$0.failed } == true ? .draft : .idle
         if busy, let stepId = row.liveId(where: { steps[$0] != nil }) { summary.step = steps[stepId] }

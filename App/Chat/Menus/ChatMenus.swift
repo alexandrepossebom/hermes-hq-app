@@ -1,5 +1,4 @@
 import UIKit
-import SwiftUI
 
 /// The chat screen's menus (spec 1x): the ⋯ menu (Share and Info tiles, Model ▸, Rename…, fixed slots for later
 /// streams), the Model switcher's alerts and notices, the Models and Commands sheets, the slash dispatcher's hooks, and
@@ -8,7 +7,7 @@ final class ChatMenus: NSObject, ModelSwitchUI {
     /// The ⋯ rows in their fixed order (spec 1x §4.1). Later streams fill their slot through `slotItems` without moving
     /// the others.
     enum Slot: Int, CaseIterable {
-        case tiles = 0, model = 10, tools = 15, pin = 20, unread = 30, rename = 40, phone = 45, readAloud = 50, more = 60, danger = 70, browser = 80
+        case tiles = 0, model = 10, tools = 15, pin = 20, unread = 30, rename = 40, readAloud = 50, more = 60, danger = 70, browser = 80
     }
 
     private(set) weak var screen: ChatViewController?
@@ -53,19 +52,6 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         screen.menus = menus
         screen.moreMenu = menus.makeMoreMenu()
         if let live = menus.live {
-            // [phone-calls] Phone Call sits in the ⋯ (owner 2026-11-21: not its own bar button), only with a connected
-            // samplehost key for this account; checked each time the menu opens.
-            menus.slotItems[.phone] = { [weak screen, weak live] in
-                guard let screen, let live, PhoneCallController.shared(for: live.client.account.id).ready,
-                      let id = PhoneCallChat.key(live) else { return [] }
-                let call = UIAction(title: "Phone Call", image: UIImage(systemName: "phone")) { [weak screen, weak live] _ in
-                    guard let screen, let live else { return }
-                    PhoneCallChat.present(account: live.client.account.id, session: id, profile: live.profile, from: screen)
-                }
-                call.accessibilityIdentifier = "chat.phone-calls"
-                return [call]
-            }
-            PhoneChatChip.install(on: screen, live: live)   // [phone-calls] a call on shows on the chat's shelf
             screen.composer.showsCommands = true   // [m9/ipad] D12: iPad has the same one composer, so ☰ shows there too
             screen.composer.onCommands = { [weak screen] in screen?.presentCommandsSheet() }
             // [composer-expand] The two-row bar's model chip; [model-panel] a tap opens the model panel.
@@ -178,20 +164,6 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         out += bySlot[.tools] ?? []
         out += bySlot[.readAloud] ?? []
         out += bySlot[.browser] ?? []
-        out += bySlot[.phone] ?? []   // [phone-calls] Phone Call, with a connected samplehost key
-        // The list must remain reachable even when there are no live tabs to draw.
-        if SessionStripPref.isOn, !isTaskChat, let live, live.isBotChat,
-           !(session is ChatRoomSurface), let screen, let app = host as? AppModel {
-            let profile = session.profile.isEmpty ? "default" : session.profile
-            let name = app.botStore?.bot(named: profile)?.name ?? session.title
-            let chats = UIAction(title: "Chats with \(name)", image: UIImage(systemName: "bubble.left.and.bubble.right")) {
-                [weak screen, weak app] _ in
-                guard let screen, let app else { return }
-                PhoneBotChats.present(from: screen, app: app)
-            }
-            chats.accessibilityIdentifier = "chat.more.bot-chats"
-            out.append(chats)
-        }
         if session is ChatSessionActions, let rename = menu.rename { out.append(menuAction(rename)) }
         var more: [UIMenuElement] = []
         let sections: [[UIMenuElement]] = [menu.chat.map(menuAction), menu.workspace.map(menuAction),
@@ -221,7 +193,7 @@ final class ChatMenus: NSObject, ModelSwitchUI {
             }
             return children.isEmpty ? nil : UIMenu(title: "", options: .displayInline, children: children)
         }
-        let groups = [section([.model, .pin, .unread, .rename]), section([.readAloud, .browser, .phone]), section([.tools, .more]),
+        let groups = [section([.model, .pin, .unread, .rename]), section([.readAloud, .browser]), section([.tools, .more]),
                       section([.danger])]
         return (bySlot[.tiles] ?? []) + groups.compactMap { $0 }
     }
@@ -308,7 +280,6 @@ final class ChatMenus: NSObject, ModelSwitchUI {
         let listed = ModelsDevCache.shared.stored()
         return ModelPanelModel.build(input, contextMax: live?.menus.usage?.contextMax, contextUsed: live?.menus.usage?.contextUsed,
                                      listedContext: listed?.contextWindow(provider: current.provider, model: current.id),
-                                     compressions: live?.menus.usage?.compressions,
                                      price: ModelPricesModel.menuSubtitle(options, model: current.id, provider: current.provider, fallback: listed),
                                      limit: UsageLimitsModel.menuSubtitle(options, provider: current.provider))
     }

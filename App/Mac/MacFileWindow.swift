@@ -66,10 +66,7 @@ import UIKit
     private static let pageNameKey = "pageKey"
     private static let pageTitleKey = "pageTitle"
 
-    /// `failed` (#351, a bot's Screen or Browser): what to do instead when the Mac gives no window, in place of the
-    /// "didn't open" alert; it runs only while the page is still waiting (not after `withdraw`).
-    @discardableResult static func open(page: UIViewController, title: String, key: String,
-                                        failed: (() -> Void)? = nil) -> Bool {
+    @discardableResult static func open(page: UIViewController, title: String, key: String) -> Bool {
         let open = scenes.first { ($0.delegate as? FileSceneDelegate)?.pageKey == key }
         let id = UUID().uuidString
         waitingPages[id] = page
@@ -79,18 +76,10 @@ import UIKit
         UIApplication.shared.requestSceneSessionActivation(open?.session, userActivity: activity, options: nil) { error in
             AppLog.note("mac", "page window: couldn't open (\(error.localizedDescription))")
             DispatchQueue.main.async { MainActor.assumeIsolated {
-                guard waitingPages.removeValue(forKey: id) != nil else { return }
-                if let failed { failed() } else { couldNotOpen(title) }
+                waitingPages[id] = nil
+                couldNotOpen(title)
             } }
         }
-        return true
-    }
-
-    /// [#351] A page asked for but not shown yet is no longer wanted (a bot's Screen closed before its window came):
-    /// the window that connects for it closes at once. False when `page` isn't waiting.
-    @discardableResult static func withdraw(page: UIViewController) -> Bool {
-        guard let id = waitingPages.first(where: { $0.value === page })?.key else { return false }
-        waitingPages[id] = nil
         return true
     }
 
@@ -476,11 +465,6 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidDisconnect(_ scene: UIScene) {
         AppLog.note("mac", "file window: closed")
-        // [#351] A bot's Screen or Browser hands control back and stops its stream when its window goes (the red
-        // button, ⌘W or Escape), as its ✕ does.
-        if let page = (window?.rootViewController as? UINavigationController)?.viewControllers.first as? MacWindowPage {
-            page.windowClosed()
-        }
         if let url { MediaLoader.shared.purgeBigPreview(url) }   // a file over 64 MB isn't kept once it closes (spec §8.1)
     }
 }

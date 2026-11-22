@@ -144,7 +144,7 @@ extension PagesTests {
         XCTAssertEqual(hermes.label, "Hermes, on this goal, leads", "the first time: the root bot leads")
         XCTAssertEqual(research.label, "Research, not on this goal")
         XCTAssertTrue(app.descendants(matching: .any)["goals.new.who.leads.default"].exists, "Leads under its name")
-        XCTAssertEqual(whoNote(), "Hermes will offer a plan when you add this.")
+        XCTAssertEqual(whoNote(), "Hermes asks up to three questions, then offers a plan.")   // [goals set-up] item 4
         XCTAssertFalse(app.buttons["goals.new.plan"].exists, "no Plan With button")
         XCTAssertGreaterThan(justMe.frame.minX, research.frame.minX, "Just Me is the last chip")
         shot("goals4-6-new-goal" + name)
@@ -176,8 +176,10 @@ extension PagesTests {
         field.tap()
         field.typeText("Write a short story")
         app.buttons["goals.new.add"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(10) { self.goalPatches().contains {
-            $0.body?["lead"] as? String == "default" && ($0.body?["helpers"] as? [String]) == ["research"] } }, "PATCH lead and helpers")
+        // [goals set-up] item 5: both in the one POST (it was a PATCH after it).
+        XCTAssertTrue(waitUntil(10) { self.requests().contains { $0.method == "POST" && $0.path == Self.teamGoalRoute
+            && $0.body?["lead"] as? String == "default" && ($0.body?["helpers"] as? [String]) == ["research"] } }, "POST lead and helpers")
+        XCTAssertFalse(goalPatches().contains { $0.body?["lead"] != nil || $0.body?["helpers"] != nil }, "no PATCH for the team")
         XCTAssertTrue(app.descendants(matching: .any)["goal.tucked-bar"].firstMatch.waitForExistence(timeout: 15), "the goal's chat")
         XCTAssertTrue(waitUntil(15) { self.planAsks("Write a short story").count == 1 }, "\(promptTexts())")
         XCTAssertTrue(app.descendants(matching: .any)["chat.goal-offer"].firstMatch.waitForExistence(timeout: 20), "the plan card")

@@ -73,40 +73,6 @@ struct ForeignSteerTests {
         #expect(tail(s, 2) == ["bot: Working on it", "user: then deploy it"])
     }
 
-    /// [phone-calls] Owner 2026-11-21 (screenshot): a call's result sent while a reply ran showed twice, once as its
-    /// short line and once as the whole text Hermes held for after the reply.
-    private static let result = """
-        Phone call result (sent by Hermes HQ, not typed by the person)
-        To: +12125550142
-        Goal: Ask if they are open today.
-        Outcome: went to voicemail, 23s
-        Questions the assistant asked and the answers: none
-        Transcript:
-        Assistant: Hi, this is an AI assistant calling with a quick request.
-        """
-    private static let line = "Call to +1 212 555 0142: went to voicemail, 23s"
-
-    @Test func aCallResultHeldForAfterTheReplyIsNotDrawnASecondTime() async throws {
-        // The result's short bubble is on screen (it went into the gateway's own queue: the chat is open on a Mac too).
-        let h = try ChatHarness()
-        try h.setPage("24", "perf-page-latest-24.json")
-        let s = h.make()
-        #expect(await h.open())
-        h.client.onCall { method, _ in method == "prompt.submit" ? ["status": "streaming"] : [:] }
-        s.send(Self.result, display: Self.line)
-        await h.emit([h.event("message.start"), h.event("message.delta", ["text": "Working on it"])])
-        #expect(tail(s, 2) == ["user: " + Self.line, "bot: Working on it"])
-        let before = s.messages.count
-        s.applyForeignSteers(snapshot([], queued: Self.result))
-        #expect(s.messages.count == before, "\(tail(s, 3))")
-    }
-
-    @Test func aCallResultFromAnotherDeviceShowsAsItsShortLine() async throws {
-        let (_, s) = try await busy()
-        s.applyForeignSteers(snapshot([], queued: Self.result))
-        #expect(tail(s, 2) == ["bot: Working on it", "user: " + Self.line])
-    }
-
     @Test func aChangeOnTheGatewayWhileTheReplyRunsAsksForTheTurnsRecord() async throws {
         let (h, s) = try await busy { ["running": true, "inflight": ["user": "first", "assistant": "Working on it",
                                                                      "corrections": ["stop at the second file"]]] }

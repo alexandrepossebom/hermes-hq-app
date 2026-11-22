@@ -236,7 +236,7 @@ struct BotRowView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         HStack(alignment: .firstTextBaseline, spacing: 5) {
                             Text(bot.name)
-                                .font(Font.hq(DesktopRows.titleStyle).weight(.semibold))
+                                .font(Font.hq(.callout).weight(.semibold))
                                 .foregroundStyle(Color.hqLabel)
                                 .lineLimit(1)
                             if bot.hidden {
@@ -254,9 +254,9 @@ struct BotRowView: View {
                     let line = BotList.secondLine(bot)
                     HStack(alignment: .center, spacing: 5) {
                         previewText(line)
-                            .font(Font.hq(DesktopRows.previewStyle))
+                            .font(Font.hq(.footnote))
                             .foregroundStyle(line.tone == .tint ? Color.hqTintText : line.tone == .attention ? Color.hqOrange : Color.hqLabel2)
-                            .lineLimit(bot.step != nil && BotList.rowStatus(bot) == .working ? 1 : DesktopRows.previewLines)
+                            .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         if muted { Image(systemName: "bell.slash.fill").font(Font.hq(.caption2)).foregroundStyle(Color.hqLabel2).accessibilityHidden(true) }
                         if bot.pinned { Image(systemName: "pin.fill").font(Font.hq(.caption2)).foregroundStyle(Color.hqLabel2) }
@@ -264,7 +264,6 @@ struct BotRowView: View {
                     }
                 }
             }
-            .padding(.vertical, DesktopRows.padV)
             .padding(.horizontal, DesktopRows.gutter)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -273,8 +272,7 @@ struct BotRowView: View {
             .accessibilityAddTraits(.isButton)
             .botAccessibilityActions(actions.moves)
         }
-        .frame(minHeight: DesktopRows.height)
-        .frame(height: DesktopRows.fixedHeight)
+        .frame(height: DesktopRows.height)
         .rowArc(BotList.showsArc(bot, ring: true))   // [working-ring] the gate reads the switch
     }
 

@@ -288,8 +288,7 @@ nonisolated enum SessionRules {
     static func isBotChat(_ row: SidebarSessionRow) -> Bool {
         // [groups] A group chat member's hidden session (`Group: …`) is plumbing too, should an older gateway list it.
         let title = row.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // [tile-chats] A tile's own chat opens from its tile alone (owner 2026-11-21), one an older app made in the open too.
-        return row.hidden == true || title == RosterRules.botChatTitle || GroupKeys.isPlumbingTitle(title) || TileChats.isTileChat(row)
+        return row.hidden == true || title == RosterRules.botChatTitle || GroupKeys.isPlumbingTitle(title)
     }
 
     private static let markupOnly = JSRegex(#"^<[\w:-]+>\s*[{\[<]"#)

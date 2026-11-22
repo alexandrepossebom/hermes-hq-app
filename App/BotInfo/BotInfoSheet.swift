@@ -468,21 +468,6 @@ final class BotInfoModel {
         BotModelPages.openContextWindow(bot, services: services, store: contextStore, on: host?.navigationController)
     }
 
-    /// [bot voices] Owner 2026-11-21: this bot's own voice, from the config the sheet read as it opened (the Context
-    /// Window row's store, which the page edits too, so a pick shows on the row as the page closes). The engine is the
-    /// one Talk would start with here: this device's choice, else the bot's own mode.
-    var voiceEngine: TalkEngine { LiveVoices.engine(chosen: TalkController.chosenEngine, config: contextStore?.config) }
-
-    /// The Voice row's value: the voice's name, or "Text to Speech" for a bot Talk uses Standard with (it speaks with
-    /// that voice). Nil until the bot's settings are read.
-    var voiceValue: String? {
-        guard let store = contextStore, store.config != nil else { return nil }
-        let engine = voiceEngine
-        return engine.isLive ? LiveVoices.name(LiveVoices.current(engine, config: store.config), engine) : LiveVoices.standardValue
-    }
-
-    func openVoice() { BotModelPages.openVoice(bot, services: services, store: contextStore, on: host?.navigationController) }
-
     /// The header face's Edit Head and its photo choices (`BotInfoFace`).
     func changeFace() { (host as? BotInfoController)?.openFace() }
     func choosePhoto(_ source: BotPhotoPicker.Source) { (host as? BotInfoController)?.openPhoto(source) }
@@ -806,7 +791,7 @@ struct BotInfoChatsTab: View {
     }
 }
 
-/// [tabs] Settings: Notifications, Talk (the bot's own voice), Messages, Organize, Delete Bot, and the bot's id.
+/// [tabs] Settings: Notifications, Organize, Delete Bot, and the bot's id.
 struct BotInfoSettingsTab: View {
     @Bindable var model: BotInfoModel
 
@@ -841,17 +826,6 @@ struct BotInfoSettingsTab: View {
         } } footer: { HQSectionFooter {
             Text(BotMutes.scope)
         } }
-
-        // [bot voices] Owner 2026-11-21: this bot's own voice ("choose a voice for each bot").
-        if model.modelPagesAvailable {
-            Section {
-                ValueRow(title: "Voice", value: model.voiceValue) { model.openVoice() }
-                    .accessibilityIdentifier("bot-info.voice")
-                    .disabled(!model.online)
-            } header: { HQSectionLabel {
-                Text("Talk")
-            } }
-        }
 
         // [bot-colour] Owner 2026-11-11: this bot's own message colour.
         BotColourSection(bot: bot)

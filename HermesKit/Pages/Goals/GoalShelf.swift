@@ -12,13 +12,29 @@ nonisolated enum GoalShelfNext: Hashable, Sendable {
     case noPlan
     /// It has a plan and every task under it is done.
     case nothing
+    /// [goals set-up] No next task, and a plan offer for it waits for your answer (the card itself stays where it is).
+    case planWaits
 
     var words: String {
         switch self {
         case .task(_, let title): return "Next: " + title
         case .noPlan: return "No plan yet"
         case .nothing: return "Nothing next"
+        case .planWaits: return GoalShelfNext.planWords
         }
+    }
+
+    static let planWords = "Plan to look at"
+
+    /// A goal's next step: its next task; else, with the add-on's bots, a plan that waits for your answer; else no plan
+    /// yet, or nothing next. A waiting plan never hides a task you could do now (the lead's orange dot already says
+    /// something waits).
+    static func of(_ goal: Goal, tasks: [TodoTask], bots: Bool, offers: [TodoOffer]) -> GoalShelfNext {
+        if let task = GoalViews.nextTask(goal, tasks: tasks) {
+            return .task(id: task.id, title: task.title.isEmpty ? "Untitled Task" : task.title)
+        }
+        if bots, goal.state == .active, GoalPlanAsk.planWaits(goal, offers: offers) { return .planWaits }
+        return GoalViews.fraction(goal, tasks: tasks) == nil ? .noPlan : .nothing
     }
 }
 
@@ -69,15 +85,11 @@ nonisolated enum GoalShelf {
     static func card(_ goal: Goal, tasks: [TodoTask], now: Date, bots: Bool = false, offers: [TodoOffer] = [],
                      keptHere: Date? = nil, calendar: Calendar = .current) -> GoalShelfCard {
         let fraction = GoalViews.fraction(goal, tasks: tasks)
-        let next: GoalShelfNext
-        if let task = GoalViews.nextTask(goal, tasks: tasks) {
-            next = .task(id: task.id, title: task.title.isEmpty ? "Untitled Task" : task.title)
-        } else {
-            next = fraction == nil ? .noPlan : .nothing
-        }
+        let next = GoalShelfNext.of(goal, tasks: tasks, bots: bots, offers: offers)
         return GoalShelfCard(id: goal.id, title: goal.title.isEmpty ? "Untitled Goal" : goal.title, color: goal.tint,
                              fraction: fraction, line: GoalViews.shortLine(goal, tasks: tasks, now: now, calendar: calendar),
-                             next: next, spoken: GoalViews.spoken(goal, tasks: tasks, now: now, calendar: calendar),
+                             next: next, spoken: GoalViews.spoken(goal, tasks: tasks, now: now, calendar: calendar)
+                                + (next == .planWaits ? ", " + GoalShelfNext.planWords.lowercased() : ""),
                              team: bots ? GoalBots.team(goal) : [], led: bots && goal.lead != nil,
                              waits: bots && GoalBots.waitsForYou(goal, offers: offers),
                              stall: GoalViews.stalled(goal, tasks: tasks, now: now, keptHere: keptHere, calendar: calendar).map(GoalViews.stallLine))

@@ -263,54 +263,6 @@ struct HelperStatusRowsTests {
         #expect(helperLines(ChatRowBuilder.build(input)).map(\.title) == ["2 helpers done · 1 failed"])
     }
 
-    /// The gateway's real batch headers (tools/process_registry_notifications.py) put the call count and duration in
-    /// the parentheses after the status. Owner, 2026-11-21: finished helpers still said "dispatched" for hours.
-    private func realBatchEnvelope(_ id: String, _ goals: [String], _ statuses: [String]) -> String {
-        var lines = ["[ASYNC DELEGATION BATCH COMPLETE — \(id)]",
-                     "A background fan-out unit you dispatched earlier — \(goals.count) subagent(s) — has finished; its consolidated results are below.",
-                     "", "Dispatched: 2026-11-20 14:51:36 (19m52s ago)", "Role: leaf   Model: fixture-model   Total duration: 1192.63s"]
-        for (i, goal) in goals.enumerated() {
-            let icon = statuses[i] == "completed" ? "✓" : "✗"
-            lines += ["", "--- \(icon) TASK \(i + 1)/\(goals.count): \(goal)  (status=\(statuses[i]), api_calls=34, 1192.42s) ---",
-                      "Invented outcome \(i + 1)."]
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    @Test func realBatchHeadersReadTheirStatusNotTheCountAndDuration() throws {
-        let parsed = try #require(HelperReport.parse(realBatchEnvelope("deleg_real", firstGoals, ["completed", "completed", "failed"])))
-        #expect(parsed.delegationID == "deleg_real")
-        #expect(parsed.tasks.map(\.goal) == firstGoals)
-        #expect(parsed.tasks.map(\.status) == [.completed, .completed, .failed])
-    }
-
-    /// A background batch reported after the owner had moved on (a new request in between) and with a goal longer than
-    /// the card keeps: the report still settles its helpers, by the delegation id the dispatch answered with.
-    @Test func aBackgroundBatchSettlesByItsDelegationIDAfterTheOwnerMovedOn() throws {
-        let long = "Close the remaining invented account-switch test gap " + String(repeating: "with more fixture detail ", count: 20)
-        let goals = [long, "Check violet labels"]
-        let args = String(data: try JSONSerialization.data(withJSONObject: ["tasks": goals.map { ["goal": $0] }], options: [.sortedKeys]),
-                          encoding: .utf8)!
-        let result: JSONValue = .object(["status": "dispatched", "mode": "background", "count": 2, "delegation_id": "deleg_0db74985",
-                                         "goals": .array(goals.map { .string($0) })])
-        var call = ToolCall(id: "bg-call", name: "delegate_task", title: "Delegate tasks", argsText: args, summary: nil,
-                            state: .done, durationSeconds: nil)
-        call.card = ToolCards.card(name: "delegate_task", args: ToolArgs.parse(args), result: result)
-        // The card survives the transcript cache with its delegation id.
-        #expect(call.card.flatMap { ToolCard(json: $0.json) } == call.card)
-        let page = Hydration.fold([["role": "user", "content": .string(realBatchEnvelope("deleg_0db74985", goals, ["completed", "failed"])),
-                                    "row_id": 90, "timestamp": .number(epoch + 30), "display_kind": "async_delegation_complete",
-                                    "display_metadata": ["display_text": "2 background agents finished"]]], pageSeq: 1)
-        let report = try #require(page.messages.first)
-        let messages = [prompt(), message("dispatch", .assistant, 1, [.tool(call), .text("Two helpers are on it in the background.")]),
-                        prompt("request-two", 10), message("other-reply", .assistant, 11, [.text("Something else entirely.")]), report]
-        var value = input(messages)
-        value.backgroundResults = page.meta[report.id]?.asyncResult.map { [report.id: $0] } ?? [:]
-        let group = try #require(HelperStatusRows.Plan(value).group(requestID: "request-one"))
-        #expect(group.helpers.map(\.status) == [.completed, .failed])
-        #expect(!group.title.contains("dispatched"))
-    }
-
     @Test func cacheKeepsStructuredHelperReportsAndStillReadsHQT5() throws {
         var report = note("cached-report", goal: firstGoals[0], seconds: 4)
         report.helperReport = try #require(HelperReport.parse(batchEnvelope))

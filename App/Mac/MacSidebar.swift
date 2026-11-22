@@ -102,22 +102,6 @@ final class MacSidebar: UIView {
             NotificationCenter.default.post(name: botsInSidebarChanged, object: nil)
         }
     }
-    /// [pinned-only] Owner 2026-11-22: "I'd like to have the ability to pin only certain bots to the sidebar on Mac".
-    /// On: the sidebar (open or folded) lists the pinned bots and group chats, and any other only while it wants the
-    /// person or is the chat on show (`BotList.pinnedOnly`). Off, as it was: every bot. This Mac only; the pins
-    /// themselves are the list's, as on the iPhone.
-    static let pinnedOnlyKey = "HQMacSidebarPinnedOnly"
-    static let pinnedOnlyChanged = Notification.Name("HQMacSidebarPinnedOnlyChanged")
-    private static var storedPinnedOnly = UserDefaults.standard.bool(forKey: pinnedOnlyKey)
-    static var pinnedOnly: Bool {
-        get { storedPinnedOnly }
-        set {
-            guard newValue != storedPinnedOnly else { return }
-            storedPinnedOnly = newValue
-            UserDefaults.standard.set(newValue, forKey: pinnedOnlyKey)
-            NotificationCenter.default.post(name: pinnedOnlyChanged, object: nil)
-        }
-    }
     /// Folded by the person (kept across launches), or by a narrow window (below).
     static var isCollapsed: Bool { savedCollapsed || (narrowWindow && !openedWhileNarrow) }
     private static var savedCollapsed: Bool {
@@ -258,33 +242,6 @@ final class MacSidebar: UIView {
     private var footEdgeHeight: NSLayoutConstraint!
     private var footBottom: NSLayoutConstraint!
     private var heads: [String: MacRailHead] = [:]
-    /// [spring-drop] Files dragged in from the Finder: a bot's row (its own chat) or a chat under it, held under them,
-    /// opens beside the sidebar.
-    private lazy var fileDrop: SessionFileDrop = {
-        let drop = SessionFileDrop(list: scroll)
-        drop.target = { [weak self] point in self?.fileDropTarget(at: point) }
-        return drop
-    }()
-
-    private func fileDropTarget(at point: CGPoint) -> SessionFileDrop.Target? {
-        let hit: (UIView) -> Bool = { [scroll] view in
-            !view.isHidden && view.window != nil && view.convert(view.bounds, to: scroll).contains(point)
-        }
-        if let row = chatRows.values.first(where: hit), let session = row.session {
-            return SessionFileDrop.Target(key: "chat:" + row.bot + "\u{1F}" + session.id, view: row, cornerRadius: 8,
-                                          chat: .session(profile: session.profile, id: session.id),
-                                          open: { [weak self, weak row] in
-                                              guard let self, let row, let tabs = self.tabs else { return }
-                                              self.showBots(marking: row.bot + "\u{1F}" + session.id)
-                                              tabs.botsViewController.openRailChat(session)
-                                          })
-        }
-        if let head = heads.values.first(where: hit), let bot = head.item.bot {
-            return SessionFileDrop.Target(key: "bot:" + bot.id, view: head, cornerRadius: 8, chat: .botChat(profile: bot.id),
-                                          open: { [weak self] in self?.openBotChat(bot.id) })
-        }
-        return nil
-    }
     /// [chats-under] The chats under the bot rows (and their "N more"), by bot id + U+001F + session id (or "more").
     private var chatRows: [String: MacSidebarChat] = [:]
     private var chatsToken: [NSObjectProtocol] = []
@@ -612,10 +569,6 @@ final class MacSidebar: UIView {
                 self.tabs?.split?.listFoldMayHaveChanged()
             }
         })
-        // [pinned-only] Pinned Bots Only flipped (Settings › Sidebar, the sidebar's own menu): the bots again.
-        sceneTokens.append(NotificationCenter.default.addObserver(forName: Self.pinnedOnlyChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.botsChanged() }
-        })
         #if DEBUG
         // `-HQDebugBotsInSidebarFlip <s>`: Bots in Sidebar flips that many seconds after the sidebar is made, as the
         // menu's item does (pair it with `-HQDebugMacShots <name> -HQDebugMacShotsWait <more s>` for the picture after).
@@ -794,21 +747,7 @@ final class MacSidebar: UIView {
             footEdgeHeight.constant = folded ? 9 + foot.spacing : 10
         }
         scroll.contentInset.bottom = showsBots && !folded ? 1 : 6
-        // [sidebar-divider] Owner 2026-11-22: "a little divider line … to separate them from the main icons". The pages
-        // added to the sidebar come after the main places (`MainTabController.setViewControllers`), under a faint line,
-        // the one between the bots' groups, open or folded. No line while only main places (or only pages) show.
-        var sawMain = false, lined = false
-        for row in placeRows {
-            let added = SidebarEditing.isAddedPage(row.item.tag)
-            if added, sawMain, !lined {
-                let line = MacRailLine(wide: !folded)
-                line.accessibilityIdentifier = "mac-sidebar.added-pages-line"
-                nav.addArrangedSubview(line)
-                lined = true
-            }
-            if !added { sawMain = true }
-            nav.addArrangedSubview(row)
-        }
+        placeRows.forEach { nav.addArrangedSubview($0) }
         addTools(toolRows, folded: folded, into: nav)
         if showsBots { botsChanged() }
         placeRailGateway()
@@ -855,7 +794,7 @@ final class MacSidebar: UIView {
             button.showsMenuAsPrimaryAction = true
             MacHover.drawsOwnHover(button)   // [Mac AAA 2026-11-16] the row under it draws the hover (as every rail row)
             button.menu = UIMenu(title: "Tools", children: toolRows.map { tool in
-                UIAction(title: tool.item.title ?? "", image: SidebarEditing.menuImage(tool.item)) { [weak tool] _ in tool?.sendActions(for: .touchUpInside) }
+                UIAction(title: tool.item.title ?? "", image: tool.item.image) { [weak tool] _ in tool?.sendActions(for: .touchUpInside) }
             })
             button.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(button)
@@ -926,9 +865,7 @@ final class MacSidebar: UIView {
         let open = !Self.isCollapsed
         let bots = tabs.botsViewController
         // [mac] Show Hidden Bots (the right click): a Hidden group last, open sidebar or rail.
-        // [pinned-only] Pinned Bots Only: the pins, and any other bot only while it wants the person or is on show.
-        let sections = Self.pinnedOnly ? BotList.pinnedOnly(bots.railSections(), open: openOwners) : bots.railSections()
-        let groups = MacBotsRail.titledGroups(sections, showHidden: bots.railShowsHidden)
+        let groups = MacBotsRail.titledGroups(bots.railSections(), showHidden: bots.railShowsHidden)
             .filter { open || !$0.items.isEmpty }   // the rail draws no empty section (no heading to carry it)
         // [chats-under] Open, each bot's chats under its row, as Filter › Chats Under Bots lists them in the Bots list
         // (the rail's heads have no room for them).
@@ -1185,31 +1122,15 @@ final class MacSidebar: UIView {
             if let split = tabs.split { split.switchPlace(to: bots) { tabs.pick(bots) } } else { tabs.pick(bots) }
         }
         MacSelection.focus(on: .sidebar)
-        setOpenHead(key)
+        openHead = key
         markHeads()
     }
 
     /// The bot (or group chat, by room key) whose own chat is on show beside the list (nil: none, or another screen).
     /// [chats-under] `chat`: a bot's other chat on show (bot id + U+001F + session id), marked under its bot if listed there.
     func markOpen(bot: String?, room: String? = nil, chat: String? = nil) {
-        setOpenHead(bot ?? room.map(MacBotsRail.Item.roomKey) ?? chat)
+        openHead = bot ?? room.map(MacBotsRail.Item.roomKey) ?? chat
         markHeads()
-    }
-
-    /// [pinned-only] The chat on show changed: under Pinned Bots Only its bot is listed while it is (and no longer).
-    private func setOpenHead(_ key: String?) {
-        guard key != openHead else { return }
-        openHead = key
-        if Self.pinnedOnly { botsChanged() }
-    }
-
-    /// [pinned-only] The bot or room of the chat on show, as `BotList.pinnedOnly` names them: a bot's id (its own chat,
-    /// or another of its chats: bot id + U+001F + session id), a room's id (the head's key without its prefix).
-    private var openOwners: Set<String> {
-        guard let openHead, tabs?.shownTab == .bots else { return [] }
-        let room = MacBotsRail.Item.roomKey("")
-        if openHead.hasPrefix(room) { return [String(openHead.dropFirst(room.count))] }
-        return [openHead.split(separator: "\u{1F}", maxSplits: 1).first.map(String.init) ?? openHead]
     }
 
     private func markHeads() {
@@ -1436,16 +1357,6 @@ final class MacSidebar: UIView {
     }
     func debugClick(_ index: Int) { if rows.indices.contains(index) { rows[index].sendActions(for: .touchUpInside) } }
     var debugScroll: UIScrollView { scroll }
-    /// [sidebar-divider] The places' list top to bottom: each row's name, `|` for a line, `Tools` for its heading.
-    var debugDivider: String {
-        let nav = showsBots ? foot : stack
-        return nav.arrangedSubviews.filter { !$0.isHidden }.map { view in
-            if let row = view as? Row { return row.title ?? "?" }
-            if view is MacRailLine { return "|" }
-            if view is MacSidebarHeading { return "Tools▾" }
-            return ""
-        }.filter { !$0.isEmpty }.joined(separator: " ")
-    }
     /// [Mac AAA 2026-11-16] The frame tour: place row `index` and the second bot's row drawn as under the pointer.
     func debugHover(place index: Int) {
         if rows.indices.contains(index) { rows[index].debugHover() }
@@ -1712,9 +1623,7 @@ final class MacSidebar: UIView {
         let shown = tabs.selectedViewController
         for row in rows { row.isMarked = row.controller != nil && row.controller === shown }
         foldedTools?.isMarked = shown.map { isTool($0) } ?? false   // [mac-layout]
-        // [bots-rail] a head is marked only while Bots is on show. [pinned-only] And the chat on show keeps its bot
-        // listed only while Bots is: the bots again (which marks them).
-        if Self.pinnedOnly, showsBots { botsChanged() } else { markHeads() }
+        markHeads()   // [bots-rail] a head is marked only while Bots is on show
         // [mac-sidebar] A place picked by ⌘9 or a link, below the fold of a long list, scrolls into view (in its own list:
         // Mac polish #27). A Tool on the folded rail is its Tools button.
         let marked = rows.first(where: { $0.isMarked && !$0.isHidden }) ?? foldedTools.flatMap({ $0.isMarked ? $0 : nil })
@@ -2122,13 +2031,10 @@ extension MacSidebar: UIContextMenuInteractionDelegate, UIDragInteractionDelegat
 
     func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
         let box = session.localDragSession?.items.first?.localObject
-        return box is SidebarEditing.DragBox || box is MacBotsRail.DragBox || SessionFileDrop.carriesFiles(session)   // [spring-drop]
+        return box is SidebarEditing.DragBox || box is MacBotsRail.DragBox
     }
 
     func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
-        if session.localDragSession == nil {   // [spring-drop] files from the Finder: a chat's row held under them opens
-            return UIDropProposal(operation: interaction.view === foot ? .cancel : fileDrop.update(session))
-        }
         if let bot = railDragBot(session) {   // [rail-more]
             guard interaction.view !== foot, let landing = railLanding(bot, at: session.location(in: stack).y) else {
                 dropLine.isHidden = true
@@ -2150,22 +2056,11 @@ extension MacSidebar: UIContextMenuInteractionDelegate, UIDragInteractionDelegat
         return UIDropProposal(operation: .move)
     }
 
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
-        dropLine.isHidden = true
-        if interaction.view !== foot { fileDrop.exit() }
-    }
-
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) {
-        dropLine.isHidden = true
-        fileDrop.exit()
-    }
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) { dropLine.isHidden = true }
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) { dropLine.isHidden = true }
 
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
         dropLine.isHidden = true
-        if session.localDragSession == nil {   // [spring-drop]
-            if interaction.view !== foot { fileDrop.perform(session) }
-            return
-        }
         if let bot = railDragBot(session) {   // [rail-more]
             if interaction.view !== foot, let landing = railLanding(bot, at: session.location(in: stack).y) { railDrop(bot, landing) }
             return

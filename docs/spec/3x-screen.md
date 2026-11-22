@@ -360,13 +360,6 @@ credential, so UserDefaults (not Keychain) matches the web's localStorage.
 "This Mac · 1920×1080"; empty hides it). The page under the bar is the system background; the stage is black.
 DECISION D2: Close (✕), not the web's "Done", to match the native Watch Browser viewer.
 
-**On the Mac** (#351): the viewer opens in a window of its own (`ViewerWindow.open`, a page window), titled
-`<Bot>’s Screen`, that can be resized, zoomed and made full screen; the stage fills it and a zoomed view keeps its
-middle through a resize (`ScreenViewMath.resized`). The same bot's Screen asked for again brings that window forward;
-another bot's closes it (control handed back) and opens in its place (`ViewerReopen`). Closing the window (✕, ⌘W,
-Escape, the red button) runs the leaving rules (§5.8). With no window to be had it covers the right pane
-(`PaneViewer`). Watch Browser does the same. iPhone and iPad: unchanged.
-
 Layout top to bottom: top bar · notes (`ScreenNotesView`, only when there is one) · stage (fills) · control bar
 (glass, pinned to `view.keyboardLayoutGuide.topAnchor`). The bar sits **below** the picture and shrinks it rather than
 covering it (`S/bot-screen-controls.tsx` header comment).

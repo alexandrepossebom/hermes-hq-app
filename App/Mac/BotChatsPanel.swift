@@ -34,29 +34,6 @@ final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewD
     private let table = UITableView(frame: .zero, style: .plain)
     private var rows: [Row] = []
     private var watches: [NSObjectProtocol] = []
-    /// [spring-drop] Files dragged in from the Finder: a chat's row held under them opens it in the other's place; let
-    /// go there, they go into its tray (the lit row's: into the chat beside the panel).
-    private lazy var fileDrop: SessionFileDrop = {
-        let drop = SessionFileDrop(list: table)
-        drop.target = { [weak self] point in self?.fileDropTarget(at: point) }
-        return drop
-    }()
-    private lazy var fileDropInteraction = SessionFileDropInteraction(drop: fileDrop)
-
-    private func fileDropTarget(at point: CGPoint) -> SessionFileDrop.Target? {
-        guard let path = table.indexPathForRow(at: point), path.row < rows.count, let cell = table.cellForRow(at: path),
-              let screen, let app else { return nil }
-        let row = rows[path.row]
-        guard row.kind == .botChat || row.kind == .chat else { return nil }
-        let entry = SessionStripEntry(id: row.id, title: row.title, isBotChat: row.kind == .botChat, working: row.working,
-                                      unread: row.unread, current: row.current)
-        return SessionFileDrop.Target(key: row.kind == .botChat ? "bot" : row.id, view: cell, rect: cell.bounds.insetBy(dx: 6, dy: 1),
-                                      cornerRadius: 8, chat: SessionStrip.dropChat(entry, screen: screen),
-                                      open: { [weak screen, weak app] in
-                                          guard let screen, let app, !entry.current else { return }
-                                          SessionStrip.open(entry, from: screen, app: app)
-                                      })
-    }
 
     init(screen: ChatViewController, app: AppModel) {
         self.screen = screen
@@ -82,7 +59,6 @@ final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewD
         table.sectionHeaderTopPadding = 0
         table.contentInset = UIEdgeInsets(top: 2, left: 0, bottom: 12, right: 0)
         table.accessibilityIdentifier = "mac.inspector.chats"
-        table.addInteraction(UIDropInteraction(delegate: fileDropInteraction))   // [spring-drop]
         table.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(table)
         NSLayoutConstraint.activate([
@@ -144,7 +120,7 @@ final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewD
                            working: bot.isWorking, unread: bot.unread && !onBotChat, current: onBotChat))
         }
         out.append(Row(kind: .newChat, id: "", title: "New Chat"))
-        let chats = SessionStripRules.chats(bot: bot, sessions: app.sessionsOutsideKeptProjects(keeping: currentId), profile: profile)
+        let chats = SessionStripRules.chats(bot: bot, sessions: app.sessions, profile: profile)
         for group in SessionStripRules.groups(chats) {
             out.append(Row(kind: .header, id: group.title, title: group.title))
             for chat in group.chats {

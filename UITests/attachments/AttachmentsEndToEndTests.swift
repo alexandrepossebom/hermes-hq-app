@@ -6,7 +6,6 @@
 // Attachments are injected with the DEBUG hook `-HQDebugAttach "<abs path>,…"`, which runs the pickers' own import
 // code. Every test starts from a clean phone (`-HQDebugResetAccounts YES`) and signs in through the form.
 
-import UIKit
 import XCTest
 
 final class AttachmentsEndToEndTests: XCTestCase {
@@ -356,19 +355,6 @@ final class AttachmentsEndToEndTests: XCTestCase {
         if sheet.exists { sheet.swipeDown(velocity: .fast) }
         XCTAssertTrue(waitUntil(timeout: 5) { !sheet.exists })
         XCTAssertTrue(app.buttons["viewer.close"].exists, "still in the viewer")
-        // Owner 2026-11-22: press and hold on the open photo: Save to Photos, Share…, Copy Image; Copy says Copied.
-        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
-        XCTAssertTrue(app.buttons["Copy Image"].waitForExistence(timeout: 5), "the viewer's photo has the image menu")
-        XCTAssertTrue(app.buttons["Save to Photos"].exists)
-        XCTAssertTrue(app.buttons["Share…"].exists)
-        shot(app, "a13a-viewer-photo-menu")
-        // The viewer keeps its picture out of the accessibility tree (its "Copied" pill too): read the pasteboard.
-        UIPasteboard.general.items = []
-        app.buttons["Copy Image"].tap()
-        XCTAssertTrue(waitUntil(timeout: 5) { UIPasteboard.general.hasImages }, "Copy Image puts the picture on the pasteboard")
-        XCTAssertFalse(app.alerts["Couldn’t Copy"].exists, "Copy didn't fail")
-        XCTAssertTrue(app.buttons["viewer.close"].exists, "still in the viewer after Copy")
-        sleep(2)
         // Double-tap zooms in; a swipe down then pans the picture and never dismisses (check 10).
         let viewer = app.otherElements["viewer"]
         let center = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
@@ -759,38 +745,6 @@ final class AttachmentsEndToEndTests: XCTestCase {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)))
         shot(app, "a20-scroll-bar-bottom")
-    }
-
-    // MARK: 21. Files held on a bot's row open its chat; let go there, they're in its tray
-
-    /// [spring-drop] Owner 2026-11-22. `-HQDebugSpringDrop` walks the Bots list's own file-drop code with a drop session
-    /// carrying a real file (a UI test cannot start a drag in another app): held on the row, the chat opens by itself;
-    /// let go on the row, the chat opens with the file in its tray and the file uploads.
-    @MainActor func test21_FilesHeldOnABotRowOpenItsChat() throws {
-        let table = { (app: XCUIApplication) in app.tables["chat.table"] }
-        let open = { (mode: String) -> XCUIApplication in
-            let app = XCUIApplication()
-            app.launchArguments = ["-HQDebugResetAccounts", "YES", "-HQDebugSpringDrop", self.path("report.pdf"),
-                                   "-HQDebugSpringDropMode", mode]
-            app.launch()
-            let form = app.textFields["sign-in-address"]
-            _ = self.waitUntil(timeout: 15) { table(app).exists || form.exists || app.cells["bot-row-default"].exists }
-            if form.exists { self.signIn(app) }
-            return app
-        }
-        let held = open("hold")
-        XCTAssertTrue(table(held).waitForExistence(timeout: 45), "held on the bot's row, its chat opens")
-        sleep(1)
-        XCTAssertFalse(held.buttons["composer.tray.tile.0"].exists, "only opened: nothing was let go")
-        shot(held, "a21-held-opened")
-        held.terminate()
-
-        let dropped = open("drop")
-        XCTAssertTrue(table(dropped).waitForExistence(timeout: 45), "let go on the bot's row, its chat opens")
-        XCTAssertTrue(dropped.buttons["composer.tray.tile.0"].waitForExistence(timeout: 20), "the file is in its tray")
-        XCTAssertTrue(waitUntil(timeout: 20) { self.uploads().contains { ($0["path"] as? String)?.hasSuffix("/report.pdf") == true } },
-                      "the file uploads")
-        shot(dropped, "a21-dropped-in-tray")
     }
 
     // MARK: Helpers

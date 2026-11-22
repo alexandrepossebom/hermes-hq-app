@@ -47,43 +47,6 @@ nonisolated enum HostedRoomLog {
 
     static func memberId(_ member: GroupMember) -> String { member.raw["member_id"]?.string ?? member.name }
 
-    /// The members `groups.create` takes for these bots of this gateway (each its own profile under its handle, as
-    /// Hermes Desktop's `rosterEntry`), or nil when the gateway would refuse them: 2 to 6, each profile and handle a
-    /// gateway identifier, handles distinct, `all` and `everyone` reserved (H:gateway/hosted_room_discussion.py
-    /// `validate_roster`).
-    static func roster(_ members: [GroupMember]) -> [JSONValue]? {
-        guard (GroupLimits.minMembers...GroupLimits.maxMembers).contains(members.count) else { return nil }
-        var profiles: Set<String> = [], handles: Set<String> = ["all", "everyone"]
-        var out: [JSONValue] = []
-        for member in members {
-            let profile = member.name.trimmingCharacters(in: .whitespaces)
-            let handle = GroupMentions.handle(name: profile, saved: member.handle)
-            guard !member.sourceScoped, isIdentifier(profile), isIdentifier(handle),
-                  profiles.insert(profile.lowercased()).inserted, handles.insert(handle.lowercased()).inserted else { return nil }
-            out.append(["member_id": .string(profile), "profile": .string(profile), "handle": .string(handle),
-                        "target": ["kind": "local", "profile": .string(profile)]])
-        }
-        return out
-    }
-
-    /// H:gateway/hosted_rooms_common.py `IDENTIFIER_RE`, 128 characters at most.
-    static func isIdentifier(_ value: String) -> Bool {
-        value.count <= 128 && value.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]*$", options: .regularExpression) != nil
-    }
-
-    /// Whether a `groups.capabilities` answer says this gateway runs a new room with these bots: its room driver is
-    /// up (Hermes Desktop's `groupExecutionMode`: without one a made room never answers), it lists `groups.create`
-    /// when it lists methods, and it can seat every bot when it says whom it seats (`seatable_profiles`).
-    static func canHost(_ capabilities: JSONValue, profiles: [String]) -> Bool {
-        guard capabilities["driver"]?.bool == true else { return false }
-        if let methods = capabilities["methods"]?.array, !methods.contains(.string("groups.create")) { return false }
-        if let seatable = capabilities["seatable_profiles"]?.array {
-            let names = Set(seatable.compactMap(\.string))
-            guard profiles.allSatisfy(names.contains) else { return false }
-        }
-        return true
-    }
-
     /// The id the gateway gives your send: `user:` + sha256 of the client's event id (`user_event_id`,
     /// H:gateway/hosted_rooms.py). Your bubble carries the client id until the log shows the gateway's copy.
     static func userEventId(_ clientEventId: String) -> String {
@@ -256,7 +219,6 @@ nonisolated enum HostedRoomLog {
     }
 
     private func list(_ owners: [String]) async {
-        let started = Date()
         var listed: [String: [GroupRoom]] = [:]
         for owner in owners {
             guard !closed, !Task.isCancelled else { return }
@@ -273,8 +235,7 @@ nonisolated enum HostedRoomLog {
         var found = 0
         for (owner, rooms) in listed {
             let keys = Set(rooms.map(\.key))
-            // A room made here after this listing was asked for is not in its answer: it is not gone.
-            for room in store.rooms where room.hosted?.owner == owner && !keys.contains(room.key) && (made[room.key] ?? .distantPast) < started {
+            for room in store.rooms where room.hosted?.owner == owner && !keys.contains(room.key) {
                 AppLog.trace("groups", "hosted room \(AppLog.tag(room.key)) no longer listed: removed")
                 store.removeHosted(room.key)
             }
@@ -288,60 +249,6 @@ nonisolated enum HostedRoomLog {
         }
         if found > 0 { AppLog.trace("groups", "hosted rooms listed: \(found) on \(listed.count) profile(s)") }
     }
-
-    // MARK: Making a room
-
-    /// A New Group Chat whose answer was lost keeps its room id (by name and bots): Try Again asks for the same room,
-    /// so a create that did reach the gateway is opened, not made twice (`groups.create` is idempotent by room id).
-    private var pendingCreates: [String: String] = [:]
-    /// When each room made here was made (see `list`).
-    private var made: [String: Date] = [:]
-
-    /// New Group Chat on the gateway (`groups.create`), as Hermes Desktop makes every new group chat: the room shows
-    /// on every device and its rounds run with the app closed. Returns the new room's key, or nil when this gateway
-    /// cannot run it (an older Hermes, no room driver, a bot it cannot seat, a refusal): the app then makes the room
-    /// it runs itself. Throws when no answer came: the room may exist, and Try Again asks for the same one.
-    func create(name: String, members: [GroupMember]) async throws -> String? {
-        guard !closed, let bots = store.bots,
-              let owner = (bots.profiles.first { $0.name == "default" } ?? bots.profiles.first(where: \.isDefault))?.name,
-              let roster = HostedRoomLog.roster(members) else { return nil }
-        let capabilities: JSONValue
-        do {
-            capabilities = try await client.call("groups.capabilities", ["profile": .string(owner)], timeout: .seconds(15))
-        } catch let error as RPCError where !Self.unanswered(error) {
-            AppLog.trace("groups", "hosted create: no groups.capabilities on \(AppLog.tag(owner)) (\(error.code)), the app runs the room")
-            return nil
-        }
-        guard HostedRoomLog.canHost(capabilities, profiles: members.map(\.name)) else {
-            AppLog.trace("groups", "hosted create: \(AppLog.tag(owner)) cannot run this room, the app runs it")
-            return nil
-        }
-        let intent = name + "\n" + members.map(\.name).joined(separator: ",")
-        let roomId = pendingCreates[intent] ?? GroupKeys.newRoomId()
-        pendingCreates[intent] = roomId
-        let result: JSONValue
-        do {
-            result = try await client.call("groups.create", ["profile": .string(owner), "room_id": .string(roomId), "name": .string(name),
-                                                             "members": .array(roster)], timeout: .seconds(30))
-        } catch let error as RPCError where !Self.unanswered(error) {
-            // The gateway said no: nothing was made under this id.
-            pendingCreates[intent] = nil
-            AppLog.note("groups", "hosted create refused on \(AppLog.tag(owner)): \(Self.words(error)), the app runs the room")
-            return nil
-        }
-        pendingCreates[intent] = nil
-        guard let room = HostedRoomLog.room(result["room"], owner: owner) else {
-            refresh(force: true)
-            throw BotWriteError(title: "Couldn’t Open \(name)", reason: "Hermes made the group chat, but the app couldn’t read its answer. It will show in your list shortly.")
-        }
-        made[room.key] = Date()
-        store.upsertHosted(room)
-        AppLog.trace("groups", "hosted create \(AppLog.tag(room.key)): made on \(AppLog.tag(owner)), \(roster.count) members")
-        return room.key
-    }
-
-    /// No gateway answer (never sent, the socket closed first, or no answer in time): nothing is known of the request.
-    private static func unanswered(_ error: RPCError) -> Bool { error.isTimeout || error.isConnectionLost || error.isNotConnected }
 
     // MARK: Reading a room
 

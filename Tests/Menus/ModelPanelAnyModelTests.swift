@@ -296,23 +296,19 @@ struct ModelPanelAnyModelTests {
         let panel = ModelPanelView.debugLaidOut(ModelPanelModel.debugSample, hostWidth: 402).panel
         let facts = Dictionary(panel.debugFacts.map { ($0.title, $0.opens) }, uniquingKeysWith: { a, _ in a })
         #expect(facts["Price"] == true && facts["Plan"] == true, "\(facts)")
-        // [session-context] The window and its share are on the context card, not tiles.
-        #expect(facts["Context window"] == nil && facts["Context used"] == nil, "\(facts)")
-        #expect(panel.debugContext.shown && !panel.debugContext.opens, "nothing to change it with: the card is only read")
+        #expect(facts["Context window"] == false && facts["Context used"] == false, "nothing to change it with: a plain fact")
         // [context-window] Where the chat's bot's window can be changed, its fact opens Context Window (owner 2026-11-01
         // had to ask where max context was set).
         let changeable = ModelPanelView.debugLaidOut(ModelPanelModel.debugSample, hostWidth: 402) { $0.openContextWindow = {} }.panel
         let opening = Dictionary(changeable.debugFacts.map { ($0.title, $0.opens) }, uniquingKeysWith: { a, _ in a })
-        #expect(opening["Context window"] == nil && changeable.debugContext.opens, "\(opening)")
+        #expect(opening["Context window"] == true && opening["Context used"] == false, "\(opening)")
         let names = Set(panel.debugPieces.map(\.name))
-        #expect(names == ["name", "maker", "chevrons", "face", "context", "facts", "thinking", "settings"], "\(names.sorted())")
+        #expect(names == ["name", "maker", "chevrons", "face", "facts", "thinking", "settings"], "\(names.sorted())")
 
         var offline = ModelPanelModel.debugSample
         offline.offline = true
         let rested = ModelPanelView.debugLaidOut(offline, hostWidth: 402).panel.debugFacts
         #expect(!rested.contains { $0.opens }, "offline: the pages need the gateway")
-        let restedContext = ModelPanelView.debugLaidOut(offline, hostWidth: 402) { $0.openContextWindow = {} }.panel.debugContext
-        #expect(restedContext.shown && !restedContext.opens, "offline: the context card opens nothing")
     }
 
     /// The compact panel (owner 2026-11-01: the face "in the top right because that space is unused", thinking "a lot

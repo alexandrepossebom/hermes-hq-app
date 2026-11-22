@@ -540,19 +540,6 @@ nonisolated struct GroupRowModel: Hashable, Sendable, Identifiable {
         room.image = image
         pendingNames.insert(name)
         defer { pendingNames.remove(name) }
-        // [hosted] Hermes runs a new group chat on its gateway when it can, as Hermes Desktop makes every new one: a
-        // room this app ran itself opened in Hermes Desktop as "Desktop ran this group chat itself" with no way to
-        // carry on (a tester's report, 2026-11-22). An older gateway, or bots it cannot seat, keep the app-run room.
-        if let hostedRooms {
-            do {
-                if let key = try await hostedRooms.create(name: name, members: room.members) {
-                    if image != nil { setImage(key, image) }   // the photo stays on this device, as for any gateway room
-                    return key
-                }
-            } catch {
-                throw failure(error, title: title)
-            }
-        }
         AppLog.trace("groups", "create \(AppLog.tag(room.key)): started, \(ordered.count) members")
         var done: [String] = []
         do {

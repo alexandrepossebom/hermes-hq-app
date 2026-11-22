@@ -48,11 +48,11 @@ struct ActivityPillLayoutTests {
         shelf.maxHeight = 220
         layout(shelf)
         #expect(shelf.bounds.height == 220)
-        #expect(shelf.targetFrames(width: 386).count == 7)
+        #expect(shelf.targetFrames(width: 386).count == 6)
         #expect(shelf.pieces.values.allSatisfy { !$0.isOpen && !$0.isHidden })
         #expect(shelf.pieces.values.allSatisfy { !$0.accessibilityElementsHidden }, "opening restores the category controls")
         #expect(shelf.pieces.values.allSatisfy { $0.accessibilityElements?.count == 1 }, "overview exposes headers, not hidden actions or bodies")
-        for kind in ShelfPieceKind.allCases where kind != .browser && kind != .phone {
+        for kind in ShelfPieceKind.allCases where kind != .browser {
             for piece in shelf.pieces.values { piece.setOpen(piece.kind == kind, animated: false) }
             layout(shelf)
             let selected = try #require(shelf.pieces[kind])

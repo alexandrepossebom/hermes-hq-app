@@ -102,8 +102,6 @@ final class ModelPanelView: UIView {
     private let makerLabel = FitLabel()
     private let offlineLabel = FitLabel()
     private let factStrip = FactStrip()
-    /// [session-context] How full this chat's context window is, on a card of its own under Thinking.
-    private let contextCard = ContextCard()
     private let face: PanelFace
     private let thinking = ThinkingBar()
     /// [thinking-drive] Behind the card: the drive's starfield or glow.
@@ -315,11 +313,6 @@ final class ModelPanelView: UIView {
             opens[ModelPanelState.Fact.contextTitle] = ("Context Window", { [weak self] in self?.handOff(to: open) })
         }
         factStrip.opens = opens
-        if let open = actions.openContextWindow {
-            contextCard.addAction(UIAction { [weak self] _ in self?.handOff(to: open) }, for: .primaryActionTriggered)
-            contextCard.opens = true
-        }
-        contextCard.onSheet = style == .sheet
         if style == .sheet {
             nameLabel.textAlignment = .center
             makerLabel.textAlignment = .center
@@ -330,7 +323,7 @@ final class ModelPanelView: UIView {
             content.addSubview(closeButton)
             content.addSubview(thinkingCard)
         }
-        for view in [nameLabel, tagPill, makerLabel, switchChevrons, switchSpinner, switchButton, offlineLabel, face, contextCard, factStrip, thinking, settings] as [UIView] {
+        for view in [nameLabel, tagPill, makerLabel, switchChevrons, switchSpinner, switchButton, offlineLabel, face, factStrip, thinking, settings] as [UIView] {
             content.addSubview(view)
         }
         restyle()
@@ -380,11 +373,8 @@ final class ModelPanelView: UIView {
             tagPill.text = next.tag
             makerLabel.text = next.provider
             switchButton.accessibilityLabel = [next.name, next.tag, next.provider].compactMap { $0 }.joined(separator: ", ")
-            // [session-context] The chat's context on its own card; the tiles keep the rest.
-            contextCard.context = ModelPanelModel.context(next.facts)
-            contextCard.isHidden = contextCard.context == nil
-            factStrip.facts = ModelPanelModel.cardFacts(next.facts)
-            factStrip.isHidden = factStrip.facts.isEmpty
+            factStrip.facts = next.facts
+            factStrip.isHidden = next.facts.isEmpty
         }
         if animated && modelChanged {
             UIView.transition(with: content, duration: HQMotion.fade, options: [.transitionCrossDissolve, .allowUserInteraction], animations: changes)   // motion-ok: a cross-fade
@@ -405,10 +395,9 @@ final class ModelPanelView: UIView {
         switchChevrons.alpha = next.offline ? 0.45 : 1
         // Usage & Limits and Model Prices read the gateway: offline their facts open nothing.
         factStrip.isEnabled = !next.offline
-        contextCard.isEnabled = !next.offline
         blocks = style == .sheet
-            ? [[closeButton, nameLabel, makerLabel, switchChevrons, offlineLabel, face], [thinkingCard, thinking], [contextCard], [factStrip], [settings]]
-            : [[nameLabel, tagPill, makerLabel, switchChevrons, offlineLabel, face], [contextCard], [factStrip], [thinking], [settings]]
+            ? [[closeButton, nameLabel, makerLabel, switchChevrons, offlineLabel, face], [thinkingCard, thinking], [factStrip], [settings]]
+            : [[nameLabel, tagPill, makerLabel, switchChevrons, offlineLabel, face], [factStrip], [thinking], [settings]]
         setNeedsLayout()
     }
 
@@ -629,12 +618,7 @@ final class ModelPanelView: UIView {
             y += h + 8
         }
 
-        // [session-context] The chat's context, then the facts.
-        if !contextCard.isHidden {
-            let h = contextCard.preferredHeight(width: inner)
-            contextCard.frame = CGRect(x: pad, y: y, width: inner, height: h)
-            y += h + Self.blockGap
-        }
+        // The facts.
         if !factStrip.isHidden {
             let h = factStrip.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
             factStrip.frame = CGRect(x: pad, y: y, width: inner, height: h)
@@ -705,12 +689,6 @@ final class ModelPanelView: UIView {
         thinking.frame = CGRect(x: pad + inset.left, y: y + inset.top, width: inner - inset.left - inset.right, height: thinkingH)
         y += thinkingCard.frame.height + Self.blockGap
 
-        // [session-context] The chat's context on a card like Thinking's, then the tiles.
-        if !contextCard.isHidden {
-            let h = contextCard.preferredHeight(width: inner)
-            contextCard.frame = CGRect(x: pad, y: y, width: inner, height: h)
-            y += h + Self.blockGap
-        }
         if !factStrip.isHidden {
             let h = factStrip.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
             factStrip.frame = CGRect(x: pad, y: y, width: inner, height: h)
@@ -1118,7 +1096,7 @@ extension ModelPanelView {
     /// Tests: the pieces stacked down the panel, in order (each a frame in the content's space).
     var debugPieces: [(name: String, view: UIView)] {
         let pieces: [(String, UIView)] = [("name", nameLabel), ("tag", tagPill), ("maker", makerLabel), ("chevrons", switchChevrons),
-                                          ("offline", offlineLabel), ("face", face), ("context", contextCard), ("facts", factStrip), ("thinking", thinking),
+                                          ("offline", offlineLabel), ("face", face), ("facts", factStrip), ("thinking", thinking),
                                           ("settings", settings)]
         return pieces.filter { !$0.1.isHidden }
     }
@@ -1156,10 +1134,6 @@ extension ModelPanelView {
     func debugOpenApprovals() { Self.openMenu(of: approvalsTile) }
     /// Screenshots: a fact tapped ([context-window] the Context fact opens Context Window).
     func debugOpenFact(_ title: String) { factStrip.debugOpen(title) }
-    /// [session-context] Tests: what the context card says, and whether a tap on it opens Context Window.
-    var debugContext: (context: ModelPanelModel.Context?, opens: Bool, shown: Bool) {
-        (contextCard.context, contextCard.isUserInteractionEnabled, !contextCard.isHidden)
-    }
     /// Tests: a tap on YOLO.
     func debugTapSkip() { skipTapped() }
     /// Tests: what VoiceOver reads for the Approval Mode and YOLO rows.
@@ -2262,14 +2236,6 @@ final class FactColumn: UIControl {
     private let valueLabel = FitLabel()
     private let captionLabel = FitLabel()
     private static let inset = UIEdgeInsets(top: 10, left: 6, bottom: 11, right: 6)
-    /// [session-context] Owner 2026-11-20, on the tiles under the Context card: "taking up Way too much space". On the
-    /// sheet a tile is one line in the Context card's grammar, what it is leading and its value trailing ("Price ...
-    /// Included ›"), 44 pt tall; it stacks as before only when the two won't sit side by side (a long price, the
-    /// accessibility sizes, the Status dot).
-    private static let rowInset = UIEdgeInsets(top: 11, left: 14, bottom: 11, right: 14)
-    private var stackedValue = NSAttributedString(), stackedCaption = NSAttributedString()
-    private var rowValue = NSAttributedString(), rowCaption = NSAttributedString()
-    private var inRow = false
     /// [model-sheet] A tile of its own on the sheet: the sheet's card fill, rounder, a little taller, its value larger.
     var tile = false {
         didSet {
@@ -2326,18 +2292,7 @@ final class FactColumn: UIControl {
             caption.append(NSAttributedString(string: "\u{2009}"))
             caption.append(NSAttributedString(attachment: NSTextAttachment(image: chevron.withTintColor(ChatPalette.label2, renderingMode: .alwaysOriginal))))
         }
-        stackedValue = NSAttributedString(string: fact?.value ?? "", attributes: [.font: valueLabel.font as Any, .foregroundColor: ChatPalette.label])
-        stackedCaption = caption
-        // The row: the caption as the Context card's title, the value as its figure, the chevron after the value.
-        let rowFont = ModelPanelView.font(.subheadline, .regular), rowBold = ModelPanelView.font(.subheadline, .semibold)
-        rowCaption = NSAttributedString(string: fact?.caption ?? "", attributes: [.font: rowFont, .foregroundColor: ChatPalette.label2])
-        let value = NSMutableAttributedString(string: fact?.value ?? "", attributes: [.font: rowBold, .foregroundColor: ChatPalette.label])
-        if opens, let chevron = UIImage(systemName: "chevron.forward", withConfiguration: UIImage.SymbolConfiguration(font: HQFont.system(ofSize: rowFont.pointSize * 0.8, weight: .semibold))) {
-            value.append(NSAttributedString(string: "\u{2009}\u{2009}"))
-            value.append(NSAttributedString(attachment: NSTextAttachment(image: chevron.withTintColor(ChatPalette.label2, renderingMode: .alwaysOriginal))))
-        }
-        rowValue = value
-        show(row: inRow, force: true)   // the new words in the current mode; layout picks the mode
+        captionLabel.attributedText = caption
         isUserInteractionEnabled = opens
         accessibilityLabel = fact?.title
         accessibilityValue = fact.map { $0.spoken ?? $0.value }
@@ -2347,54 +2302,20 @@ final class FactColumn: UIControl {
         setNeedsLayout()
     }
 
-    /// Whether a tile `width` wide holds its caption and value on one line.
-    func fitsRow(width: CGFloat) -> Bool {
-        guard tile, dot.isHidden, !ModelPanelView.accessibilityType, !(fact?.value ?? "").isEmpty else { return false }
-        let room = width - Self.rowInset.left - Self.rowInset.right
-        return ceil(rowCaption.size().width) + 12 + ceil(rowValue.size().width) <= room
-    }
-
-    private func show(row: Bool, force: Bool = false) {
-        guard force || row != inRow else { return }
-        inRow = row
-        valueLabel.attributedText = row ? rowValue : stackedValue
-        captionLabel.attributedText = row ? rowCaption : stackedCaption
-        valueLabel.textAlignment = row ? .right : .center
-        captionLabel.textAlignment = row ? .left : .center
-    }
-
     /// Whether the words read at their size in a column `width` wide.
     func comfortable(width: CGFloat) -> Bool {
-        if fitsRow(width: width) { return true }
         let room = width - Self.inset.left - Self.inset.right
-        show(row: false)
         return valueLabel.fit(width: room).comfortable && captionLabel.fit(width: room).comfortable
     }
 
-    /// At least 44 pt, the column's words centred in it (one line on a tile that holds it).
+    /// At least 44 pt, the column's words centred in it.
     func fittedHeight(width: CGFloat) -> CGFloat {
-        if fitsRow(width: width) {
-            let lines = max(rowCaption.size().height, rowValue.size().height)
-            return max(44, ceil(Self.rowInset.top + lines + Self.rowInset.bottom))
-        }
-        show(row: false)
         let room = width - Self.inset.left - Self.inset.right
         return max(tile ? 66 : 44, Self.inset.top + valueLabel.fittedHeight(width: room) + 1 + captionLabel.fittedHeight(width: room) + Self.inset.bottom)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if fitsRow(width: bounds.width) {
-            show(row: true)
-            let inner = bounds.width - Self.rowInset.left - Self.rowInset.right
-            let captionW = min(inner, ceil(rowCaption.size().width))
-            let valueW = max(0, inner - captionW - 12)
-            let captionH = captionLabel.fittedHeight(width: captionW), valueH = valueLabel.fittedHeight(width: valueW)
-            captionLabel.frame = CGRect(x: Self.rowInset.left, y: ((bounds.height - captionH) / 2).rounded(), width: captionW, height: captionH)
-            valueLabel.frame = CGRect(x: bounds.width - Self.rowInset.right - valueW, y: ((bounds.height - valueH) / 2).rounded(), width: valueW, height: valueH)
-            return
-        }
-        show(row: false)
         let inset = Self.inset
         let width = max(0, bounds.width - inset.left - inset.right)
         let valueH = valueLabel.fittedHeight(width: width)
@@ -2409,124 +2330,6 @@ final class FactColumn: UIControl {
         dot.frame = CGRect(x: x, y: (top + valueH / 2 - 4).rounded(), width: 8, height: 8)
         dot.layer.cornerRadius = 4
         valueLabel.frame = CGRect(x: x + 14, y: top, width: wordW, height: valueH)
-    }
-}
-
-/// [session-context] How full this chat's context window is, on a card in Thinking's grammar so the two read as a
-/// pair: "Context" leading, what the chat holds of the window trailing ("780K" over the window's quieter "of 1M"), a
-/// slim bar under them (no knob: it is read, not set), and a line under that only when there is something to know.
-/// The tint while there's room, orange from 90%. A tap opens Context Window where the bot's window can be changed.
-final class ContextCard: UIControl {
-    var context: ModelPanelModel.Context? { didSet { if context != oldValue { relabel() } } }
-    /// Whether a tap opens Context Window (a chevron ends the figure).
-    var opens = false { didSet { relabel() } }
-    /// The sheet's card (Thinking's fill and corners), else the iPad card's frosted strip.
-    var onSheet = false {
-        didSet {
-            backgroundColor = onSheet ? ModelCardSheet.cardFill : HQPalette.glassPane
-            layer.cornerRadius = onSheet ? ModelCardSheet.cardRadius : HQShape.radius(14, .card)
-            relabel()
-        }
-    }
-    private let titleLabel = FitLabel()
-    private let figureLabel = FitLabel()
-    private let track = UIView()
-    private let bar = UIView()
-    private static let barHeight: CGFloat = 6
-
-    private var inset: UIEdgeInsets { onSheet ? ThinkingCard.inset : UIEdgeInsets(top: 11, left: 14, bottom: 13, right: 14) }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = HQPalette.glassPane
-        layer.cornerRadius = HQShape.radius(14, .card)
-        layer.cornerCurve = .continuous
-        hqGlassEdge()
-        titleLabel.text = "Context"
-        figureLabel.textAlignment = .right
-        for view in [titleLabel, figureLabel, track] as [UIView] {
-            view.isUserInteractionEnabled = false
-            addSubview(view)
-        }
-        track.addSubview(bar)
-        track.clipsToBounds = true
-        for piece in [track, bar] {
-            piece.layer.cornerRadius = Self.barHeight / 2
-            piece.layer.cornerCurve = .continuous
-        }
-        isAccessibilityElement = true
-        accessibilityLabel = "Context"
-        accessibilityIdentifier = "model.panel.context"
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self, UITraitPreferredContentSizeCategory.self]) { (card: ContextCard, _) in card.relabel() }
-        relabel()
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override var isEnabled: Bool { didSet { if isEnabled != oldValue { relabel() } } }
-    override var isHighlighted: Bool {
-        didSet {
-            guard isHighlighted != oldValue, opens else { return }
-            HQMotion.animate(HQMotion.quick) { self.alpha = self.isHighlighted ? 0.5 : 1 }
-        }
-    }
-
-    private var tapOpens: Bool { opens && isEnabled }
-
-    private func relabel() {
-        let body = ModelPanelView.font(.subheadline, .semibold), quiet = ModelPanelView.font(.subheadline, .regular)
-        let accent = context?.warn == true ? ChatPalette.orange : ChatPalette.tint
-        titleLabel.font = body
-        titleLabel.textColor = ChatPalette.label
-        // [session-context] Nothing under the bar (owner 2026-11-20): "Almost full" leads the figure, in the bar's orange.
-        let figure = NSMutableAttributedString()
-        if let note = context?.note {
-            figure.append(NSAttributedString(string: note + " · ", attributes: [.font: body, .foregroundColor: accent]))
-        }
-        figure.append(NSAttributedString(string: context?.used ?? "", attributes: [.font: body, .foregroundColor: ChatPalette.label]))
-        figure.append(NSAttributedString(string: " of \(context?.window ?? "")", attributes: [.font: quiet, .foregroundColor: ChatPalette.label2]))
-        if tapOpens, let chevron = UIImage(systemName: "chevron.forward", withConfiguration: UIImage.SymbolConfiguration(font: HQFont.system(ofSize: quiet.pointSize * 0.8, weight: .semibold))) {
-            figure.append(NSAttributedString(string: "\u{2009}\u{2009}"))
-            figure.append(NSAttributedString(attachment: NSTextAttachment(image: chevron.withTintColor(ChatPalette.label2, renderingMode: .alwaysOriginal))))
-        }
-        figureLabel.attributedText = figure
-        track.backgroundColor = ChatPalette.label.withAlphaComponent(0.13)
-        bar.backgroundColor = accent
-        isUserInteractionEnabled = tapOpens
-        accessibilityValue = context?.spoken
-        accessibilityTraits = tapOpens ? .button : .staticText
-        accessibilityHint = tapOpens ? "Opens Context Window" : nil
-        setNeedsLayout()
-    }
-
-    private struct Metrics { var title = CGRect.zero, figure = CGRect.zero, track = CGRect.zero, height: CGFloat = 0 }
-
-    private func metrics(width: CGFloat) -> Metrics {
-        var m = Metrics()
-        let inner = max(0, width - inset.left - inset.right)
-        let titleW = min(inner, ceil(titleLabel.fittedWidth(width: inner)))
-        let room = max(0, inner - titleW - 12)
-        let titleH = titleLabel.fittedHeight(width: titleW), figureH = figureLabel.fittedHeight(width: room)
-        let rowH = max(titleH, figureH)
-        m.title = CGRect(x: inset.left, y: inset.top + ((rowH - titleH) / 2).rounded(), width: titleW, height: titleH)
-        m.figure = CGRect(x: width - inset.right - room, y: inset.top + ((rowH - figureH) / 2).rounded(), width: room, height: figureH)
-        var y = inset.top + rowH + 10
-        m.track = CGRect(x: inset.left, y: y, width: inner, height: Self.barHeight)
-        y += Self.barHeight
-        m.height = ceil(y + inset.bottom)
-        return m
-    }
-
-    func preferredHeight(width: CGFloat) -> CGFloat { metrics(width: width).height }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let m = metrics(width: bounds.width)
-        titleLabel.frame = m.title
-        figureLabel.frame = m.figure
-        track.frame = m.track
-        let share = CGFloat(context?.fill ?? 0)
-        bar.frame = CGRect(x: 0, y: 0, width: share > 0 ? max(Self.barHeight, (m.track.width * share).rounded()) : 0, height: Self.barHeight)
     }
 }
 

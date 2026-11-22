@@ -36,16 +36,10 @@ nonisolated struct SessionSearchHit: Sendable, Hashable {
         lastActive = RosterText.number(json["last_active"])
         started = RosterText.number(json["session_started"])
         firstMessage = json["first_message"]?.string
-        preview = json["preview"]?.string
-        hidden = json["hidden"]?.bool
     }
 
     /// The first user message, when the gateway sends it (its name when untitled).
     var firstMessage: String?
-    /// [tile-chats] The session's first message (the gateway's 60-character `preview`), when it sends the row.
-    var preview: String?
-    /// [tile-chats] Hidden on the gateway, when it says (its search doesn't leave hidden chats out).
-    var hidden: Bool?
 
     /// `{"results":[…]}` for one profile.
     static func decode(_ data: Data, profile: String) throws -> [SessionSearchHit] {
@@ -69,12 +63,9 @@ nonisolated enum SessionSearch {
     // MARK: Hits
 
     /// A hit the list never shows: a bot's own chat ("Bot Chat") or a group chat (`hiddenSearchHit`).
-    /// [tile-chats] Or a hidden chat or a tile's chat: the gateway's search returns hidden sessions too, so a tile's
-    /// chat is known here by how its first message begins (owner 2026-11-21: "hidden from everywhere else").
     static func isHidden(_ hit: SessionSearchHit) -> Bool {
         let title = hit.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return title == RosterRules.botChatTitle || title.hasPrefix("Group: ") || hit.hidden == true
-            || TileChats.isTileChat(preview: hit.preview ?? hit.firstMessage)
+        return title == RosterRules.botChatTitle || title.hasPrefix("Group: ")
     }
 
     /// Every profile's answer, round-robin by rank (`searchScoped`'s merge): the first hit of each profile, then the

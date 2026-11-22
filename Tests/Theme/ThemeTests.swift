@@ -1935,38 +1935,6 @@ private let allStates: [ThemeState] = SkinCatalog.all.flatMap { skin in
         #expect(state.layoutSignature == look.layoutSignature, "so Compact changes nothing there")
     }
 
-    /// [desktop-density] The Desktop Look has its own Density: Compact (its rows as they were) until Standard is picked
-    /// there, stored only then, and apart from the iOS look's.
-    @Test func theDesktopLookKeepsItsOwnDensityAndIsCompactUntilPicked() {
-        let suite = defaults()
-        let store = ThemeStore(defaults: suite)
-        store.setDesktopLook(true)
-        #expect(store.load().desktopDensity == .compact && store.load().appliedDensity == .compact && !store.load().desktopRoomy)
-        store.setDensity(.standard, desktop: true)
-        #expect(suite.string(forKey: "hqn.theme.desktopDensity") == "standard")
-        #expect(suite.object(forKey: "hqn.theme.density") == nil, "the iOS look's is untouched")
-        #expect(store.load().desktopRoomy && store.load().appliedDensity == .standard && store.load().density == .standard)
-        store.setDensity(.compact)
-        #expect(store.load().desktopRoomy, "the iOS look's Compact leaves the Desktop Look's Standard")
-        store.setDensity(.compact, desktop: true)
-        #expect(suite.object(forKey: "hqn.theme.desktopDensity") == nil, "Compact, its default, is stored as nothing")
-        suite.set("tiny", forKey: "hqn.theme.desktopDensity")
-        #expect(store.load().desktopDensity == .compact, "an unknown value is Compact")
-        suite.set("standard", forKey: "hqn.theme.desktopDensity")
-        store.reset()
-        #expect(suite.object(forKey: "hqn.theme.desktopDensity") == nil, "reset forgets it")
-    }
-
-    @Test func standardInTheDesktopLookLaysTheListsOutAgainAndOnlyThere() {
-        var look = ThemeState.default
-        look.desktopLook = true
-        var roomy = look
-        roomy.desktopDensity = .standard
-        #expect(roomy.desktopRoomy && roomy.layoutSignature != look.layoutSignature)
-        roomy.desktopLook = false
-        #expect(!roomy.desktopRoomy && roomy.appliedDensity == .standard && roomy.layoutSignature == ThemeState.default.layoutSignature)
-    }
-
     @Test func searchFindsDensity() {
         let row = SettingsSearch.appRows.first { $0.id == "app:density" }
         #expect(row?.label == "Density" && row?.target == .root("row:density"))   // [appearance-groups]

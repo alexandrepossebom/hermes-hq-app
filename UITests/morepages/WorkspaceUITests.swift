@@ -316,56 +316,6 @@ final class WorkspaceUITests: MorePagesCase {
         try assertOnlyReads()
     }
 
-    /// Owner 2026-11-22: a photo opened from Files came up in Quick Look with no way to swipe it away ("I kept swiping
-    /// and then swiping harder"). It opens in the app's photo viewer instead (`LocalPhotoViewer`; Quick Look draws in
-    /// another process and takes no swipe): a flick down and a fling up each close it, a short slow tug settles back.
-    @MainActor func testFiles_PhotoFlingsAwayToClose() throws {
-        try account.control("/__fixture/workspace", ["rich": true])
-        launchSignedIn(["-HQFilesForgetFolders", "YES"])
-        openMore("files")
-        waitForRoot(site)
-        bring(entry("assets"))
-        entry("assets").tap()
-        let photo = entry("photo.png")
-        XCTAssertTrue(photo.waitForExistence(timeout: 10))
-        let preview = app.otherElements["file.photo"]
-        let window = app.windows.firstMatch
-        func open() {
-            bring(photo)
-            photo.tap()
-            XCTAssertTrue(preview.waitForExistence(timeout: 30), "the photo opens in the photo viewer")
-            XCTAssertFalse(app.descendants(matching: .any)["artifact.quicklook"].exists, "not Quick Look")
-            sleep(1)
-        }
-        func fling(_ name: String, from: CGVector, to: CGVector) {
-            open()
-            shot("files-photo-\(name.replacingOccurrences(of: " ", with: "-"))")
-            window.coordinate(withNormalizedOffset: from)
-                .press(forDuration: 0, thenDragTo: window.coordinate(withNormalizedOffset: to), withVelocity: .fast, thenHoldForDuration: 0)
-            if !waitUntil(5, { !preview.exists }) {
-                shot("zz-files-photo-\(name.replacingOccurrences(of: " ", with: "-"))")
-                XCTFail("a \(name) closes the photo")
-                let close = app.buttons["file.photo.close"]
-                if !close.exists { window.tap() }
-                if close.waitForExistence(timeout: 3) { close.tap() }
-                _ = waitUntil(5) { !preview.exists }
-            }
-        }
-        fling("flick down", from: CGVector(dx: 0.5, dy: 0.45), to: CGVector(dx: 0.5, dy: 0.62))
-        fling("fling up", from: CGVector(dx: 0.5, dy: 0.6), to: CGVector(dx: 0.5, dy: 0.35))
-        XCTAssertTrue(photo.waitForExistence(timeout: 5), "back on the folder's list")
-        // A short slow tug settles back; Close still closes.
-        open()
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.54)), withVelocity: .slow, thenHoldForDuration: 0.3)
-        sleep(1)
-        XCTAssertTrue(preview.exists, "a short slow tug doesn't close it")
-        if !app.buttons["file.photo.close"].exists { window.tap() }
-        XCTAssertTrue(app.buttons["file.photo.close"].waitForExistence(timeout: 3))
-        app.buttons["file.photo.close"].tap()
-        XCTAssertTrue(waitUntil(5) { !preview.exists }, "Close closes it")
-    }
-
     @MainActor func testFiles_LargeFolderAndManyChanges() throws {
         try account.control("/__fixture/workspace", ["entries": 3000, "changes": 500])
         launchSignedIn(["-HQFilesForgetFolders", "YES"])

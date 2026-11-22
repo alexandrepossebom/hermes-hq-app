@@ -184,20 +184,11 @@ extension PagesTests {
     @MainActor func testTasks_GoalsNeedTheAddOn() throws {
         try account.control("/__fixture/tasks-mode", ["goals": true, "older_addon": true])
         app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesTasksView", "goals"])
-        // [goals-addon] The Goals pill stays and says to update the add-on (a public tester, 2026-11-20: Goals hidden
-        // without a word on an add-on from before Goals was published).
-        let goals = app.buttons["tasks.view.goals"].firstMatch
-        XCTAssertTrue(goals.waitForExistence(timeout: 20), "the Goals pill stays on an older add-on")
-        XCTAssertTrue(waitUntil(5) { goals.isSelected }, "asked for Goals, Goals opens")
-        let title = app.staticTexts["Goals Need a Newer Add-on"].firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "the update state")
-        XCTAssertTrue(app.buttons["Update Add-on"].firstMatch.exists, "with Update Add-on")
-        XCTAssertFalse(app.descendants(matching: .any)["goals.empty"].firstMatch.exists, "no empty Goals row over it")
-        XCTAssertFalse(app.descendants(matching: .any)["goals.empty.new"].firstMatch.exists, "no New Goal button")
-        shot("goals-11a-older-addon-goals" + Self.lookName)
         let today = app.buttons["tasks.view.today"].firstMatch
-        today.tap()
-        XCTAssertTrue(waitUntil(5) { today.isSelected })
+        XCTAssertTrue(today.waitForExistence(timeout: 20))
+        XCTAssertTrue(waitUntil(5) { today.isSelected }, "asked for Goals, an older add-on opens on Today")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertFalse(app.buttons["tasks.view.goals"].exists, "no Goals pill")
         let row = app.cells["task-row-Pick up dry cleaning"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.press(forDuration: 0.8)

@@ -830,19 +830,6 @@ Tab root (or More page) on the page colour; bar title "Artifacts", integrated se
 (`bubble.left`), **Share…** (`square.and.arrow.up`, not for unavailable files), **Copy Path** / **Copy Link**
 (`doc.on.doc`; HUD "Copied"). Show in Chat pushes the session's chat (§1.3.2) using
 `SessionSummary(id: sessionId, profile: profile ?? "default", title: sessionTitle)`.
-
-**DECISION [tile-chats]** (owner 2026-11-21: "an easy way to be able to open the session attached to a Tile and I need to
-be sure that Tile sessions are hidden from everywhere else"). A tile's chats (New Tile, Change…, a tile's button or a
-roll back with no chat yet) are made with `session.create {hidden: true}` (`AppModel.tileChat`), as a task's own chat
-is: no list on any device, the desktop app's sidebar or search shows them. Tile chats an older app made in the open are
-known by how the app's ask begins (`TileChats.openings`): every list drops them (`SessionRules.isBotChat`) and the
-Sessions store hides each on the gateway once (`PATCH /api/sessions/{id} {hidden: true}`, `SessionStore.hideTileChats`;
-not on a read-only gateway). A page tile opens its chat from a chat button on the opened tile's bar
-(`tile.chat.button`, `bubble.left.and.bubble.right`, where Comment was: a tile with it has **Comment on the Page** first
-under ⋯, checked while commenting, so the bar keeps the tile's name — owner 2026-11-21: "Comment moves under ⋯") and from **Open Chat** second in its hold menu (`tile.open-chat`,
-in place of Show in Chat): the chat its bot last worked on it in (a finished Change… moves the pin's `sessionId` there,
-`ArtifactPins.noteChat`, and an older listed chat naming the file doesn't take it back), or while its bot works on it,
-that chat.
 **Remove** (`trash`, destructive, last; also a pin's menu, and a trailing swipe on file/link rows and pinned rows):
 hides it from Artifacts, Bot Info › Artifacts and Pinned (a pinned one is unpinned), in every chat that names it — the
 key is the pin's (`profile` + value). Kept on the device per account, `Application Support/pages/hidden/<account
@@ -869,20 +856,6 @@ hash>.json` (`HermesKit/Pages/ArtifactHidden.swift`); nothing on the bot's compu
   (`S/artifact-text-sheet.tsx:150-155`).
 - Share: a gateway file is downloaded then shared as a file; a link is shared as its URL (`S/artifact-open.tsx:57-75`).
 - The text viewer never edits (the web's spot editor writes files; §8).
-- A page a bot makes (the live page sheet, a tile, a tile's picture) keeps its words readable whatever its own
-  styles say (`App/Chat/Viewer/PageLegibility.swift`, owner 2026-11-21: a page written for white, shown on the dark
-  app, was navy on near-black). Each run of words is judged against what is painted behind it, the app's page colour
-  under everything. On the app's dark page the floor is WCAG's 4.5:1 (3:1 for large words); on a background the page
-  painted itself, and on the app's light page, only words under 3:1 are touched. Their lightness moves toward white
-  or black, hue kept; words lost outright on the app's page get the contrast they had on white. A drawing whose words
-  and lines were both made for white gets a white card instead. Left as drawn: words over a picture, video, canvas
-  or frame, what a canvas draws, shapes with no words, and anything inside a frame.
-- Plain HTML in a page gets the app's defaults before the page's own styles, all in `:where()` so any rule of the
-  page's wins (`HTMLPageSheet.prelude`, owner 2026-11-21: bots' pages kept the same small faults on a phone): fields
-  and buttons in the page's type and ink (16 pt, so iOS doesn't zoom into a tapped field), a checkbox or radio kept on
-  the line of its words, links and checkboxes in the theme's tint, long words and code wrapped instead of widening the
-  page. How a bot lays a page out is the add-on's `hermes-hq-push:html-page` skill (a starter page in the app's look
-  and `check_page.py`, which draws a page with these same defaults at phone size).
 - Run-output documents from Jobs use the same viewer, read-only, Back named for the job (§3.7).
 
 ### 5.7 States

@@ -19,8 +19,6 @@ import UIKit
     // The dock.
     private var dock: QuestionDockView?
     private let resumeDock = QuestionResumeView()
-    /// [question-dictate] Dictation into the card's answer fields (#438).
-    let dictation: QuestionDictation
     /// [questions] The settled card whose unanswered questions the dock is answering now (a live question takes the
     /// dock back from it).
     private var late: SettledClarifyCard?
@@ -54,7 +52,6 @@ import UIKit
         self.prompting = prompting
         self.sheets = sheets ?? PromptSheetStore()
         ownsSheets = sheets == nil
-        dictation = QuestionDictation(screen: chat)
         #if DEBUG
         startTucked = UserDefaults.standard.bool(forKey: "HQDebugTuckPrompts")
         #endif
@@ -78,7 +75,6 @@ import UIKit
     /// The screen went: timers stop, a sheet it still shows is tucked (its text kept while the request is open), and
     /// it stops listening. Idempotent.
     func uninstall() {
-        dictation.cancel(why: "the chat screen went")   // [question-dictate]
         ticker?.invalidate()
         ticker = nil
         slotTimer?.invalidate()
@@ -294,7 +290,7 @@ import UIKit
             }
             let draft = ClarifyStaging.initialDraft(clarify, saved: prompting.clarifyDraft(clarify.id))
             let view = QuestionDockView(prompt: clarify, draft: draft)
-            adopt(view)
+            view.delegate = self
             prompting.saveClarifyDraft(clarify.id, draft)
             dock = view
             showQuestionDock(view, animated: animated)
@@ -308,32 +304,6 @@ import UIKit
         }
     }
 
-    /// Every new dock: this controller answers it, and [question-dictate] its answer fields can be dictated into.
-    private func adopt(_ view: QuestionDockView) {
-        view.delegate = self
-        view.dictation = dictation
-    }
-
-    // MARK: [question-dictate] Dictation into the card (#438)
-
-    /// A question card (or its minimized bar) stands in the composer's place: Dictate with Hermes types into the card.
-    var coversComposer: Bool { dock != nil }
-    /// A take types into the card now (Read Replies Aloud waits behind it).
-    var cardDictating: Bool { dictation.isActive }
-    /// Dictate with Hermes (⇧⌘D on the Mac) can start for the card: one is up, not on its way, and no dictation runs.
-    var canDictateIntoCard: Bool { (dock.map { $0.sending == .none } ?? false) && dictation.canBegin }
-
-    /// Dictate with Hermes, or a failure card's Try Again, while the card covers the composer: into the field that last
-    /// dictated, else the shown page's ("Something else…" opened for it). A minimized card opens first.
-    func dictateIntoCard() {
-        guard let dock, dock.sending == .none, !dictation.isActive else { return }
-        if dock.draft.minimized {
-            dock.setMinimized(false)
-            showQuestionDock(dock, animated: true)
-        }
-        dictation.retry { [weak dock] in dock?.fieldForDictation() }
-    }
-
     /// A live dock that went unsent with something typed or picked comes back as a later dock holding the same draft.
     /// Its card is the settled one for the same questions (looked up again at Send, when it has arrived).
     private func keepAnswering(_ gone: QuestionDockView) -> Bool {
@@ -345,7 +315,7 @@ import UIKit
         late = SettledClarifyCard(rows: rows, key: key, messageId: "", multi: multi, answerable: true, answeredLater: false)
         let typing = gone.isEditingText
         let view = QuestionDockView(prompt: ClarifyPrompt(id: "late|\(key)", questions: questions), draft: gone.draft, later: true)
-        adopt(view)
+        view.delegate = self
         dock = view
         AppLog.trace("questions", "clarify \(AppLog.tag(gone.prompt.id)) ended unsent with answers typed: kept as Answer Now")
         // Mid-typing, the keyboard stays up on the same question.
@@ -467,7 +437,7 @@ import UIKit
         AppLog.trace("questions", "answer later \(card.key) (\(questions.count) question(s))")
         late = card
         let view = QuestionDockView(prompt: ClarifyPrompt(id: "late|\(card.key)", questions: questions), draft: ClarifyDraft(), later: true)
-        adopt(view)
+        view.delegate = self
         dock = view
         chat.setDock(view, for: .question, animated: true)
     }

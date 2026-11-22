@@ -91,6 +91,7 @@ measure.source: "you" | {bot: <profile>, what: str (80)}    measure.checked_at: 
 - `GET /tasks` gains `goals: [Goal…]` (every goal, any status, by `position`). The key being there says the add-on
   keeps goals; an older add-on leaves it out. Goals share the list's `rev`, so `?since=` hears of a goal's change.
 - `POST /goals` `{title, why?, due?, color?, measure?: {unit, start, target, now?}, milestones?: [{title, due?}]}`
+  (Set-up: also `lead?, helpers?, adds?, review?`, one write and one "Added")
   returns the Goal. `color` left out takes the first colour no active goal uses.
 - `PATCH /goals/{id}` `{rev, …changed fields}` returns the Goal. A stale rev is 409 `{goal: <current>}`.
   - `title`, `why`, `color`, `position`, `due` (null clears it), `status`.
@@ -365,9 +366,10 @@ team of bots, to a goal (it was three levels down: hold the card › Edit Goal �
   yours with its face and name (the row scrolls sideways when they don't fit), and a last chip **Just Me**. A tap puts a
   bot on the goal (a ticked chip is filled); the first ticked leads and its chip says "Leads" under the name; a
   helper's chip has a small menu (and a hold) with **Make Lead**, and the two swap. Just Me unticks them all. Under the
-  row one quiet line says what Add will do (`GoalPlanWith.note`): "Hermes will offer a plan when you add this." /
-  "Hermes leads. Research helps." / "No bot. You can add one later." Add makes the goal with that lead and those
-  helpers (one PATCH after the POST) and, with a lead, opens its chat and asks for the plan. The old Plan With button
+  row one quiet line says what Add will do (`GoalPlanWith.note`): "Hermes asks up to three questions, then offers a
+  plan." (was "Hermes will offer a plan when you add this."; see Set-up) / "Hermes leads. Research helps." / "No bot.
+  You can add one later." Add makes the goal with that lead and those helpers (in the POST since Set-up; one PATCH
+  after it before) and, with a lead, opens its chat and asks for the plan. The old Plan With button
   in the buttons row is gone (the date and Number stay there).
 - **It starts on** (`GoalPlanWith.start`): the root bot (profile `default`) leading the first time, else your first
   bot; after that what was picked last on this device (`GoalPlanWithMemory`), the whole team, Just Me included, so
@@ -397,6 +399,45 @@ team of bots, to a goal (it was three levels down: hold the card › Edit Goal �
   `testTasks_GoalBotsRow`, `testTasks_NewGoalWhosHelping`, `testTasks_GoalEditGivesALead`,
   `testTasks_GoalAskForAPlan`; and `testTasks_GoalEditTeam` / `testTasks_GoalPlanWithBot` moved to the team sheet and
   the Who's helping? row that starts on the root bot.
+
+## Set-up: a plan that builds on what you have and tidies the goal (2026-11-20)
+The owner's first real goal was a sentence with a number in it. The lead asked three questions in 13 seconds and
+offered a plan built on guesses, never asking what they already had (notes from a course they meant to follow). After
+Add on the plan nothing visible happened: the lead wasn't told, where it stands stayed empty, and the lead's own tasks
+waited for the next Task prep run. The goal's name stayed the sentence, with no why and no number.
+- **The plan request** (`GoalBots.planRequest`, `planQuestions`, `planSteps`): look first for what you already have
+  (notes and files, memory, earlier tries, a course or method); then at most three questions on one question card, each
+  with choices, skipping what the looking or the goal already answers, in this order: what done looks like (a number or
+  a date), what you already have or want to follow, how much time a week; then `goals_offer` kind "plan" with the
+  milestones, the first week's tasks, and `name`, `why`, `measure {unit, start, target}` or `due`, and `built_on` (up to
+  three lines). `planRequestStart`, the words wrapper and `planBubble` are unchanged.
+- **Data** (the add-on's contract): a plan offer carries `setup` {name?, why?, due?, measure?} with only the keys the
+  add-on kept (a name that differs from the goal's, case aside, and no other active or paused goal has; a why when the
+  goal has none; a date when it has none; a number when it has none), absent when none; and `built_on` (one line each,
+  90 characters at most, three at most), absent when none. A plan is valid with milestones, tasks or set-up fields.
+  Accepting applies the set-up in the same write: the name becomes the title (and the old title the why, when the goal
+  has none and the plan sends none), the number starts at its start; `made.setup` keeps what each changed key was; one
+  "Plan added". Undo puts each back unless it was changed since. `GoalPlanSetup`, `TodoOffer.setup`, `.builtOn`.
+- **The card** (page, Today, chat cell `GoalOfferCell`, the whole-offer sheet `GoalOfferAllView`): under the title,
+  "Built on" with its lines in the quiet ink (`GoalOffers.builtOn`), then "Also sets" with one row per kept key in this
+  order: **Name**, **Why**, **Number** ("0 of 100 drawings"), **By** ("Wed, Mar 31, 2027", as the page's date row
+  without "By") (`GoalOffers.setupRows`). Each row is one VoiceOver element ("Name: Draw every day"), read before the
+  milestones. A plan with neither looks as before.
+- **One height in every state**: the rows are the offer's own words and never change after an answer; only their ink
+  does (struck through once undone or declined). On the page and Today the answered line now stands in the room the
+  buttons took (it was about 20 pt shorter), as the chat card already did.
+- **Taking a plan tells the lead, once** (`GoalBots.planTakenRequest`, `GoalPlanTold`, `GoalPlanTaken`): when this
+  device's tap is the one the gateway accepts (`TasksStore.onPlanTaken`), the lead gets a hidden turn in the goal's chat:
+  "I took your plan for “Draw every day”: 4 milestones and 2 tasks are on it now. Start your own tasks under it now,
+  then tell me where it stands in one line (goals_update with stands)." Never twice for one offer (kept per gateway on
+  this device over relaunches; another device's accept is a 409 there), never on Undo, never without a lead. With the
+  goal's page open it goes through that chat, so the reply shows as it comes; else through a chat of its own.
+- **New Goal**: placeholder "What do you want to reach?"; the lead-only line above; the team goes in the POST
+  (`GoalWire.createBody`; `GoalWire.teamLeft` PATCHes what an older add-on's answer doesn't carry).
+- **A waiting plan says so**: with no next task, the shelf card's and the Goals view card's next-step line reads "Plan to
+  look at" (`GoalShelfNext.planWaits`); before, only the lead's orange dot said it and the line said "No plan yet".
+- Guards: unit `GoalSetupTests`; UI `testTasks_GoalPlanSetUp` (UITests/pages/TasksGoalSetupUITests.swift); the
+  contract check's set-up steps (scripts/fixture-support/goals_contract_check.py).
 
 ### Guards (steps 3 to 5)
 - Unit: `GoalBotsTests` (decoding every new field and a 0.9.65 goal, every offer kind, the stall rule from each side,

@@ -169,10 +169,8 @@ nonisolated enum ProviderList {
         let all = allModels(provider, catalog: catalog, prefs: prefs)
         guard !all.isEmpty else { return ("No models", true) }
         let shown = all.filter { !prefs.isHidden(provider: provider.id, model: $0) }.count
-        // [moa-setup] Mixture of Agents' "models" are its presets, and its row says so.
-        let (one, many) = provider.id == MixtureRecord.provider ? ("preset", "presets") : ("model", "models")
-        if shown == all.count { return (shown == 1 ? "1 \(one)" : "\(shown) \(many)", false) }
-        return ("\(shown) of \(all.count) \(many)", false)
+        if shown == all.count { return (shown == 1 ? "1 model" : "\(shown) models", false) }
+        return ("\(shown) of \(all.count) models", false)
     }
 
     /// [provider-off] The row's second line, now that the switch has the trailing edge: how many models show, then what
@@ -222,8 +220,7 @@ nonisolated enum ProviderList {
         let all = allModels(provider, catalog: catalog, prefs: prefs)
         guard !all.isEmpty else { return "No models listed" }
         let shown = all.filter { !prefs.isHidden(provider: provider.id, model: $0) }.count
-        let (one, many) = provider.id == MixtureRecord.provider ? ("preset", "presets") : ("model", "models")
-        if shown == all.count { return shown == 1 ? "1 \(one) shown" : "\(shown) \(many) shown" }
-        return "\(shown) of \(all.count) \(many) shown"
+        if shown == all.count { return shown == 1 ? "1 model shown" : "\(shown) models shown" }
+        return "\(shown) of \(all.count) models shown"
     }
 }

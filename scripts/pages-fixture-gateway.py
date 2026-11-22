@@ -857,6 +857,9 @@ def goals_route_inner(method, path, body, query):
     if rest == '' and method == 'POST':
         title = (body.get('title') or '').strip()[:200]
         if not title: return 422, {'detail': 'title is required'}
+        if GOAL_BOTS:   # [goals set-up] GoalIn takes the team too, checked as GoalPatchIn checks it (no rev)
+            refused = [r for r in goal_patch_refused(dict(body, rev=0)) if r['loc'][1] in ('lead', 'helpers', 'adds', 'review')]
+            if refused: return 422, {'detail': refused}
         gid = hashlib.sha256(f'{title}{now()}'.encode()).hexdigest()[:32]
         used = {g['color'] for g in GOALS.values() if g['status'] == 'active'}
         color = body.get('color') if body.get('color') in LIST_COLORS else next((c for c in LIST_COLORS if c not in used), 'blue')
@@ -864,7 +867,13 @@ def goals_route_inner(method, path, body, query):
                 'color': color, 'due': body.get('due') or None, 'position': now(), 'measure': None,
                 'milestones': goal_milestones(body.get('milestones'), []), 'created_at': stamp, 'updated_at': stamp,
                 'log': [{'at': stamp, 'by': 'you', 'text': 'Added'}]}
-        goal_bot_fields(goal)   # [goals steps 3-5] POST /goals takes none of them (GoalIn): set later with PATCH
+        goal_bot_fields(goal)
+        if GOAL_BOTS:   # [goals set-up] the lead, helpers, adds and review in the one write, under its one "Added"
+            lead = body.get('lead') if isinstance(body.get('lead'), str) and PROFILE_RE.match(body.get('lead') or '') else None
+            goal['lead'] = lead
+            goal['helpers'] = clean_helpers(body.get('helpers'), lead)
+            if body.get('adds') in ('ask', 'auto'): goal['adds'] = body['adds']
+            goal['review'] = clean_review(body['review']) if body.get('review') is not None else (dict(GOAL_DEFAULT_REVIEW) if lead else None)
         if body.get('measure') and GOAL_BOTS:
             goal['measure'] = clean_measure({k: v for k, v in body['measure'].items() if v is not None}, None, stamp)
         elif body.get('measure'): goal['measure'] = goal_measure(dict(body['measure'], now=body['measure'].get('now', body['measure'].get('start'))), None)
@@ -1193,8 +1202,11 @@ def goal_offer(bot, session_id, kind, args, with_person=True):
         fresh.append(one)
     summary = ' '.join(str(args.get('summary') or '').split())[:300] if kind == 'checkin' else ''
     if kind == 'checkin' and not summary: raise GoalError(400, 'A check-in needs its summary: two sentences on what moved since the last one.')
-    if kind == 'plan' and not milestones and not fresh:
-        raise GoalError(400, "A plan needs milestones or tasks (or both): the steps to the goal and the first week's tasks, each with who.")
+    setup = plan_setup(goal, args) if kind == 'plan' else {}
+    built_on = plan_built_on(args.get('built_on')) if kind == 'plan' else []
+    if kind == 'plan' and not milestones and not fresh and not setup:
+        raise GoalError(400, "A plan needs milestones, tasks or set-up fields (name, why, due, measure): the steps to the goal, "
+                             "the first week's tasks with who, or what the goal itself is missing.")
     if kind == 'tasks' and not fresh:
         raise GoalError(400, 'Nothing to offer: every task is under the goal already, or none was given.'
                         + (f' Already there: {json.dumps(already, ensure_ascii=False)}' if already else ''))
@@ -1215,6 +1227,8 @@ def goal_offer(bot, session_id, kind, args, with_person=True):
         else: measure = None
         made.update(why=gtext(args.get('why'), 300), due=args.get('due') or None, measure=measure)
     if kind in ('goal', 'plan'): made['milestones'] = milestones
+    if setup: made['setup'] = setup
+    if built_on: made['built_on'] = built_on
     if kind == 'checkin':
         made['summary'] = summary
         for o in OFFERS:
@@ -1225,6 +1239,67 @@ def goal_offer(bot, session_id, kind, args, with_person=True):
     shown = offer_shown(made)
     if already: shown['already'] = already
     return shown
+
+DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}')
+
+def plan_setup(goal, args):
+    """[goals set-up] What a plan offer sets on its goal, only where the goal lacks it: a name (when it differs from the
+    goal's, case aside, and no other active or paused goal has it), a why (when the goal has none), a date (when it has
+    none) and a number {unit, start, target} (when it has none). Only kept keys are stored."""
+    setup = {}
+    name = gtext(args.get('name'), 200)
+    if name and name.casefold() != goal['title'].casefold() and not any(
+            g['id'] != goal['id'] and g['status'] in ('active', 'paused') and g['title'].casefold() == name.casefold() for g in GOALS.values()):
+        setup['name'] = name
+    why = gtext(args.get('why'), 300)
+    if why and not (goal.get('why') or '').strip(): setup['why'] = why
+    due = args.get('due')
+    if isinstance(due, str) and DATE_RE.match(due.strip()) and not goal.get('due'): setup['due'] = due.strip()[:10]
+    measure = args.get('measure')
+    if isinstance(measure, dict) and not goal.get('measure'):
+        start, target = gnumber(measure.get('start', 0)), gnumber(measure.get('target'))
+        if start is None or target is None or start == target:
+            raise GoalError(400, "A goal's number needs a target that differs from where it starts: send measure {unit, start, target}, or leave measure out.")
+        setup['measure'] = {'unit': gtext(measure.get('unit'), 20), 'start': start, 'target': target}
+    return setup
+
+def plan_built_on(value):
+    """[goals set-up] What the plan builds on: up to three lines, one line each, 90 characters at most."""
+    lines = [gtext(item, 90) for item in (value if isinstance(value, list) else [value] if isinstance(value, str) else [])]
+    return [line for line in lines if line][:3]
+
+def plan_setup_apply(goal, setup, stamp):
+    """[goals set-up] Accept: the set-up goes on in the plan's write. The old name becomes the why when the goal has none
+    and the plan sends none. Returns what each changed key was before (made.setup)."""
+    prior = {}
+    if setup.get('name') and setup['name'] != goal['title'] and not any(
+            g['id'] != goal['id'] and g['status'] in ('active', 'paused') and g['title'].casefold() == setup['name'].casefold() for g in GOALS.values()):
+        prior['title'] = goal['title']
+        if not (goal.get('why') or '').strip() and not setup.get('why'):
+            prior['why'] = goal.get('why') or ''
+            goal['why'] = goal['title'][:300]
+        goal['title'] = setup['name']
+    if setup.get('why') and not (goal.get('why') or '').strip():
+        prior['why'] = goal.get('why') or ''
+        goal['why'] = setup['why']
+    if setup.get('due') and not goal.get('due'):
+        prior['due'] = None
+        goal['due'] = setup['due']
+    if setup.get('measure') and not goal.get('measure'):
+        prior['measure'] = None
+        goal['measure'] = clean_measure(dict(setup['measure'], now=setup['measure']['start']), None, stamp)
+    return prior
+
+def plan_setup_undo(goal, offer, prior):
+    """[goals set-up] Undo: each key goes back to what it was, unless it was changed since the plan set it."""
+    setup, back = offer.get('setup') or {}, False
+    if 'title' in prior and goal['title'] == setup.get('name'): goal['title'] = prior['title']; back = True
+    if 'why' in prior and goal.get('why') == (setup.get('why') or prior.get('title', '')[:300]): goal['why'] = prior['why']; back = True
+    if 'due' in prior and goal.get('due') == setup.get('due'): goal['due'] = prior['due']; back = True
+    m, want = goal.get('measure') or {}, setup.get('measure') or {}
+    if 'measure' in prior and m and (m.get('unit'), m.get('start'), m.get('target'), m.get('now')) == (want.get('unit'), want.get('start'), want.get('target'), want.get('start')):
+        goal['measure'] = prior['measure']; back = True
+    return back
 
 def goal_seconds(value):
     try: return datetime.datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp()
@@ -1295,8 +1370,10 @@ def answer_goal_offer(offer, body, stamp):
             have = {m['title'].casefold() for m in goal['milestones']}
             adding = [m for m in offer.get('milestones') or [] if m['title'].casefold() not in have][:max(30 - len(goal['milestones']), 0)]
             new = goal_milestones(adding, [])
-            if new:
-                goal['milestones'] = goal['milestones'] + new
+            if new: goal['milestones'] = goal['milestones'] + new
+            prior = plan_setup_apply(goal, offer.get('setup') or {}, stamp)   # [goals set-up] in the same write
+            if prior: made['setup'] = prior
+            if new or prior:
                 goal['log'].append({'at': stamp, 'by': 'you', 'text': 'Plan added'}); goal_saved(goal, stamp)
             made['milestones'] = [m['id'] for m in new]
         in_it = goal is not None and (in_goal or kind in ('goal', 'plan'))
@@ -1329,6 +1406,7 @@ def answer_goal_offer(offer, body, stamp):
             busy = {t.get('milestone') for t in TASKS.values() if t.get('goal') == target['id'] and t.get('milestone')}
             keep = [m for m in target['milestones'] if m['id'] not in set(made['milestones']) or m['done'] or m['id'] in busy]
             if len(keep) != len(target['milestones']): target['milestones'] = keep; goal_saved(target, stamp)
+        if target is not None and made.get('setup') and plan_setup_undo(target, offer, made['setup']): goal_saved(target, stamp)
         if made.get('goal') and target is not None:
             if not touched and not any(t.get('goal') == target['id'] for t in TASKS.values()) and not any(m['done'] for m in target['milestones']):
                 GOALS.pop(target['id'], None); GOAL_PAGES.pop(target['id'], None)
@@ -1571,6 +1649,31 @@ def goal_plan_turn(session_id):
     for send in list(sockets):
         for kind, payload in (('message.delta', {'text': 'Here is a first plan. Nothing is added until you say so.'}),
                               ('message.complete', {'text': 'Here is a first plan. Nothing is added until you say so.', 'status': 'complete'})):
+            try: send({'jsonrpc': '2.0', 'method': 'event', 'params': {'type': kind, 'session_id': session_id, 'payload': payload}})
+            except Exception: sockets.discard(send)
+
+GOAL_TAKEN_REPLY = 'Started on my two. It stands at the first step, with the plan on it.'
+
+def goal_taken_turn(session_id):
+    """[goals set-up] The scripted answer to "I took your plan for …" (a hidden turn): the lead writes where the goal
+    stands (goals_update stands) and says so in one line, streamed as a reply."""
+    time.sleep(1.0)
+    with lock:
+        sid = find_session(session_id)
+        if not sid: return
+        title = SESSIONS[sid]['title']
+        goal = next((g for g in GOALS.values() if g.get('chat', {}).get('session_id') == sid), None) or next(
+            (g for g in GOALS.values() if title.startswith(f"Goal: {g['title']} · ") or title.endswith(f" · {g['id'][:6]}")), None)
+        if goal is not None and goal.get('lead'):
+            try: goal_update(goal['lead'], goal['id'], stands='At the first step, with the plan on it.')
+            except GoalError: pass
+        messages = SESSIONS[sid]['messages']
+        messages.append({'role': 'assistant', 'content': GOAL_TAKEN_REPLY, 'id': len(messages) + 1, 'timestamp': now()})
+        STREAMING.discard(session_id)
+        TSTATE['rev'] += 1
+    for send in list(sockets):
+        for kind, payload in (('message.delta', {'text': GOAL_TAKEN_REPLY}),
+                              ('message.complete', {'text': GOAL_TAKEN_REPLY, 'status': 'complete'})):
             try: send({'jsonrpc': '2.0', 'method': 'event', 'params': {'type': kind, 'session_id': session_id, 'payload': payload}})
             except Exception: sockets.discard(send)
 
@@ -2235,9 +2338,13 @@ def rpc(method, params):
         with lock:
             sid = find_session(params.get('session_id'))
             messages = SESSIONS[sid]['messages']
-            messages.append({'role': 'user', 'content': params.get('text') or '', 'id': len(messages) + 1, 'timestamp': now()})
+            row = {'role': 'user', 'content': params.get('text') or '', 'id': len(messages) + 1, 'timestamp': now()}
+            if params.get('display_kind') == 'hidden': row['display_kind'] = 'hidden'   # [goals set-up] no bubble on a re-read
+            messages.append(row)
         if 'I just made this goal and want you to lead it.' in json.dumps(params):
             threading.Thread(target=goal_plan_turn, args=(params.get('session_id') or '',), daemon=True).start()
+        elif str(params.get('text') or '').startswith('I took your plan for'):
+            threading.Thread(target=goal_taken_turn, args=(params.get('session_id') or '',), daemon=True).start()
         return {'status': 'streaming', 'user_row_id': 1}
     if method == 'prompt.submit': raise ValueError('The pages fixture does not run prompts')
     return _rpc(method, params)

@@ -10,7 +10,7 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         let switcher = app.buttons["sessions.pills.projects"]
         XCTAssertTrue(switcher.waitForExistence(timeout: 15))
-        tapSide(app, switcher)
+        switcher.tap()
         func labels(_ app: XCUIApplication) -> [String] {
             (0..<3).map { index in
                 let pill = app.buttons["sessions.chip.project.\(index)"]

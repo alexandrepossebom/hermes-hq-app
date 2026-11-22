@@ -11,12 +11,11 @@ extension SessionsTests {
         let rail = app.scrollViews["sessions.chips"]
         XCTAssertTrue(rail.waitForExistence(timeout: 6), "the rail")
         XCTAssertEqual(rail.label, "Bots")
-        // [switch-sides] The Chats | Projects switch first (a button per side, Chats shown), then the bots.
-        let chips = [pillSwitch(app), app.buttons["sessions.pills.projects"]]
-            + ["default", "research", "deploys"].map { app.buttons["sessions.chip.\($0)"] }
-        XCTAssertTrue(chips.allSatisfy(\.exists), "the switch's sides, Hermes, Research, Deploys")
-        XCTAssertEqual(chips.map(\.label), ["Chats", "Projects", "Hermes", "Research", "Deploys"])
-        XCTAssertTrue(chips[0].isSelected && !chips[1].isSelected, "the switch marks the view shown")      // [chats-switch]
+        // [switch-toggles] The Bots | Projects switch first (one button), then the bots.
+        let chips = [pillSwitch(app)] + ["default", "research", "deploys"].map { app.buttons["sessions.chip.\($0)"] }
+        XCTAssertTrue(chips.allSatisfy(\.exists), "the switch, Hermes, Research, Deploys")
+        XCTAssertEqual(chips.map(\.label), ["Switch to Projects", "Hermes", "Research", "Deploys"])
+        XCTAssertEqual(chips[0].value as? String, "Bots", "the switch says the view shown")
         for (left, right) in zip(chips, chips.dropFirst()) {
             XCTAssertLessThan(left.frame.midX, right.frame.midX, "in that order")
         }
@@ -31,10 +30,10 @@ extension SessionsTests {
         // [projects-switch] Nor is the Bots | Projects switch at the rail's start a bot pill.
         let botPills = rail.buttons.matching(NSPredicate(format: "NOT (identifier BEGINSWITH %@) AND NOT (identifier BEGINSWITH %@)",
                                                          "sessions.chip.status.", "sessions.pills."))
-        // [switch-scrolls] The switch is the rail's first item and scrolls with the pills. [switch-sides] It is a button
-        // per side, and no All beside it (the lit pill clears itself): the rail holds the three bots, each once.
+        // [switch-scrolls] The switch is the rail's first item and scrolls with the pills. [switch-toggles] It is one
+        // button, and no All beside it (the lit pill clears itself): the rail holds the three bots, each once.
         XCTAssertEqual(botPills.count, 3, "each chip is one element\n\(rail.debugDescription)")
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.pills.'")).count, 2, "the switch is two sides")
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.pills.'")).count, 1, "the switch is one element")
         XCTAssertFalse(app.buttons["sessions.chip.all"].exists, "no All beside the switch")
         app.terminate()
 
@@ -241,49 +240,26 @@ extension SessionsTests {
         // the list loads; the switch shows once they are known).
         let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15), "the switch: both views side by side")
-        XCTAssertEqual([toBots.label, toProjects.label], ["Chats", "Projects"])                    // [chats-switch]
-        XCTAssertTrue(nothingPicked(app) && toBots.isSelected && !app.buttons["sessions.chip.all"].exists, "one switch, no All")
+        XCTAssertEqual(toProjects.label, "Switch to Projects")
+        XCTAssertEqual(toProjects.value as? String, "Bots")
+        XCTAssertTrue(nothingPicked(app) && !toBots.exists && !app.buttons["sessions.chip.all"].exists, "one switch, no All")
         shot(app, "P0-switch-bots")
         tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { !self.nothingPicked(app) && self.chip(app, "research").isSelected }, "a bot picked")
         app.scrollViews["sessions.chips"].swipeRight()     // the picked pill was centred, which can take the switch off
         XCTAssertTrue(waitUntil(4) { toProjects.isHittable })
         shot(app, "P0b-switch-bot-picked")
-        // [switch-sides] Owner 2026-11-22: not a toggle. The side shown (Chats) is Chats' home: the bot goes, the view stays.
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) }, "Chats' home: every bot again")
-        XCTAssertTrue(toBots.isSelected && !toProjects.isSelected, "still on the Chats side")
-        // The other side goes there, and the side shown again is its home: from a project's page, every project.
-        tapSide(app, toProjects)
-        XCTAssertTrue(waitUntil(6) { toProjects.isSelected && !toBots.isSelected }, "Projects")
-        let pill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.'")).firstMatch
-        XCTAssertTrue(pill.waitForExistence(timeout: 6), "a project's pill")
-        pill.tap()
-        XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "its page")
-        app.scrollViews["sessions.chips"].swipeRight()
-        XCTAssertTrue(waitUntil(4) { toProjects.isHittable })
-        tapSide(app, toProjects)
-        XCTAssertTrue(waitUntil(6) { !app.cells["sessions.projectPage"].exists && self.nothingPicked(app) && toProjects.isSelected },
-                      "Projects' home: every project, still on the Projects side")
-        shot(app, "P0b2-projects-home")
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(6) { toBots.isSelected }, "and Chats goes back")
+        // [switch-toggles] A tap anywhere on the switch flips the view: here on its lit (Bots) side, which had been All.
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "the lit side flips it too")
+        XCTAssertEqual(toBots.value as? String, "Projects")
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists && !toBots.exists }, "and its lit (Projects) side flips it back")
         XCTAssertTrue(nothingPicked(app), "the bot picked before went with the view")
-        // [chats-projects] A tester, 2026-11-20: the Chats side shows no project until Show › Projects is on (and Project
-        // Chats in Recent is offered only then).
+        // [sessions-shape] The Bots side keeps a shortcut to the projects (the starred ones, or the newest two).
+        // [project-opens-page] On the Bots side a project's row opens its page too, on the Projects side; the switch's
+        // other side goes back to the Bots side.
         let bySide = ["Website", "Reading", "App"].map { header(app, $0) }
-        XCTAssertTrue(waitUntil(6) { self.headers(app).contains { $0.hasPrefix("Today") || $0.hasPrefix("Yesterday") } }, "\(headers(app))")
-        XCTAssertFalse(bySide.contains(where: \.exists), "no project's row on the Chats side (\(headers(app)))")
-        openFilter(app)
-        tapFilter(app, "show")
-        XCTAssertTrue(filterItem(app, "projects").waitForExistence(timeout: 5) && !filterItem(app, "projectchats").exists,
-                      "Show › Projects, and no Project Chats in Recent while it is off")
-        tapFilter(app, "projects")
-        XCTAssertTrue(filterItem(app, "projectchats").waitForExistence(timeout: 5), "Project Chats in Recent with Projects on")
-        closeFilter(app)
-        // [sessions-shape] With it on, the Chats side keeps a shortcut to the projects (the starred ones, or the newest two).
-        // [project-opens-page] On the Chats side a project's row opens its page too, on the Projects side; the switch's
-        // other side goes back to the Chats side.
         XCTAssertTrue(waitUntil(8) { bySide.contains(where: \.exists) }, "a project's row on the Bots side")
         let projectRow = bySide.first(where: \.exists)!
         let projectName = String(projectRow.label.prefix { $0 != "," })
@@ -291,11 +267,11 @@ extension SessionsTests {
         reveal(app, projectRow)
         projectRow.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "the row opens \(projectName)'s page")
-        XCTAssertTrue(waitUntil(6) { toProjects.isSelected }, "on the Projects side")
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "on the Projects side")
         XCTAssertTrue(app.staticTexts[projectName].exists, "the page is \(projectName)'s")
         shot(app, "P0c-bots-side-row-opens-page")
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(6) { toBots.isSelected && !app.cells["sessions.projectPage"].exists }, "the switch goes back to the Bots side")
+        toBots.tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists && !app.cells["sessions.projectPage"].exists }, "the switch goes back to the Bots side")
         XCTAssertTrue(waitUntil(6) { !self.chip(app, "research").exists || self.chip(app, "default").exists }, "the bot pills again")
         // [project-page-return] With a bot picked: its project's page shows the whole project, the switch is in view
         // (the rail scrolled only as far as the project's pill needed), and the way back brings the bot back.
@@ -306,17 +282,17 @@ extension SessionsTests {
         reveal(app, reading)
         reading.tap()
         XCTAssertTrue(app.cells["sessions.projectPage"].waitForExistence(timeout: 6), "Reading's page")
-        XCTAssertTrue(waitUntil(6) { toProjects.isSelected && toBots.isHittable }, "the switch is in view, no swipe needed")
+        XCTAssertTrue(waitUntil(6) { toBots.exists && toBots.isHittable }, "the switch is in view, no swipe needed")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND selected == true")).firstMatch.label.hasPrefix("Reading"),
                       "Reading's pill lit")
         shot(app, "P0d-page-from-a-bot")
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(6) { toBots.isSelected && self.chip(app, "research").isSelected }, "back: Research picked again")
+        toBots.tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists && self.chip(app, "research").isSelected }, "back: Research picked again")
         XCTAssertTrue(waitUntil(6) { self.order(app).allSatisfy { ["s-trip", "s-recipes"].contains($0) } }, "Research's chats (\(order(app)))")
         tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) })
-        tapSide(app, toProjects)
-        XCTAssertTrue(waitUntil(6) { toProjects.isSelected }, "now the projects")
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "now the projects")
         openFilter(app)
         XCTAssertTrue(filterWords(app, "group").contains("Project"), filterWords(app, "group"))
         closeFilter(app)
@@ -451,7 +427,7 @@ extension SessionsTests {
         // Back to the bot pills.
         rail.swipeRight()
         XCTAssertTrue(waitUntil(4) { toBots.isHittable })
-        tapSide(app, toBots)
+        toBots.tap()
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").exists && rail.label == "Bots" }, "the bot pills again")
     }
     /// [switch-thumb] Owner 2026-11-19: in the Desktop Look the switch's lit side was a capsule inside the track's
@@ -462,11 +438,11 @@ extension SessionsTests {
         let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
         shot(app, "P9-desktop-switch-bots")
-        tapSide(app, toProjects)
-        XCTAssertTrue(waitUntil(6) { toProjects.isSelected })
+        toProjects.tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists })
         shot(app, "P9-desktop-switch-projects")
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(6) { toBots.isSelected })
+        toBots.tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists && !toBots.exists })
     }
     /// [press-corners] Owner 2026-11-19: in the Desktop Look on the iPhone a pressed row's box was cut by iOS's large
     /// card ends (More › Settings). Each outlined section's first and last row drawn pressed (`-HQDebugDesktopPress`),
@@ -496,8 +472,7 @@ extension SessionsTests {
             let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
             from.press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
         }
-        // From the Bots side, a bot picked: back is that bot's list again. [chats-projects] Its projects shown there.
-        showProjectsOnChats(app)
+        // From the Bots side, a bot picked: back is that bot's list again.
         tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.chip(app, "research").isSelected }, "Research picked")
         let reading = header(app, "Reading")
@@ -506,22 +481,22 @@ extension SessionsTests {
         reading.tap()
         XCTAssertTrue(page.waitForExistence(timeout: 6), "Reading's page")
         edgeSwipe()
-        XCTAssertTrue(waitUntil(6) { !page.exists && toBots.isSelected && self.chip(app, "research").isSelected },
+        XCTAssertTrue(waitUntil(6) { !page.exists && toProjects.exists && self.chip(app, "research").isSelected },
                       "the swipe goes back: the Bots side, Research picked again")
         // The list itself has no page to go back to: the swipe leaves it as it is.
         edgeSwipe()
-        XCTAssertTrue(waitUntil(2) { toBots.isSelected && self.chip(app, "research").isSelected }, "nothing to go back to")
+        XCTAssertTrue(waitUntil(2) { toProjects.exists && self.chip(app, "research").isSelected }, "nothing to go back to")
         tapChip(app, "research")
         XCTAssertTrue(waitUntil(6) { self.nothingPicked(app) })
         // On the Projects side, a project's pill: back is every project.
-        tapSide(app, toProjects)
-        XCTAssertTrue(waitUntil(6) { toProjects.isSelected })
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists })
         let website = app.buttons["sessions.chip.project.0"]
         XCTAssertTrue(website.waitForExistence(timeout: 6))
         onScreen(app, website).tap()
         XCTAssertTrue(page.waitForExistence(timeout: 6), "Website's page")
         edgeSwipe()
-        XCTAssertTrue(waitUntil(6) { !page.exists && toProjects.isSelected && self.nothingPicked(app) && self.headers(app).contains("Website") },
+        XCTAssertTrue(waitUntil(6) { !page.exists && toBots.exists && self.nothingPicked(app) && self.headers(app).contains("Website") },
                       "the swipe goes back to every project (\(headers(app)))")
     }
 
@@ -540,11 +515,10 @@ extension SessionsTests {
             let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
             from.press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
         }
-        func onProjectsList() -> Bool { !page.exists && toProjects.isSelected && nothingPicked(app) }
-        showProjectsOnChats(app)                        // [chats-projects] step 2 opens a project from the Chats side
+        func onProjectsList() -> Bool { !page.exists && toBots.exists && !toProjects.exists && nothingPicked(app) }
         // 1. The switch to Projects, then a project's row in the list.
-        tapSide(app, toProjects)
-        XCTAssertTrue(waitUntil(6) { toProjects.isSelected })
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toBots.exists })
         let reading = header(app, "Reading")
         XCTAssertTrue(reading.waitForExistence(timeout: 6))
         reveal(app, reading)
@@ -553,8 +527,8 @@ extension SessionsTests {
         edgeSwipe()
         XCTAssertTrue(waitUntil(6) { onProjectsList() }, "back to every project, not the Bots side (\(headers(app)))")
         // 2. Back on the Bots side, a project opened from its list, left by its pill (still on Projects), another opened.
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(6) { toBots.isSelected })
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(6) { toProjects.exists })
         let again = header(app, "Reading")
         XCTAssertTrue(again.waitForExistence(timeout: 6))
         reveal(app, again)
@@ -585,7 +559,7 @@ extension SessionsTests {
         XCTAssertTrue(headers(app).contains { $0.hasPrefix("Yesterday") || $0.hasPrefix("This Week") }, "an earlier day too (\(headers(app)))")
         shot(app, "D1-bots-days")
         // The Projects side: Website's unread chat and Reading's working one under their projects; App, quiet, is one row.
-        tapSide(app, toProjects)
+        toProjects.tap()
         XCTAssertTrue(toBots.waitForExistence(timeout: 8))
         XCTAssertTrue(waitUntil(8) { self.order(app) == ["s-budget", "s-trip"] }, "the live chats alone (\(order(app)))")
         XCTAssertEqual(rows(under: "Website", app), ["s-budget"])
@@ -622,8 +596,6 @@ extension SessionsTests {
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
         func home() -> XCUIElement { header(app, "Home") }
         func count() -> String { home().value as? String ?? "" }
-        showProjectsOnChats(app)                        // [chats-projects] Home ends the shortcut Show › Projects brings
-        XCTAssertFalse(page.exists)
         // Under All: Home ends the projects' shortcut, every bot's chats in no project.
         XCTAssertTrue(home().waitForExistence(timeout: 8), "Home under All (\(headers(app)))")
         let all = headers(app)
@@ -652,7 +624,7 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { Set(self.order(app)) == ["s-notes", "s-recipes"] }, "Research's Home alone (\(order(app)))")
         XCTAssertTrue(app.staticTexts["Home"].exists, "its name")
         XCTAssertEqual(place.label, "No project · Research", "what Home is, and whose")
-        XCTAssertTrue(toProjects.isSelected, "on the Projects side, the switch's Bots side the way back")
+        XCTAssertTrue(toBots.exists, "on the Projects side, the switch's Bots side the way back")
         shot(app, "H2-bots-home-page")
         // The pills there are that bot's projects. One tapped: the project, every bot's (the bot went with Home), so
         // the other bots' projects are pills again and theirs open whole.
@@ -667,8 +639,8 @@ extension SessionsTests {
                       "App, Hermes's and Deploys' chats (\(order(app)))")
         // Moved on within the Projects side, the switch's Bots side is every bot's (the way back to Research's list
         // belonged to Home's page).
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(8) { toBots.isSelected && self.nothingPicked(app) && count().contains("3 chats") },
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(8) { toProjects.exists && self.nothingPicked(app) && count().contains("3 chats") },
                       "the Bots side, every bot's (\(headers(app)), \(count()))")
         // From Home's page itself the edge swipe goes back to the bot's list.
         tapChip(app, "research")
@@ -679,7 +651,7 @@ extension SessionsTests {
         let window = app.windows.firstMatch
         window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.55))
             .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)))
-        XCTAssertTrue(waitUntil(6) { !page.exists && toBots.isSelected && self.chip(app, "research").isSelected },
+        XCTAssertTrue(waitUntil(6) { !page.exists && toProjects.exists && self.chip(app, "research").isSelected },
                       "the swipe goes back: the Bots side, Research picked")
         // All again: its Home row opens every bot's Home, and back is All's list.
         tapChip(app, "research")
@@ -690,11 +662,11 @@ extension SessionsTests {
         XCTAssertTrue(waitUntil(6) { Set(self.order(app)) == ["s-errand", "s-notes", "s-recipes"] }, "\(order(app))")
         XCTAssertTrue(place.label.hasPrefix("No project · ") && place.label.contains("Research") && place.label.contains("Hermes"), "\(place.label)")
         shot(app, "H3-every-bots-home-page")
-        tapSide(app, toBots)
-        XCTAssertTrue(waitUntil(8) { toBots.isSelected && self.nothingPicked(app) && home().exists }, "back to All's list (\(headers(app)))")
+        toBots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(8) { toProjects.exists && self.nothingPicked(app) && home().exists }, "back to All's list (\(headers(app)))")
         // The Projects side's Home is the same every bot's Home, as it was.
-        tapSide(app, toProjects)
-        XCTAssertTrue(waitUntil(8) { toProjects.isSelected && home().exists }, "the Projects side lists Home (\(headers(app)))")
+        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(8) { toBots.exists && home().exists }, "the Projects side lists Home (\(headers(app)))")
     }
 
     /// [three-piles] Owner 2026-11-17 (picked from pictures, "I like option 1"): a project's page is three piles.
@@ -709,7 +681,7 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         let toProjects = app.buttons["sessions.pills.projects"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
-        tapSide(app, toProjects)
+        toProjects.tap()
         let appPill = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(appPill.waitForExistence(timeout: 10))
         onScreen(app, appPill).tap()

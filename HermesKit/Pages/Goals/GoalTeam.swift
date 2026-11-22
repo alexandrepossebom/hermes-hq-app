@@ -37,13 +37,13 @@ nonisolated enum GoalPlanWith {
         return stored.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
-    /// The quiet line under New Goal's Who's helping? row, saying what Add will do: "Hermes will offer a plan when you
-    /// add this." / "Hermes leads. Research helps." / "Hermes leads. Research and Finance help." / "No bot. You can add
-    /// one later."
+    /// The quiet line under New Goal's Who's helping? row, saying what Add will do, truthfully: "Hermes asks up to three
+    /// questions, then offers a plan." (the plan request's own rule, `GoalBots.planSteps`) / "Hermes leads. Research
+    /// helps." / "Hermes leads. Research and Finance help." / "No bot. You can add one later."
     static func note(_ team: [String], botName: (String) -> String) -> String {
         guard let lead = team.first else { return "No bot. You can add one later." }
         let helpers = team.dropFirst().map(botName)
-        guard let last = helpers.last else { return "\(botName(lead)) will offer a plan when you add this." }
+        guard let last = helpers.last else { return "\(botName(lead)) asks up to three questions, then offers a plan." }
         let names = helpers.count == 1 ? last : helpers.dropLast().joined(separator: ", ") + " and " + last
         return "\(botName(lead)) leads. \(names) \(helpers.count == 1 ? "helps" : "help")."
     }

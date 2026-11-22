@@ -67,14 +67,8 @@ nonisolated enum PushPolicy {
             && namedSites(body) && deviceAccess(body) && deviceAccessKinds(body) && liveSteps(body) && liveEnds(body)
             && liveQuick(body) && terminalKnown(body) && tasks(body) && cronMedia(body) && namedTabs(body)
             && ideasRun(body) && draftCardsKnown(body) && pluginUpdatesKnown(body) && taskFields(body)
-            && helperAlerts(body) && jobReportAsks(body) && updatesCheckedKnown(body) && goals(body)
+            && helperAlerts(body) && jobReportAsks(body) && updatesCheckedKnown(body)
     }
-    /// [goals-addon] The add-on keeps Goals: `goal_pages` in `/status` (goals.py's `status()`). The version can't say
-    /// it: Goals first reached the public add-on 2026-11-20 as a second "0.9.73" (hermes-hq-plugins 9f9e0e8) on top
-    /// of a published 0.9.73 with no Goals, then 0.9.74. The earlier "0.9.65"/"0.9.66" Goals were installed on the
-    /// owner's computer only. Without it the Tasks page hid Goals and said nothing (a public tester on build 1166,
-    /// 2026-11-20: "can't see Goals in Tasks"). The main bot's copy serves the list; no bot needs its own.
-    static func goals(_ body: [String: Any]?) -> Bool { body?["goal_pages"] is NSNumber }
     /// [job-report-asks] hermes-hq-push 0.9.57+ shows the approval or the question of a bot that is handling a job's
     /// report in its Bot Chat as the usual card in the app, and alerts the phone (a tester, 2026-11-14: the approval
     /// timed out after five minutes unseen and the question came back "destination refused"). The card is bridged from
@@ -206,9 +200,8 @@ nonisolated enum PushPolicy {
     /// no bot needs its own for that). 0.9.53: `task_fields` (a task's priority, tags, alert, start day and files).
     /// 0.9.54: `helperAlerts` (a helper's approval alert opens the chat with the card). 0.9.57: a bot handling a job's
     /// report can ask for approval or an answer in its chat. 0.9.58: `pluginUpdatesChecked` (a plugin's update is
-    /// applied only as you saw it: the packages, the scan's findings and what it adds). 0.9.74: `goal_pages` (Goals in
-    /// Tasks; see `goals`).
-    static let wantedVersion = "0.9.74"
+    /// applied only as you saw it: the packages, the scan's findings and what it adds).
+    static let wantedVersion = "0.9.58"
     static let offerLevel = "\(wantedVersion)/\(everyBotVersion)"
     static let pluginName = "hermes-hq-push"
 

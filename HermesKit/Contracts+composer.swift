@@ -269,9 +269,7 @@ nonisolated struct InflightCorrections: Sendable {
     /// The row shows this steer: its words, or a joined row holding them.
     func covers(_ row: String, _ text: String) -> Bool {
         let r = ChatText.flat(row), t = ChatText.flat(text)
-        if r == t || (row.contains(Self.joinMarker) && r.contains(t)) { return true }
-        // [phone-calls] The bubble shows a message's short form (a call result's line, words without the call note).
-        return ChatText.flat(PhoneChatText.shown(row)) == ChatText.flat(PhoneChatText.shown(text))
+        return r == t || (row.contains(Self.joinMarker) && r.contains(t))
     }
 
     func isCorrection(_ row: String) -> Bool { texts.contains { covers(row, $0) } }

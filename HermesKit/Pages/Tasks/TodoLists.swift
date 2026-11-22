@@ -136,6 +136,35 @@ nonisolated struct GoalOfferMeasure: Codable, Hashable, Sendable {
     }
 }
 
+/// [goals set-up] What accepting a plan offer also sets on its goal (hermes-hq-push's `setup`): only the keys the add-on
+/// kept (a name that differs from the goal's and no other goal has; a why, a date or a number the goal lacks). Nil on
+/// the offer when it kept none.
+nonisolated struct GoalPlanSetup: Codable, Hashable, Sendable {
+    var name: String?
+    var why: String?
+    /// A day ("2027-01-31").
+    var due: String?
+    var measure: GoalOfferMeasure?
+
+    init(name: String? = nil, why: String? = nil, due: String? = nil, measure: GoalOfferMeasure? = nil) {
+        self.name = name; self.why = why; self.due = due; self.measure = measure
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func text(_ key: CodingKeys) -> String? {
+            (try? c.decodeIfPresent(String.self, forKey: key)).flatMap { $0 }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .flatMap { $0.isEmpty ? nil : $0 }
+        }
+        name = text(.name); why = text(.why)
+        due = text(.due).map { String($0.prefix(10)) }
+        measure = (try? c.decodeIfPresent(GoalOfferMeasure.self, forKey: .measure)).flatMap { $0 }
+    }
+
+    /// Nothing kept: read as no set-up at all.
+    var isEmpty: Bool { name == nil && why == nil && due == nil && measure == nil }
+}
+
 /// A task already on your page that an offer would move into the list.
 nonisolated struct TodoOfferMove: Codable, Hashable, Sendable, Identifiable {
     var id: String
@@ -194,12 +223,17 @@ nonisolated struct TodoOffer: Codable, Hashable, Sendable, Identifiable {
     var kept: [String] = []
     /// Held for the lead's check-in (never sent as a card; kept for an app that is sent one anyway).
     var held = false
+    /// [goals set-up] A plan offer: what accepting it also sets on the goal (only the kept keys), and up to three short
+    /// lines on what the plan rests on ("Your course notes, 8 units"). Both absent before the add-on knew them.
+    var setup: GoalPlanSetup?
+    var builtOn: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case id, bot, sessionId = "session_id", at, list, section, isNew = "new", why, tasks, move, state
         case moveState = "move_state", listed, added
-        case kind, goal, title, summary, due, measure, milestones, held, kept, plan
+        case kind, goal, title, summary, due, measure, milestones, held, kept, plan, setup
         case answeredAt = "answered_at", madeGoal = "made_goal", madeMilestones = "made_milestones", inGoal = "in_goal"
+        case builtOn = "built_on"
     }
 
     init(id: String, bot: String, sessionId: String? = nil, at: String? = nil, list: String, section: String? = nil,
@@ -242,6 +276,11 @@ nonisolated struct TodoOffer: Codable, Hashable, Sendable, Identifiable {
         inGoal = (try? c.decodeIfPresent(Bool.self, forKey: .inGoal)).flatMap { $0 }
         kept = (try? c.decodeIfPresent([String].self, forKey: .kept)).flatMap { $0 } ?? []
         held = ((try? c.decodeIfPresent(Bool.self, forKey: .held)) ?? nil) ?? false
+        setup = (try? c.decodeIfPresent(GoalPlanSetup.self, forKey: .setup)).flatMap { $0 }.flatMap { $0.isEmpty ? nil : $0 }
+        // Each line on its own: one that isn't words is dropped, the others stay.
+        if let raw = try? c.decodeIfPresent([JSONValue].self, forKey: .builtOn) {
+            builtOn = raw.compactMap(\.string)
+        }
     }
 
     /// [goals step 3] A goal's offer (a goal to make, a plan, a check-in, tasks for a goal), not a list's.
@@ -283,15 +322,6 @@ nonisolated enum TodoLists {
         if view == .bots { return nil }
         guard let id = task.section else { return nil }
         return color(sections.first { $0.id == id })
-    }
-
-    /// [tasks-colour] The icon before a row's date, outside the task's own list: the list's own, or the plain list
-    /// icon for a list with none. Nil for a task in no list (or in one that is gone).
-    static func mark(_ task: TodoTask, in view: TodoView, sections: [TodoUserSection]) -> String? {
-        if case .list = view { return nil }       // every row there is that list's
-        if view == .bots { return nil }
-        guard let id = task.section, let section = sections.first(where: { $0.id == id }) else { return nil }
-        return section.icon ?? TodoListIcons.fallback
     }
 
     /// The first colour no list has yet (a new list's), else the first.

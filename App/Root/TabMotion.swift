@@ -36,7 +36,7 @@ enum TabMotion {
     enum Kind {
         case bot, kanban, typing, clock, sunrise, spread
         case gear, grid, plug, person, message, folder, branch, gauge, tree, sparkles, sign, stack, pin, tiles, terminal, checklist, bag
-        case changes, star, bars, favorite
+        case changes, star, bars
     }
 
     /// Plays the tap motion of the icon `view` shows, drawn from `source` (the tab's own image: the bar item's, or the
@@ -202,7 +202,6 @@ enum TabMotion {
         case "point.3.connected.trianglepath.dotted", "point.3.filled.connected.trianglepath.dotted": return .tree
         case "sparkles": return .sparkles
         case "star", "star.fill": return .star   // [mac] Mac polish #64: Star Map's star
-        case "star.circle", "star.circle.fill": return .favorite   // [favorites-name] Favorites' own star
         case "arrow.triangle.turn.up.right.diamond", "arrow.triangle.turn.up.right.diamond.fill": return .sign
         case "square.and.arrow.down.on.square", "square.and.arrow.down.on.square.fill": return .stack
         case "pin", "pin.fill": return .pin
@@ -291,7 +290,6 @@ enum TabMotion {
         case .sparkles: motion = sparkles(art)
         case .changes: motion = changes(art)
         case .star: motion = star(art)
-        case .favorite: motion = favorite(art)
         case .sign: motion = sign(art)
         case .stack: motion = stack(art)
         case .pin: motion = pin(art)
@@ -871,60 +869,6 @@ enum TabMotion {
                 (size, turn) = (0.45 + 0.55 * k, .pi / 5 * (1 + k))
             }
             art.drawSymbol(ctx, .about(centre, scale: size, rotation: turn))
-        }
-    }
-
-    /// [favorites-name] Favorites (owner 2026-11-22: "Icon should be a star and it needs to animate like all of others"):
-    /// the star in its ring shrinks turning, then flares past its size and springs on to a fifth of a turn, where a
-    /// five-pointed star looks as it started; the ring stays put. The filled icon is a disc with the star cut out of it
-    /// (the cut is filled in and cut again, turned); the outline is a ring with the star drawn inside it.
-    private static func favorite(_ art: SymbolArt) -> Motion? {
-        guard let whole = art.probe(), let box = whole.bounds() else { return nil }
-        let pixel = 1 / whole.scale
-        let middle = CGPoint(x: box.midX, y: box.midY), radius = min(box.width, box.height) / 2
-        // Filled: most of the inside of the ring is ink.
-        let inside = whole.within { hypot($0.x - middle.x, $0.y - middle.y) < radius * 0.85 }.area
-        let filled = inside > .pi * pow(radius * 0.85, 2) * 0.5
-        let star: InkMap
-        if filled {
-            guard let cut = whole.piece(from: middle, ink: false, maxArea: radius * radius * 1.5) else { return nil }
-            star = cut
-        } else {
-            // The ring's width, down from its top; the star is the ink inside it.
-            var y = box.minY + pixel / 2, ring: CGFloat = 0
-            while ring < radius, whole.ink(at: CGPoint(x: middle.x, y: y)) { y += pixel; ring += pixel }
-            guard ring > pixel, ring < radius * 0.4 else { return nil }
-            star = whole.within { hypot($0.x - middle.x, $0.y - middle.y) < radius - ring - pixel * 2 }
-        }
-        guard let bounds = star.bounds(), star.area > radius * radius * 0.1 else { return nil }
-        // A five-pointed star turns about its own middle, below its box's (as `star`).
-        let centre = CGPoint(x: bounds.midX, y: bounds.minY + bounds.height / (1 + cos(.pi / 5)))
-        let figure = filled ? art.shape(star) : art.part(star), room = art.shape(star.grown(by: 6))
-        // The first cut (a fifth of a turn, half its size) moved 0.05 of the icon, under what reads on a phone: it winds
-        // back, shrinks to a third, then spins a whole turn as it springs back past its size; the whole icon dips with it
-        // and swells as it springs out.
-        let hub = CGPoint(x: box.midX, y: box.midY)
-        return frames(art, duration: 1.4, base: false) { t, ctx in
-            let pop = 1 - 0.08 * Ease.bump(t, from: 0.08, length: 0.26) + 0.14 * Ease.bump(t, from: 0.3, length: 0.5)
-            ctx.concatenate(.about(hub, scale: pop))
-            art.drawSymbol(ctx, .identity)
-            let u = t - 0.1
-            let size: CGFloat, turn: CGFloat
-            if u < 0.22 {
-                let k = Ease.smooth(max(0, u) / 0.22)
-                (size, turn) = (1 - 0.65 * k, -.pi / 5 * k)
-            } else {
-                let k = Ease.spring(u - 0.22, damping: 0.58, frequency: 11)   // its points stay off the ring
-                (size, turn) = (0.35 + 0.65 * k, -.pi / 5 + (2 * .pi + .pi / 5) * k)
-            }
-            let moved = CGAffineTransform.about(centre, scale: size, rotation: turn)
-            if filled {
-                room.draw(at: .zero, blendMode: .normal, alpha: 1)
-                ctx.draw(figure, moved, blend: .destinationOut)
-            } else {
-                room.draw(at: .zero, blendMode: .destinationOut, alpha: 1)
-                ctx.draw(figure, moved)
-            }
         }
     }
 

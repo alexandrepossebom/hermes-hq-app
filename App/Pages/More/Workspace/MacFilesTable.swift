@@ -300,8 +300,8 @@ final class MacFilesHeaderView: UIView {
     static func popUp(identifier: String) -> UIButton {
         var config = UIButton.Configuration.plain()
         config.imagePlacement = .trailing
-        config.imagePadding = MacPopUpInsets.chevronGap
-        config.contentInsets = MacPopUpInsets.content()   // [popup-room]
+        config.imagePadding = 6
+        config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 7)
         config.cornerStyle = .fixed
         config.background.cornerRadius = MacField.radius
         config.background.strokeWidth = 1

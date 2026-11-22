@@ -1078,19 +1078,6 @@ extension UIView {
     }
 }
 
-extension UIResponder {
-    /// [search-keys 2026-11-20] What this responder types into: itself when it takes text, or a search bar's field. On
-    /// macOS 27 a search bar (Sessions' Search Chats, and the other pages' searches) keeps the first responder for itself
-    /// and its field only draws the caret, so asking `is UIKeyInput` read "nothing has the keyboard": the Mac's
-    /// type-to-chat then moved every letter typed in the search into the chat's message box (tester report, Nov 20;
-    /// seen in the running app: first responder `UISearchBar`, focused item its `UISearchBarTextField`).
-    var hqTypingInput: UIKeyInput? {
-        if let input = self as? UIKeyInput { return input }
-        if let bar = self as? UISearchBar { return bar.searchTextField }
-        return nil
-    }
-}
-
 /// The right pane's stack. [sidebar-light] On the Mac its layout tells the sidebar's strip to take the page's colour again.
 final class DetailNavigationController: UINavigationController {
     #if targetEnvironment(macCatalyst)

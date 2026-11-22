@@ -245,15 +245,6 @@ final class TileMaker {
 
     let chat: any ChatSessionModel
     let bot: Bot
-    static func chatIDs(account: String) -> [String] {
-        UserDefaults.standard.stringArray(forKey: "hqn.tileChats." + account) ?? []
-    }
-    private func rememberChat() {
-        guard let id = (chat as? LiveChatSession)?.storedSessionId, !id.isEmpty else { return }
-        var ids = Self.chatIDs(account: accountId).filter { $0 != id }
-        ids.append(id)
-        UserDefaults.standard.set(Array(ids.suffix(300)), forKey: "hqn.tileChats." + accountId)
-    }
     let accountId: String
     /// What the person asked for (the Tiles page's "making" row says it).
     private(set) var what = ""
@@ -528,11 +519,6 @@ final class TileMaker {
             return
         }
         watching = false
-        rememberChat()
-        // [tile-chats] The tile's Open Chat goes to the chat its bot last worked on it in (a Change… is a new chat).
-        if let changing, let stored = (chat as? LiveChatSession)?.storedSessionId, !stored.isEmpty {
-            ArtifactPins.of(accountId: accountId).noteChat(id: changing.id, sessionId: stored, title: chat.title)
-        }
         defer {
             Self.active.removeAll { $0 === self }
             NotificationCenter.default.post(name: Self.changed, object: nil)

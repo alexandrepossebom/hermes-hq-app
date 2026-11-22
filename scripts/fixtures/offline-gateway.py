@@ -30,8 +30,6 @@ Controls (control port, and the gateway port while it is up; no auth):
                              calls with their results (build 292's return catch-up measurements)
   POST /__fixture/work       {"session_id","subagents":[…],"processes":[…]}
   POST /__fixture/work/end   {"subagents":[…],"processes":[…]} (no event)
-  POST /__fixture/jobs       {"session_id","turns":[{text,command}],"processes":[…]} bot turns that started background jobs,
-                             and that chat's process.list rows
   POST /__fixture/touch      {"session_id"}
   POST /__fixture/broadcast  {"type":"cron.changed"|"sessions.changed"}
   POST /__fixture/options    {"change_events":bool} what the next gateway.ready says (reset restores the command line's)
@@ -64,7 +62,6 @@ SEQ = {}             # stored id → latest seq
 INFLIGHT = {}        # stored id → {'user','assistant','running'}
 TURNS = {}           # stored id → {'chars','drop_at','save_after'}
 WORK = {'subagents': {}, 'processes': {}}
-JOBS = {}   # stored session id -> process.list rows (/__fixture/jobs)
 JOBS = []
 changed = threading.Condition(lock)   # notified on every mode/stall change, so held requests wake
 
@@ -98,7 +95,7 @@ def add_session(sid, profile, title, messages, last_active, hidden=False, source
 
 def seed(bots=5, sessions=20):
     BOTS.clear(); SESSIONS.clear(); RING.clear(); SEQ.clear(); INFLIGHT.clear(); TURNS.clear(); JOBS.clear()
-    WORK['subagents'].clear(); WORK['processes'].clear(); JOBS.clear()
+    WORK['subagents'].clear(); WORK['processes'].clear()
     base = int(now()) - 60
     for index in range(bots):
         if index < len(BOT_SEED): name, title, about, pinned = BOT_SEED[index]
@@ -379,11 +376,6 @@ def rpc_inner(method, params):
     if method == 'delegation.status':
         with lock:
             return {'active': [dict(row) for row in WORK['subagents'].values()], 'max_concurrent': 3}
-    if method == 'process.list':
-        # The chat's background jobs set by /__fixture/jobs (Hermes' process.list rows: session_id is the process id).
-        with lock:
-            sid = find_session(params.get('session_id'))
-            return {'processes': [dict(row) for row in JOBS.get(sid, [])]}
     if method == 'agents.list':
         with lock:
             return {'processes': [dict(row) for row in WORK['processes'].values()]}
@@ -559,23 +551,6 @@ def handler(gateway, control_only=False):
                 for ident in body.get('subagents') or []:
                     emit(sid, 'subagent.spawn_requested', {'subagent_id': ident, 'goal': f'Invented task {ident}', 'task_index': 0, 'task_count': 1, 'depth': 1})
                     emit(sid, 'subagent.start', {'subagent_id': ident, 'goal': f'Invented task {ident}', 'task_index': 0, 'task_count': 1, 'depth': 1})
-            elif path == '/__fixture/jobs':
-                # A bot turn that started background jobs (its words, then the terminal call) and the jobs process.list
-                # reports for that chat, so a Background row can be named by the bot's own words.
-                with lock:
-                    sid = find_session(body.get('session_id'))
-                    if not sid: return self.reply(404, {'detail': 'no such session'})
-                    session = SESSIONS[sid]
-                    for n, turn in enumerate(body.get('turns') or []):
-                        call = f'job-{len(session["messages"])}-{n}'
-                        session['messages'] += [
-                            {'id': len(session['messages']) + 1, 'role': 'assistant', 'content': turn.get('text', ''), 'timestamp': now(),
-                             'tool_calls': [{'id': call, 'type': 'function', 'function': {
-                                 'name': 'terminal', 'arguments': json.dumps({'command': turn['command'], 'background': True})}}]},
-                            {'id': len(session['messages']) + 2, 'role': 'tool', 'tool_call_id': call, 'timestamp': now(),
-                             'content': json.dumps({'output': 'Background process started', 'session_id': 'proc_x'})},
-                        ]
-                    JOBS[sid] = [dict(row) for row in body.get('processes') or []]
             elif path == '/__fixture/work/end':
                 with lock:
                     for ident in body.get('subagents') or []: WORK['subagents'].pop(ident, None)

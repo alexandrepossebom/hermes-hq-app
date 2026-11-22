@@ -171,10 +171,6 @@ import UIKit
     func openSearch() {
         guard let host, let search = configuration.search else { return }
         if host.navigationItem.searchController !== search { host.navigationItem.searchController = search }
-        // A search ended by opening a result (Settings: `endSearch`, then a push) is folded away while its field is still
-        // fading out, and the field keeps that fade: opened again it took the keyboard and drew nothing, an empty bar
-        // over the list. Nothing else puts it back, so the field is made whole before it shows.
-        search.searchBar.alpha = 1
         fitFieldFont()
         #if targetEnvironment(macCatalyst)
         TypeToChatKeys.fieldWillFocus()   // [rest-hands 2026-11-17] letters typed at once wait for the field

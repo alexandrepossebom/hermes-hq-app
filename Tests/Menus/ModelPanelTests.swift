@@ -41,37 +41,9 @@ struct ModelPanelTests {
         let state = ModelPanelModel.build(input(choice("claude-opus-5-5[1m]")), contextMax: 200_000, contextUsed: 50_000,
                                           listedContext: 1_000_000)
         #expect(Array(state.facts.prefix(2)) == [Fact(title: "Context window", value: "200K", caption: "Context"),
-                                                 Fact(title: "Context used", value: "25%", caption: "Used", fill: 0.25, amount: "50K of 200K")])
+                                                 Fact(title: "Context used", value: "25%", caption: "Used")])
         let fresh = ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 0)
         #expect(!fresh.facts.contains { $0.caption == "Used" })
-    }
-
-    /// [session-context] The chat's context is a card of its own: what it holds of the window, how full it is, and a
-    /// line only when there's something to know. The tiles keep Price and the plan.
-    @Test func theChatsContextIsACardOfItsOwn() {
-        let state = ModelPanelModel.build(input(choice("claude-opus-5-5[1m]")), contextMax: 1_000_000, contextUsed: 184_000,
-                                          price: "Included", limit: "Weekly · 62% left")
-        #expect(ModelPanelModel.context(state.facts) == ModelPanelModel.Context(used: "184K", window: "1M", fill: 0.184, note: nil, warn: false,
-                                                                                 spoken: "184K of 1M tokens, 18% used"))
-        #expect(ModelPanelModel.cardFacts(state.facts).map(\.title) == ["Price", "Plan"])
-        // Summarized earlier, still room: no line (owner 2026-11-20, "Do we need the 'earlier messages' line?" — no).
-        let summarized = ModelPanelModel.context(ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 120_000,
-                                                                       compressions: 3).facts)
-        #expect(summarized?.note == nil && summarized?.warn == false)
-        #expect(summarized?.spoken == "120K of 200K tokens, 60% used")
-        // From 90% it warns (over a summary); a used figure past the window fills the bar.
-        let nearly = ModelPanelModel.context(ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 180_000,
-                                                                   compressions: 1).facts)
-        #expect(nearly?.warn == true && nearly?.note == "Almost full")
-        #expect(nearly?.spoken == "180K of 200K tokens, 90% used. Almost full")
-        let over = ModelPanelModel.context(ModelPanelModel.build(input(choice("x")), contextMax: 200_000, contextUsed: 900_000).facts)
-        #expect(over?.used == "200K" && over?.fill == 1 && over?.warn == true)
-        // Nothing used yet: no card, the window's tile as before.
-        let fresh = ModelPanelModel.build(input(choice("claude-opus-5-5[1m]"))).facts
-        #expect(ModelPanelModel.context(fresh) == nil)
-        #expect(ModelPanelModel.cardFacts(fresh).first == Fact(title: "Context window", value: "1M", caption: "Context"))
-        // The Mac's line keeps its two parts.
-        #expect(ModelPanelModel.factParts(state.facts).map { $0.figure + $0.words }.prefix(2) == ["1M context", "18% used"])
     }
 
     @Test func modelsDevsWindowFillsInWhenTheIdHasNone() {

@@ -65,13 +65,12 @@ extension PagesTests {
         XCTAssertTrue(waitUntil(5) { !cleaning.exists }, "and today's tasks are gone again")
 
         // Inbox: no date, no list.
-        tapView("inbox")
+        app.buttons["tasks.view.inbox"].firstMatch.tap()
         XCTAssertTrue(app.cells["task-row-Fix the porch light"].firstMatch.waitForExistence(timeout: 5))
         settleViews(); shot("first-3-inbox" + Self.lookName)
 
         // Bots: what each does by itself.
-        // [goals-addon] The fixture's add-on keeps no goals, so a Goals pill leads the row and Bots can sit past its end.
-        tapView("bots")
+        app.buttons["tasks.view.bots"].firstMatch.tap()
         XCTAssertTrue(app.cells["task-row-Summarize October invoices"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["tasks.section.Finance"].firstMatch.exists, "grouped by bot")
         settleViews(); shot("first-4-bots" + Self.lookName)
@@ -90,7 +89,7 @@ extension PagesTests {
         XCTAssertTrue(app.descendants(matching: .any)["tasks.view-empty"].firstMatch.waitForExistence(timeout: 5))
         settleViews(); shot("first-5-list-empty" + Self.lookName)
         rail.swipeRight()
-        tapView("inbox")
+        app.buttons["tasks.view.inbox"].firstMatch.tap()
         let porch = app.cells["task-row-Fix the porch light"].firstMatch
         XCTAssertTrue(porch.waitForExistence(timeout: 5))
         porch.press(forDuration: 1.0)

@@ -239,62 +239,6 @@ struct TasksTests {
 
     // MARK: Store
 
-    @Test func suggestedTitlesFollowSavedTaskAndRequireExplicitAcceptance() async throws {
-        let original: JSONValue = ["id": "t_suggestion", "rev": 1, "title": "call vet"]
-        let suggested: JSONValue = ["id": "t_suggestion", "rev": 2, "title": "call vet",
-                                    "suggested_title": "Call the vet", "suggested_for_title": "call vet"]
-        let client = PagesFakeClient { _ in .object(["rev": 1, "tasks": [original]]) }
-        let s = store(client, directory: nil)
-        await s.refresh()
-        #expect(s.task("t_suggestion")?.currentSuggestedTitle == nil)
-        client.respond { _ in .object(["rev": 2, "tasks": [suggested]]) }
-        await s.refresh(force: true)
-        #expect(s.task("t_suggestion")?.title == "call vet")
-        #expect(s.task("t_suggestion")?.currentSuggestedTitle == "Call the vet")
-        client.respond { request in
-            #expect(request.method == "PATCH")
-            #expect(request.body?["title"]?.string == "Call the vet")
-            #expect(ActivityJSON.int(request.body?["rev"]) == 2)
-            return ["id": "t_suggestion", "rev": 3, "title": "Call the vet"]
-        }
-        #expect(await s.acceptSuggestedTitle("t_suggestion", suggestion: "Call the vet", forTitle: "call vet"))
-        #expect(s.task("t_suggestion")?.title == "Call the vet")
-        #expect(s.task("t_suggestion")?.currentSuggestedTitle == nil)
-    }
-
-    @Test func staleOrFailedSuggestionNeverOverwritesTitle() async throws {
-        let suggested: JSONValue = ["id": "t_suggestion", "rev": 2, "title": "call vet",
-                                    "suggested_title": "Call the vet", "suggested_for_title": "call vet"]
-        let client = PagesFakeClient { _ in .object(["rev": 2, "tasks": [suggested]]) }
-        let s = store(client, directory: nil)
-        await s.refresh()
-        client.respond { _ in throw httpError(500, "boom") }
-        #expect(!(await s.acceptSuggestedTitle("t_suggestion", suggestion: "Call the vet", forTitle: "call vet")))
-        #expect(s.task("t_suggestion")?.title == "call vet")
-        let current: JSONValue = ["id": "t_suggestion", "rev": 3, "title": "Call the clinic",
-                                  "suggested_title": "Call the vet", "suggested_for_title": "call vet"]
-        client.respond { _ in
-            throw HTTPError(status: 409, body: String(decoding: try JSONValue.object(["detail": ["task": current]]).encoded(), as: UTF8.self))
-        }
-        #expect(!(await s.acceptSuggestedTitle("t_suggestion", suggestion: "Call the vet", forTitle: "call vet")))
-        #expect(s.task("t_suggestion")?.title == "Call the clinic")
-        #expect(s.task("t_suggestion")?.currentSuggestedTitle == nil)
-        let count = client.log.count
-        #expect(!(await s.acceptSuggestedTitle("t_suggestion", suggestion: "Call the vet", forTitle: "call vet")))
-        #expect(client.log.count == count)
-    }
-
-    @Test func suggestionAcceptanceChecksTheServerActuallyRenamed() async throws {
-        let suggested: JSONValue = ["id": "t_suggestion", "rev": 2, "title": "call vet",
-                                    "suggested_title": "Call the vet", "suggested_for_title": "call vet"]
-        let client = PagesFakeClient { _ in .object(["rev": 2, "tasks": [suggested]]) }
-        let s = store(client, directory: nil)
-        await s.refresh()
-        client.respond { _ in suggested }
-        #expect(!(await s.acceptSuggestedTitle("t_suggestion", suggestion: "Call the vet", forTitle: "call vet")))
-        #expect(s.task("t_suggestion")?.title == "call vet")
-    }
-
     private func store(_ client: PagesFakeClient, directory: URL?) -> TasksStore {
         TasksStore(api: TasksAPI(client: client), account: client.account, directory: directory)
     }

@@ -47,16 +47,6 @@ struct GoalShelfView: View {
                     allButton
                         .padding(.horizontal, 20)
                         .padding(.top, 14)
-                } else if DeviceWord.isMac {
-                    // [mac-tasks-calm] Owner 2026-11-22 ("this feels SO busy on Mac"): on the Mac a goal is a slim row
-                    // like a task's (its ring where a task's circle is, the name, how far along), not a half-width card
-                    // with its words cut. Its next task is the goal's page's.
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(cards.prefix(3)) { card in
-                            GoalShelfRowView(card: card, look: look) { open(card.id) }
-                        }
-                    }
-                    .accessibilityIdentifier("goals.shelf.cards")
                 } else {
                     ScrollView(.horizontal) {
                         HStack(alignment: .top, spacing: 10) {
@@ -88,7 +78,7 @@ struct GoalShelfView: View {
     private var heading: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button(action: toggle) {
-                TodoGroupHeaderView.Words(title: "Goals", detail: nil, count: GoalShelf.headingCount(cards.count, folded: folded))
+                TodoGroupHeaderView.Words(title: "Goals", detail: nil, count: GoalShelf.headingCount(cards.count, folded: folded), red: false)
                     .padding(.top, 16).padding(.bottom, 4).padding(.trailing, 12)
                     .contentShape(Rectangle())
             }
@@ -204,66 +194,9 @@ struct GoalShelfCardView: View {
             return Text("\(Text("Next: ").foregroundStyle(Color.hqLabel2))\(Text(title).foregroundStyle(Color.hqLabel))")
         case .noPlan, .nothing:
             return Text(card.next.words).foregroundStyle(Color.hqLabel2)
+        case .planWaits:   // [goals set-up] something to do: in the label's ink, as a next task is
+            return Text(card.next.words).foregroundStyle(Color.hqLabel)
         }
-    }
-}
-
-/// [mac-tasks-calm] The Mac's goal on the shelf: one line, read as the card is.
-struct GoalShelfRowView: View {
-    var card: GoalShelfCard
-    var look = GoalTeamLook()
-    var open: () -> Void
-    @ScaledMetric(relativeTo: .callout) private var textCircle: CGFloat = 22
-
-    var body: some View {
-        let lead = min(30, HQFont.scaled(textCircle)).rounded()
-        Button(action: open) {
-            HStack(alignment: .center, spacing: 12) {
-                GoalRing(fraction: card.fraction, color: card.color, size: (lead * 0.82).rounded())
-                    .frame(width: lead, height: lead)
-                // How far along shows whole beside the whole name, or not at all (in the narrow column a lone "…"
-                // stood where it was cut); the name is cut only when it alone is too long.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        name.fixedSize()
-                        Spacer(minLength: 0)
-                        Text(card.stall ?? card.line)
-                            .font(Font.hq(.footnote)).monospacedDigit()
-                            .foregroundStyle(card.stall == nil ? Color.hqLabel2 : Color.hqOrange)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    name.frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 7)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(GoalShelfPress())
-        .help(card.next.helpWords)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(GoalCardWords.label(card.spoken, stall: card.stall,
-                                                  team: look.spoken(team: card.team, led: card.led, waits: card.waits)))
-        .accessibilityValue(card.fraction.map { "\(Int(($0 * 100).rounded(.down))) percent" } ?? "No plan yet")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens the goal")
-        .accessibilityIdentifier("goal-shelf-\(card.title)")
-    }
-
-    private var name: some View {
-        Text(card.title)
-            .font(Font.hq(.callout))
-            .foregroundStyle(Color.hqLabel)
-            .lineLimit(1)
-    }
-}
-
-private extension GoalShelfNext {
-    /// What the pointer shows over the Mac's goal row: "Next: <task>".
-    var helpWords: String {
-        if case .task(_, let title) = self { return "Next: \(title)" }
-        return words
     }
 }
 

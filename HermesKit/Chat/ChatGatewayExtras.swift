@@ -48,30 +48,14 @@ nonisolated struct BackgroundProcess: Hashable, Sendable, Identifiable {
     var uptimeSeconds: Int?
     var exitCode: Int?
     var tail: String
-    /// [background] The folder it runs in (`process.list`'s `cwd`), for the row's detail when its command has no `cd`.
-    var cwd: String? = nil
-    /// [background] The bot's own sentence before the call that started it (`BackgroundJobWords.botWords`), filled in
-    /// by the chat from its transcript; nil when the bot said nothing or the call is out of the loaded history.
-    var botWords: String? = nil
 
     var isRunning: Bool { status == "running" }
 
-    /// [background] The row's name: the bot's # comment, its own words, an agent's prompt, or the program and folder.
-    var headline: String { BackgroundJobWords.headline(command: command, botWords: botWords) }
-    /// [background] Who runs it and where ("Claude Code · goals-2"); nil when the name says it all.
-    var detailLine: String? { BackgroundJobWords.detail(command: command, cwd: cwd, headline: headline) }
-    /// [background] The newest output line, else an honest quiet line ("No output for 1h 22m").
-    var statusLine: String { lastLine.isEmpty ? BackgroundJobWords.quietLine(command: command, uptimeSeconds: uptimeSeconds) : lastLine }
-
-    /// The job's name (`BackgroundTaskText.title`): its leading `# comment`, else the program it runs and its folder
-    /// ("npm test", "make · app" for `cd ~/app && make`), not a bare `cd …`; "Background command" when it has none.
+    /// The command's first line ("npm test"); "Background command" when it has none.
     var title: String {
-        let name = BackgroundTaskText.title(command: command)
-        return name == "background process" ? "Background command" : name
+        let first = command.split(whereSeparator: \.isNewline).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
+        return first.isEmpty ? "Background command" : first
     }
-
-    /// [background] The row's line while the job has printed nothing: where its output goes when it writes to a file.
-    var quietLine: String { BackgroundTaskText.quietLine(command: command) }
 
     /// "Running · 3m" (or "Running" while the time is unknown).
     var detail: String {
@@ -120,8 +104,7 @@ nonisolated struct BackgroundProcess: Hashable, Sendable, Identifiable {
             }()
             return BackgroundProcess(id: id, command: entry["command"]?.string ?? "", status: entry["status"]?.string ?? "running",
                                      uptimeSeconds: uptime, exitCode: entry["exit_code"]?.int,
-                                     tail: entry["output_tail"]?.string ?? entry["output_preview"]?.string ?? "",
-                                     cwd: entry["cwd"]?.nonEmptyString)
+                                     tail: entry["output_tail"]?.string ?? entry["output_preview"]?.string ?? "")
         }
     }
 }

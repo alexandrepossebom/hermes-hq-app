@@ -167,7 +167,7 @@ final class ServerRequestCenterTests {
     /// a new chat gets its stored id while it waits, and when the wait ends.
     @Test func aRequestOpenBeforeItsChatBoundStillReachesTheRows() {
         var told: [(runtime: String, profile: String, stored: String?, kind: NeedsInput?)] = []
-        center.onNeedsInput = { runtime, profile, stored, kind, _ in told.append((runtime, profile, stored, kind)) }
+        center.onNeedsInput = { runtime, profile, stored, kind in told.append((runtime, profile, stored, kind)) }
         deliver("srq-early", "approval", Self.approval)
         openRequests(["srq-early"], method: "session.resume")
         #expect(told.isEmpty, "nobody to tell yet: the runtime has no chat")
@@ -311,24 +311,6 @@ final class ServerRequestCenterTests {
         #expect(prompts.approvals.map(\.id) == ["queue:zzz"])
         openRequests([], method: "session.resume")
         #expect(prompts.approvals.isEmpty)
-    }
-
-    @Test(arguments: [ApprovalChoice.once, .deny])
-    func routineReportApprovalSurvivesAnEmptyLocalQueue(choice: ApprovalChoice) async throws {
-        client.onCall { method, _ in method == "approval.pending" ? ["approvals": []] : [:] }
-        // Opening Bot Chat replays the add-on's live request. Its queue is in the messaging gateway,
-        // not in hermes serve. Only the unrelated queue-only card should disappear on refresh.
-        deliver("srq-report", "approval", Self.approval, replayed: true)
-        openRequests(["srq-report"], pending: ["request_id": "local", "command": "pwd"], method: "session.resume")
-        event("session.info", ["running": false])
-        #expect(await waitUntil { self.center.entry("queue:local") == nil })
-        #expect(await waitUntil { !self.client.calls("session.events.since").isEmpty })
-        openRequests(["srq-report"], method: "session.events.since")
-        #expect(prompts.approvals.map(\.id) == ["srq-report"])
-        #expect(prompts.needsInput == .approval)
-        try await center.answerApproval("srq-report", choice)
-        #expect(client.answers == [PromptFakeClient.Answer(id: "srq-report", result: ["choice": .string(choice.rawValue)])])
-        #expect(client.calls("approval.respond").isEmpty)
     }
 
     @Test func queueOnlyApprovalsAnswerThroughApprovalRespond() async throws {

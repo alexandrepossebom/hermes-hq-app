@@ -109,12 +109,6 @@ import UIKit
     var onStateChange: (() -> Void)?
     /// [browser] The chat's browser card (kept as long as the screen).
     var browserCard: AnyObject?
-    /// [phone-calls] The call chip's words (App/PhoneCalls/PhoneChatChip.swift), nil while this chat has no call on.
-    var phoneChip: (words: String, asking: Bool)? { didSet { if installed { updateShelf(animated: true) } } }
-    /// [phone-calls] The chip was tapped (opens the call sheet).
-    var onPhoneChip: (() -> Void)?
-    /// [phone-calls] The chat's call chip (kept as long as the screen).
-    var phoneCard: AnyObject?
 
     init(chat: ChatViewController) {
         self.chat = chat
@@ -148,12 +142,6 @@ import UIKit
         shelf.onMetricsChange = { [weak self] in self?.updateShelf(animated: false) }
         shelf.onToggle = { [weak self] in
             guard let self else { return }
-            // [phone-calls] Owner 2026-11-21: one tap on the chat's call notice opens the call. With the pill folded
-            // and the call its only current word, or the only thing that needs you, the tap goes straight there.
-            if !self.shelf.expanded, self.openPieces.isEmpty, self.opensCallDirectly {
-                self.onPhoneChip?()
-                return
-            }
             // A detail returns to the overview first. Folding never clears helper selection or drafts.
             if !self.openPieces.isEmpty {
                 self.acknowledgeOpenHelperFailure()
@@ -278,15 +266,7 @@ import UIKit
         }
     }
 
-    private func showBackground(_ fetched: [BackgroundProcess]) {
-        // Each job is named by the bot's own words before the call that started it, read from this chat's transcript
-        // (its newest 300 messages: a job started further back is named from its command).
-        let messages = Array(chat.session.messages.suffix(300))
-        let list = fetched.map { job -> BackgroundProcess in
-            var job = job
-            job.botWords = BackgroundJobWords.botWords(for: job.command, in: messages)
-            return job
-        }
+    private func showBackground(_ list: [BackgroundProcess]) {
         backgroundStopping.formIntersection(list.map(\.id))
         if let live = chat.session as? LiveChatSession, let store = provider?.activityStore,
            let rid = provider?.activityRuntimeId ?? live.runtimeSessionId {
@@ -407,7 +387,7 @@ import UIKit
         var a = ActivityRowsInput()
         a.style = ToolCallSettings.style
         a.hideSteps = ToolCallSettings.hidesSteps
-        a.fileChanges = ToolCallSettings.fileChanges
+        a.showFileChanges = ToolCallSettings.showFileChanges
         a.revealed = revealed
         a.profile = chat.session.profile
         if let p = provider {
@@ -760,7 +740,6 @@ import UIKit
             case .previousTasks: body = previousBody
             case .background: body = backgroundBody     // [background]
             case .browser: body = UIView()          // [browser] a chip only: it opens the viewer
-            case .phone: body = UIView()            // [phone-calls] a chip only: it opens the call sheet
             }
             let piece = ShelfPieceView(kind: kind, body: body)
             piece.onToggle = { [weak self] in self?.toggle(kind) }
@@ -786,15 +765,8 @@ import UIKit
             .compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// [phone-calls] The folded pill is the call's own button: the call is its only current word, or the only thing
-    /// that needs you.
-    private var opensCallDirectly: Bool {
-        phoneChip != nil && (shelf.summary.current.map(\.kind) == [.phone] || shelf.summary.singleAttentionKind == .phone)
-    }
-
     private func toggle(_ kind: ShelfPieceKind) {
         if kind == .browser { onBrowserChip?(); return }    // [browser]
-        if kind == .phone { onPhoneChip?(); return }        // [phone-calls]
         acknowledgeOpenHelperFailure()
         subagentsBody.endEditing(true)
         openPieces = openPieces.contains(kind) ? [] : [kind]
@@ -877,7 +849,6 @@ import UIKit
         if previousShown { present.insert(.previousTasks) }
         if !backgroundTasks.isEmpty { present.insert(.background) }   // [background]
         if browserChip != nil { present.insert(.browser) }      // [browser]
-        if phoneChip != nil { present.insert(.phone) }          // [phone-calls]
         // New categories never open the overview or a detail. Their independent lifetimes are unchanged.
         openPieces.formIntersection(present)
         if present.isEmpty && idle { shelf.expanded = false }
@@ -966,15 +937,6 @@ import UIKit
             piece.header.accessibilityHint = "Opens the bot’s browser"
             piece.header.accessibilityValue = nil
         }
-        if let chip = phoneChip {                               // [phone-calls]
-            let piece = pieceView(.phone)
-            piece.header.leadingIcon.image = UIImage(systemName: chip.asking ? "exclamationmark.circle.fill" : "phone.fill")
-            piece.header.leadingIcon.tintColor = chip.asking ? ChatPalette.orange : ChatPalette.green
-            piece.header.leadingIcon.isHidden = false
-            piece.header.set(words: chip.words, spinner: nil)
-            piece.header.accessibilityHint = "Opens the call"
-            piece.header.accessibilityValue = nil
-        }
         shelf.summary = ActivityPill(entries: present.map { kind in
             let piece = pieceView(kind)
             // The pill's own short words for each category; the row's title and value are for the overview.
@@ -1012,11 +974,6 @@ import UIKit
                 attention = browserChip?.asking == true
                 if attention { words = "Browser needs you" }
                 running = !idle && !attention
-            case .phone:
-                // [phone-calls] A call outlives the reply that started it, so it shows with the chat idle too.
-                attention = phoneChip?.asking == true
-                words = phoneChip?.words ?? "On a call"
-                running = !attention
             case .tasks:
                 words = TodoRules.chipWords(a.liveTodos ?? [], previous: false)
                 historical = a.liveTodos?.allSatisfy { $0.status == .completed || $0.status == .cancelled } == true
@@ -1027,9 +984,6 @@ import UIKit
             return .init(kind: kind, words: words, isRunning: running, needsAttention: attention,
                          accessibilityWords: accessibilityWords, isHistorical: historical)
         }, parentIsRunning: p.statusIsWorking)
-        shelf.summaryIcon = opensCallDirectly   // [phone-calls]
-            ? (phoneChip?.asking == true ? "exclamationmark" : "phone.fill",
-               phoneChip?.asking == true ? ChatPalette.orange : ChatPalette.green) : nil
         if !shelf.summary.shouldShow(keepingDetailsOpen: shelf.expanded && !openPieces.isEmpty) {
             present.removeAll()
             openPieces.removeAll()

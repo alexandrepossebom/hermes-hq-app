@@ -34,7 +34,6 @@ final class GoalPageModel {
     var whyDraft = ""
     var adding: GoalAddSpot?
     var newTask = ""
-    var savingTask = false
     var addingMilestone = false
     var newMilestone = ""
     /// The rows' frames in the page's own coordinates (for the dust).
@@ -247,22 +246,17 @@ final class GoalPageModel {
 
     /// "Add a task" under a milestone (or none): an ordinary task of yours, in this goal.
     func addTask() {
-        let draft = newTask
-        let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let spot = adding, !clean.isEmpty, !savingTask else { return }
+        let clean = newTask.trimmingCharacters(in: .whitespacesAndNewlines)
+        newTask = ""
+        guard let spot = adding, !clean.isEmpty else { return }
         PagesHaptics.selection()
         var milestone: String?
         if case .milestone(let id) = spot { milestone = id }
-        // Inline entry has no parsing preview: save the exact words rather than silently extracting fields.
-        let body = TodoWire.newTask(title: clean, who: .me, bot: nil, due: nil, repeatRule: nil,
+        let parsed = TodoQuickParse.read(clean, now: Date())
+        let body = TodoWire.newTask(title: parsed.title.isEmpty ? clean : parsed.title, who: .me, bot: nil,
+                                    due: parsed.due.map { TodoDates.wire($0, hasTime: parsed.hasTime) }, repeatRule: parsed.repeatRule,
                                     prep: false, goal: goalID, milestone: milestone)
-        savingTask = true
-        Task {
-            let made = await store.add(body)
-            savingTask = false
-            if made == nil { PagesHaptics.error(); return }
-            if newTask == draft { newTask = "" }
-        }
+        Task { if await store.add(body) == nil { PagesHaptics.error() } }
     }
 
     func openTask(_ id: String) {

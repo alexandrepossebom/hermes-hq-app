@@ -34,21 +34,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     private(set) var draft: ClarifyDraft
     weak var delegate: QuestionDockDelegate?
     /// Send or Skip is on its way: Skip, Back and every choice are disabled; Send reads "Sending…".
-    var sending: Sending = .none {
-        didSet {
-            // [question-dictate] A take still recording into the card ends with it, nothing typed.
-            if sending != .none { dictation?.cancel(why: sending == .send ? "the question card was sent" : "the question was skipped") }
-            updateChrome()
-        }
-    }
-    /// [question-dictate] The screen's dictation into the card (#438): every page's answer field gets the mic.
-    weak var dictation: QuestionDictation? { didSet { pages.forEach { $0.dictation = dictation }; updateChrome() } }
-    /// [question-dictate] A take types into one of this card's fields: Next and Send wait for its words (Done or ✕ on
-    /// its row ends it), as the composer's Send gives way to Stop Dictation.
-    var isDictating: Bool {
-        guard let dictation, let field = dictation.activeField else { return false }
-        return field.isDescendant(of: self)
-    }
+    var sending: Sending = .none { didSet { updateChrome() } }
     enum Sending { case none, send, skip }
 
     /// Glass off the Desktop Look, the solid elevated panel in it (`applyLook`).
@@ -121,7 +107,6 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     func setMinimized(_ minimized: Bool) {
         draft.minimized = minimized
         if minimized {
-            dictation?.cancel(why: "the question card was minimized")   // [question-dictate]
             autoAdvance?.cancel()
             autoAdvance = nil
             endEditing(true)
@@ -299,18 +284,9 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         }
         // [qcard-frost] Reduce Transparency / Increase Contrast turned on while the card shows make it solid at once.
         NotificationCenter.default.addObserver(self, selector: #selector(accessibilityChanged), name: HQAccessibility.didChange, object: nil)
-        // [question-dictate] Next and Send wait while a take types into the card.
-        NotificationCenter.default.addObserver(self, selector: #selector(dictationChanged), name: DictationController.didChange, object: nil)
     }
 
     @objc private func accessibilityChanged() { applyLook() }
-    @objc private func dictationChanged() { updateChrome() }
-
-    /// [question-dictate] The shown page's answer field for Dictate with Hermes ("Something else…" opened for it).
-    func fieldForDictation() -> DockTextField? {
-        guard sending == .none, !draft.minimized, pages.indices.contains(draft.page) else { return nil }
-        return pages[draft.page].fieldForDictation()
-    }
 
     /// Glass, or (Desktop Look) the solid elevated panel with its hairline and upward shadow. Runs again on every theme
     /// change, so turning the look on or off live switches the card.
@@ -483,9 +459,7 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     /// answers would be lost).
     func escapePressed() {
         guard sending == .none, !draft.minimized else { return }
-        if isDictating {   // [question-dictate] the dictation first, as its ✕
-            dictation?.cancel(why: "cancelled")
-        } else if isTyping {
+        if isTyping {
             endEditing(true)
             takeKeys()
         } else {
@@ -499,7 +473,6 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         guard sending == .none else { return }
         let target = draft.page + delta
         guard target >= 0, target < pages.count else { return }
-        dictation?.cancel(why: "the question card turned its page")   // [question-dictate] its field goes out of sight
         showPage(target, focus: true)
         resizeToPage()
         delegate?.dockDraftChanged(self)
@@ -521,7 +494,6 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
     }
 
     private func primaryTapped() {
-        guard !isDictating else { return }   // [question-dictate]
         if isLastPage {
             guard sending == .none, answeredCount > 0 else { return }
             delegate?.dockSend(self)
@@ -532,7 +504,6 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
 
     /// Return in a field: Next on earlier pages, Send on the last when an answer exists.
     private func returnPressed() {
-        guard !isDictating else { return }   // [question-dictate] the words aren't in the field yet
         if !isLastPage { go(by: 1) } else if sending == .none, answeredCount > 0 { delegate?.dockSend(self) }
     }
 
@@ -565,13 +536,12 @@ final class QuestionDockView: UIView, KeepsKeyboardOnTap {
         c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
             var a = a; a.font = HQFont.preferred(.headline); return a
         }
-        let dictating = isDictating   // [question-dictate] its words aren't in the field yet
         if isLastPage {
             c.title = sending == .send ? "Sending…" : "Send"
-            primaryButton.isEnabled = sending == .none && answeredCount > 0 && !dictating
+            primaryButton.isEnabled = sending == .none && answeredCount > 0
         } else {
             c.title = "Next"
-            primaryButton.isEnabled = sending == .none && !dictating
+            primaryButton.isEnabled = sending == .none
         }
         primaryButton.configuration = c
         // [glass-phone] On glass a disabled Send keeps an opaque fill (the system's disabled fill is see-through).
@@ -766,15 +736,7 @@ final class QuestionPageView: UIView, UITextViewDelegate {
     var onReturn: (() -> Void)?
     var onFocus: (() -> Void)?
     var returnKey: UIReturnKeyType = .next { didSet { field?.textView.returnKeyType = returnKey } }
-    var isLocked = false {
-        didSet {
-            rows.forEach { $0.isEnabled = !isLocked }
-            field?.textView.isEditable = !isLocked
-            field?.updateMic()   // [question-dictate] no dictating into a card on its way
-        }
-    }
-    /// [question-dictate] The screen's dictation into the card: its answer field gets the mic (#438).
-    weak var dictation: QuestionDictation? { didSet { if let field { dictation?.adopt(field) } } }
+    var isLocked = false { didSet { rows.forEach { $0.isEnabled = !isLocked }; field?.textView.isEditable = !isLocked } }
 
     private let stack = UIStackView()
     private var rows: [ChoiceRow] = []
@@ -875,7 +837,6 @@ final class QuestionPageView: UIView, UITextViewDelegate {
         f.textView.returnKeyType = returnKey
         f.textView.autocapitalizationType = .sentences
         f.textView.accessibilityIdentifier = isFieldOnly ? "question.field" : "question.otherField"
-        dictation?.adopt(f)   // [question-dictate]
     }
 
     private func choiceTapped(_ choice: String) {
@@ -917,22 +878,6 @@ final class QuestionPageView: UIView, UITextViewDelegate {
     }
 
     func focusField() { field?.textView.becomeFirstResponder() }
-
-    /// [question-dictate] The page's answer field, "Something else…" opened for it when the page has choices (Dictate
-    /// with Hermes, or a failure card's Try Again, while the card covers the composer). nil while locked.
-    func fieldForDictation() -> DockTextField? {
-        guard !isLocked else { return nil }
-        if field == nil, !isFieldOnly {
-            stage = ClarifyStaging.openOther(question, stage)
-            showOtherField(focus: false)
-            refreshMarks()
-            onStage?(stage)
-        }
-        return field
-    }
-
-    /// The page's answer field, if it shows one (tests).
-    var answerField: DockTextField? { field }
 
     #if targetEnvironment(macCatalyst)
     /// [mac-audit] How many number keys pick here: one per choice, then "Something else…" (nine at most).
@@ -1233,20 +1178,14 @@ final class Separator: UIView {
 }
 
 /// A field that grows with its text from 44 to 132 pt, then scrolls (Fill 4, radius 12, padding 11/14).
-/// [question-dictate] With voice in the chat, a mic at its trailing edge dictates into it (#438, `QuestionDictation`).
 final class DockTextField: UIView {
     let textView = UITextView()
     private let placeholder = UILabel()
     private var height: NSLayoutConstraint!
-    private var placeholderTrailing: NSLayoutConstraint!
     private let inline: Bool
-    /// The text's own insets, before the mic's room.
-    private let baseInset: UIEdgeInsets
-    private let micButton = UIButton(type: .system)
 
     init(placeholder text: String, accessibility: String, inline: Bool = false, multi: Bool = false) {
         self.inline = inline
-        baseInset = inline ? UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4) : UIEdgeInsets(top: 11, left: 14, bottom: 11, right: 14)
         super.init(frame: .zero)
         backgroundColor = inline ? .clear : DockFill.answers   // [glass-phone] opaque on the glass card
         layer.cornerRadius = 12
@@ -1255,7 +1194,7 @@ final class DockTextField: UIView {
         textView.font = HQFont.preferred(.body)
         textView.adjustsFontForContentSizeCategory = true
         textView.textColor = ChatPalette.label
-        textView.textContainerInset = baseInset
+        textView.textContainerInset = inline ? UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4) : UIEdgeInsets(top: 11, left: 14, bottom: 11, right: 14)
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
         textView.accessibilityLabel = accessibility
@@ -1269,20 +1208,6 @@ final class DockTextField: UIView {
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         addSubview(placeholder)
         height = heightAnchor.constraint(equalToConstant: 44)
-        placeholderTrailing = placeholder.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8)
-        // [question-dictate] The composer's Dictate glyph, at the field's last line (as the composer's mic sits).
-        var mic = UIButton.Configuration.plain()
-        mic.image = UIImage(systemName: "mic", withConfiguration: UIImage.SymbolConfiguration(textStyle: .body, scale: .medium))
-        mic.baseForegroundColor = ChatPalette.tintText
-        micButton.configuration = mic
-        micButton.accessibilityIdentifier = "question.dictate"
-        micButton.accessibilityLabel = "Dictate"
-        micButton.accessibilityHint = "Say your answer. The words go in this field."
-        micButton.isHidden = true
-        micButton.translatesAutoresizingMaskIntoConstraints = false
-        micButton.addAction(UIAction { [weak self] _ in self?.onDictate?() }, for: .primaryActionTriggered)
-        PointerEffects.surface(micButton)
-        addSubview(micButton)
         NSLayoutConstraint.activate([
             textView.topAnchor.constraint(equalTo: topAnchor),
             textView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1290,90 +1215,9 @@ final class DockTextField: UIView {
             textView.bottomAnchor.constraint(equalTo: bottomAnchor),
             placeholder.leadingAnchor.constraint(equalTo: leadingAnchor, constant: textView.textContainerInset.left),
             placeholder.topAnchor.constraint(equalTo: topAnchor, constant: textView.textContainerInset.top),
-            placeholderTrailing,
-            micButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            micButton.bottomAnchor.constraint(equalTo: bottomAnchor),
-            micButton.widthAnchor.constraint(equalToConstant: Self.micSize),
-            micButton.heightAnchor.constraint(equalToConstant: Self.micSize),
+            placeholder.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
             height,
         ])
-    }
-
-    // MARK: [question-dictate] Dictation (#438)
-
-    static let micSize: CGFloat = 44
-
-    /// The mic: the composer's dictation, its words typed here. nil: no mic (no voice in this chat).
-    var onDictate: (() -> Void)? { didSet { updateMic() } }
-    /// Off while another dictation records (one runs app-wide).
-    var dictateEnabled = true { didSet { if dictateEnabled != oldValue { updateMic() } } }
-    /// The field left the screen (a choice closed "Something else…", the card went): its take ends.
-    var onLeftWindow: (() -> Void)?
-    /// The mic shows (tests).
-    var showsMic: Bool { !micButton.isHidden }
-    var micEnabled: Bool { micButton.isEnabled }
-
-    /// While a take types into this field its row, and the words heard above it, take the field's place, as the
-    /// composer's dictation row takes its field's: the text view goes invisible but keeps the keyboard, and the words go
-    /// in at its caret when they come back.
-    var dictationContent: QuestionDictationView? {
-        didSet {
-            guard dictationContent !== oldValue else { return }
-            oldValue?.removeFromSuperview()
-            if let dictationContent {
-                dictationContent.frame = bounds
-                addSubview(dictationContent)
-            }
-            let showText = dictationContent == nil
-            textView.alpha = showText ? 1 : 0
-            placeholder.alpha = showText ? 1 : 0
-            textView.accessibilityElementsHidden = !showText
-            updateMic()
-            textChanged()
-            setNeedsLayout()
-        }
-    }
-
-    /// Dictated words go in at the caret as the composer's do (a space before them when the text there does not end in
-    /// white space), the keyboard comes up, and the page takes them as typed words.
-    func insertDictation(_ words: String) {
-        guard textView.isEditable else { return }
-        let result = ComposerView.dictationInsert(into: textView.text ?? "", selection: textView.selectedRange, words: words)
-        textView.text = result.text
-        textView.becomeFirstResponder()
-        textView.selectedRange = NSRange(location: result.caret, length: 0)
-        textView.delegate?.textViewDidChange?(textView)
-        textChanged()
-    }
-
-    /// In a window, and neither it nor anything above it hidden (its page is the one on show).
-    var isShowing: Bool {
-        guard window != nil else { return false }
-        var view: UIView? = self
-        while let each = view {
-            if each.isHidden { return false }
-            view = each.superview
-        }
-        return true
-    }
-
-    /// Called when the page locks or unlocks the field too (Send or Skip on its way).
-    func updateMic() {
-        let shows = onDictate != nil && dictationContent == nil
-        micButton.isHidden = !shows
-        micButton.isEnabled = dictateEnabled && textView.isEditable
-        var inset = baseInset
-        if onDictate != nil { inset.right = max(inset.right, Self.micSize - 4) }
-        if textView.textContainerInset != inset {
-            textView.textContainerInset = inset
-            placeholderTrailing.constant = -(onDictate != nil ? Self.micSize : 8)
-            textChanged()
-        }
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window == nil { onLeftWindow?() }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -1387,8 +1231,7 @@ final class DockTextField: UIView {
         placeholder.isHidden = !textView.text.isEmpty
         let width = bounds.width > 0 ? bounds.width : 300
         let fit = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        // [question-dictate] While dictating: the row, and the words heard above it.
-        let target = dictationContent.map { max(44, ceil($0.height(for: width))) } ?? min(132, max(44, ceil(fit)))
+        let target = min(132, max(44, ceil(fit)))
         textView.isScrollEnabled = fit > 132
         if abs(height.constant - target) > 0.5 { height.constant = target }
     }
@@ -1396,7 +1239,6 @@ final class DockTextField: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         textChanged()
-        if let dictationContent, dictationContent.frame != bounds { dictationContent.frame = bounds }
     }
 }
 

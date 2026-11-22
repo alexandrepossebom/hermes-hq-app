@@ -2,10 +2,7 @@
 // the name, a tiny 2/4 with steps, and when it's due at the end. [tasks-calm] A bot on the task has a quiet grey second
 // line led by its small face, in its words (owner 2026-11-19 pick A, "Quiet ink": the face and its coloured dot at the
 // row's end, and a green or orange line naming the bot, read busy); only a question keeps its orange. The Mac's table (a
-// window-wide list) keeps its columns. [tasks-colour] Colour means act (owner 2026-11-22, pick A of
-// artifacts/tasks-colour: ten hues said five things): on the list only a late date is red and only a bot's question
-// is orange. Priority is "!!" or "!" before the name, a list is its small grey icon, a goal's mark and the bot's
-// small face are grey.
+// window-wide list) keeps its columns.
 
 import SwiftUI
 import UIKit
@@ -25,15 +22,6 @@ enum TodoInk {
         case .needsYou: return Color.hqOrange
         case .overdue: return Color.hqRed
         case .plain: return Color.hqLabel2
-        }
-    }
-
-    /// [tasks-colour] On the list (the Mac's table too): only what asks for you keeps a colour.
-    static func onList(_ tone: TodoTone) -> Color {
-        switch tone {
-        case .needsYou: return Color.hqOrange
-        case .overdue: return Color.hqRed
-        case .ready, .working, .plain: return Color.hqLabel2
         }
     }
 }
@@ -63,14 +51,13 @@ struct TodoRowModel: Hashable {
     var wide = false
     /// Who has it ("You", the bot, "You & the bot"): the table's last column.
     var who = ""
-    /// [task-lists] Its list's icon, outside the list's own view: small and grey before the date ([tasks-colour] it
-    /// was a dot in the list's colour).
-    var listIcon: String?
+    /// [task-lists] Its list's colour, outside the list's own view: a small dot before the date.
+    var listDot: TodoListColor?
     /// That list's name, for VoiceOver.
     var listName: String?
-    /// [goals] Step 2: the task's goal (active or paused): its mark stands in the list's icon's place, everywhere but
+    /// [goals] Step 2: the task's goal (active or paused): its mark stands in the list's dot's place, everywhere but
     /// the goal's own page (`GoalViews.markGoal`).
-    var goalMark = false
+    var goalMark: TodoListColor?
     /// That goal's name, for VoiceOver ("for <goal>").
     var goalName: String?
 }
@@ -78,7 +65,7 @@ struct TodoRowModel: Hashable {
 extension TodoRowModel {
     /// A task's row as the list draws it ([goals] the goal's page draws its tasks with the same rows).
     static func make(_ task: TodoTask, kind: TodoGroupKind, now: Date, botName: @escaping (String?) -> String, head: JSONValue?,
-                     ticking: Bool = false, listIcon: String? = nil, listName: String? = nil, wide: Bool = false) -> TodoRowModel {
+                     ticking: Bool = false, dot: TodoListColor? = nil, listName: String? = nil, wide: Bool = false) -> TodoRowModel {
         TodoRowModel(
             id: task.id, title: task.title.isEmpty ? "Untitled Task" : task.title,
             words: TodoViews.row(task, in: kind, now: now, botName: botName),
@@ -87,7 +74,7 @@ extension TodoRowModel {
             done: task.isDone, ticking: ticking,
             face: task.helper, head: head,
             wide: wide, who: TodoWords.whoWords(task, botName: botName),
-            listIcon: listIcon, listName: listName)
+            listDot: dot, listName: listName)
     }
 }
 
@@ -113,12 +100,15 @@ struct TodoRowView: View {
     private var table: some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             lead
-            named
+            Text(row.title)
+                .font(Font.hq(.callout))
+                .foregroundStyle(row.done || row.ticking ? Color.hqLabel2 : Color.hqLabel)
+                .strikethrough(row.done || row.ticking, color: Color.hqLabel3)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if row.goalMark { goalMark(font: .subheadline) } else if let icon = row.listIcon { listMark(icon, font: .subheadline) }
+            if let color = row.goalMark { goalMark(color, font: .subheadline) } else if let color = row.listDot { listDot(color, font: .subheadline) }
             Text(row.line.lead ?? "")
-                .font(Font.hq(.subheadline).weight(DeviceWord.isMac ? .regular : .medium)).foregroundStyle(TodoInk.onList(row.line.tone))   // [type] Mac: its colour marks it, as Jobs' status
+                .font(Font.hq(.subheadline).weight(DeviceWord.isMac ? .regular : .medium)).foregroundStyle(TodoInk.color(row.line.tone))   // [type] Mac: its colour marks it, as Jobs' status
                 .lineLimit(1)
                 .frame(width: TodoTable.status, alignment: .leading)
             Text(row.line.rest.joined(separator: " · "))
@@ -156,18 +146,8 @@ struct TodoRowView: View {
     /// the row's end holds only when it is due (or its steps, with no date). The bot's line is grey, led by its small
     /// face instead of its name; only a question keeps its colour. No dot on the face: the line says what it is doing.
     /// Steps of a dated task with a bot's line end that line ("Draft ready · 1/2").
-    /// [mac-tasks-calm] Owner 2026-11-22 (a Mac screenshot of Today: "this feels SO busy on Mac"): on the Mac a row is
-    /// the task alone. The bot's line stays only for a question (it asks for you); otherwise the bot's small grey face
-    /// sits before the date and its words show under the pointer, and on the task's page beside the list. VoiceOver
-    /// still hears them (`spoken`). The name still wraps to two lines: cut to one in the narrow column it read
-    /// "Reply to Ivy ab…".
-    private var oneLine: Bool { DeviceWord.isMac && !large }
-
     private var list: some View {
-        let words = row.done ? nil : (row.words.said ?? row.words.note)
-        let said = oneLine && row.words.tone != .needsYou ? nil : words
-        let faceAtEnd: String? = oneLine && said == nil && words != nil ? row.face : nil
-        let pointerWords: String = faceAtEnd == nil ? "" : (words ?? "")
+        let said = row.done ? nil : (row.words.said ?? row.words.note)
         let stepsAtEnd = row.words.when == nil && row.words.steps != nil
         let stepsOnLine = !stepsAtEnd && said != nil && row.words.steps != nil
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -181,12 +161,11 @@ struct TodoRowView: View {
                     titleLine(steps: !stepsAtEnd && !stepsOnLine)
                         .lineLimit(large ? 4 : 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    // [task-lists] Its list's icon, before the date (and alone at the row's end with no date); [goals] its
+                    // [task-lists] Its list's dot, before the date (and alone at the row's end with no date); [goals] its
                     // goal's mark in that place instead. Neither at the largest sizes (the spoken words stay).
                     if !large {
-                        if row.goalMark { goalMark(font: .footnote) } else if let icon = row.listIcon { listMark(icon, font: .footnote) }
+                        if let color = row.goalMark { goalMark(color, font: .footnote) } else if let color = row.listDot { listDot(color, font: .footnote) }
                     }
-                    if let profile = faceAtEnd { lineFace(profile) }
                     if let when = row.words.when {
                         Text(when)
                             .font(Font.hq(.footnote)).monospacedDigit()
@@ -224,22 +203,13 @@ struct TodoRowView: View {
         .padding(.trailing, 20)
         .frame(minHeight: Theme.isDesktop ? 46 : 44, alignment: .leading)
         .contentShape(Rectangle())
-        .help(pointerWords)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(listSpoken)
+        .accessibilityLabel(([row.title] + (row.words.spoken.isEmpty ? [] : [row.words.spoken]) + (row.listName.map { ["in \($0)"] } ?? [])
+                             + (row.goalName.map { ["for \($0)"] } ?? [])).joined(separator: ", "))
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { open() }   // [lists] Mac pass round 6
         .accessibilityAction(named: row.done ? "Mark Not Done" : "Mark Done") { toggle() }
-    }
-
-    /// The list row's words for VoiceOver: the name, then what is drawn beside and under it.
-    private var listSpoken: String {
-        var parts = [row.title]
-        if !row.words.spoken.isEmpty { parts.append(row.words.spoken) }
-        if let list = row.listName { parts.append("in \(list)") }
-        if let goal = row.goalName { parts.append("for \(goal)") }
-        return parts.joined(separator: ", ")
     }
 
     /// The name, then small and grey: steps done of all, and a mark for a task that repeats. (A mark for notes was
@@ -247,7 +217,11 @@ struct TodoRowView: View {
     /// tied to the name's last word (no-break spaces), so a long name wraps with them: a count never sits on a line
     /// alone.
     private func titleLine(steps showsSteps: Bool) -> Text {
-        var line = named
+        let struck = row.done || row.ticking
+        var line = Text(row.title)
+            .font(Font.hq(.callout))
+            .foregroundStyle(struck ? Color.hqLabel2 : Color.hqLabel)
+            .strikethrough(struck, color: Color.hqLabel3)
         let small = Font.hq(.caption)
         let gap = "\u{00A0}\u{00A0}"
         if showsSteps, let steps = row.words.steps {
@@ -264,35 +238,16 @@ struct TodoRowView: View {
         return line
     }
 
-    /// [tasks-colour] The name, after its priority's mark while it is open: "!!" (high) in the name's ink and weight
-    /// made heavy, "!" (medium) in grey. The circle is plain: its colour said the same and read as a third red.
-    private var named: Text {
-        let struck = row.done || row.ticking
-        let name = Text(row.title)
-            .font(Font.hq(.callout))
-            .foregroundStyle(struck ? Color.hqLabel2 : Color.hqLabel)
-            .strikethrough(struck, color: Color.hqLabel3)
-        guard !struck, let mark = TodoViews.priorityMark(row.words.priority) else { return name }
-        let ink = row.words.priority == 1 ? Color.hqLabel : Color.hqLabel2
-        return Text("\(Text(mark).font(Font.hq(.callout).weight(.bold)).foregroundStyle(ink))\u{00A0}\(name)")
-    }
-
-    /// [task-lists] The list's icon, small and grey, centred on the words' x-height beside it.
-    private func listMark(_ icon: String, font: UIFont.TextStyle) -> some View {
-        Image(systemName: icon)
-            .font(Font.hq(.caption2).weight(.medium))
-            .foregroundStyle(row.done ? Color.hqLabel3 : Color.hqLabel2)
+    /// [task-lists] The list's dot, centred on the words' x-height beside it.
+    private func listDot(_ color: TodoListColor, font: UIFont.TextStyle) -> some View {
+        TaskListDot(color: row.done ? .gray : color)
             .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(font).xHeight / 2 }
-            .accessibilityHidden(true)
-            .accessibilityIdentifier("tasks.list-mark")
     }
 
-    /// [goals] The goal's mark, grey, centred on the words' x-height beside it, as the list's icon is.
-    private func goalMark(font: UIFont.TextStyle) -> some View {
-        Image(systemName: "smallcircle.filled.circle")
+    /// [goals] The goal's mark, centred on the words' x-height beside it, as the list's dot is.
+    private func goalMark(_ color: TodoListColor, font: UIFont.TextStyle) -> some View {
+        GoalMark(color: row.done ? .gray : color)
             .font(Font.hq(.caption2).weight(.semibold))
-            .foregroundStyle(row.done ? Color.hqLabel3 : Color.hqLabel2)
-            .accessibilityHidden(true)
             .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(font).xHeight / 2 }
             .accessibilityIdentifier("tasks.goal-mark")
     }
@@ -310,10 +265,12 @@ struct TodoRowView: View {
         } else {
             Button(action: toggle) {
                 let size = min(30, circleSize).rounded()
-                // [tasks-colour] Plain for every open task: its priority is the mark before its name (`named`).
+                // An open task's circle is its priority's colour (red, orange, the accent), a little heavier so the
+                // colour reads.
+                let ink = row.done || row.ticking ? nil : TodoPriorityLook.color(row.words.priority)
                 Image(systemName: row.done || row.ticking ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: size, weight: .light))
-                    .foregroundStyle(row.done || row.ticking ? Color.hqTint : Color.hqLabel3)
+                    .font(.system(size: size, weight: ink == nil ? .light : .regular))
+                    .foregroundStyle(row.done || row.ticking ? Color.hqTint : (ink ?? Color.hqLabel3))
                     .frame(width: size, height: size)
                     .contentShape(Rectangle().inset(by: -10))
             }
@@ -330,23 +287,22 @@ struct TodoRowView: View {
     }
 
     /// [tasks-calm] The bot's face, small, at the head of its line (the line's words say what it is doing).
-    /// [tasks-colour] In grey: its shape still says which bot, and its colour was one more hue on every line.
     private func lineFace(_ profile: String) -> some View {
         let size = min(22, lineFaceSize).rounded()
         return HeadImage(raw: row.head, profile: profile, size: size)
             .frame(width: size, height: size)
-            .grayscale(1)
             .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + HQFont.preferred(.footnote).capHeight / 2 }
             .accessibilityHidden(true)
     }
 }
 
-/// A group's heading: "Overdue 1" ([tasks-colour] in ink: its rows' dates are the red), "Today 5", "Tomorrow  Fri, Nov 13", a bot's face and name in Bots, and Done
+/// A group's heading: "Overdue 1" in red, "Today 5", "Tomorrow  Fri, Nov 13", a bot's face and name in Bots, and Done
 /// with Show or Hide at its end.
 struct TodoGroupHeaderView: View {
     var title: String
     var detail: String?
     var count: Int?
+    var red = false
     /// [soft-cards] The group stands on a soft card: the name starts where the rows' circles do, and as far under the
     /// card's top as the last row's words stand over its foot.
     var onCard = false
@@ -397,22 +353,23 @@ struct TodoGroupHeaderView: View {
         }
     }
 
-    private var words: some View { Words(title: title, detail: detail, count: count) }
+    private var words: some View { Words(title: title, detail: detail, count: count, red: red) }
 
     /// "Today  5": the name in the label's ink, what follows in grey (the Desktop Look's small capitals there).
     struct Words: View {
         var title: String
         var detail: String?
         var count: Int?
+        var red: Bool
         @Environment(\.colorSchemeContrast) private var contrast
 
         var body: some View {
             if Theme.isDesktop {
                 Text(([title] + [detail].compactMap { $0 } + [count.map { "\($0)" }].compactMap { $0 }).joined(separator: " · "))
                     .monospacedDigit()
-                    .hqDesktopLabel(color: .hqLabel2)
+                    .hqDesktopLabel(color: red ? .hqRed : .hqLabel2)
             } else {
-                let name = Text(title).font(Font.hq(.subheadline).weight(.semibold)).foregroundStyle(Color.hqLabel)
+                let name = Text(title).font(Font.hq(.subheadline).weight(.semibold)).foregroundStyle(red ? Color.hqRed : Color.hqLabel)
                 let rest = [detail, count.map { "\($0)" }].compactMap { $0 }.joined(separator: "  ")
                 if rest.isEmpty {
                     name

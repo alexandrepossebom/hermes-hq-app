@@ -257,7 +257,7 @@ private extension MarketplaceItem {
     @Test func composioIsAMorePageOfItsOwn() {
         #expect(UIImage(systemName: ComposioRow.symbol) != nil)
         #expect(TabChoice(key: "page.composio") == .page(ComposioRow.id))
-        #expect(TabChoice.pageIDs.firstIndex(of: ComposioRow.id) == 20)   // new pages go after it: its tag stays
+        #expect(TabChoice.pageIDs.last == ComposioRow.id)   // new pages go at the end: the others keep their tags
         #expect(TabOrderPage.fallback(ComposioRow.id).title == "Composio")
         #expect(MoreSearch.pageKeywords[ComposioRow.id]?.contains("gmail") == true)
         #expect(SettingsSearch.rootPages.contains { $0.id == "page:composio" && $0.label == "Composio" })

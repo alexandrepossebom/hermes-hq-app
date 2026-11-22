@@ -513,8 +513,6 @@ struct HeaderMoreButton<Items: View>: View {
     /// The glyph at the default text size; it grows with the text up to `cap`, so it never crowds the name.
     var glyph: CGFloat = 15
     var cap: CGFloat = 22
-    /// The touch's width: 44 pt; the Mac's project header takes a pointer's smaller frame.
-    var width: CGFloat = 44
     var height: CGFloat = 44
     var above: CGFloat = 0
     @ViewBuilder var items: () -> Items
@@ -524,7 +522,7 @@ struct HeaderMoreButton<Items: View>: View {
             Image(systemName: "ellipsis")
                 .hqSymbolFont(glyph, weight: .semibold, cap: cap)
                 .foregroundStyle(Color.hqLabel2)
-                .frame(width: width, height: height)
+                .frame(width: 44, height: height)
                 .contentShape(.interaction, RaisedHitShape(above: above))
         }
         .menuStyle(.button)

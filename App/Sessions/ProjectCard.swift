@@ -801,26 +801,14 @@ struct ProjectCardHeader: View {
 
     /// A folder (Home: a house) in a small box, where a chat row has its face.
     private var folder: some View {
-        // [project-look] The project's own emoji stands where the folder did (on its colour, when it has both); a
-        // colour alone fills the folder with it. Home keeps its house.
-        let look = summary.home ? ProjectLook() : summary.look
-        let colour = look.color.map { Color(uiColor: SessionsOrganizer.uiColor($0)) }
-        let backed = look.emoji != nil && colour != nil
-        return Group {
-            if let emoji = look.emoji {
-                Text(emoji).font(.system(size: boxSize * 0.56))     // a11y-font-ok: sized to the face column, as the faces
-            } else {
-                Image(systemName: summary.home ? "house" : colour != nil ? "folder.fill" : "folder")
-                    .font(.system(size: boxSize * 0.52, weight: .medium))     // a11y-font-ok: sized to the face column, as the faces
-                    .foregroundStyle(colour ?? Color.hqLabel2)
-            }
-        }
+        Image(systemName: summary.home ? "house" : "folder")
+            .font(.system(size: boxSize * 0.52, weight: .medium))     // a11y-font-ok: sized to the face column, as the faces
+            .foregroundStyle(Color.hqLabel2)
             // [slim-rail] In the slim column the folder stands alone, as wide as the column: no box.
             .frame(width: ProjectCard.slim ? ProjectCard.column : boxSize, height: boxSize)
             .background(RoundedRectangle(cornerRadius: desk ? 6 : 8, style: .continuous)
-                .fill(backed ? (colour ?? .clear).opacity(0.32) : Color(uiColor: carded && !ProjectCard.soft ? ProjectCard.box : ProjectCard.boxOnPage))
-                .frame(width: backed && ProjectCard.slim ? boxSize : nil)
-                .opacity(ProjectCard.slim && !backed ? 0 : 1))
+                .fill(Color(uiColor: carded && !ProjectCard.soft ? ProjectCard.box : ProjectCard.boxOnPage))
+                .opacity(ProjectCard.slim ? 0 : 1))
             .overlay {
                 // The Desktop Look's page and card are close in light: its outline keeps the box.
                 if let edge = ProjectCard.edge {

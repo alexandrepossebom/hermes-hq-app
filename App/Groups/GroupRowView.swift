@@ -75,7 +75,7 @@ struct GroupRowView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         HStack(alignment: .firstTextBaseline, spacing: 5) {
                             Text(room.name)
-                                .font(Font.hq(desk ? DesktopRows.titleStyle : Density.compact ? .callout : .body).weight(.semibold))
+                                .font(Font.hq(desk || Density.compact ? .callout : .body).weight(.semibold))
                                 .foregroundStyle(Color.hqLabel)
                                 .lineLimit(large ? nil : 1)
                             // Hidden, as a hidden bot's row says (audit 05-10).
@@ -101,7 +101,7 @@ struct GroupRowView: View {
                 }
                 .frame(minHeight: desk ? 0 : Density.ios(52, 34))
             }
-            .padding(.vertical, desk ? DesktopRows.padV : BotRowMetrics.padV)
+            .padding(.vertical, desk ? 0 : BotRowMetrics.padV)
             .padding(.horizontal, desk ? DesktopRows.gutter : 20)   // [botsminimal] no ⋯: the time meets the edge
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -112,7 +112,7 @@ struct GroupRowView: View {
 
         }
         .frame(minHeight: large ? 0 : desk ? DesktopRows.height : BotRowMetrics.minHeight)
-        .frame(height: desk ? DesktopRows.fixedHeight : nil)
+        .frame(height: desk ? DesktopRows.height : nil)
     }
 
     private var timeText: some View {
@@ -135,9 +135,9 @@ struct GroupRowView: View {
     private var bottomLine: some View {
         HStack(alignment: .top, spacing: 6) {
             Text(room.line)
-                .font(Font.hq(desk ? DesktopRows.previewStyle : Density.compact ? .footnote : .subheadline))
+                .font(Font.hq(desk || Density.compact ? .footnote : .subheadline))
                 .foregroundStyle(lineColor)
-                .lineLimit(large ? 3 : desk ? DesktopRows.previewLines : Density.compact ? 1 : 2)
+                .lineLimit(large ? 3 : desk || Density.compact ? 1 : 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if !large { marks(topPadded: true) }
         }

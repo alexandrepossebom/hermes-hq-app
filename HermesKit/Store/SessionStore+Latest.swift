@@ -10,27 +10,6 @@ nonisolated struct SessionLatestMessage: Codable, Sendable, Hashable {
     /// The row's `recency` when this was read: a row whose activity moved since is read again.
     var at: Double
     var text: String
-    /// Absent in older caches and for local updates whose sender is not known.
-    var role: String? = nil
-    /// Render once on ingest, not on each rebuild of a potentially large list. Optional for old caches.
-    var codingResult: String? = nil
-
-    // Persist the source, not yesterday's display wording. Reopening an existing chat picks up copy changes.
-    private enum CodingKeys: String, CodingKey { case at, text, role }
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(at, forKey: .at); try c.encode(text, forKey: .text); try c.encodeIfPresent(role, forKey: .role)
-    }
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(at: try c.decode(Double.self, forKey: .at), text: try c.decode(String.self, forKey: .text),
-                  role: try c.decodeIfPresent(String.self, forKey: .role))
-    }
-
-    init(at: Double, text: String, role: String? = nil) {
-        self.at = at; self.text = text; self.role = role
-        self.codingResult = CodingSessionSubtitle.result(self)
-    }
 }
 
 nonisolated enum SessionLatestRules {
@@ -44,10 +23,7 @@ nonisolated enum SessionLatestRules {
     static let tail = 8
 
     /// The newest user/assistant message with words, skipping an exact `[SILENT]` reply; nil when there is none.
-    static func latest(_ rows: [JSONValue]) -> String? { latestMessage(rows)?.text }
-
-    /// The role travels with the cached message so a user's request is never mistaken for a confirmed reply.
-    static func latestMessage(_ rows: [JSONValue]) -> (text: String, role: String)? {
+    static func latest(_ rows: [JSONValue]) -> String? {
         let ordered = rows.enumerated().sorted { a, b in
             let ia = HistoryPage.rowId(a.element), ib = HistoryPage.rowId(b.element)
             if let ia, let ib, ia != ib { return ia > ib }
@@ -64,7 +40,7 @@ nonisolated enum SessionLatestRules {
             let text = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             if role == "user", VoiceChatRecord.isRecord(raw) { continue }   // [voice record] its line is not a message to preview
             if text.isEmpty || (role == "assistant" && Hydration.isSilentWords(text)) { continue }
-            return (text.count > 200 ? String(text.prefix(200)) : text, role)
+            return text.count > 200 ? String(text.prefix(200)) : text
         }
         return nil
     }
@@ -99,7 +75,7 @@ extension SessionStore {
         for row in Array(rows) + Array(archived) {
             let key = Self.writeKey(id: row.id, profile: row.profile)
             let cached = device.latest[key]
-            let current = cached?.at == row.recency && cached?.role != nil && !TimelineNotes.isTaskSnapshot(cached?.text ?? "")
+            let current = cached?.at == row.recency && !TimelineNotes.isTaskSnapshot(cached?.text ?? "")
             if current || latestReads.contains(key) || latestQueue.contains(where: { $0.id == row.id && $0.profile == row.profile }) { continue }
             latestQueue.append(row)
             queued += 1
@@ -109,28 +85,14 @@ extension SessionStore {
     }
 
     /// A chat just seen or answered on this device: its row says so before the next read.
-    func noteLatest(profile: String, sessionId: String, text: String, role: String? = nil) {
+    func noteLatest(profile: String, sessionId: String, text: String) {
         let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard !line.isEmpty, line != "[SILENT]", let row = rowsById[sessionId], row.profile == profile else { return }
         let key = Self.writeKey(id: sessionId, profile: profile)
-        let update = SessionLatestMessage(at: row.recency, text: line, role: role)
-        guard device.latest[key] != update else { return }
+        guard device.latest[key]?.text != line else { return }
         // The row's recency is the one before this message: the next read that moves it reads the gateway's own.
-        device.latest[key] = update
+        device.latest[key] = SessionLatestMessage(at: row.recency, text: line)
         AppLog.trace("sessions", "latest preview \(AppLog.tag(sessionId)): set from this device's own send/reply")
-        persistState()
-        rebuild()
-    }
-
-    /// Record a completed reply only when the event was tied to this exact stored session.
-    func noteConfirmedReply(profile: String, sessionId: String, text: String) {
-        let line = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard !line.isEmpty, !Hydration.isSilentWords(line),
-              let row = (recents + cron + messaging + archivedRows).first(where: { $0.id == sessionId && $0.profile == profile }) else { return }
-        let key = Self.writeKey(id: sessionId, profile: profile)
-        let message = SessionLatestMessage(at: row.recency, text: String(line.prefix(200)), role: "assistant")
-        guard device.latest[key] != message else { return }
-        device.latest[key] = message
         persistState()
         rebuild()
     }
@@ -141,34 +103,28 @@ extension SessionStore {
             let key = Self.writeKey(id: row.id, profile: row.profile)
             latestReads.insert(key)
             let client = self.client
-            let previous = device.latest[key]
             Task { [weak self] in
                 let query = [URLQueryItem(name: "profile", value: row.profile),
                              URLQueryItem(name: "limit", value: String(SessionLatestRules.tail)),
                              URLQueryItem(name: "order", value: "latest")]
                 let path = "/api/sessions/\(HistoryRequest.encodePathSegment(row.id))/messages"
-                let message: SessionLatestMessage? = await {
-                    guard let data = try? await client.get(path, query), let root = try? JSONValue.parse(data),
-                          let found = SessionLatestRules.latestMessage(root["messages"]?.array ?? []) else { return nil }
-                    return SessionLatestMessage(at: row.recency, text: found.text, role: found.role)
+                let text: String? = await {
+                    guard let data = try? await client.get(path, query), let root = try? JSONValue.parse(data) else { return nil }
+                    return SessionLatestRules.latest(root["messages"]?.array ?? [])
                 }()
-                self?.latestRead(key, row: row, message: message, previous: previous)
+                self?.latestRead(key, row: row, text: text)
             }
         }
     }
 
-    private func latestRead(_ key: String, row: SidebarSessionRow, message: SessionLatestMessage?, previous: SessionLatestMessage?) {
+    private func latestRead(_ key: String, row: SidebarSessionRow, text: String?) {
         latestReads.remove(key)
         defer { pumpLatest() }
         guard !stopped else { return }
-        // A newer list page or local update wins over a slow history response.
-        let current = (recents + cron + messaging + archivedRows).first { $0.id == row.id && $0.profile == row.profile }
-        let eligible = current?.recency == row.recency && device.latest[key] == previous
-        if current != nil, current?.recency != row.recency { refreshLatest() }
-        if eligible, let message, device.latest[key] != message {
-            device.latest[key] = message
+        if let text, device.latest[key] != SessionLatestMessage(at: row.recency, text: text) {
+            device.latest[key] = SessionLatestMessage(at: row.recency, text: text)
             latestDirty += 1
-        } else if eligible && message == nil {
+        } else if text == nil {
             AppLog.trace("sessions", "latest preview \(AppLog.tag(row.id)): no user/assistant tail, gateway preview stands")
         }
         // One rebuild and one write per few answers, not one per answer.

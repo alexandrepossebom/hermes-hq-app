@@ -209,27 +209,6 @@ nonisolated enum BotList {
         !ringOn && status == .attention && bot.isWorking
     }
 
-    /// [pinned-only] Owner 2026-11-22: "I'd like to have the ability to pin only certain bots to the sidebar on Mac".
-    /// The Mac sidebar's Pinned Bots Only: of the list's blocks, the pins (the tiles, the Pinned rows, a pin drawn in
-    /// another block) and whatever wants the person now: a bot at work, waiting for an answer or unread, a group chat
-    /// running or unread, and the chat on show (`open`: bot ids and room ids). A block left with nothing is left out,
-    /// an empty section too. Hidden is as it was (Show Hidden Bots is its own switch). With nothing pinned there is
-    /// nothing to narrow the list to: the blocks as they are.
-    static func pinnedOnly(_ sections: [BotListSection], open: Set<String> = []) -> [BotListSection] {
-        let shown = sections.filter { $0.id != .hidden }
-        guard shown.contains(where: { section in
-            section.id == .tiles || section.id == .pinned ? !(section.bots.isEmpty && section.rooms.isEmpty)
-                : section.bots.contains(where: \.pinned) || section.rooms.contains(where: \.pinned)
-        }) else { return sections }
-        return sections.compactMap { section in
-            if section.id == .tiles || section.id == .pinned || section.id == .hidden { return section }
-            var kept = section
-            kept.bots = section.bots.filter { $0.pinned || $0.isWorking || $0.unread || $0.needsInput != nil || open.contains($0.id) }
-            kept.rooms = section.rooms.filter { $0.pinned || $0.running || $0.unread || open.contains($0.id) }
-            return kept.bots.isEmpty && kept.rooms.isEmpty ? nil : kept
-        }
-    }
-
     /// The unread circle (row, tile, time colour, VoiceOver, tab badge): not while the face shows the working dots. A
     /// running turn moves the chat's `last_active`, so a bot marked itself unread the moment it started on your message
     /// and drew a solid circle beside its typing dots (owner, 2026-10-30). The mark stays; it shows once the turn ends.

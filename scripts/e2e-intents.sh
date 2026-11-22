@@ -39,7 +39,7 @@ done
 if [[ ${HQ_IDENTITY:-native} == original ]]; then
   export HQ_ORIGINAL=YES; BUNDLE=com.charlesmcdowell.dispatch; URL_SCHEME=hermes; APP_NAME="Hermes HQ"
 else
-  unset HQ_ORIGINAL; BUNDLE=com.charlesmcdowell.hermeshq.native; URL_SCHEME=hermeshq-native; APP_NAME="Hermes HQ"   # every identity is named Hermes HQ (041f32b68)
+  unset HQ_ORIGINAL; BUNDLE=com.charlesmcdowell.hermeshq.native; URL_SCHEME=hermeshq-native; APP_NAME="HQ Native"
 fi
 
 CRED=$FIX/intents-e2e.json

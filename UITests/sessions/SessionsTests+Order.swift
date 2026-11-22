@@ -42,8 +42,7 @@ extension SessionsTests {
         openFilter(app)
         tapFilter(app, "group", "group.project")
         closeFilter(app)
-        // [projects-all-bots] A saved project with no chat is listed too (owner 2026-11-22: a new project must show).
-        XCTAssertTrue(waitUntil(6) { self.groupTitles(app).contains("Website") }, "the saved project, with no chat (\(groupTitles(app)))")
+        XCTAssertFalse(groupTitles(app).contains("Website"), "the project has no visible chat")
         openFilter(app)
         tapFilter(app, "group", "group.reorder")
         XCTAssertTrue(app.navigationBars["Reorder Projects"].waitForExistence(timeout: 6))
@@ -85,8 +84,6 @@ extension SessionsTests {
         openFilter(app)
         tapFilter(app, "group", "group.reorder")
         XCTAssertFalse(app.buttons["Delete Website"].exists, "deleted project is no longer offered")
-        app.buttons["sheet.close"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(8) { !self.groupTitles(app).contains("Website") }, "and no longer listed (\(groupTitles(app)))")
     }
 
     @MainActor func test99_ProjectOrderFavoritesBotGroupsAndManualSort() throws {

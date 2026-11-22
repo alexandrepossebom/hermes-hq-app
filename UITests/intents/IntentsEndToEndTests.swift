@@ -613,11 +613,11 @@ final class IntentsEndToEndTests: XCTestCase {
         launch(as: pages)
         var state = try waitState("four items") { self.actions($0).count == 4 }
         var items = actions(state)
-        // [quick-actions] DECISION I22: Quick Actions first; one recent chat made room for it.
-        XCTAssertTrue(items[0].title == "Favorites" && items[0].symbol == "star.circle" && items[0].type == "dispatch.quick-actions", "\(items[0])")
-        XCTAssertTrue(items[1].title.hasPrefix("New Voice Memo for ") && items[1].symbol == "mic" && items[1].type == "dispatch.memo", "\(items[1])")
-        XCTAssertTrue(items[2].title.hasPrefix("Open ") && items[2].symbol == "bubble.left" && items[2].type == "dispatch.open", "\(items[2])")
+        XCTAssertTrue(items[0].title.hasPrefix("New Voice Memo for ") && items[0].symbol == "mic" && items[0].type == "dispatch.memo", "\(items[0])")
+        XCTAssertTrue(items[1].title.hasPrefix("Open ") && items[1].symbol == "bubble.left" && items[1].type == "dispatch.open", "\(items[1])")
+        XCTAssertTrue(items[2].title.hasPrefix("Open ") && items[2].symbol == "bubble.left", "\(items[2])")
         XCTAssertTrue(items[3].title == "Search Chats" && items[3].symbol == "magnifyingglass" && items[3].type == "dispatch.search", "\(items[3])")
+        XCTAssertNotEqual(items[1].title, items[2].title)
         let epoch = state["epoch"] as? String ?? ""
         XCTAssertNotNil(UUID(uuidString: epoch), "the sign-in epoch")
         let targets = state["targets"] as? [[String: Any]] ?? []
@@ -627,9 +627,9 @@ final class IntentsEndToEndTests: XCTestCase {
         note("A36 items: \(items.map(\.title)); \(targets.count) targets")
 
         // The chat last opened moves to the front.
-        XCTAssertFalse(items[2].title == "Open Finance", "Finance is not the most recent yet")
+        XCTAssertFalse(items[1].title == "Open Finance", "Finance is not the most recent yet")
         openBot("finance")
-        state = try waitState("Finance is the Open") { self.actions($0).count == 4 && self.actions($0)[2].title == "Open Finance" }
+        state = try waitState("Finance is the first Open") { self.actions($0).count == 4 && self.actions($0)[1].title == "Open Finance" }
         // By the app's own clock: from the chat's open being applied to the items being handed to the system.
         let all = events(state), times = state["times"] as? [Double] ?? []
         if times.count == all.count, let end = all.lastIndex(where: { $0.hasPrefix("quick actions ") }) {
@@ -645,12 +645,12 @@ final class IntentsEndToEndTests: XCTestCase {
             XCTFail("the items were never rebuilt: \(all.suffix(12))")
         }
         items = actions(state)
-        XCTAssertEqual(items[1].title, "New Voice Memo for Finance", "and the memo item follows the most recent bot")
+        XCTAssertEqual(items[0].title, "New Voice Memo for Finance", "and the memo item follows the most recent bot")
         back()
         openSession("s-reading")
-        state = try waitState("a listed chat too") { self.actions($0).count == 4 && self.actions($0)[2].title == "Open Anything worth reading?" }
-        XCTAssertEqual(actions(state)[1].title, "New Voice Memo for Finance", "a listed chat is not a memo target")
-        XCTAssertEqual(actions(state)[0].title, "Favorites", "Quick Actions stays first")
+        state = try waitState("a listed chat too") { self.actions($0).count == 4 && self.actions($0)[1].title == "Open Anything worth reading?" }
+        XCTAssertEqual(actions(state)[2].title, "Open Finance")
+        XCTAssertEqual(actions(state)[0].title, "New Voice Memo for Finance", "a listed chat is not a memo target")
     }
 
     @MainActor func testA37_TheHomeScreenMenuShowsTheItemsAndSearchChatsOpensSearch() throws {
@@ -661,7 +661,7 @@ final class IntentsEndToEndTests: XCTestCase {
         let search = springboard.buttons["Search Chats"]
         XCTAssertTrue(search.waitForExistence(timeout: 8), "the menu shows Search Chats")
         for item in items {
-            XCTAssertTrue(iconMenuItem(item.title, timeout: 2).exists, "the menu shows “\(item.title)”")
+            XCTAssertTrue(springboard.buttons[item.title].exists, "the menu shows “\(item.title)”")
         }
         save(XCUIScreen.main.screenshot(), "A37-home-screen-menu-" + Self.deviceLook)
         search.tap()
@@ -682,24 +682,29 @@ final class IntentsEndToEndTests: XCTestCase {
         let pages = try pagesAccount()
         launch(as: pages)
         var items = actions(try waitState("four items") { self.actions($0).count == 4 })
-        // Warm: the Open item ([quick-actions] one recent chat now, after Quick Actions and the memo).
-        let opened = String(items[2].title.dropFirst(5))
-        trigger("quick:open:0")
+        // Warm: the second Open.
+        let second = String(items[2].title.dropFirst(5))
+        trigger("quick:open:1")
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 15), "the chat opens")
-        XCTAssertTrue(waitUntil(timeout: 8) { self.chatTitle().contains(opened) }, "“\(opened)”: \(chatTitle())")
+        XCTAssertTrue(waitUntil(timeout: 8) { self.chatTitle().contains(second) }, "“\(second)”: \(chatTitle())")
         XCTAssertFalse(app.buttons["memo.stop"].exists, "Open does not record")
         XCTAssertFalse(app.alerts.firstMatch.exists)
         back()
-        // Cold: leave with the item's chat on screen (a plain launch would reopen it), then launch by the Open item: the
-        // chat opens once, with nothing under it. ([quick-actions] With one recent chat the item is always the chat
-        // last on screen; the last chat not coming back over another is A49's Quick Actions page.)
+        // Cold: leave with a chat on screen (a plain launch would reopen it), then launch by the first Open.
+        openBot("inbox")
+        items = actions(try waitState("Inbox is first") { self.actions($0).count == 4 && self.actions($0)[1].title == "Open Inbox" })
+        back()
         openSession("s-report")
-        items = actions(try waitState("the report chat is the Open") { self.actions($0).count == 4 && self.actions($0)[2].title == "Open The 2.4 report" })
+        items = actions(try waitState("the report chat is first") { self.actions($0).count == 4 && self.actions($0)[1].title == "Open The 2.4 report" })
+        back()
+        openBot("default")
+        items = actions(try waitState("Hermes is first") { self.actions($0).count == 4 && self.actions($0)[1].title == "Open Hermes" })
+        XCTAssertEqual(items[2].title, "Open The 2.4 report")
         leave()
         let began = Date()
-        launch(["-HQDebugQuickAction", "open:0"], as: pages, reset: false, waitForBots: false)
+        launch(["-HQDebugQuickAction", "open:1"], as: pages, reset: false, waitForBots: false)
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 40), "the chat opens")
-        XCTAssertTrue(waitUntil(timeout: 10) { self.chatTitle().contains("2.4 report") }, "the item's chat: \(chatTitle())")
+        XCTAssertTrue(waitUntil(timeout: 10) { self.chatTitle().contains("2.4 report") }, "the item's chat, not the last one: \(chatTitle())")
         note("A38 cold quick action to its chat: \(ms(began)) ms (includes XCUITest's launch)")
         XCTAssertTrue(events(try waitState("routed") { self.events($0).contains("routed open") }).contains("quick action result true"))
         back()
@@ -745,7 +750,7 @@ final class IntentsEndToEndTests: XCTestCase {
         let pages = try pagesAccount()
         launch(as: pages)
         openSession("s-report")
-        try waitState("the chat is the Open") { self.actions($0).count == 4 && self.actions($0)[2].title == "Open The 2.4 report" }
+        try waitState("the chat is the first Open") { self.actions($0).count == 4 && self.actions($0)[1].title == "Open The 2.4 report" }
         back()
         app.tabBars.buttons["Bots"].tap()
         try pages.control("/__restore/delete", ["session_id": "s-report"])
@@ -774,7 +779,7 @@ final class IntentsEndToEndTests: XCTestCase {
     @MainActor func testA39_NewMemoQuickActionStartsTheRecorder() throws {
         launch()
         let items = actions(try waitState("four items") { self.actions($0).count == 4 })
-        XCTAssertEqual(items.map(\.title), ["Favorites", "New Voice Memo for Hermes", "Open Hermes", "Search Chats"])
+        XCTAssertEqual(items.map(\.title), ["New Voice Memo for Hermes", "Open Hermes", "Open Ivy", "Search Chats"])
         app.tabBars.buttons["Sessions"].tap()
         trigger("quick:memo")
         XCTAssertTrue(app.buttons["memo.stop"].waitForExistence(timeout: 20), "the locked recorder shows")
@@ -1088,173 +1093,6 @@ final class IntentsEndToEndTests: XCTestCase {
         try account.control("/__fixture/intents", ["removed": [], "delay": ["profiles.list": seconds]])
     }
 
-    // MARK: A49–A53. The Quick Actions page (DECISION I22, docs/spec/3x-morepages.md §25)
-
-    /// A49: `<scheme>://quick-actions` opens the page warm and cold (and so does Open Quick Actions); a cold launch
-    /// does not put the last chat back over or under it. The first opening seeds the starter set.
-    @MainActor func testA49_TheQuickActionsLinkOpensThePageWarmAndCold() throws {
-        let pages = try pagesAccount()
-        launch(["-HQDebugResetQuickActions", "YES"], as: pages)
-        var state = try waitState("no tiles yet") { ($0["quickTilesSeeded"] as? Bool) == false }
-        openLink("quick-actions")
-        let grid = app.collectionViews["quick-actions.grid"]
-        XCTAssertTrue(grid.waitForExistence(timeout: 15), "the page opens")
-        state = try waitState("the starter set is seeded") { self.tileNames($0).count == 5 && ($0["quickActionsShown"] as? Bool) == true }
-        XCTAssertEqual(tileNames(state), ["Memo", "Talk", "New Chat", "Add Task", "Search Chats"])
-        XCTAssertTrue(events(state).contains("quick-actions open link"))
-        XCTAssertTrue(app.cells["quick-tile-starter-memo"].exists && app.cells["quick-tile-starter-search"].exists)
-        XCTAssertTrue(app.navigationBars["Favorites"].exists, "titled Quick Actions")
-        shots("A49-quick-actions-seeded")
-        app.buttons["sheet.close"].tap()
-        XCTAssertTrue(waitUntil(timeout: 5) { !grid.exists }, "Close closes it")
-        // The intent, warm: the same page.
-        trigger("quick-actions-intent")
-        XCTAssertTrue(grid.waitForExistence(timeout: 15), "Open Quick Actions opens it")
-        XCTAssertTrue(events(try waitState("by the intent") { self.events($0).contains("quick-actions open intent") }).contains("hook quick-actions-intent"))
-        app.buttons["sheet.close"].tap()
-        // Cold: leave with a chat on screen (a plain launch would reopen it), then the link launches the app.
-        openBot("finance")
-        trigger("persist-hooks")
-        app.terminate()
-        XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
-        try? FileManager.default.removeItem(atPath: folder + "/intents-state.json")
-        let began = Date()
-        openLink("quick-actions")
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "the link launches the app")
-        XCTAssertTrue(grid.waitForExistence(timeout: 40), "the page opens on a cold launch")
-        note("A49 cold link to the Quick Actions page: \(ms(began)) ms")
-        XCTAssertEqual(tileNames(try waitState("the same tiles") { !self.tileNames($0).isEmpty }).count, 5, "not seeded twice")
-        app.buttons["sheet.close"].tap()
-        XCTAssertTrue(waitUntil(timeout: 5) { !grid.exists })
-        RunLoop.current.run(until: Date().addingTimeInterval(3))
-        XCTAssertFalse(app.tables["chat.table"].exists, "the last chat did not come back under the page")
-    }
-
-    /// A50: a New Chat tile opens a new chat with its bot, the page closing first.
-    @MainActor func testA50_ANewChatTileOpensItsBot() throws {
-        let pages = try pagesAccount()
-        launch(["-HQDebugResetQuickActions", "YES"], as: pages)
-        trigger("quick-tile-add:new-chat:finance")
-        try waitState("the tile is stored") { self.tileNames($0).contains("New Chat") }
-        openLink("quick-actions")
-        let tile = app.cells["quick-tile-debug-new-chat-finance"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 15), "the tile is on the page")
-        XCTAssertTrue(tile.label.hasPrefix("New Chat, "), tile.label)
-        tile.tap()
-        XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 20), "a chat opens")
-        XCTAssertTrue(waitUntil(timeout: 10) { self.chatTitle().contains("Finance") }, "Finance's: \(chatTitle())")
-        XCTAssertFalse(app.collectionViews["quick-actions.grid"].exists, "the page closed")
-        let state = try waitState("the tap") { self.events($0).contains("quick-actions tap new-chat") }
-        XCTAssertEqual(state["quickActionsShown"] as? Bool, false)
-        shots("A50-new-chat-tile")
-    }
-
-    /// A51: a Run Job tile runs the job in the background: the page stays and says ✓ Running <job>.
-    @MainActor func testA51_ARunJobTileSaysItIsRunning() throws {
-        let pages = try pagesAccount()
-        launch(["-HQDebugResetQuickActions", "YES"], as: pages)
-        app.tabBars.buttons["Jobs"].tap()                   // the Jobs list is read, and stored for the pickers
-        RunLoop.current.run(until: Date().addingTimeInterval(3))
-        trigger("quick-tile-add:run-job:inbox%7Cj-triage")
-        try waitState("the tile is stored") { self.tileNames($0).contains("Morning inbox triage") }
-        openLink("quick-actions")
-        let tile = app.cells["quick-tile-debug-run-job-inbox|j-triage"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 15), "the tile is on the page")
-        XCTAssertEqual(tile.label, "Morning inbox triage, run job")
-        tile.tap()
-        let notice = app.descendants(matching: .any)["pages.notice"]
-        XCTAssertTrue(waitUntil(timeout: 20) { notice.exists && notice.label.contains("✓ Running Morning inbox triage") },
-                      "the ✓ line: \(notice.exists ? notice.label : "none")")
-        XCTAssertTrue(app.collectionViews["quick-actions.grid"].exists, "the page stays open")
-        XCTAssertFalse(app.tables["chat.table"].exists, "nothing else opened")
-        note("A51 the Run Job tile said “\(notice.label)”")
-        save(app.screenshot(), "A51-run-job-tile-check-line")
-    }
-
-    /// A52: the Home Screen list starts with Quick Actions, and the real menu's item opens the page.
-    @MainActor func testA52_TheHomeScreenListStartsWithQuickActions() throws {
-        let pages = try pagesAccount()
-        launch(as: pages)
-        let items = actions(try waitState("four items") { self.actions($0).count == 4 })
-        XCTAssertEqual(items.map(\.type), ["dispatch.quick-actions", "dispatch.memo", "dispatch.open", "dispatch.search"])
-        XCTAssertEqual(items[0].title, "Favorites")
-        XCTAssertEqual(items[0].symbol, "star.circle")
-        openIconMenu()
-        let item = iconMenuItem("Favorites")
-        XCTAssertTrue(item.exists, "the menu shows Quick Actions")
-        save(XCUIScreen.main.screenshot(), "A52-home-screen-menu-" + Self.deviceLook)
-        item.tap()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "the app comes forward")
-        XCTAssertTrue(app.collectionViews["quick-actions.grid"].waitForExistence(timeout: 15), "on the Quick Actions page")
-        try waitState("the real item ran, through the Home Screen road") { self.events($0).contains("quick-actions open home screen") }
-        note("A52 the Home Screen menu was driven for real: Quick Actions tapped in Springboard")
-    }
-
-    /// A53 (A11's way): the Shortcuts app lists “Quick Actions” among the app's shortcuts, and tapping it opens the
-    /// page. A Shortcuts app that cannot be driven here is a skip, never a pass.
-    @MainActor func testA53_TheShortcutsAppListsQuickActions() throws {
-        launch(systemRefresh: true)
-        try waitState("the pickers' bots are stored") { self.names($0) == ["Hermes", "Ivy"] }
-        let shortcuts = XCUIApplication(bundleIdentifier: "com.apple.shortcuts")
-        shortcuts.activate()
-        guard shortcuts.wait(for: .runningForeground, timeout: 25) else {
-            note("A53 the Shortcuts app did not open in this simulator")
-            throw XCTSkip("the Shortcuts app did not open in this simulator")
-        }
-        defer { shortcuts.terminate() }
-        for title in ["Continue", "Not Now", "OK"] {
-            let button = shortcuts.buttons[title]
-            if button.waitForExistence(timeout: 2) { button.tap() }
-        }
-        RunLoop.current.run(until: Date().addingTimeInterval(2))
-        func seen(_ predicate: NSPredicate) -> XCUIElement? {
-            for query in [shortcuts.buttons, shortcuts.otherElements, shortcuts.cells, shortcuts.staticTexts] {
-                let match = query.matching(predicate).firstMatch
-                if match.exists { return match }
-            }
-            return nil
-        }
-        let named = NSPredicate(format: "label CONTAINS[c] %@", Self.appName)
-        let quick = NSPredicate(format: "label ==[c] %@", "Favorites")
-        if seen(quick) == nil {
-            var row = seen(named)
-            for title in ["Shortcuts", "Library", "Back"] where row == nil {
-                let button = shortcuts.navigationBars.buttons[title]
-                if button.exists { button.tap(); RunLoop.current.run(until: Date().addingTimeInterval(1.5)); row = seen(named) }
-            }
-            for _ in 0..<3 where row == nil { shortcuts.swipeUp(); row = seen(named) }
-            if let row, row.isHittable { row.tap(); RunLoop.current.run(until: Date().addingTimeInterval(2)) }
-        }
-        for _ in 0..<3 where seen(quick) == nil { shortcuts.swipeUp(); RunLoop.current.run(until: Date().addingTimeInterval(0.8)) }
-        save(XCUIScreen.main.screenshot(), "A53-shortcuts-app-quick-actions-" + Self.deviceLook)
-        let dump = URL(fileURLWithPath: Self.outputRoot + "/shortcuts-app-quick-actions.txt")
-        try? shortcuts.debugDescription.write(to: dump, atomically: true, encoding: .utf8)
-        guard let shown = seen(quick) else {
-            note("A53 the Shortcuts app opened, but “Quick Actions” was not found in its list (hierarchy in \(dump.path))")
-            throw XCTSkip("the Shortcuts app does not show “Quick Actions” here")
-        }
-        note("A53 the Shortcuts app lists “\(shown.label)” for \(Self.appName)")
-        guard shown.isHittable else { return }
-        shown.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()      // the round icon, above its name (A11's way)
-        let promptsUntil = Date().addingTimeInterval(6)
-        while Date() < promptsUntil, app.state != .runningForeground {
-            for title in ["Allow", "Always Allow", "Open", "Run"] where app.state != .runningForeground {
-                let button = shortcuts.buttons[title]
-                if button.exists { button.tap() }
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-        }
-        guard app.wait(for: .runningForeground, timeout: 25),
-              app.collectionViews["quick-actions.grid"].waitForExistence(timeout: 25) else {
-            save(XCUIScreen.main.screenshot(), "A53-shortcuts-app-after-tap-" + Self.deviceLook)
-            XCTFail("tapping Quick Actions in the Shortcuts app did not open the page")
-            return
-        }
-        let after = try waitState("the system performed the intent") { self.events($0).contains("quick-actions open intent") }
-        XCTAssertFalse(events(after).contains("hook quick-actions-intent"), "with no test hook")
-        note("A53 Quick Actions, tapped in the Shortcuts app and run by the system, opened the page")
-    }
-
     // MARK: Helpers
 
     private static var outputRoot: String {
@@ -1324,22 +1162,6 @@ final class IntentsEndToEndTests: XCTestCase {
             if asked { open.tap() }
         }
         if settle { RunLoop.current.run(until: Date().addingTimeInterval(0.3)) }
-    }
-
-    /// A link of the app's own, opened by the system as another app would open it (A49's `quick-actions`).
-    @MainActor private func openLink(_ path: String) {
-        XCUIDevice.shared.system.open(URL(string: "\(Self.scheme)://\(path)")!)
-        if Self.asksToOpen != false {
-            let open = springboard.buttons["Open"]
-            let asked = open.waitForExistence(timeout: Self.asksToOpen == nil ? 4 : 8)
-            if Self.asksToOpen == nil { Self.asksToOpen = asked }
-            if asked { open.tap() }
-        }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-    }
-
-    private func tileNames(_ state: [String: Any]) -> [String] {
-        (state["quickTiles"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
     }
 
     /// Pull to refresh on the Bots list: the roster is read now (a foreground alone reads it on a 30 s cadence).
@@ -1558,18 +1380,6 @@ final class IntentsEndToEndTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.6))
         icon.press(forDuration: 1.3)
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-    }
-
-    /// An item of the icon's menu by its title (a button whose label is exactly it), keeping the hierarchy in
-    /// icon-menu.txt when it isn't there. [quick-actions] Springboard labelled the item "Large Grid" (its symbol's
-    /// name) while it drew `square.grid.2x2.fill`, hence `QuickActions.quickActionsSymbol`.
-    @MainActor private func iconMenuItem(_ title: String, timeout: TimeInterval = 8) -> XCUIElement {
-        let button = springboard.descendants(matching: .button).matching(NSPredicate(format: "label == %@", title)).firstMatch
-        if button.waitForExistence(timeout: timeout) { return button }
-        try? springboard.debugDescription.write(to: URL(fileURLWithPath: Self.outputRoot + "/icon-menu.txt"), atomically: true, encoding: .utf8)
-        // Not a button: the row by its words (a row's height, never the whole menu).
-        let rows = springboard.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).allElementsBoundByIndex
-        return rows.first { $0.exists && $0.frame.height < 80 && $0.frame.height > 0 } ?? button
     }
 
     /// Closes the icon's menu and brings the app back on screen.

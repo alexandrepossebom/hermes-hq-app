@@ -84,7 +84,8 @@ enum PagesDebug {
             // [Mac UI check 2026-11-13] A More page that isn't a place of its own here (Messaging, Webhooks,
             // Connectors, Import Sessions are More's rows on the Mac): opened from More, as a click on its row does.
             if (TabChoice.firstPageTag..<1000).contains(tab), let more = main.placedTab(tagged: HQTab.more.rawValue),
-               case .page(let row)? = TabChoice(tag: tab) {
+               TabChoice.pageIDs.indices.contains(tab - TabChoice.firstPageTag) {
+                let row = TabChoice.pageIDs[tab - TabChoice.firstPageTag]
                 main.show(more)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     ((more as? UINavigationController)?.viewControllers.first as? MoreViewController)?.open(rowId: row)

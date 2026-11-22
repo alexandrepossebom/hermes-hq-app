@@ -4,8 +4,6 @@
 // cancels it without a card. [live words] With Live Words on, the words show above the row as they are said and are
 // the words typed: the gateway transcribes only when this device heard none (docs/spec/3x-live-words.md §3.3). With
 // Words From set to Hermes, the words come from the gateway's live speech to text as the take records (§2.3).
-// [question-dictate] #438: a take types into the composer's field, or into a bot's question card's answer field
-// (`QuestionDictation`); its `owner` says which, so neither one's row shows for the other's take.
 
 import AVFoundation
 import UIKit
@@ -68,8 +66,6 @@ import UIKit
 
     private final class Take {
         let chat: any ChatVoiceTurns
-        /// [question-dictate] What the words are for: nil, the chat's composer; else the question card's dictation.
-        let owner: AnyObject?
         let recorder: any DictationCapturing
         let deliver: @MainActor (String) -> Void
         var phase = Phase.starting
@@ -87,9 +83,8 @@ import UIKit
         var listener: (any LiveWordsListening)?
         var mic: LiveWordsMic?
 
-        init(chat: any ChatVoiceTurns, owner: AnyObject?, recorder: any DictationCapturing, deliver: @escaping @MainActor (String) -> Void) {
+        init(chat: any ChatVoiceTurns, recorder: any DictationCapturing, deliver: @escaping @MainActor (String) -> Void) {
             self.chat = chat
-            self.owner = owner
             self.recorder = recorder
             self.deliver = deliver
         }
@@ -130,10 +125,6 @@ import UIKit
     var phase: Phase { take?.phase ?? .idle }
     var isActive: Bool { take != nil }
     func isActive(in chat: (any ChatVoiceTurns)?) -> Bool { chat != nil && take?.chat === chat }
-    /// [question-dictate] A take for `chat` types into `owner` (nil: the chat's composer).
-    func isActive(in chat: (any ChatVoiceTurns)?, for owner: AnyObject?) -> Bool { isActive(in: chat) && take?.owner === owner }
-    /// [question-dictate] A take types into `owner`, whatever its chat.
-    func isActive(for owner: AnyObject) -> Bool { take?.owner === owner }
     /// The limit of the dictation that runs, in seconds.
     var limit: Double { take?.limit ?? 0 }
 
@@ -152,22 +143,6 @@ import UIKit
 
     /// [live words] This device listens to the take: the composer's words row opens at once ("Listening…").
     var hearsWords: Bool { take?.listener != nil }
-
-    /// [live words] What the words row above a dictation row shows now (docs/spec/3x-live-words.md §3.3):
-    /// "Listening…" until the first word while this device listens; once it stops, only words keep the row. nil: no row.
-    /// The composer's row and [question-dictate] the question card's read it alike.
-    var heardRow: (words: LiveWordsText, listening: Bool)? {
-        guard take != nil else { return nil }
-        switch phase {
-        case .recording:
-            let listening = hearsWords
-            return listening || !words.isEmpty ? (words, listening) : nil
-        case .transcribing:
-            return words.isEmpty ? nil : (words, false)
-        case .idle, .starting:
-            return nil
-        }
-    }
 
     /// "0:07".
     nonisolated static func clock(_ seconds: TimeInterval) -> String {
@@ -194,16 +169,15 @@ import UIKit
 
     // MARK: Asking
 
-    /// "Dictate with Hermes". `deliver` gets the words (trimmed, never empty) when they arrive. `owner`: what they are
-    /// typed into, nil for the chat's composer ([question-dictate] the question card passes its dictation).
-    func start(in chat: any ChatVoiceTurns, for owner: AnyObject? = nil, deliver: @escaping @MainActor (String) -> Void) {
+    /// "Dictate with Hermes". `deliver` gets the words (trimmed, never empty) when they arrive.
+    func start(in chat: any ChatVoiceTurns, deliver: @escaping @MainActor (String) -> Void) {
         guard take == nil else { return }
         guard isOnScreen() else {
             VoiceEvents.note("dictation did not start: the app is not on screen")
             AppLog.note("talk", "dictation \(AppLog.tag(chat.memoScope)) refused: app not on screen")
             return
         }
-        let take = Take(chat: chat, owner: owner, recorder: makeRecorder(), deliver: deliver)
+        let take = Take(chat: chat, recorder: makeRecorder(), deliver: deliver)
         self.take = take
         started += 1
         KeepAwake.hold(.dictation)
@@ -341,18 +315,10 @@ import UIKit
     /// is typed. No card.
     func cancel() { cancel(why: "cancelled") }
 
-    /// Cancels a dictation that belongs to `chat` (its screen left, a question took the composer's place), whatever
-    /// field it types into.
+    /// Cancels a dictation that belongs to `chat` (its screen left, a question took the composer's place).
     func cancel(in chat: (any ChatVoiceTurns)?) {
         guard isActive(in: chat) else { return }
         cancel(why: "its chat gave up the composer")
-    }
-
-    /// [question-dictate] Cancels the take that types into `owner` (the question card was sent, skipped, minimized or
-    /// left the screen, or its field went), and no other.
-    func cancel(for owner: AnyObject, why: String) {
-        guard isActive(for: owner) else { return }
-        cancel(why: why)
     }
 
     /// A call, Siri, the audio services or the app leaving: a take still starting or recording is thrown away (§8).

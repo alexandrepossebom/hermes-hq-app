@@ -58,15 +58,10 @@ struct RecordVoiceNoteIntent: AppIntent {
             AppLog.note("intents", "Record Voice Memo shortcut: bot not in the catalog")
             throw VoiceNoteError.unavailableBot
         }
-        Self.queue(selected)
-        AppLog.note("intents", "Record Voice Memo shortcut: queued")
-        return .result()
-    }
-
-    /// [quick-actions] The memo request for `selected`: this intent's road, and a Quick Actions Memo tile's (I22).
-    @MainActor static func queue(_ selected: VoiceBotRecord) {
         VoiceNoteRequestStore(defaults: .standard).enqueue(account: selected.account, key: selected.key, name: selected.name)
         IntentsRuntime.shared.kick()        // a no-op until the app is on screen and signed in; the request waits a minute
+        AppLog.note("intents", "Record Voice Memo shortcut: queued")
+        return .result()
     }
 }
 
@@ -85,19 +80,13 @@ struct OpenBotChatIntent: AppIntent {
     @MainActor func perform() async throws -> some IntentResult {
         IntentsEvents.note("perform OpenBotChatIntent " + (VoiceBotCatalog.profile(key: bot.key) ?? bot.key))
         // The stored catalog decides, in this sign-in only (the legacy id carries the epoch and the account rule).
-        guard let selected = VoiceBotCatalog.resolve(id: bot.id), Self.open(selected) else {
+        guard let selected = VoiceBotCatalog.resolve(id: bot.id), let epoch = ShortcutPolicy.epoch(),
+              QuickActions.openBot(legacyId: epoch + ":bot:" + selected.key) else {
             AppLog.note("intents", "Open Bot Chat shortcut: unavailable")
             throw VoiceNoteError.unavailableBot
         }
         AppLog.note("intents", "Open Bot Chat shortcut: opened")
         return .result()
-    }
-
-    /// [quick-actions] Opens `selected`'s chat through Open Bot's route, in this sign-in only: this intent's road, and
-    /// a Quick Actions Open a Chat tile's (I22). False: not in this sign-in.
-    @MainActor static func open(_ selected: VoiceBotRecord) -> Bool {
-        guard let epoch = ShortcutPolicy.epoch() else { return false }
-        return QuickActions.openBot(legacyId: epoch + ":bot:" + selected.key)
     }
 }
 
@@ -129,31 +118,6 @@ nonisolated struct HQAppShortcuts: AppShortcutsProvider {
                     phrases: ["Ask a bot in \(.applicationName)",
                               "Ask \(\.$bot) in \(.applicationName)"],
                     shortTitle: "Ask Bot", systemImageName: "paperplane.fill")
-        // [shortcut-new-chat] Owner 2026-11-20: a new chat with any bot, in any project.
-        AppShortcut(intent: NewChatIntent(),
-                    phrases: ["Start a new chat in \(.applicationName)",
-                              "Start a new chat with \(\.$bot) in \(.applicationName)"],
-                    shortTitle: "New Chat", systemImageName: "square.and.pencil")
-        // [quick-actions] DECISION I22 (owner 2026-11-21): the Quick Actions page, from the Action Button, Siri, Spotlight.
-        AppShortcut(intent: OpenQuickActionsIntent(),
-                    phrases: ["Open favorites in \(.applicationName)",
-                              "Show favorites in \(.applicationName)",
-                              "Open quick actions in \(.applicationName)",   // [favorites-name] its old name still works
-                              "Show quick actions in \(.applicationName)"],
-                    shortTitle: "Favorites", systemImageName: "star.circle.fill")
-        // [shortcuts] Owner 2026-11-20 picked these from the shortcut ideas.
-        AppShortcut(intent: TalkToBotIntent(),
-                    phrases: ["Talk to a bot in \(.applicationName)",
-                              "Talk to \(\.$bot) in \(.applicationName)"],
-                    shortTitle: "Talk to Bot", systemImageName: "waveform")
-        AppShortcut(intent: AddTaskIntent(),
-                    phrases: ["Add a task in \(.applicationName)",
-                              "Add a task for \(\.$bot) in \(.applicationName)"],
-                    shortTitle: "Add Task", systemImageName: "checklist")
-        AppShortcut(intent: RunJobIntent(),
-                    phrases: ["Run a job in \(.applicationName)",
-                              "Run \(\.$job) in \(.applicationName)"],
-                    shortTitle: "Run Job", systemImageName: "bolt.fill")
     }
 }
 

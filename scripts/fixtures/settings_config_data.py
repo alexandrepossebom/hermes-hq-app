@@ -171,7 +171,7 @@ def env_rows(state):
     return out
 
 
-def model_options(env_state, moa_state=None):
+def model_options(env_state):
     def ready(key):
         return env_state.get(key, {}).get('value') is not None
     return {'providers': [
@@ -181,7 +181,8 @@ def model_options(env_state, moa_state=None):
          'authenticated': ready('OPENROUTER_API_KEY'), 'auth_type': 'api_key', 'key_env': 'OPENROUTER_API_KEY'},
         {'slug': 'openai', 'name': 'OpenAI', 'models': ['gpt-5.5', 'gpt-5.5-mini'] if ready('OPENAI_API_KEY') else [],
          'authenticated': ready('OPENAI_API_KEY'), 'auth_type': 'api_key', 'key_env': 'OPENAI_API_KEY'},
-    ] + moa_row(moa_state)}
+        {'slug': 'moa', 'name': 'Mixture of Agents', 'models': ['moa'], 'authenticated': True},
+    ]}
 
 
 AUX_TASKS = ['vision', 'compression', 'skills_hub', 'approval', 'mcp', 'title_generation', 'review', 'triage_specifier',
@@ -194,38 +195,17 @@ def auxiliary():
     return tasks
 
 
-def moa_row(record):
-    """[moa-setup] As Hermes lists it (`_moa_provider_row`): the presets are its models, and it is in the catalog only
-    while one of them is enabled."""
-    presets = (record or {}).get('presets') or {}
-    if not any(preset.get('enabled', True) for preset in presets.values()):
-        return []
-    return [{'slug': 'moa', 'name': 'Mixture of Agents', 'models': list(presets), 'authenticated': True, 'auth_type': 'virtual',
-             'source': 'virtual'}]
-
-
-MOA_FLAT = ('reference_models', 'aggregator', 'reference_temperature', 'aggregator_temperature', 'reference_timeout',
-            'degraded_reference_policy', 'fanout', 'enabled')
-
-
-def moa_record(presets, default, active=''):
-    """[moa-setup] The answer's shape (`normalize_moa_config`): the presets, and the default one again on the top level."""
-    default = default if default in presets else next(iter(presets))
-    record = {'default_preset': default, 'active_preset': active if active in presets else '', 'presets': presets,
-              'privacy_filter': ''}
-    record.update({key: copy.deepcopy(presets[default].get(key)) for key in MOA_FLAT})
-    return record
-
-
 def moa():
     preset = {'aggregator': {'provider': 'anthropic', 'model': 'claude-opus-5.5'}, 'aggregator_temperature': 0.4,
-              'degraded_reference_policy': 'loud', 'enabled': True, 'fanout': 'user_turn',
-              'reference_models': [{'provider': 'openrouter', 'model': 'deepseek/deepseek-v3.2', 'enabled': True},
-                                   {'provider': 'anthropic', 'model': 'claude-sonnet-5', 'enabled': True}],
+              'degraded_reference_policy': 'loud', 'enabled': False,
+              'reference_models': [{'provider': 'openrouter', 'model': 'deepseek/deepseek-v3.2'},
+                                   {'provider': 'anthropic', 'model': 'claude-sonnet-5'}],
               'reference_temperature': 0.7, 'reference_timeout': None}
     fast = copy.deepcopy(preset)
-    fast['reference_models'] = [{'provider': 'anthropic', 'model': 'claude-haiku-5', 'enabled': True}]
-    return moa_record({'balanced': preset, 'fast': fast}, 'balanced', 'balanced')
+    fast['reference_models'] = [{'provider': 'anthropic', 'model': 'claude-haiku-5'}]
+    record = {'default_preset': 'balanced', 'active_preset': 'balanced', 'presets': {'balanced': preset, 'fast': fast}}
+    record.update(copy.deepcopy(preset))
+    return record
 
 
 def oauth():

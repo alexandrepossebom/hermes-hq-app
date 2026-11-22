@@ -503,35 +503,6 @@ final class TranscriptEndToEndTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["chat.earlier.text"].exists, "nothing more to show at the very start")
     }
 
-    // MARK: T15c The pill sits in the empty status line's place and covers no message (owner 2026-11-22)
-
-    /// Owner screenshot 2026-11-22: in the Desktop Look "Loading earlier messages…" was a round capsule a whole empty
-    /// status line under the title, over the top row ("Today 7:13 AM"). It takes the status line's place under the
-    /// title (as the notice and the Mac's pill do), and the top of what is loaded rests under it, never behind it.
-    @MainActor func testT15c_EarlierPillSitsUnderTheTitleAndCoversNoRow() throws {
-        let account = try FixtureAccount.load()
-        try preset(account, "long")
-        try account.control("/__fixture/older", ["fail": 0, "seconds": 30])
-        defer { _ = try? account.control("/__fixture/older", ["fail": 0, "seconds": 0]) }
-        for desktop in [true, false] {
-            let app = launch(account, args: ["-HQDebugDesktopLook", desktop ? "YES" : "NO"])
-            XCTAssertTrue(labelled(app, containing: "Line 200 of a long chat.").waitForExistence(timeout: 10))
-            let table = app.tables["chat.table"]
-            let pill = app.descendants(matching: .any)["chat.earlier"]
-            for _ in 0..<30 where !(pill.exists && pill.isHittable) { table.swipeDown(velocity: .fast) }
-            XCTAssertTrue(pill.waitForExistence(timeout: 5), "at the top of what loaded the pill shows")
-            Thread.sleep(forTimeInterval: 1)   // the scroll settles at the top
-            shot("earlier-pill-top-\(desktop ? "desktop" : "ios")")
-            let bar = app.navigationBars.firstMatch.frame
-            XCTAssertLessThanOrEqual(pill.frame.minY - bar.maxY, 8, "under the title, not a whole status line lower")
-            // The highest row on screen (the day's header over the first loaded message, in the owner's picture).
-            let rows = table.cells.allElementsBoundByIndex.map(\.frame).filter { $0.maxY > bar.maxY && $0.minY < app.frame.maxY && $0.height > 0 }
-            let highest = try XCTUnwrap(rows.map(\.minY).min(), "rows on screen")
-            XCTAssertGreaterThanOrEqual(highest + 1, pill.frame.maxY, "the pill covers no row (\(highest) under \(pill.frame.maxY))")
-            app.terminate()
-        }
-    }
-
     // MARK: T15b A tap on the status bar goes to the top of the chat, the oldest message loaded (owner 2026-11-19)
 
     @MainActor func testT15b_StatusBarTapGoesToTheTop() throws {
@@ -653,13 +624,10 @@ final class TranscriptEndToEndTests: XCTestCase {
 
     // MARK: T20 "N files changed" card, inline diff preview, Review, and a file's own open (§12, n20 F10)
 
-    /// File Changes › Open: the card itself, as it was before Folded became the default (owner 2026-11-20).
-    static let filesOpen = ["-hq.chat.fileChanges", "open"]
-
     @MainActor func testT20_FilesCard() throws {
         let account = try FixtureAccount.load()
         try preset(account, "diffs")
-        let app = launch(account, args: Self.filesOpen)
+        let app = launch(account)
 
         let card = labelled(app, containing: "2 files changed")
         if !card.waitForExistence(timeout: 15) { shot("files-card-missing") }
@@ -697,7 +665,7 @@ final class TranscriptEndToEndTests: XCTestCase {
     @MainActor private func filesCardLook(_ tag: String, args: [String]) throws {
         let account = try FixtureAccount.load()
         try preset(account, "diffs")
-        let app = launch(account, args: args + Self.filesOpen)
+        let app = launch(account, args: args)
         let card = labelled(app, containing: "2 files changed")
         XCTAssertTrue(card.waitForExistence(timeout: 15), "the settled reply carries the card")
         XCTAssertTrue(cardRow(app, "app.py,").exists && cardRow(app, "README.md,").exists, "a row per file")
@@ -714,7 +682,7 @@ final class TranscriptEndToEndTests: XCTestCase {
     @MainActor func testT20b_SevenFilesShowAll() throws {
         let account = try FixtureAccount.load()
         try preset(account, "diffs7")
-        let app = launch(account, args: Self.filesOpen)
+        let app = launch(account)
 
         XCTAssertTrue(labelled(app, containing: "7 files changed").waitForExistence(timeout: 15), "the card names every edited file")
         let showAll = labelled(app, containing: "Show All 7 Files")
@@ -724,40 +692,6 @@ final class TranscriptEndToEndTests: XCTestCase {
         showAll.tap()
         XCTAssertTrue(waitUntil(timeout: 5) { cardRow(app, "config.yaml,").exists }, "Show All reveals the rest")
         shot("files-card-seven-expanded")
-    }
-
-    // MARK: T20f File Changes › Folded (the default): one line like a work line, tapped open on the card
-
-    /// Owner 2026-11-20 (tester Mordred: "the files edited as a collapsible section similar to Ran <x> commands"): by
-    /// default the card is one line, "7 files changed +20 −3", that opens on the card in place and folds back.
-    @MainActor func testT20f_FilesFoldedLineOpensTheCard() throws { try filesFolded("", args: ["-hq.chat.toolCallStyle", "bottom"]) }
-    @MainActor func testT20g_FilesFoldedInTheDesktopLook() throws {
-        try filesFolded("-desktop", args: ["-hq.chat.toolCallStyle", "bottom", "-HQDebugDesktopLook", "YES"])
-    }
-
-    @MainActor private func filesFolded(_ tag: String, args: [String]) throws {
-        let account = try FixtureAccount.load()
-        try preset(account, "diffs7")
-        let app = launch(account, args: args)
-        let line = app.buttons["chat.changed-files.line"]
-        if !line.waitForExistence(timeout: 15) { shot("files-folded-missing\(tag)") }
-        XCTAssertTrue(line.exists, "the settled reply carries the folded line")
-        XCTAssertTrue(line.label.hasPrefix("7 files changed"), "the line says how many files: \(line.label)")
-        XCTAssertTrue(line.label.contains("+20") && line.label.contains("−3"), "and every file's lines summed: \(line.label)")
-        XCTAssertEqual(line.value as? String, "Collapsed")
-        XCTAssertFalse(cardRow(app, "app.py,").exists || labelled(app, containing: "Show All 7 Files").exists,
-                       "folded: no file rows until it is opened")
-        shot("files-folded\(tag)")
-
-        line.tap()
-        XCTAssertTrue(waitUntil(timeout: 5) { (line.value as? String) == "Expanded" }, "the tap opens it")
-        XCTAssertTrue(labelled(app, containing: "Show All 7 Files").waitForExistence(timeout: 5), "the card opens under the line")
-        XCTAssertTrue(cardRow(app, "app.py,").exists, "with its rows")
-        shot("files-folded-open\(tag)")
-
-        line.tap()
-        XCTAssertTrue(waitUntil(timeout: 5) { (line.value as? String) == "Collapsed" && !labelled(app, containing: "Show All 7 Files").exists },
-                      "a second tap folds it back")
     }
 
     // MARK: Stress: S1 a very long chat, S2 rapid streaming, S3 the link dropping mid-reply

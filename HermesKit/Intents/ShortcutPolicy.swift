@@ -61,9 +61,8 @@ nonisolated enum ShortcutPolicy {
 
     static func permits(_ action: String, id: String, epoch: String?, current: String?, targets: [ShortcutTarget]) -> Bool {
         guard let current, !current.isEmpty, epoch == nil || epoch == current,
-              ["open", "memo", "search", "quick-actions"].contains(action) else { return false }
-        // [quick-actions] DECISION I22: Quick Actions, like Search Chats, opens a page of this sign-in, no target.
-        if action == "search" || action == "quick-actions" { return true }
+              ["open", "memo", "search"].contains(action) else { return false }
+        if action == "search" { return true }
         guard let target = targets.first(where: { $0.id == id && $0.id.hasPrefix(current + ":") }) else { return false }
         return action != "memo" || target.kind == "bot"
     }

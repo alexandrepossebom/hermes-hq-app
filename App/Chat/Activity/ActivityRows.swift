@@ -11,12 +11,8 @@ nonisolated struct ActivityRowsInput: @unchecked Sendable {
     var style: ToolCallStyle = .rows
     /// After Reply › Hide (never in In Header).
     var hideSteps = false
-    /// File Changes (Settings › Chat): Off, no "N files changed" card; Folded, its one line until tapped; Open, the card.
-    var fileChanges: FileChangesLook = .open
-    var showFileChanges: Bool {
-        get { fileChanges != .off }
-        set { fileChanges = newValue ? .open : .off }
-    }
+    /// Show File Changes (Settings › Chat): off, no "N files changed" card.
+    var showFileChanges = true
     /// Replies whose hidden steps were brought back (Show Steps), by message id.
     var revealed: Set<String> = []
     /// Replies whose steps are fading out right now: still drawn until the fold removes them.
@@ -91,6 +87,10 @@ nonisolated struct GoalOfferRow {
     var tasksHeader: String?
     var tasks: [Line]
     var tasksMore: Int
+    /// [goals set-up] A plan's "Built on" lines (quiet words, three at most) and what accepting it also sets on the goal
+    /// ("Name", "Why", "Number", "By"): the offer's own words, the same in every state.
+    var builtOn: [String] = []
+    var setup: [GoalSetupRow] = []
     /// The quiet line under the buttons: "Keep the Goal, No Plan" (a button), or the lead's note (words).
     var quiet: String?
     var quietIsButton: Bool
@@ -169,11 +169,6 @@ nonisolated struct ChangedFilesRow {
     var files: [ChangedFile]
     /// "Show all N files" was tapped.
     var showAll: Bool
-    /// [files] File Changes › Folded (owner 2026-11-20): the card stands as one line, "8 files changed +49 −11 ⌄", like
-    /// a reply's work line. False under Open: the card alone, as before.
-    var folded = false
-    /// Folded only: the line was tapped open, and the card hangs under it (`ChatRow.filesOpenKey` in `expanded`).
-    var opened = false
 }
 
 /// [transcript] A landed edit's first changed lines, drawn under its row in Rows and Bubbles (One Line / At the
@@ -190,9 +185,6 @@ nonisolated struct DiffPreviewRow {
 }
 
 nonisolated extension ChatRow {
-    /// [files] The `expanded` key that holds a folded files line open (the row's own id is its "Show All N Files").
-    static func filesOpenKey(_ rowId: String) -> String { rowId + "#open" }
-
     /// [files] The "N files changed" card's files; nil for every other row.
     var changedFiles: ChangedFilesRow? {
         if case .activity(.changedFiles(let c)) = kind { return c }
@@ -338,7 +330,7 @@ nonisolated enum ActivityRows {
         case "delegate_task":
             // Bounded per value at the source; a text cut short anyway still gives its goals (tolerant scan).
             var goals = ToolCards.delegateGoals(.object(ToolArgs.parse(call.argsText)))
-            if case .delegate(let cardGoals, _, _, _)? = call.card, goals.isEmpty { goals = cardGoals }
+            if case .delegate(let cardGoals, _, _)? = call.card, goals.isEmpty { goals = cardGoals }
             let base = ToolCards.rows(goals: goals, card: call.card, hasResult: call.card != nil, toolCallId: call.id)
             // The chat's live children belong to the running call or the latest turn's card; an earlier turn's card
             // (one task, done) would otherwise take a new single child by its index. Stand-ins match by id anywhere.
@@ -395,17 +387,12 @@ nonisolated enum ActivityRows {
     /// The card for these files ([files] also the one card that stands for several replies' cards: UpdateGroups.swift).
     static func changedFilesRow(id: String, messageId: String, files: [ChangedFile], input: ChatRowBuilder.Input) -> ChatRow {
         let showAll = input.expanded.contains(id)
-        let folded = input.activity.fileChanges == .folded
-        let opened = folded && input.expanded.contains(ChatRow.filesOpenKey(id))
         var h = Hasher()
         for f in files { h.combine(f.path); h.combine(f.name); h.combine(f.added); h.combine(f.removed); h.combine(f.edits) }
         h.combine(showAll)
-        h.combine(folded)
-        h.combine(opened)
         return ChatRow(id: id, messageId: messageId, scope: input.scope, fingerprint: h.finalize(),
-                       kind: .activity(.changedFiles(ChangedFilesRow(messageId: messageId, files: files, showAll: showAll,
-                                                                      folded: folded, opened: opened))),
-                       gapAbove: folded ? 0 : 8, variant: (showAll ? 1 : 0) + (folded ? 2 : 0) + (opened ? 4 : 0))
+                       kind: .activity(.changedFiles(ChangedFilesRow(messageId: messageId, files: files, showAll: showAll))),
+                       gapAbove: 8, variant: showAll ? 1 : 0)
     }
 
     /// Under a landed edit's own row (Rows, Bubbles): its first changed lines. Diffs come from `ToolDetail.inlineDiff`
@@ -502,7 +489,7 @@ nonisolated enum ActivityRows {
             var h = Hasher()
             h.combine(row.title); h.combine(row.kicker); h.combine(row.tag); h.combine(row.summary)
             h.combine(row.milestones); h.combine(row.tasks); h.combine(row.quiet); h.combine(row.milestonesMore); h.combine(row.tasksMore)
-            h.combine(row.color); h.combine(offer.id)
+            h.combine(row.color); h.combine(offer.id); h.combine(row.builtOn); h.combine(row.setup)
             return ChatRow(id: "\(m.id)|goal-offer|\(id)", messageId: m.id, scope: input.scope, fingerprint: h.finalize(),
                            kind: .activity(.goalOffer(row)), gapAbove: 8, variant: 0)
         }
@@ -552,6 +539,7 @@ nonisolated enum ActivityRows {
             milestonesHeader: milestones.isEmpty ? nil : GoalOffers.milestoneCount(milestones.count),
             milestones: shownMilestones, milestonesMore: milestones.count - shownMilestones.count,
             tasksHeader: tasksHeader, tasks: shownTasks, tasksMore: tasks.count - shownTasks.count,
+            builtOn: GoalOffers.builtOn(offer), setup: GoalOffers.setupRows(offer, now: input.now),
             quiet: quiet, quietIsButton: quietIsButton, color: goal?.tint ?? .blue,
             spoken: GoalOffers.spoken(offer, goal: goal, botName: { name($0) }))
     }
@@ -706,15 +694,6 @@ nonisolated struct ChangedFilesLayout: @unchecked Sendable {
     var rows: [FileRow]
     var showAllFrame: CGRect?
     var showAllTitle: String?
-    /// [files] File Changes › Folded: the one line ("8 files changed +49 −11"), spanning the chat (the cell centres its
-    /// glyph, words and caret in it, as an update group's line). Nil under Open.
-    var lineFrame: CGRect?
-    var lineText: NSAttributedString?
-    var lineFont: UIFont?
-    /// Folded and tapped open: the card is drawn under the line (false: the line alone).
-    var opened = false
-    /// Folded: the card's top line carries only "Review ›" — the line above it already says how many files.
-    var cardShown = true
 }
 
 /// [transcript] A landed edit's first changed lines (§12, n20 F10): one monospaced block, added/removed lines washed
@@ -782,12 +761,21 @@ nonisolated struct GoalOfferLayout: @unchecked Sendable {
         var frame: CGRect
         var text: String
     }
+    /// [goals set-up] One row of what a plan also sets: its label and its value.
+    nonisolated struct SetupLine: @unchecked Sendable {
+        var labelFrame: CGRect
+        var valueFrame: CGRect
+        var row: GoalSetupRow
+    }
     var cardFrame: CGRect
     var kickerFrame: CGRect?
     var markFrame: CGRect
     var titleFrame: CGRect
     var summaryFrame: CGRect?
     var headers: [Header]
+    /// [goals set-up] The "Built on" lines (quiet words) and the set-up rows.
+    var notes: [Header] = []
+    var setupLines: [SetupLine] = []
     var lines: [Line]
     /// "2 more ›" under a section (its frame and the words).
     var mores: [Header]
@@ -974,6 +962,34 @@ nonisolated enum ActivityLayouts {
                 y += max(28, lineH + 8)
             }
         }
+        // [goals set-up] Under the title: what the plan rests on, then what accepting it also sets. Fixed words, so the
+        // card keeps one height in every state.
+        var notes: [GoalOfferLayout.Header] = []
+        var setupLines: [GoalOfferLayout.SetupLine] = []
+        if !g.builtOn.isEmpty {
+            y += 8
+            headers.append(.init(frame: CGRect(x: left + pad, y: y, width: innerW, height: smallH), text: GoalOffers.builtOnHeader.uppercased()))
+            y += smallH + 3
+            for words in g.builtOn {
+                let h = height(words, font: detailFont, width: innerW, lines: 2)
+                notes.append(.init(frame: CGRect(x: left + pad, y: y, width: innerW, height: h), text: words))
+                y += h + 3
+            }
+        }
+        if !g.setup.isEmpty {
+            y += 8
+            headers.append(.init(frame: CGRect(x: left + pad, y: y, width: innerW, height: smallH), text: GoalOffers.setupHeader.uppercased()))
+            y += smallH + 3
+            let labelW = ceil(g.setup.map { ($0.label as NSString).size(withAttributes: [.font: detailFont]).width }.max() ?? 0)
+            let valueX = left + pad + labelW + 10
+            let valueW = max(40, left + columnW - pad - valueX)
+            for row in g.setup {
+                let h = height(row.value, font: detailFont, width: valueW, lines: 2)
+                setupLines.append(.init(labelFrame: CGRect(x: left + pad, y: y, width: labelW, height: lineH),
+                                        valueFrame: CGRect(x: valueX, y: y, width: valueW, height: h), row: row))
+                y += max(lineH, h) + 4
+            }
+        }
         section(g.milestonesHeader, g.milestones, more: g.milestonesMore)
         section(g.tasksHeader, g.tasks, more: g.tasksMore)
         y += 12
@@ -989,7 +1005,8 @@ nonisolated enum ActivityLayouts {
         }
         return RowLayout(height: ceil(y + 2), content: .activity(.goalOffer(GoalOfferLayout(
             cardFrame: CGRect(x: left, y: top, width: columnW, height: y - top), kickerFrame: kickerFrame, markFrame: markFrame,
-            titleFrame: titleFrame, summaryFrame: summaryFrame, headers: headers, lines: lines, mores: mores,
+            titleFrame: titleFrame, summaryFrame: summaryFrame, headers: headers, notes: notes, setupLines: setupLines,
+            lines: lines, mores: mores,
             buttonsFrame: buttonsFrame, quietFrame: quietFrame, font: font, detailFont: detailFont, smallFont: smallFont, row: g))))
     }
 
@@ -1302,23 +1319,7 @@ nonisolated enum ActivityLayouts {
         let lineH = ceil(font.lineHeight)
         let pad: CGFloat = 12
         let left = ChatMetrics.sideInset
-        var top = max(0, row.gapAbove)
-        // [files] Folded: the work line's own row (40 pt, the notice face), its words and the summed +/− centred in it.
-        var lineFrame: CGRect?, lineText: NSAttributedString?, lineFont: UIFont?
-        if c.folded {
-            let notice = style.notice
-            let rowH = max(ChatMetrics.toolRowMin, ChatMetrics.toolRowPadV * 2 + ceil(notice.lineHeight))
-            lineFrame = CGRect(x: left, y: top, width: width - 2 * left, height: rowH)
-            lineText = filesLineText(c.files, font: notice)
-            lineFont = notice
-            if !c.opened {
-                return RowLayout(height: ceil(top + rowH), content: .activity(.changedFiles(ChangedFilesLayout(
-                    cardFrame: .zero, headerFrame: .zero, headerTitle: ChangedFiles.title(c.files.count), font: font, rows: [],
-                    showAllFrame: nil, showAllTitle: nil, lineFrame: lineFrame, lineText: lineText, lineFont: lineFont,
-                    opened: false, cardShown: false))))
-            }
-            top += rowH + 4   // the card 4 pt under its line, as an opened update line's
-        }
+        let top = max(0, row.gapAbove)
         let rowH = max(44, ChatMetrics.stepPadV * 2 + lineH)   // each a tap target of its own
         let headerFrame = CGRect(x: left + pad, y: top, width: columnW - 2 * pad, height: rowH)
         var y = top + rowH
@@ -1348,23 +1349,9 @@ nonisolated enum ActivityLayouts {
             y += rowH
         }
         let cardFrame = CGRect(x: left, y: top, width: columnW, height: y - top)
-        return RowLayout(height: ceil(y + (c.folded ? 8 : 2)), content: .activity(.changedFiles(ChangedFilesLayout(
+        return RowLayout(height: ceil(y + 2), content: .activity(.changedFiles(ChangedFilesLayout(
             cardFrame: cardFrame, headerFrame: headerFrame, headerTitle: ChangedFiles.title(c.files.count),
-            font: font, rows: rows, showAllFrame: showAllFrame, showAllTitle: showAllTitle,
-            lineFrame: lineFrame, lineText: lineText, lineFont: lineFont, opened: c.opened, cardShown: true))))
-    }
-
-    /// [files] The folded line's words: "8 files changed", then every file's lines summed ("+49 −11", none when no
-    /// file reported a count).
-    static func filesLineText(_ files: [ChangedFile], font: UIFont) -> NSAttributedString {
-        // Label 2 here (built off the main thread); on a chat picture's pill the cell takes the words to the primary label.
-        let out = NSMutableAttributedString(string: ChangedFiles.title(files.count), attributes: [.font: font, .foregroundColor: ChatPalette.label2])
-        let added = files.reduce(0) { $0 + $1.added }, removed = files.reduce(0) { $0 + $1.removed }
-        if added > 0 || removed > 0 {
-            out.append(NSAttributedString(string: "  ", attributes: [.font: font]))
-            out.append(fileStats(added: added, removed: removed, font: font))
-        }
-        return out
+            font: font, rows: rows, showAllFrame: showAllFrame, showAllTitle: showAllTitle))))
     }
 
     // MARK: Diff preview (§12, n20 F10)

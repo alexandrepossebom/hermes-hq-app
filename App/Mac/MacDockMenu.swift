@@ -66,13 +66,7 @@ import ObjectiveC
                 run(12)
             }))
         }
-        // [quick-actions] DECISION I22: the Quick Actions page as a sheet, after New Chat (the Home Screen list's own
-        // first item, so it is left out of the loop below).
-        out.append((IntentsText.quickActions, {
-            Self.bringForward()
-            Task { await QuickActionsRouter.present(from: "dock") }
-        }))
-        for item in QuickActions.shown where item.action != QuickActions.quickActionsAction {
+        for item in QuickActions.shown {
             out.append((Self.title(item), {
                 Self.bringForward()
                 _ = QuickActions.perform(action: item.action, id: item.id ?? "", epoch: ShortcutPolicy.epoch(.standard))

@@ -181,7 +181,7 @@ extension SessionsViewController: UICollectionViewDragDelegate, UICollectionView
     }
 
     func collectionView(_ collectionView: UICollectionView, canHandle session: UIDropSession) -> Bool {
-        session.localDragSession?.localContext as? String == rowDrag || SessionFileDrop.carriesFiles(session)   // [spring-drop]
+        session.localDragSession?.localContext as? String == rowDrag
     }
 
     /// The drag's row and where it would land: inside its own group, among the chats (past the last one is the last).
@@ -240,10 +240,6 @@ extension SessionsViewController: UICollectionViewDragDelegate, UICollectionView
 
     func collectionView(_ collectionView: UICollectionView, dropSessionDidUpdate session: UIDropSession,
                         withDestinationIndexPath destinationIndexPath: IndexPath?) -> UICollectionViewDropProposal {
-        // [spring-drop] Files from outside the app: a chat's row lights, and held there it opens.
-        if session.localDragSession == nil {
-            return UICollectionViewDropProposal(operation: fileDrop.update(session), intent: .unspecified)
-        }
         // Over another project: no gap opens among its rows (the chat takes its place by the list's sort), its header
         // lights up instead.
         if let target = dropProject(session) {
@@ -258,19 +254,13 @@ extension SessionsViewController: UICollectionViewDragDelegate, UICollectionView
 
     func collectionView(_ collectionView: UICollectionView, dropSessionDidExit session: UIDropSession) {
         showDropTarget(nil)
-        fileDrop.exit()
     }
 
     func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: UIDropSession) {
         showDropTarget(nil)
-        fileDrop.exit()
     }
 
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
-        if coordinator.session.localDragSession == nil {   // [spring-drop] files let go on a chat's row
-            fileDrop.perform(coordinator.session)
-            return
-        }
         if let target = dropProject(coordinator.session) {
             showDropTarget(nil)
             guard let item = coordinator.items.first?.dragItem, let key = item.localObject as? String,

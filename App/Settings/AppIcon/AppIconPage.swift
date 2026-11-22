@@ -37,8 +37,10 @@ struct AppIconPage: View {
                 }
                 .padding(.vertical, 12)
             } footer: {
-                if DeviceWord.isMac {
-                    HQSectionFooter { Text("The Dock shows your icon while Hermes HQ is open; Finder and Launchpad keep the Hermes icon.") }
+                HQSectionFooter {
+                    Text(DeviceWord.isMac
+                         ? "Shapes, Matrix and Robot are Hermes’s own faces, drawn by the app. The Dock shows your icon while Hermes HQ is open; Finder and Launchpad keep the Hermes icon."
+                         : "Shapes, Matrix and Robot are Hermes’s own faces, drawn by the app.")
                 }
             }
         }.hqMacSettingsRowInsets() }

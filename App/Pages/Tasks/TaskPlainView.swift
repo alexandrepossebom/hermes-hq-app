@@ -38,7 +38,6 @@ struct TaskPlainView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     titleRow
-                    suggestedTitleRow
                     completedRow
                     dueRow
                     startRow
@@ -69,13 +68,8 @@ struct TaskPlainView: View {
                 .padding(.bottom, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // What the page draws, said at once and on every change (the scroll view's own geometry said nothing
-                // until something changed, so a page that drew right the first time kept its starting height). Not once
-                // the task is tucked to its bar: fading out beside the bar, this view still reported its whole height,
-                // and on iOS 27.2 that came last, so a reply's alert opened the chat under a task-tall inset with the
-                // reply out of sight (testTasks_ChatAlertOpensTask).
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                    if !model.tucked { model.onLeadHeight?($0 + (showsMessageLine ? TaskMessageLine.height : 0)) }
-                }
+                // until something changed, so a page that drew right the first time kept its starting height).
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { model.onLeadHeight?($0 + (showsMessageLine ? TaskMessageLine.height : 0)) }
             }
             // On a chat's page the view scrolls only once it is taller than its panel; standing alone it is the page.
             .scrollDisabled(model.embedded && !model.briefScrolls)
@@ -108,33 +102,6 @@ struct TaskPlainView: View {
     private var showsMessageLine: Bool { model.embedded && !model.gone && !model.editingBrief }
 
     // MARK: Top
-
-    @ViewBuilder private var suggestedTitleRow: some View {
-        if let suggestion = task.currentSuggestedTitle, !model.gone {
-            TaskGridRow {
-                Image(systemName: "sparkles").foregroundStyle(Color.hqLabel2)
-            } text: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Suggested title").font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
-                    Text(suggestion).textSelection(.enabled)
-                    Button("Use suggested title") {
-                        let original = task.title
-                        Task { if await !model.store.acceptSuggestedTitle(task.id, suggestion: suggestion, forTitle: original) { PagesHaptics.error() } }
-                    }
-                    .font(Font.hq(.footnote).weight(.semibold))
-                    .accessibilityIdentifier("task.accept-suggested-title")
-                }.padding(.vertical, 6)
-            }
-            .accessibilityIdentifier("task.suggested-title")
-        } else if !model.gone, task.suggestedForTitle == task.title, task.suggestedTitle == task.title {
-            TaskGridRow {
-                Image(systemName: "sparkles").foregroundStyle(Color.hqLabel2)
-            } text: {
-                Text("Suggested title: keep your current title.")
-                    .font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
-            }
-        }
-    }
 
     /// The circle (finishes it, or opens it again) and the title, at the page's own scale.
     private var titleRow: some View {

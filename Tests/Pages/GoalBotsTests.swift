@@ -355,7 +355,7 @@ struct GoalBotsTests {
         #expect(rows.first?.plainText == "Learn guitar by March")
     }
 
-    @Test func aNewGoalsTeamGoesInAPatch() {
+    @Test func aNewGoalsTeamFields() {
         #expect(GoalWire.teamKeys.isSuperset(of: ["lead", "helpers", "review"]))
         #expect(!GoalWire.teamKeys.contains("title") && !GoalWire.teamKeys.contains("measure"))
     }

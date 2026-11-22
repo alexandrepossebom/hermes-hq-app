@@ -101,10 +101,9 @@ struct MacDashPop: View {
             if let lead { Text(lead).foregroundStyle(Color.hqLabel2) }
             Text(value).foregroundStyle(Color.hqLabel).lineLimit(1)
             Image(systemName: "chevron.up.chevron.down").font(Font.hq(.caption2).weight(.semibold)).foregroundStyle(Color.hqLabel2)
-                .padding(.leading, MacPopUpInsets.chevronGap - 6)
         }
         .font(Font.hq(.subheadline))
-        .padding(.leading, MacPopUpInsets.leading).padding(.trailing, MacPopUpInsets.trailing).padding(.vertical, 5)   // [popup-room]
+        .padding(.horizontal, 10).padding(.vertical, 5)
         .background(Color(uiColor: MacPush.fill), in: RoundedRectangle(cornerRadius: MacField.radius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: MacField.radius, style: .continuous).strokeBorder(Color(uiColor: MacPush.stroke)))
         .contentShape(Rectangle())

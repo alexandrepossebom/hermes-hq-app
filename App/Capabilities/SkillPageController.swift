@@ -67,7 +67,7 @@ final class SkillPageModel {
             case .text(let text), .quote(let text, _): out.append(text)
             case .code(_, _, let text, _): out.append(text)
             case .table(let table): out.append(table.flat)
-            case .spacer, .linkChip, .pageCard, .phoneProposal: break
+            case .spacer, .linkChip, .pageCard: break
             case .media(let refs): out.append(NSAttributedString(string: refs.map(\.label).joined(separator: ", ")))   // [attachments]
             }
         }

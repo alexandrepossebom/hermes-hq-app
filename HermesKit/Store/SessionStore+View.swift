@@ -112,7 +112,7 @@ extension SessionStore {
         SessionListPipeline.chipCounts(SessionListInput(live: sessions, prefs: view, botFilter: botFilter,
                                                         projectsByProfile: projectsByProfile,
                                                         projects: view.pills == .projects ? projectEntries(bot: botFilter) : [],
-                                                        archivedProjects: archivedProjects, keptProjects: keptProjects))
+                                                        archivedProjects: archivedProjects))
     }
 
     /// [project-pills] The project pills, in their order (`SessionProjects.pillEntries`): every bot's projects, Home
@@ -153,165 +153,6 @@ extension SessionStore {
         onChange?()
     }
 
-    // MARK: - Project-only pins [project-pins]
-
-    /// Owner 2026-11-20: "if you pin a session in that view, the pin doesn't reflect everywhere else … just an internally
-    /// pinned session." A project's ⋯ › Pins Stay in Project: on, Pin on its page pins the chat there alone.
-    func isProjectPinsLocal(_ key: String) -> Bool { device.projectPinsLocal[key] ?? false }
-
-    func setProjectPinsLocal(_ key: String, _ on: Bool) {
-        guard isProjectPinsLocal(key) != on else { return }
-        device.projectPinsLocal[key] = on
-        AppLog.trace("sessions", "project pins \(on ? "stay in project" : "shared")")
-        persistState()
-        onChange?()
-    }
-
-    /// [project-sort] A project page's ⋯ › Sort.
-    func projectSort(_ key: String) -> ProjectPageSort { device.projectSorts[key].flatMap(ProjectPageSort.init(rawValue:)) ?? .needsMeFirst }
-
-    func setProjectSort(_ key: String, _ sort: ProjectPageSort) {
-        guard projectSort(key) != sort else { return }
-        device.projectSorts[key] = sort.rawValue
-        AppLog.trace("sessions", "project sort \(sort.rawValue)")
-        persistState()
-        onChange?()
-    }
-
-    // MARK: - Project Settings [project-settings]
-
-    /// [project-keep] Keep Chats in This Project: the project's chats leave every list but its own page. Never Home.
-    func isProjectKept(_ key: String) -> Bool { key != SessionProjects.homeKey && device.projectKeep[key] ?? false }
-
-    func setProjectKept(_ key: String, _ on: Bool) {
-        guard key != SessionProjects.homeKey, isProjectKept(key) != on else { return }
-        device.projectKeep[key] = on
-        AppLog.trace("sessions", "project chats \(on ? "kept on its page" : "listed everywhere")")
-        persistState()
-        onChange?()
-    }
-
-    /// The kept projects (keys), for the pipeline.
-    var keptProjects: Set<String> { Set(device.projectKeep.filter { $0.value && $0.key != SessionProjects.homeKey }.keys) }
-
-    /// [project-keep] `sessions` less the kept projects' chats (`SessionListPipeline.isKeptAway`), for the lists outside
-    /// Sessions. `keeping`: the chat on screen, which stays.
-    func sessionsOutsideKeptProjects(keeping id: String? = nil) -> [SessionSummary] {
-        let kept = keptProjects
-        guard !kept.isEmpty else { return sessions }
-        return sessions.filter {
-            $0.id == id || !SessionListPipeline.isKeptAway($0, kept: kept, projectsByProfile: projectsByProfile)
-        }
-    }
-
-    /// [project-auto-done] Move Quiet Chats to Done.
-    func projectAutoDone(_ key: String) -> ProjectAutoDone { ProjectAutoDone(raw: device.projectAutoDone[key]) }
-
-    func setProjectAutoDone(_ key: String, _ rule: ProjectAutoDone) {
-        guard projectAutoDone(key) != rule else { return }
-        device.projectAutoDone[key] = rule.raw
-        AppLog.trace("sessions", "project auto done \(rule.raw)")
-        persistState()
-        onChange?()
-    }
-
-    /// The rules in force, for the pipeline: the merge switch counts in a coding project only.
-    var projectAutoDoneRules: [String: ProjectAutoDone] {
-        var out: [String: ProjectAutoDone] = [:]
-        for (key, raw) in device.projectAutoDone {
-            var rule = ProjectAutoDone(raw: raw)
-            if rule.onMerge, !isCodingProject(key) { rule.onMerge = false }
-            if !rule.isOff { out[key] = rule }
-        }
-        return out
-    }
-
-    /// [project-mute] A project's Notifications.
-    func projectNotify(_ key: String) -> ProjectNotify { device.projectNotify[key].flatMap(ProjectNotify.init(rawValue:)) ?? .all }
-
-    func setProjectNotify(_ key: String, _ level: ProjectNotify) {
-        guard projectNotify(key) != level else { return }
-        device.projectNotify[key] = level.rawValue
-        AppLog.trace("sessions", "project notifications \(level.rawValue)")
-        persistState()
-        onChange?()
-    }
-
-    /// [project-mute] Every chat this device knows in a project whose Notifications is not All (stored id → level):
-    /// what the alerts are checked against. Archived chats too (a reply can still come to one).
-    var projectMuteLevels: [String: ProjectNotify] {
-        let quiet = device.projectNotify.compactMapValues { ProjectNotify(rawValue: $0) }.filter { $0.value != .all }
-        guard !quiet.isEmpty else { return [:] }
-        var out: [String: ProjectNotify] = [:]
-        // The newest first, so the cap (`ProjectMutes.limit`) drops the chats least likely to speak again.
-        let newestFirst = (sessions + archivedSessions).sorted { SessionListPipeline.recency($0) > SessionListPipeline.recency($1) }
-        for session in newestFirst where out.count < ProjectMutes.limit {
-            let key = SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: projectsByProfile)
-            if let level = quiet[key] { out[session.id] = level }
-        }
-        return out
-    }
-
-    /// [project-new-chat-model] The model and reasoning a project's New Chat starts with.
-    func projectNewChat(_ key: String) -> ProjectNewChat { device.projectNewChat[key] ?? ProjectNewChat() }
-
-    func setProjectNewChat(_ key: String, _ choice: ProjectNewChat) {
-        guard projectNewChat(key) != choice else { return }
-        device.projectNewChat[key] = choice
-        AppLog.trace("sessions", "project new chat model \(choice.model == nil ? "bot's default" : "set"), reasoning \(choice.reasoning ?? "bot's default")")
-        persistState()
-        onChange?()
-    }
-
-    /// [project-look] A project's emoji and colour.
-    func projectLook(_ key: String) -> ProjectLook { device.projectLooks[key] ?? ProjectLook() }
-
-    func setProjectLook(_ key: String, _ look: ProjectLook) {
-        guard projectLook(key) != look else { return }
-        device.projectLooks[key] = look
-        AppLog.trace("sessions", "project look \(look.emoji == nil ? "no emoji" : "emoji"), \(look.color.map { "colour \($0)" } ?? "no colour")")
-        persistState()
-        onChange?()
-    }
-
-    /// Every project's look that says something (key → look), for the pills and the cards.
-    var projectLooks: [String: ProjectLook] { device.projectLooks.filter { !$0.value.isEmpty } }
-
-    /// [project-branch-rows] Show Branch on Rows: a coding project's rows start with the chat's branch.
-    func isProjectBranchRows(_ key: String) -> Bool { device.projectBranchRows[key] ?? false }
-
-    func setProjectBranchRows(_ key: String, _ on: Bool) {
-        guard isProjectBranchRows(key) != on else { return }
-        device.projectBranchRows[key] = on
-        AppLog.trace("sessions", "project branch on rows \(on ? "on" : "off")")
-        persistState()
-        onChange?()
-    }
-
-    /// [project-new-chat-model] The models a bot can start a chat with (`GET /api/model/options?explicit_only=1&profile=`,
-    /// the list the Jobs editor offers): signed-in providers that list models.
-    func projectModelProviders(profile: String) async throws -> [JobModelProvider] {
-        JobModelProvider.list(try await PagesREST.json(client, "GET", "/api/model/options",
-                                                       query: [URLQueryItem(name: "explicit_only", value: "1"),
-                                                               URLQueryItem(name: "profile", value: profile)]))
-    }
-
-    /// The chats pinned on each project's page alone (project key → row keys), for the pipeline.
-    var projectPinKeys: [String: Set<String>] { device.projectPins.mapValues(Set.init) }
-
-    /// Pin or unpin `session` on project `key`'s page only; the gateway's Pinned is untouched. Stored newest first.
-    func setProjectPinned(_ session: SessionSummary, project key: String, _ pinned: Bool) {
-        let row = SessionListPipeline.key(session)
-        var keys = device.projectPins[key] ?? []
-        keys.removeAll { $0 == row }
-        if pinned { keys.insert(row, at: 0) }
-        guard keys != (device.projectPins[key] ?? []) else { return }
-        device.projectPins[key] = keys.isEmpty ? nil : keys
-        AppLog.trace("sessions", "\(pinned ? "pin" : "unpin") in project only (\(keys.count) there)")
-        persistState()
-        onChange?()
-    }
-
     /// [project-default-bot] Default Bot: `choice` is a bot's profile or `ProjectDefaultBot.ask`. Kept with the other
     /// hand-picked parts (synced).
     func setProjectBotChoice(_ key: String, _ choice: String) {
@@ -326,14 +167,6 @@ extension SessionStore {
     func resetProjectBotChoices() {
         guard !device.projectBots.isEmpty else { return }
         device.projectBots = [:]
-        persistState()
-    }
-
-    /// [project-settings] UI tests: every project's settings from their defaults (its pins and Sort too).
-    func resetProjectSettings() {
-        device.projectKeep = [:]; device.projectAutoDone = [:]; device.projectNotify = [:]; device.projectNewChat = [:]
-        device.projectLooks = [:]; device.projectBranchRows = [:]
-        device.projectPinsLocal = [:]; device.projectPins = [:]; device.projectSorts = [:]
         persistState()
     }
 
@@ -369,10 +202,7 @@ extension SessionStore {
                                                     expandedGroups: expandedGroups[groupScope] ?? [],
                                                     chatOrder: device.chatOrder, projectOrder: device.projectOrder,
                                                     botOrder: device.botGroupOrder, favoriteProjects: Set(device.favoriteProjects),
-                                                    archivedProjects: archivedProjects, projectPins: projectPinKeys,
-                                                    projectsByNewest: Set(device.projectSorts.filter { $0.value == ProjectPageSort.newest.rawValue }.keys),
-                                                    projectsByStatus: Set(device.projectSorts.filter { $0.value == ProjectPageSort.byStatus.rawValue }.keys),
-                                                    keptProjects: keptProjects, projectAutoDone: projectAutoDoneRules,
+                                                    archivedProjects: archivedProjects,
                                                     botNames: botNames, statusChip: statusChip,
                                                     projectPRState: projectPRFilter.flatMap { view.projectFilter == [$0.key] && isCodingProject($0.key) ? $0.state : nil },
                                                     liveUnderProjects: projectRowsOpenPages, now: now, calendar: calendar))
@@ -585,10 +415,9 @@ extension SessionStore {
     // MARK: - A row's status inputs
 
     /// Chats where an approval, a question, a sudo or a secret prompt waits (stored ids).
-    func setNeedsInput(_ ids: Set<String>, details: [String: String] = [:]) {
-        guard ids != needsInput || details != inputDetails else { return }
+    func setNeedsInput(_ ids: Set<String>) {
+        guard ids != needsInput else { return }
         needsInput = ids
-        inputDetails = details
         rebuild()
     }
 
@@ -597,16 +426,12 @@ extension SessionStore {
 
     // MARK: - Projects (§3.4)
 
-    /// Asks for the projects of every bot on the gateway (the roster's shown bots, under All Bots), every bot that owns
-    /// a listed chat, and the chip's bot: the first time the Filter menu opens or Group By Project is on, then at most
-    /// once a minute per bot, and again (`force`) after one is created or on pull to refresh.
+    /// Asks for the projects of every bot that owns a listed chat (and the chip's bot): the first time the Filter menu
+    /// opens or Group By Project is on, then at most once a minute per bot, and again (`force`) after one is created.
     /// `also`: bots to ask whether or not they own a listed chat (the bot a project was just created for).
     /// At most `projectsWindow` asks are in the air; the rest wait their turn.
-    /// [projects-all-bots] Owner 2026-11-22: a project made in another app on a bot with no chat on the loaded page
-    /// never reached the Projects view, because only the listed chats' bots were asked.
     func loadProjects(force: Bool = false, also extra: [String] = []) {
         var owners = Set(listedRows.map(\.profile)).union(extra)
-        if allBots { owners.formUnion(projectBots) }
         if let botFilter { owners.insert(botFilter) }
         var queued = 0
         for profile in owners.sorted() where !projectReads.contains(profile) && !projectQueue.contains(profile) {

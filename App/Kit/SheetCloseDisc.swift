@@ -104,7 +104,6 @@ final class SheetCloseButton: UIButton {
 /// The disc in a SwiftUI header (Add context): the same UIKit button, so both headers draw one control.
 struct SheetCloseDiscView: UIViewRepresentable {
     var glyph: SheetCloseDisc.Glyph = .close
-    var identifier: String? = nil
     var action: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -119,7 +118,6 @@ struct SheetCloseDiscView: UIViewRepresentable {
     func updateUIView(_ button: SheetCloseButton, context: Context) {
         context.coordinator.action = action
         button.glyph = glyph
-        if let identifier { button.accessibilityIdentifier = identifier }
         button.restyle()
     }
 

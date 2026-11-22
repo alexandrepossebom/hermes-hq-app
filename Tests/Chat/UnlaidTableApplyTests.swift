@@ -10,53 +10,6 @@ import UIKit
 
 @MainActor
 @Suite struct UnlaidTableApplyTests {
-    // Seed UIKit's cached count independently of the controller, then let the real chat data source answer
-    // again. This recreates the two snapshots from the build 1169 exception without relying on reconnect timing.
-    private final class CountSnapshot: NSObject, UITableViewDataSource {
-        let chat: ChatViewController
-        var count: Int?
-        init(_ chat: ChatViewController, count: Int) { self.chat = chat; self.count = count }
-        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            count ?? chat.tableView(tableView, numberOfRowsInSection: section)
-        }
-        func tableView(_ tableView: UITableView, cellForRowAt path: IndexPath) -> UITableViewCell {
-            chat.tableView(tableView, cellForRowAt: path)
-        }
-    }
-
-    @Test func historyRefreshWithThirteenRowsInTheTable() async throws {
-        let spy = SpyChatSession()
-        spy.messages = []
-        let chat = ChatViewController(session: spy)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.rootViewController = chat
-        window.isHidden = false
-        window.layoutIfNeeded()
-        defer { window.isHidden = true }
-        spy.messages = (0..<38).map { ChatMessage(id: "old-\($0)", role: .user, parts: [.text("Line \($0)")]) }
-        spy.onChange?(.reset)
-        for _ in 0..<150 where chat.rows.count < 38 { try await Task.sleep(for: .milliseconds(20)) }
-        try #require(chat.rows.count >= 38)
-
-        let table = chat.tableView
-        let snapshot = CountSnapshot(chat, count: 13)
-        table.dataSource = snapshot
-        defer { table.dataSource = chat }
-        table.reloadData()
-        table.layoutIfNeeded()
-        snapshot.count = nil
-        try #require(table.numberOfRows(inSection: 0) == 13)
-        spy.messages = [ChatMessage(id: "fresh", role: .user, parts: [.text("After reconnect")])]
-        spy.onChange?(.reset)
-        for _ in 0..<150 where !chat.rows.contains(where: { $0.messageId == "fresh" }) {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(chat.rows.contains { $0.messageId == "fresh" })
-        #expect(!chat.rows.contains { $0.messageId.hasPrefix("old-") })
-        #expect(table.numberOfRows(inSection: 0) == chat.rows.count)
-        withExtendedLifetime(snapshot) {}
-    }
-
     @Test func aMeasuredReplyLandingAfterATextSizeChangeDoesNotThrow() async throws {
         let spy = SpyChatSession()                       // two cached messages: rows at init
         let chat = ChatViewController(session: spy)

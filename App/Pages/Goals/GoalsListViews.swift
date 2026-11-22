@@ -30,11 +30,13 @@ struct GoalCardModel: Hashable {
     var look = GoalTeamLook()
     /// [goals step 4] "Nothing has moved in 16 days": an orange line under the grey one.
     var stall: String?
+    /// [goals set-up] No next task and a plan offer waits: the next-step line reads "Plan to look at".
+    var planWaits = false
 
     static func == (a: GoalCardModel, b: GoalCardModel) -> Bool {
         a.id == b.id && a.title == b.title && a.color == b.color && a.fraction == b.fraction && a.line == b.line && a.pace == b.pace
             && a.next?.id == b.next?.id && a.next?.title == b.next?.title && a.quiet == b.quiet && a.greyRing == b.greyRing && a.ticking == b.ticking && a.spoken == b.spoken
-            && a.team == b.team && a.led == b.led && a.waits == b.waits && a.look == b.look && a.stall == b.stall
+            && a.team == b.team && a.led == b.led && a.waits == b.waits && a.look == b.look && a.stall == b.stall && a.planWaits == b.planWaits
     }
 
     func hash(into hasher: inout Hasher) { hasher.combine(id); hasher.combine(line); hasher.combine(next?.id) }
@@ -57,6 +59,10 @@ struct GoalCardModel: Hashable {
             card.led = goal.lead != nil
             card.waits = GoalBots.waitsForYou(goal, offers: offers)
             card.look = look
+            if GoalShelfNext.of(goal, tasks: tasks, bots: true, offers: offers) == .planWaits {
+                card.planWaits = true
+                card.spoken += ", " + GoalShelfNext.planWords.lowercased()
+            }
         }
         card.stall = GoalViews.stalled(goal, tasks: tasks, now: now, keptHere: keptHere).map(GoalViews.stallLine)
         return card
@@ -122,6 +128,22 @@ struct GoalCard: View {
                         .strikethrough(model.ticking, color: Color.hqLabel3)
                         .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 11)
+            } else if model.planWaits {
+                // [goals set-up] A plan waits for your answer (its card is on the goal's page and on Today).
+                TaskPlainHairline()
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(Font.hq(.callout).weight(.light))
+                        .foregroundStyle(Color.hqLabel3)
+                        .accessibilityHidden(true)
+                    Text(GoalShelfNext.planWords)
+                        .font(Font.hq(.subheadline))
+                        .foregroundStyle(Color.hqLabel)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("goal.card.plan-waits")
                 }
                 .padding(.vertical, 11)
             }

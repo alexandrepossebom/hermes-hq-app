@@ -9,12 +9,6 @@ final class ActivityShelfView: UIView {
         return UIVisualEffectView(effect: effect)
     }()
     let summaryHeader = ShelfHeader()
-    /// The direct call notice takes the place of the folded activity pill while it opens the call.
-    var summaryIcon: (name: String, tint: UIColor)? {
-        didSet { if summaryIcon?.name != oldValue?.name || summaryIcon?.tint != oldValue?.tint { setNeedsLayout() } }
-    }
-    private let callNotice = UIView()
-    private var showsCallNotice: Bool { !expanded && summaryIcon != nil }
     private let overview = UIScrollView()
     private(set) var pieces: [ShelfPieceKind: ShelfPieceView] = [:]
     var onToggle: (() -> Void)?
@@ -63,14 +57,6 @@ final class ActivityShelfView: UIView {
             addSubview(backing)
         }
         addSubview(glass)
-        callNotice.backgroundColor = HQPalette.solidSheetCard
-        callNotice.isUserInteractionEnabled = false
-        callNotice.isAccessibilityElement = false
-        callNotice.layer.cornerCurve = .continuous
-        callNotice.layer.shadowOpacity = 0.10
-        callNotice.layer.shadowRadius = 6
-        callNotice.layer.shadowOffset = CGSize(width: 0, height: 2)
-        addSubview(callNotice)
         // The header is outside the glass so the invisible 5 pt margins remain tappable.
         addSubview(summaryHeader)
         // Above the header, so its 44 pt target wins over the header's own tap.
@@ -181,19 +167,8 @@ final class ActivityShelfView: UIView {
         // Expanded, the words' own ⌃ moves to the trailing collapse-all button; a detail keeps its ‹ back.
         summaryHeader.chevronStyle = inDetail ? .back : expanded ? .hidden : .expand
         summaryHeader.reservesTrailingControl = expanded
-        let direct = showsCallNotice ? summaryIcon : nil
-        let icon = summaryHeader.leadingIcon
-        let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-        icon.image = direct.flatMap { UIImage(systemName: $0.name, withConfiguration: config) }
-        icon.tintColor = direct.map { PhoneCardColors.ink(on: $0.tint, minimum: 3) }
-        icon.backgroundColor = direct?.tint
-        icon.layer.cornerRadius = 14
-        icon.isHidden = direct == nil
-        summaryHeader.callBadge = direct != nil
-        if summaryHeader.isRow != (direct != nil) { summaryHeader.isRow = direct != nil }
-        if direct != nil { summaryHeader.chevronStyle = .disclosure }
-        summaryHeader.requiresFullText = direct != nil || (expanded && summary.needsAttention)
-        let color: UIColor? = direct == nil && summary.isRunning && !inDetail ? ChatPalette.label2 : nil
+        summaryHeader.requiresFullText = expanded && summary.needsAttention
+        let color: UIColor? = summary.isRunning && !inDetail ? ChatPalette.label2 : nil
         let showsSummary = !inDetail || summary.needsAttention
         let words = !expanded || summary.needsAttention ? summary.words() : "Activity"
         summaryHeader.set(words: words, spinner: color)
@@ -209,15 +184,14 @@ final class ActivityShelfView: UIView {
         turnedExpanded = expanded
         summaryHeader.accessibilityLabel = showsSummary ? summary.accessibilityLabel : "All activity"
         summaryHeader.accessibilityValue = detail != nil ? "detail" : expanded ? "expanded" : "collapsed"
-        summaryHeader.accessibilityHint = direct != nil ? "Opens the call"
-            : detail != nil ? "Returns to activity categories" : expanded ? "Collapses activity" : "Shows activity categories"
+        summaryHeader.accessibilityHint = detail != nil ? "Returns to activity categories" : expanded ? "Collapses activity" : "Shows activity categories"
     }
 
     func height(for width: CGFloat) -> CGFloat {
         guard hasActivity else { return 0 }
         let w = expanded ? cardWidth(width) : width
         prepareHeader(width: w)
-        let header = headerHeight(width: w)
+        let header = summaryHeader.height(width: w)
         guard expanded else { foldedHeight = header; return header }
         if let detail {
             // Keep a usable body viewport even when the keyboard leaves less room than both headers.
@@ -228,10 +202,6 @@ final class ActivityShelfView: UIView {
         let cap = max(header + 44, min(maxCardHeight, maxHeight))
         let rows = visiblePieces.reduce(CGFloat.zero) { $0 + $1.header.height(width: w) }
         return min(cap, header + rows)
-    }
-
-    private func headerHeight(width: CGFloat) -> CGFloat {
-        max(showsCallNotice ? 48 : 44, summaryHeader.height(width: width))
     }
 
     /// Detail coordinates are in the glass; overview row coordinates are in its scroller.
@@ -257,27 +227,19 @@ final class ActivityShelfView: UIView {
         super.layoutSubviews()
         let present = hasActivity
         accessibilityElementsHidden = !present
-        let direct = showsCallNotice
-        glass.isHidden = !present || direct
-        backing.isHidden = !present || direct
-        callNotice.isHidden = !present || !direct
+        glass.isHidden = !present
+        backing.isHidden = !present
         glass.accessibilityElementsHidden = !present || !expanded
         summaryHeader.isHidden = !present
         guard present else { return }
         let w = expanded ? cardWidth(bounds.width) : bounds.width
         prepareHeader(width: w)
-        let headerH = headerHeight(width: w)
-        let actualW = expanded || direct ? w : min(w, summaryHeader.fittingWidth)
+        let headerH = summaryHeader.height(width: w)
+        let actualW = expanded ? w : min(w, summaryHeader.fittingWidth)
         let x = ((bounds.width - actualW) / 2).rounded()
         let margin: CGFloat = expanded ? 0 : Self.pillMargin
         glass.frame = CGRect(x: x, y: margin, width: actualW, height: max(0, bounds.height - 2 * margin))
         summaryHeader.frame = CGRect(x: x, y: 0, width: actualW, height: headerH)
-        if direct {
-            callNotice.frame = summaryHeader.frame
-            let radius = HQShape.radius(18, .card)
-            callNotice.layer.cornerRadius = radius
-            callNotice.layer.shadowPath = UIBezierPath(roundedRect: callNotice.bounds, cornerRadius: radius).cgPath
-        }
         collapseAll.isHidden = !expanded
         if expanded {
             let glyph = (summaryHeader.label.font.pointSize * 0.7).rounded()
@@ -348,7 +310,7 @@ final class ActivityShelfView: UIView {
 
     func collapsedWidth(for width: CGFloat) -> CGFloat {
         prepareHeader(width: width)
-        return showsCallNotice ? width : min(width, summaryHeader.fittingWidth)
+        return min(width, summaryHeader.fittingWidth)
     }
 }
 
@@ -552,10 +514,6 @@ final class ShelfHeader: UIControl {
     }
     /// A category row inside the expanded shelf: its chevron sits at the trailing edge, as in a list.
     var isRow = false { didSet { setNeedsLayout() } }
-    var callBadge = false {
-        didSet { if callBadge != oldValue { updateFonts(); setNeedsLayout() } }
-    }
-    private var leadingIconSide: CGFloat { callBadge ? 28 : 22 }
     /// [collapse-all] A 44 pt control sits over the trailing end (the shelf's collapse-all); the words stop short of it.
     var reservesTrailingControl = false { didSet { if reservesTrailingControl != oldValue { setNeedsLayout() } } }
     private var trailingInset: CGFloat { reservesTrailingControl ? 10 + 44 : more.isHidden ? 10 : 44 }
@@ -628,7 +586,7 @@ final class ShelfHeader: UIControl {
 
     fileprivate func updateFonts() {
         let size = min(HQFont.preferred(.subheadline, compatibleWith: traitCollection).pointSize, 22)
-        label.font = HQFont.face(ofSize: size, weight: callBadge ? .semibold : .regular)
+        label.font = HQFont.face(ofSize: size)
         valueLabel.font = HQFont.face(ofSize: size)
         label.numberOfLines = wrapsNow ? maximumWrappedLines : 1
         let config = UIImage.SymbolConfiguration(pointSize: (size * 0.7).rounded(), weight: .semibold)
@@ -692,7 +650,7 @@ final class ShelfHeader: UIControl {
     private var chevronWidth: CGFloat { (chevron.image?.size.width ?? 8) + 4 }
     /// A back chevron leads the words; the others trail them.
     private var leadingReserve: CGFloat {
-        14 + (leadingDot.isHidden ? 0 : 16) + (leadingIcon.isHidden ? 0 : leadingIconSide + 6) + (chevronStyle == .back ? chevronWidth + 2 : 0)
+        14 + (leadingDot.isHidden ? 0 : 16) + (leadingIcon.isHidden ? 0 : 28) + (chevronStyle == .back ? chevronWidth + 2 : 0)
     }
     /// The value column, at most half the row, plus its gap before the chevron.
     private func valueWidth(in width: CGFloat) -> CGFloat {
@@ -729,9 +687,8 @@ final class ShelfHeader: UIControl {
             x += 8 + 8
         }
         if !leadingIcon.isHidden {
-            let side = leadingIconSide
-            leadingIcon.frame = CGRect(x: x, y: (h - side) / 2, width: side, height: side)
-            x += side + 6
+            leadingIcon.frame = CGRect(x: x, y: (h - 22) / 2, width: 22, height: 22)
+            x += 22 + 6
         }
         let chevW = chevronWidth
         let spinW = spinner.map { $0.intrinsicContentSize.width } ?? 0

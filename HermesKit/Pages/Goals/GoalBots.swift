@@ -200,14 +200,34 @@ nonisolated enum GoalBots {
     /// and on another device (`planBubble`).
     static let planWordsStart = "In my words: “"
     static let planWordsEnd = "”."
+    /// [goals set-up] The owner's first real goal: the lead asked three questions in 13 seconds and offered a plan built
+    /// on guesses, and none of the questions asked what they already had (notes from a course they wanted to follow). So
+    /// the lead looks first, asks at most three questions on one card in a fixed order, skipping what it found, and the
+    /// plan names what it rests on and can tidy the goal's name, why, number and date (the add-on's contract, item 4).
     static func planRequest(_ goal: Goal, typed: String? = nil, now: Date, calendar: Calendar = .current) -> String {
         let words = ChatText.flat(typed ?? "")
         return planRequestStart + (words.isEmpty ? "" : " " + planWordsStart + words + planWordsEnd)
             + "\n" + details(goal, now: now, calendar: calendar)
-            + "\nAsk me at most three quick questions, on question cards, and look up what you can yourself. Then offer the "
-            + "plan with goals_offer (kind \"plan\"): the milestones, and only the first week's tasks, each with who. "
-            + "Nothing is added until I tap."
+            + "\n" + planSteps
     }
+
+    /// The three questions, in the order they are asked (each only when looking didn't answer it).
+    static let planQuestions = [
+        "what done looks like (a number or a date)",
+        "what I already have for it, or want to follow",
+        "how much time a week I have for it",
+    ]
+
+    /// What the plan request asks of the lead, after the goal's details.
+    static let planSteps = "First look for what I already have for this: my notes and files, what you remember about me, "
+        + "earlier tries, a course or method I follow. Build on it. "
+        + "Then ask me at most three questions, all on one question card, each with choices to tap, and skip any that your "
+        + "looking or the goal above already answers. Ask them in this order: 1. " + planQuestions[0] + "; 2. "
+        + planQuestions[1] + "; 3. " + planQuestions[2] + ". "
+        + "Then offer the plan with goals_offer (kind \"plan\"): the milestones, and only the first week's tasks, each with "
+        + "who. With it send name (a short name of a few words, when my goal's name is a sentence), why (one line, in my own "
+        + "words), measure {unit, start, target} or due (YYYY-MM-DD) when I gave a number or a date, and built_on (up to "
+        + "three short lines on what the plan rests on: my answers and what you found). Nothing is added until I tap."
 
     /// A stored Plan With ask → the words its bubble shows (what you typed); nil for any other turn.
     static func planBubble(forStored text: String) -> String? {
@@ -224,6 +244,21 @@ nonisolated enum GoalBots {
     static func updateRequest(_ goal: Goal) -> String {
         "Please look at where “\(goal.title)” stands now, check its number if you read it, and update where it stands and "
             + "its Goal Page (goals_update with stands and page). (Goal id \(goal.id))"
+    }
+
+    /// [goals set-up] Taking a plan tells the lead, once (a hidden turn in the goal's chat). After the owner tapped Add
+    /// on a plan nothing visible happened: the lead was never told, where it stands stayed empty, and the lead's own
+    /// tasks waited up to three hours for the next Task prep run.
+    static let planTakenStart = "I took your plan for"
+
+    /// "I took your plan for “Draw every day”: 3 milestones and 4 tasks are on it now. …". `offer`: the accepted offer
+    /// as the gateway answered it (what it made); `goal`: the goal after it (its new name, when the plan set one).
+    static func planTakenRequest(_ goal: Goal, offer: TodoOffer) -> String {
+        let m = offer.madeMilestones.count, n = offer.added.count
+        let parts = [m > 0 ? GoalOffers.milestoneCount(m) : nil, n > 0 ? TodoLists.count(n) : nil].compactMap { $0 }
+        let made = parts.isEmpty ? "nothing new is on it, only its set-up" : parts.joined(separator: " and ") + (m + n == 1 ? " is" : " are") + " on it now"
+        return "\(planTakenStart) “\(goal.title)”: \(made). Start your own tasks under it now, then tell me where it stands "
+            + "in one line (goals_update with stands). (Goal id \(goal.id))"
     }
 
     /// The stall question's Smaller Step with a lead, as a hidden turn.
@@ -303,6 +338,49 @@ nonisolated enum GoalOffers {
 
     /// "5 milestones", "1 milestone".
     static func milestoneCount(_ n: Int) -> String { n == 1 ? "1 milestone" : "\(n) milestones" }
+
+    // MARK: [goals set-up] What a plan rests on and what it sets
+
+    /// The heading over a plan's `built_on` lines.
+    static let builtOnHeader = "Built on"
+    /// The heading over the rows a plan also sets on the goal.
+    static let setupHeader = "Also sets"
+    /// A plan card shows at most this many lines of what it rests on (the add-on keeps three).
+    static let builtOnShown = 3
+
+    /// "Your course notes, 8 units", "3 hours a week": each one line, at most 90 characters, empty ones dropped, three
+    /// at most. Only a plan offer has them.
+    static func builtOn(_ offer: TodoOffer) -> [String] {
+        guard offer.kind == "plan" else { return [] }
+        return offer.builtOn.map { line in
+            let flat = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            return flat.count > 90 ? String(flat.prefix(89)) + "…" : flat
+        }
+        .filter { !$0.isEmpty }
+        .prefix(builtOnShown).map { $0 }
+    }
+
+    /// What accepting a plan also changes on its goal, one row each, only the kept keys, in this order: "Name" (the new
+    /// name), "Why", "Number" ("0 of 1,000 followers", as the goal's page says a number), "By" ("Sun, Jan 31", as the
+    /// page's date row says it).
+    static func setupRows(_ offer: TodoOffer, now: Date, calendar: Calendar = .current) -> [GoalSetupRow] {
+        guard offer.kind == "plan", let setup = offer.setup else { return [] }
+        var rows: [GoalSetupRow] = []
+        if let name = setup.name { rows.append(GoalSetupRow(key: "name", label: "Name", value: name)) }
+        if let why = setup.why { rows.append(GoalSetupRow(key: "why", label: "Why", value: why)) }
+        if let m = setup.measure {
+            let words = GoalViews.measureWords(GoalMeasure(unit: m.unit, start: m.start, target: m.target), unit: true)
+            rows.append(GoalSetupRow(key: "measure", label: "Number", value: words))
+        }
+        if let due = setup.due,
+           let row = GoalViews.dateRow(Goal(id: "", title: "", due: due), now: now, calendar: calendar) {
+            rows.append(GoalSetupRow(key: "due", label: "By", value: String(row.dropFirst(3))))   // "By Sun, Jan 31" → "Sun, Jan 31"
+        }
+        return rows
+    }
+
+    /// VoiceOver for one set-up row: "Name: Draw every day".
+    static func setupSpoken(_ row: GoalSetupRow) -> String { "\(row.label): \(row.value)" }
 
     /// A task's who: "You", or the bot's name.
     static func who(_ task: TodoOfferTask, offer: TodoOffer, botName: (String?) -> String) -> String {
@@ -390,6 +468,61 @@ nonisolated enum GoalOffers {
         case "checkin": return checkinHead(offer, goal: goal, botName: botName) + ", \(name)"
         default: return "\(botName(offer.bot)) has \(TodoLists.count(offer.tasks.count)) for \(name)"
         }
+    }
+}
+
+/// [goals set-up] One row of what a plan also sets: its key on the wire ("name", "why", "measure", "due"), the label
+/// ("Name", "Why", "Number", "By") and the value in words.
+nonisolated struct GoalSetupRow: Hashable, Sendable {
+    var key: String
+    var label: String
+    var value: String
+}
+
+/// [goals set-up] Taking a plan tells the goal's lead once: never twice for one offer (a relaunch, Undo then accept
+/// again), never from a device that did not take it (another device's answer is a 409 here, or a change heard on a
+/// read), never on Undo or a decline, and not when the goal has no lead. The offers told are kept on the device
+/// (`stored` / `read`), the newest 200 within 30 days.
+nonisolated struct GoalPlanTold: Sendable {
+    static let keep = 200
+    static let days: TimeInterval = 30 * 86_400
+    private(set) var told: [String: Date] = [:]
+
+    init(told: [String: Date] = [:]) { self.told = told }
+
+    /// Whether this answer should tell the lead. `action`: your tap; `answer`: the offer as the gateway answered it;
+    /// `goal`: its goal after the answer.
+    func shouldTell(action: TodoOfferAction, answer: TodoOffer, goal: Goal?) -> Bool {
+        guard action == .accept, answer.kind == "plan", answer.state == "accepted", told[answer.id] == nil else { return false }
+        guard let goal, goal.id == answer.goal, goal.lead != nil, goal.state == .active else { return false }
+        return true
+    }
+
+    /// Notes it as told; false when it already was (the caller sends nothing then).
+    mutating func mark(_ offer: String, now: Date) -> Bool {
+        guard told[offer] == nil else { return false }
+        told[offer] = now
+        told = told.filter { now.timeIntervalSince($0.value) < Self.days }
+        if told.count > Self.keep {
+            let newest = told.sorted { $0.value > $1.value }.prefix(Self.keep)
+            told = Dictionary(uniqueKeysWithValues: newest.map { ($0.key, $0.value) })
+        }
+        return true
+    }
+
+    /// One line per offer: "<id> <seconds since 1970>".
+    var stored: String {
+        told.sorted { $0.key < $1.key }.map { "\($0.key) \(Int($0.value.timeIntervalSince1970))" }.joined(separator: "\n")
+    }
+
+    static func read(_ stored: String?) -> GoalPlanTold {
+        var out: [String: Date] = [:]
+        for line in (stored ?? "").split(separator: "\n") {
+            let parts = line.split(separator: " ")
+            guard parts.count == 2, let seconds = Double(parts[1]) else { continue }
+            out[String(parts[0])] = Date(timeIntervalSince1970: seconds)
+        }
+        return GoalPlanTold(told: out)
     }
 }
 

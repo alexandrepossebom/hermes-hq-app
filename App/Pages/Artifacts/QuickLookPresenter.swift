@@ -57,18 +57,6 @@ enum QuickLookPresenter {
         #if targetEnvironment(macCatalyst)
         if MacFileWindow.open(url) { return }   // [mac-files] a window of its own on the Mac, not a sheet
         #endif
-        // A photo opens in a viewer it can be flung out of (Quick Look takes no swipe to close).
-        if LocalPhotoViewer.opens(url) {
-            LocalPhotoViewer.present(url, from: controller) { [weak controller] in
-                if let controller { quickLook(url: url, from: controller) }
-            }
-            return
-        }
-        quickLook(url: url, from: controller)
-    }
-
-    @MainActor
-    private static func quickLook(url: URL, from controller: UIViewController) {
         let source = QuickLookItemSource(url: url)
         guard let preview = QuickLookRuntime.makeController(source) else {
             // No Quick Look: hand the file to Share instead.

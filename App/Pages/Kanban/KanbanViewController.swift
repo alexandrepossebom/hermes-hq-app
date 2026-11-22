@@ -471,8 +471,8 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
         label.setContentHuggingPriority(.required, for: .horizontal)
         var config = UIButton.Configuration.plain()
         config.imagePlacement = .trailing
-        config.imagePadding = MacPopUpInsets.chevronGap
-        config.contentInsets = MacPopUpInsets.content()   // [popup-room]
+        config.imagePadding = 6
+        config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 7)
         config.cornerStyle = .fixed
         config.background.cornerRadius = MacField.radius
         config.background.strokeWidth = 1
@@ -584,8 +584,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
             // it is drawn as a pop-up button: an outlined box, body-size text, the up-down chevron.
             // [mac] Mac polish #109: the face every Mac pop-up has (`MacPopUpFace`: the field box's fill, edge, corner and
             // height); it was a 44 pt outline with no fill. The click area stays the button's 44 pt.
-            config.contentInsets = MacPopUpInsets.content()   // [popup-room]
-            config.imagePadding = MacPopUpInsets.chevronGap
+            config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 7)
             config.cornerStyle = .fixed   // the background's own radius (a dynamic style sets its own)
             config.background.cornerRadius = MacField.radius
             config.background.strokeWidth = 1

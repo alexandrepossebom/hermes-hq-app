@@ -84,7 +84,7 @@ struct TodoFieldsTests {
         #expect(TodoViews.startWords(task("a"), now: Self.now, calendar: Self.calendar) == nil)
     }
 
-    /// A row carries its priority (the mark before its name) while it is open, and its tags in a list and Inbox only.
+    /// A row carries its priority (the circle's colour) while it is open, and its tags in a list and Inbox only.
     @Test func aRowCarriesItsPriorityAndTags() {
         let name: (String?) -> String = { _ in "Hermes" }
         let it = task("a", ["priority": 1, "tags": ["hiring", "q4", "ops"], "due": "2026-11-04"])
@@ -97,10 +97,6 @@ struct TodoFieldsTests {
                                  now: Self.now, calendar: Self.calendar, botName: name)
         #expect(done.priority == 0, "a finished task's circle is plain")
         #expect(TodoViews.priorityWord(1) == "High" && TodoViews.priorityWord(2) == "Medium" && TodoViews.priorityWord(3) == "Low")
-        // [tasks-colour] The mark is ink, not a colour: high and medium only (low is in the order and the spoken words).
-        #expect(TodoViews.priorityMark(1) == "!!" && TodoViews.priorityMark(2) == "!")
-        #expect(TodoViews.priorityMark(3) == nil && TodoViews.priorityMark(0) == nil)
-        #expect(TodoViews.priorityMark(done.priority) == nil, "a finished task has no mark")
     }
 
     /// Sort By › Priority: high, medium, low, then none; your own order inside each.

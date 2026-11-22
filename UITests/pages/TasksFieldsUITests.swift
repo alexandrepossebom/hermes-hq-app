@@ -31,7 +31,7 @@ extension PagesTests {
         let spoken = taxes.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Medium priority")).firstMatch
         XCTAssertTrue(spoken.exists || taxes.label.contains("Medium priority"), "the row says its priority: \(taxes.label)")
         shot("fields-2-today" + Self.lookName)
-        tapView("inbox")
+        app.buttons["tasks.view.inbox"].firstMatch.tap()
         XCTAssertTrue(app.cells["task-row-Fix the porch light"].firstMatch.waitForExistence(timeout: 5), "Inbox lists the porch light")
         // [task-lists] Inbox is what hasn't been filed, dated or not (owner 2026-11-14, board 1).
         XCTAssertTrue(taxes.waitForExistence(timeout: 5), "a task in no list is in Inbox, with a start day or not")

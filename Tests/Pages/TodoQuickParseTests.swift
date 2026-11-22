@@ -74,17 +74,4 @@ struct TodoQuickParseTests {
         let it = read("Plan the offsite friday 9am #work", dates: false)
         #expect(it.title == "Plan the offsite friday 9am" && it.due == nil && it.tags == ["work"])
     }
-    @Test func unsupportedFieldsAndRecurrenceRemainLiteral() {
-        let old = TodoQuickParse.read("Fix #123 P1 tomorrow", now: Self.now, calendar: Self.calendar, metadata: false)
-        #expect(old.title == "Fix #123 P1" && old.tags.isEmpty && old.priority == nil && old.due != nil)
-        let bot = TodoQuickParse.read("Prepare weekly report", now: Self.now, calendar: Self.calendar, repeats: false)
-        #expect(bot.title == "Prepare weekly report" && bot.repeatRule == nil && bot.due == nil)
-        let weekday = TodoQuickParse.read("Review every monday", now: Self.now, calendar: Self.calendar, repeats: false)
-        #expect(weekday.title == "Review every monday" && weekday.due == nil)
-        let override = TodoQuickParse.read("Review P1 #work", now: Self.now, calendar: Self.calendar, priorities: false)
-        #expect(override.title == "Review P1" && override.tags == ["work"] && override.priority == nil)
-        let literal = TodoQuickParse.read("Discuss monday meeting #123 P1", now: Self.now, calendar: Self.calendar, dates: false, metadata: false, repeats: false)
-        #expect(literal.title == "Discuss monday meeting #123 P1" && literal.due == nil)
-    }
-
 }

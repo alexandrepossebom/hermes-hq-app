@@ -31,20 +31,12 @@ extension AppModel {
             QuickActions.resetItems()
             IntentsRuntime.shared.reset()
             wiring.catalog.empty()
-            ProjectShortcutCatalog.clear()           // [shortcut-new-chat]
-            JobShortcutCatalog.clear()                   // [shortcuts]
             wiring.visits = [:]
             AppLog.note("intents", "account changed")
         }
         // Bots stored for another account (an update from a build that did not keep the digest) are not this one's.
         if let first = VoiceBotCatalog.bots().first, !VoiceBotCatalog.sameAccount(first.account, VoiceBotCatalog.account(url: url, username: username)) {
             wiring.catalog.empty()
-        }
-        if let first = ProjectShortcutCatalog.projects().first, !VoiceBotCatalog.sameAccount(first.account, VoiceBotCatalog.account(url: url, username: username)) {
-            ProjectShortcutCatalog.clear()           // [shortcut-new-chat]
-        }
-        if let first = JobShortcutCatalog.jobs().first, !VoiceBotCatalog.sameAccount(first.account, VoiceBotCatalog.account(url: url, username: username)) {
-            JobShortcutCatalog.clear()               // [shortcuts]
         }
         intentsListsChanged()
         IntentsRuntime.shared.kick()                 // a request that launched the app
@@ -58,28 +50,6 @@ extension AppModel {
         // DECISION I4: an empty roster is written only once the gateway has answered with one (never while it loads, never
         // after a failed read).
         wiring.catalog.sync(bots: bots, account: intentsAccount, answered: (botStore?.phase ?? .none) >= .slim)
-        // [shortcut-new-chat] The New Chat action's projects: the New Chat sheet's, written once there are some.
-        if let account = intentsAccount, let sessionStore {
-            let projects = ProjectShortcutCatalog.records(sessionStore.newChatEntries(), account: account)
-            if !projects.isEmpty, ProjectShortcutCatalog.store(projects) { AppLog.note("intents", "shortcut projects: \(projects.count)") }
-        }
-        intentsJobsChanged()
-        // [quick-actions] The Home Screen items follow the lists whether or not this gateway has jobs (since 226190bb8
-        // the only call sat behind `intentsJobsChanged`'s guard, so a gateway with no jobs never got its items).
-        QuickActions.schedule()
-    }
-
-    /// [shortcuts] The Run Job action's jobs: the Jobs list as last read (every bot's when the list shows all of them;
-    /// a list narrowed to one bot only adds that bot's), written once there are some.
-    func intentsJobsChanged() {
-        guard let account = intentsAccount, let store = JobsStore.current, !store.jobs.isEmpty else { return }
-        var records = JobShortcutCatalog.records(store.jobs.map { ($0, store.title($0)) }, account: account)
-        if store.scope != "all" {
-            // Another bot's jobs stay as the last full list had them.
-            let kept = JobShortcutCatalog.jobs().filter { $0.owner != store.scope && VoiceBotCatalog.sameAccount($0.account, account) }
-            records = kept + records
-        }
-        if JobShortcutCatalog.store(records) { AppLog.note("intents", "shortcut jobs: \(records.count)") }
         QuickActions.schedule()
     }
 
@@ -104,8 +74,6 @@ extension AppModel {
         let wiring = IntentsWiring.shared
         IntentsRuntime.shared.reset()
         wiring.catalog.empty()
-        ProjectShortcutCatalog.clear()               // [shortcut-new-chat]
-        JobShortcutCatalog.clear()                   // [shortcuts]
         wiring.visits = [:]
         if let note = VoiceBotCatalog.pendingNote() {
             if let file = LegacyNoteFile.resolve(note.path) { LegacyNoteFile.remove(file) }
@@ -167,7 +135,6 @@ extension AppModel {
             }
         }
         QuickActions.rows = { [weak model] in model?.intentsTargets }
-        JobsStore.onListed = { [weak model] in model?.intentsJobsChanged() }   // [shortcuts]
     }
 }
 

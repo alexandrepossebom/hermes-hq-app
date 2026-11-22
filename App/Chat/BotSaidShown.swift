@@ -111,7 +111,7 @@ nonisolated extension BotSaidRules {
             // The bot's reply, unless the chat folds it into a talk with another bot; yours and anyone else's count.
             if UpdateGroups.isBotsReply(row) { return !rows.interim(member) && !bubble.text.isEmpty }
             return true
-        case .backgroundResult, .phoneResult:
+        case .backgroundResult:
             return !UpdateGroups.isBotTalk(row)          // "From Otto" / "To Otto" are the bots' own business
         case .error, .prompt, .slashOutput:
             return true

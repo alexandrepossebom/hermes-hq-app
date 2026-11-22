@@ -581,13 +581,6 @@ final class ChangedFilesCell: ChatBaseCell {
         override var isHighlighted: Bool { didSet { alpha = PointerEffects.dim(isHighlighted, to: 0.5) } }   // motion-ok: colour only
     }
 
-    /// [files] File Changes › Folded: the one line ("8 files changed +49 −11 ⌄"), drawn as an update group's centred
-    /// line — glyph, words, a soft caret (down while shut, up while open) — its press area hugging them.
-    private let lineButton = UIControl()
-    private let lineGlyph = CAShapeLayer()
-    private let lineLabel = UILabel()
-    private let lineCaret = CAShapeLayer()
-    private var lineGlyphSize: CGFloat = 0
     private let card = UIView()
     private let header = HeaderView()
     private let showAll = UIControl()
@@ -597,27 +590,6 @@ final class ChangedFilesCell: ChatBaseCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        for shape in [lineGlyph, lineCaret] {
-            shape.fillColor = nil
-            shape.lineCap = .round
-            shape.lineJoin = .round
-            lineButton.layer.addSublayer(shape)
-        }
-        lineGlyph.lineWidth = 1.5
-        lineCaret.lineWidth = 1.3
-        lineLabel.isUserInteractionEnabled = false
-        lineLabel.lineBreakMode = .byTruncatingTail
-        lineButton.addSubview(lineLabel)
-        lineButton.layer.cornerRadius = 10
-        lineButton.layer.cornerCurve = .continuous
-        lineButton.addTarget(self, action: #selector(lineTapped), for: .touchUpInside)
-        lineButton.addTarget(self, action: #selector(linePressed), for: [.touchDown, .touchDragEnter])
-        lineButton.addTarget(self, action: #selector(lineReleased), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
-        lineButton.isAccessibilityElement = true
-        lineButton.accessibilityTraits = .button
-        lineButton.accessibilityIdentifier = "chat.changed-files.line"
-        PointerEffects.surface(lineButton, capsule: true)
-        contentView.addSubview(lineButton)
         card.layer.cornerRadius = ChatMetrics.insetCardRadius
         card.layer.cornerCurve = .continuous
         card.isUserInteractionEnabled = false
@@ -638,7 +610,6 @@ final class ChangedFilesCell: ChatBaseCell {
         accessibilityIdentifier = "chat.changed-files"
         registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: ChangedFilesCell, _) in
             view.card.backgroundColor = Self.contentCardFill
-            view.lineColors()
         }
     }
 
@@ -647,23 +618,13 @@ final class ChangedFilesCell: ChatBaseCell {
     override func configure(_ row: ChatRow, layout: RowLayout) {
         super.configure(row, layout: layout)
         guard case .activity(.changedFiles(let c)) = layout.content else { return }
-        configureLine(c)
-        let showsCard = c.cardShown
-        card.isHidden = !showsCard
-        header.isHidden = !showsCard
-        if !showsCard {
-            for v in lineViews { v.isHidden = true }
-            showAll.isHidden = true
-            return
-        }
         card.frame = c.cardFrame
         card.backgroundColor = Self.contentCardFill   // [backdrop]
         let hairline = HQShape.pixel(traitCollection.displayScale)
         header.frame = c.headerFrame
         PointerEffects.fit(header, card: c.cardFrame, radius: ChatMetrics.insetCardRadius)
         header.title.font = c.font
-        // Folded and open: the line above already says how many files, so the card's top line is "Review ›" alone.
-        header.title.text = c.lineFrame == nil ? c.headerTitle : nil
+        header.title.text = c.headerTitle
         // The title's own size (already scaled), held at 20 pt × UI Scale: `scaled` put the scale and the text size on
         // a second time, and "Review" came out a size bigger than the title beside it (Mac polish #71).
         let reviewFont = HQFont.face(ofSize: min(c.font.pointSize, HQFont.scaled(20)), weight: .semibold)
@@ -714,79 +675,6 @@ final class ChangedFilesCell: ChatBaseCell {
         } else {
             showAll.isHidden = true
         }
-    }
-
-    /// [backdrop] On a chat picture's pill the words and glyph take the primary label, the caret label 2 (as a work line).
-    private func lineColors() {
-        let onPill = Backdrop.chats.shows
-        lineGlyph.strokeColor = (onPill ? ChatPalette.label : ChatPalette.label2).resolvedColor(with: traitCollection).cgColor
-        lineCaret.strokeColor = (onPill ? ChatPalette.label2 : ChatPalette.label3).resolvedColor(with: traitCollection).cgColor
-    }
-
-    /// [files] The folded line: glyph, words and caret centred together in the row (`ChatToolCell.layoutGroup`'s sizes).
-    private func configureLine(_ c: ChangedFilesLayout) {
-        guard let row = c.lineFrame, let text = c.lineText, let font = c.lineFont else {
-            lineButton.isHidden = true
-            placeBacking(nil, radius: 0)
-            return
-        }
-        lineButton.isHidden = false
-        let style = ChatStyleCache.shared.style(for: traitCollection.preferredContentSizeCategory)
-        let words = NSMutableAttributedString(attributedString: text)
-        if Backdrop.chats.shows {
-            // [backdrop] Words on the pill in the primary label; the +/− keep their green and red.
-            words.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: words.length)) { value, range, _ in
-                if (value as? UIColor) == ChatPalette.label2 { words.addAttribute(.foregroundColor, value: ChatPalette.label, range: range) }
-            }
-        }
-        lineLabel.attributedText = words
-        let side = (style.toolGlyph - 2).rounded()
-        let pad: CGFloat = 10, glyphGap: CGFloat = 6
-        let caretW = max(7, font.capHeight.rounded())
-        let caretGap = max(5, (caretW * 0.5).rounded())
-        let room = max(0, row.width - 2 * pad - side - glyphGap - caretGap - caretW)
-        let textW = min(ceil(words.size().width), room)
-        let contentW = side + glyphGap + textW + caretGap + caretW
-        let h = row.height
-        lineButton.frame = CGRect(x: row.minX + ((row.width - contentW) / 2).rounded() - pad, y: row.minY,
-                                  width: contentW + 2 * pad, height: h)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        lineGlyph.frame = CGRect(x: pad, y: ((h - side) / 2).rounded(), width: side, height: side)
-        if lineGlyphSize != side {
-            lineGlyph.path = ChatGlyph.file.path(size: side)
-            lineGlyphSize = side
-        }
-        let caretH = (caretW * 0.5).rounded()
-        let capMid = (h - font.lineHeight) / 2 + font.ascender - font.capHeight / 2
-        lineCaret.frame = CGRect(x: pad + side + glyphGap + textW + caretGap, y: (capMid - caretH / 2).rounded(), width: caretW, height: caretH)
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: 0, y: c.opened ? caretH : 0))
-        path.addLine(to: CGPoint(x: caretW / 2, y: c.opened ? 0 : caretH))
-        path.addLine(to: CGPoint(x: caretW, y: c.opened ? caretH : 0))
-        lineCaret.path = path.cgPath
-        lineColors()
-        CATransaction.commit()
-        lineLabel.frame = CGRect(x: pad + side + glyphGap, y: 0, width: textW, height: h)
-        lineButton.accessibilityLabel = words.string
-        lineButton.accessibilityValue = c.opened ? "Expanded" : "Collapsed"
-        // [backdrop] A capsule as tall as the words, as a work line's.
-        let pillH = min(h, ceil(max(font.lineHeight, side)) + 8)
-        placeBacking(lineButton.frame.insetBy(dx: 0, dy: ((h - pillH) / 2).rounded()), radius: pillH / 2)
-    }
-
-    @objc private func linePressed() {
-        if showsBacking { pressBacking(true) } else { lineButton.alpha = PointerEffects.dim(true, to: 0.5) }
-    }
-
-    @objc private func lineReleased() {
-        pressBacking(false)
-        lineButton.alpha = 1
-    }
-
-    @objc private func lineTapped() {
-        Haptics.play(.selection)
-        delegate?.chatCellToggleFiles(rowId: rowId)
     }
 
     private func layoutHeader() {
@@ -1041,8 +929,6 @@ final class ActivityImageViewer: UIViewController, UIScrollViewDelegate {
     private var shareItem: UIBarButtonItem!
     private var failedCaption: UIButton?
     private var fling: PhotoFling?
-    /// Owner 2026-11-22: press and hold (right-click on the Mac) on the picture: Save to Photos, Share…, Copy Image.
-    private var imageMenu: ViewerImageMenu?
 
     /// Presents the viewer over `presenter`, zooming from `source` (the card's picture).
     static func present(from presenter: UIViewController, source: UIView, image: UIImage, name: String, loadFull: (() async throws -> UIImage)?) {
@@ -1102,13 +988,6 @@ final class ActivityImageViewer: UIViewController, UIScrollViewDelegate {
         imageView.accessibilityTraits = .image
         fling = PhotoFling(host: self, directions: .up, flyOff: false, content: { [weak self] in self?.scroll },
                            canBegin: { [weak self] in self?.isAtMinimumZoom ?? true })
-        let menu = ViewerImageMenu { [weak self] in
-            guard let self else { return nil }
-            let source = MediaSource.image({ [weak self] in self?.image ?? UIImage() }, name: self.name)
-            return MediaActions.menu(for: source, from: self, anchor: self.imageView)
-        }
-        menu.attach(to: imageView)
-        imageMenu = menu
         loadWhole()
     }
 

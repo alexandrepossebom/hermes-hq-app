@@ -9,13 +9,11 @@ import UIKit
 
 nonisolated enum DesktopRows {
     /// Bots and Sessions rows, one height (phone-ui-desktop.css:272-275), × UI Scale.
-    static var height: CGFloat { HQFont.scaled(roomy ? 74 : 60) }
+    static var height: CGFloat { HQFont.scaled(60) }
     /// The face: a 32 pt square (the desktop sidebar's).
-    static var face: CGFloat { HQFont.scaled(roomy ? 42 : 32) }
+    static var face: CGFloat { HQFont.scaled(32) }
     /// Face to text.
-    static var gap: CGFloat { roomy ? 12 : 10 }
-    /// [desktop-density] Density › Standard in the look (Compact is the look as it was).
-    static var roomy: Bool { ThemeTable.current.state.desktopRoomy }
+    static let gap: CGFloat = 10
     /// The page gutter (phone-ui-desktop.css:349).
     static let gutter: CGFloat = 20
     /// [top-bar-gap] Owner 2026-11-09: the extra room the first thing under a tab's bar gets in the Desktop Look on the
@@ -95,17 +93,6 @@ nonisolated enum DesktopRows {
 }
 
 // MARK: - SwiftUI
-
-@MainActor extension DesktopRows {
-    /// [desktop-density] A row's title and preview at the density in use.
-    static var titleStyle: Font.TextStyle { roomy ? .body : .callout }
-    static var previewStyle: Font.TextStyle { roomy ? .subheadline : .footnote }
-    static var previewLines: Int { roomy ? 2 : 1 }
-    /// A Bots row's own height: fixed in Compact (as the look was); Standard's two-line preview may grow past `height`
-    /// at iOS's larger text sizes, so there it is only the least.
-    static var fixedHeight: CGFloat? { roomy ? nil : height }
-    static var padV: CGFloat { roomy ? 8 : 0 }
-}
 
 extension View {
     /// The desktop's label: capitals, tracked, semibold, secondary colour. Look off: the view as it is.

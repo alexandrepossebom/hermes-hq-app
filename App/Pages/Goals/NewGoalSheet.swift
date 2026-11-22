@@ -202,7 +202,9 @@ struct NewGoalView: View {
         let read = model.read
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                TextField("New goal", text: $model.title, axis: .vertical)
+                // [goals set-up] The owner typed a whole sentence as their first goal: the field invites one. The lead's plan
+                // can offer a short name for it (and keep the sentence as the why).
+                TextField("What do you want to reach?", text: $model.title, axis: .vertical)
                     .lineLimit(1...3)
                     .font(Font.hq(.body).weight(.medium))
                     .focused($focus, equals: .title)

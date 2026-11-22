@@ -156,17 +156,12 @@ import AVFoundation
             if previewable, MacFileWindow.open(url) { return }
             #endif
             if previewable {
-                let quickLook = { [weak self, weak vc] in
-                    guard let self, let vc else { return }
-                    self.previewURL = url
-                    let preview = QLPreviewController()
-                    preview.dataSource = self
-                    preview.delegate = self
-                    AppLog.trace("chatui", "file preview opened: \(Self.byteSize(url)) bytes")
-                    vc.present(preview, animated: true)
-                }
-                // A photo opens in a viewer it can be flung out of (Quick Look takes no swipe to close).
-                if LocalPhotoViewer.opens(url) { LocalPhotoViewer.present(url, from: vc, fallback: quickLook) } else { quickLook() }
+                self.previewURL = url
+                let preview = QLPreviewController()
+                preview.dataSource = self
+                preview.delegate = self
+                AppLog.trace("chatui", "file preview opened: \(Self.byteSize(url)) bytes")
+                vc.present(preview, animated: true)
             } else {
                 AppLog.trace("chatui", "file preview unsupported, sharing instead: \(Self.byteSize(url)) bytes")
                 self.share(url, from: vc, anchor: anchor)

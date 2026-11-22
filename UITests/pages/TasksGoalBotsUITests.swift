@@ -124,16 +124,19 @@ extension PagesTests {
         let hermes = app.buttons["goals.new.who.default"].firstMatch
         XCTAssertTrue(hermes.waitForExistence(timeout: 5), "Who's helping?, with the add-on's bots")
         XCTAssertEqual(hermes.label, "Hermes, on this goal, leads", "on the root bot without touching it")
-        XCTAssertEqual(app.staticTexts["goals.new.who.note"].firstMatch.label, "Hermes will offer a plan when you add this.")
+        // [goals set-up] item 4: the lead's line says the questions come first.
+        XCTAssertEqual(app.staticTexts["goals.new.who.note"].firstMatch.label, "Hermes asks up to three questions, then offers a plan.")
         XCTAssertFalse(app.buttons["goals.new.plan"].exists, "no Plan With button any more")
         field.typeText("Learn to bake bread")
         shot("goals3-4-new-plan-with" + name)
         app.buttons["goals.new.add"].firstMatch.tap()
 
-        // The goal is made, then led (POST /goals takes no lead), and its chat opens with the lead asked for a plan.
-        XCTAssertTrue(waitUntil(10) { self.requests().contains { $0.method == "POST" && $0.path == Self.goalRoute && $0.body?["lead"] == nil } },
-                      "POST /goals, no lead in it")
-        XCTAssertTrue(waitUntil(10) { self.goalPatches().contains { $0.body?["lead"] as? String == "default" } }, "then PATCH lead")
+        // [goals set-up] item 5: the goal is made with its lead in the one POST (it was POST, then PATCH lead), and its
+        // chat opens with the lead asked for a plan.
+        XCTAssertTrue(waitUntil(10) { self.requests().contains { $0.method == "POST" && $0.path == Self.goalRoute && $0.body?["lead"] as? String == "default" } },
+                      "POST /goals with the lead in it")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertFalse(goalPatches().contains { $0.body?["lead"] != nil }, "no PATCH for the lead")
         XCTAssertTrue(app.descendants(matching: .any)["goal.tucked-bar"].firstMatch.waitForExistence(timeout: 15), "the chat takes the screen")
         XCTAssertTrue(waitUntil(15) { self.promptTexts().contains { $0.hasPrefix("I just made this goal and want you to lead it.") } },
                       "the hidden ask: \(promptTexts())")

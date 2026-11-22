@@ -66,6 +66,51 @@ enum GoalChats {
     }
 }
 
+/// [goals set-up] You took a lead's plan (on the goal's page, in its chat, or on Today): the lead hears it once, as a
+/// hidden turn in the goal's chat (`GoalBots.planTakenRequest`). Once per offer on this device, kept over relaunches
+/// (`GoalPlanTold`); another device's accept is a 409 there, so only the device whose tap the gateway took sends it.
+/// With the goal's page open the turn goes through its chat, so the lead's reply shows as it comes; else through a
+/// chat of its own kept until the reply has had time to come.
+@MainActor
+enum GoalPlanTaken {
+    private final class Open { weak var page: GoalPageModel?; init(_ page: GoalPageModel) { self.page = page } }
+    private static var open: [Open] = []
+    /// Background chats, kept a while so the turn goes out and its reply is read.
+    private static var kept: [(model: any ChatSessionModel, until: Date)] = []
+    private static func key(_ account: GatewayAccount) -> String { "goals.plan-told.\(account.id)" }
+
+    /// A goal's page with its chat (GoalChatPage) is open: plan-taken turns for its goal go through it.
+    static func noteOpen(_ page: GoalPageModel) {
+        open.removeAll { $0.page == nil || $0.page === page }
+        open.append(Open(page))
+    }
+
+    static func tell(_ offer: TodoOffer, store: TasksStore) {
+        guard let context = MorePages.context, context.account.id == store.account.id else { return }
+        let goal = offer.goal.flatMap { store.goal($0) }
+        var told = GoalPlanTold.read(UserDefaults.standard.string(forKey: key(context.account)))
+        guard told.shouldTell(action: .accept, answer: offer, goal: goal), let goal,
+              told.mark(offer.id, now: Date()) else { return }
+        UserDefaults.standard.set(told.stored, forKey: key(context.account))
+        let prompt = GoalBots.planTakenRequest(goal, offer: offer)
+        if let page = open.lazy.compactMap(\.page).first(where: { $0.goalID == goal.id && !$0.gone }), let chat = page.chat {
+            page.sendHidden(prompt, display: nil, in: chat)
+            AppLog.note("goals", "plan taken: lead told in the open goal's chat")
+            return
+        }
+        guard let model = GoalChats.chatModel(goal, store: store, context: context),
+              let provider = model as? ChatActivityProviding else {
+            AppLog.note("goals", "plan taken: no chat with the lead to tell")
+            return
+        }
+        provider.sendHidden(prompt, display: nil)
+        let now = Date()
+        kept.removeAll { $0.until < now }
+        kept.append((model, now.addingTimeInterval(600)))
+        AppLog.note("goals", "plan taken: lead told in the goal's chat (page closed)")
+    }
+}
+
 @MainActor
 enum GoalChatPage {
     /// The goal's chat with the goal over it; nil without the add-on's bots, with no lead, or a lead that isn't one of
@@ -78,6 +123,7 @@ enum GoalChatPage {
         page.embedded = true
         page.chat = chat
         page.controller = chat
+        GoalPlanTaken.noteOpen(page)
         chat.goalChatID = goal.id
         let host = GoalLeadHost(model: page)
         chat.setTopAccessory(host)
@@ -145,6 +191,7 @@ enum GoalChatPage {
         page.split = true
         page.chat = chat
         page.keptChat = chat
+        GoalPlanTaken.noteOpen(page)
         chat.goalChatID = goal.id
         chat.suppressesTalkTip = true
         chat.view.accessibilityIdentifier = "goal.chat-pane"

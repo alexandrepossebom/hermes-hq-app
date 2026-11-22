@@ -364,9 +364,38 @@ nonisolated struct GoalsAPI: Sendable {
 
 /// Goal fields as the routes take them, and a PATCH applied here at once (as the gateway will apply it).
 nonisolated enum GoalWire {
-    /// [goals steps 3-5] The team fields POST /goals leaves out (the add-on's GoalIn has none of them): `addGoal`
-    /// sends them in a PATCH once the goal is made.
+    /// [goals steps 3-5] A goal's team fields. [goals set-up] POST /goals takes `createTeamKeys` (contract item 3: a goal
+    /// made with a lead and helpers is one write, one "Added" in its history; the owner's first goal said "Added" then
+    /// "Lead changed" 20 ms later); the rest go in a PATCH once the goal is made.
     static let teamKeys: Set<String> = ["lead", "helpers", "adds", "review", "known_to_all", "chat"]
+    static let createTeamKeys: Set<String> = ["lead", "helpers", "adds", "review"]
+
+    /// What `addGoal` sends in POST /goals: everything but the team fields the create route doesn't take.
+    static func createBody(_ fields: [String: JSONValue]) -> [String: JSONValue] {
+        fields.filter { !teamKeys.contains($0.key) || createTeamKeys.contains($0.key) }
+    }
+
+    /// The team fields still to PATCH once the goal is made: the ones POST doesn't take, and any it was sent but `made`
+    /// doesn't carry (an add-on from before the one-write create ignores them). Empty when the create took them all.
+    static func teamLeft(_ fields: [String: JSONValue], made: Goal) -> [String: JSONValue] {
+        var left: [String: JSONValue] = [:]
+        for (key, value) in fields where teamKeys.contains(key) {
+            switch key {
+            case "lead": if made.lead != value.string.flatMap({ $0.isEmpty ? nil : $0 }) { left[key] = value }
+            case "helpers":
+                let sent = (value.array ?? []).compactMap(\.string).filter { $0 != (fields["lead"]?.string ?? made.lead) }
+                if made.helpers != sent { left[key] = value }
+            case "adds": if made.adds != value.string { left[key] = value }
+            case "review":
+                let sent = (try? value.encoded()).flatMap { try? JSONDecoder().decode(GoalReview.self, from: $0) }
+                if made.review != sent { left[key] = value }
+            default: left[key] = value   // known_to_all, chat: POST never takes them
+            }
+        }
+        // A lead given again brings its helpers with it (the PATCH that sets a lead keeps them as sent).
+        if left["lead"] != nil, let helpers = fields["helpers"] { left["helpers"] = helpers }
+        return left
+    }
 
     /// A new goal's body. `color` nil: the gateway picks the first colour no active goal uses.
     static func newGoal(title: String, why: String = "", due: String? = nil, color: String? = nil, measure: GoalMeasure? = nil,

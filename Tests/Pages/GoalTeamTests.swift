@@ -64,7 +64,8 @@ struct GoalTeamTests {
     }
 
     @Test func theQuietLineSaysWhatAddWillDo() {
-        #expect(GoalPlanWith.note(["default"], botName: Self.name) == "Hermes will offer a plan when you add this.")
+        // [goals set-up] item 4 of the brief: the lead's line says the questions come first.
+        #expect(GoalPlanWith.note(["default"], botName: Self.name) == "Hermes asks up to three questions, then offers a plan.")
         #expect(GoalPlanWith.note(["default", "research"], botName: Self.name) == "Hermes leads. Research helps.")
         #expect(GoalPlanWith.note(["default", "research", "finance"], botName: Self.name) == "Hermes leads. Research and Finance help.")
         #expect(GoalPlanWith.note(["default", "research", "finance", "inbox"], botName: Self.name)

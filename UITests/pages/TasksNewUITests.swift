@@ -42,19 +42,16 @@ extension PagesTests {
         XCTAssertTrue(title.waitForExistence(timeout: 10), "New Task opens")
         XCTAssertFalse(app.descendants(matching: .any)["tasks.new.who"].exists, "no Who Does It switch")
         XCTAssertFalse(app.descendants(matching: .any)["tasks.new.prep"].exists, "no gets-it-ready switch")
-        XCTAssertFalse(app.textViews["tasks.new.notes"].exists, "Details starts closed")
-        let helper = app.buttons["tasks.new.person.default"].firstMatch
-        XCTAssertTrue(helper.isHittable, "Assign to is available without opening Details")
-        title.tap()
+        let helper = app.descendants(matching: .any)["tasks.new.bot"].firstMatch
+        XCTAssertTrue(helper.exists, "Ask a Bot to Help")
         title.typeText("Plan the team offsite")
         shot("tasks-new-plain" + name)
 
         // Pick a bot: the footer says what Add will do.
-        XCTAssertEqual(app.buttons.matching(identifier: "tasks.new.add").count, 1)
-        XCTAssertFalse(app.descendants(matching: .any)["tasks.new.mode"].exists)
         helper.tap()
-        XCTAssertTrue(app.buttons["Work together"].waitForExistence(timeout: 5))
-        shot("tasks-assign-picker" + name)
+        let hermes = app.buttons["Hermes"].firstMatch
+        XCTAssertTrue(hermes.waitForExistence(timeout: 5), "the bots are listed")
+        hermes.tap()
         let note = app.staticTexts["tasks.new.help-note"].firstMatch
         XCTAssertTrue(note.waitForExistence(timeout: 5), "says what happens on Add")
         XCTAssertTrue(note.label.contains("chat opens"), note.label)
@@ -80,41 +77,6 @@ extension PagesTests {
         // [tasks] 2026-11-05: the chat lives on the task's page, under the task (nothing opens over it).
         XCTAssertTrue(app.descendants(matching: .any)["task.sheet"].firstMatch.exists, "the task is on the same page")
         XCTAssertFalse(app.navigationBars.buttons["Task"].exists, "no Back to a task underneath")
-    }
-
-
-    @MainActor func testTasks_OwnershipSoloAndBackToYou() throws {
-        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks"])
-        let plus = app.buttons["tasks.new"].firstMatch
-        XCTAssertTrue(plus.waitForExistence(timeout: 20))
-        plus.tap()
-        let title = app.textFields["tasks.new.title"].firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10))
-        let bot = app.buttons["tasks.new.person.default"].firstMatch
-        XCTAssertTrue(bot.waitForExistence(timeout: 10))
-        bot.tap()
-        let solo = app.buttons["Give to Hermes"].firstMatch
-        XCTAssertTrue(solo.waitForExistence(timeout: 5))
-        solo.tap()
-        shot("concept-a-solo")
-        app.buttons["tasks.new.person.you"].firstMatch.tap()
-        XCTAssertFalse(app.descendants(matching: .any)["tasks.new.mode"].exists)
-        title.tap()
-        title.typeText("Self after changing owner")
-        XCTAssertEqual(app.buttons.matching(identifier: "tasks.new.add").count, 1)
-        app.buttons["tasks.new.add"].firstMatch.tap()
-        let posted = { (name: String) in self.requests().first { $0.method == "POST" && $0.path.hasSuffix("/tasks") && ($0.body?["title"] as? String) == name } }
-        XCTAssertTrue(waitUntil(10) { posted("Self after changing owner") != nil })
-        XCTAssertEqual(posted("Self after changing owner")?.body?["who"] as? String, "me")
-        XCTAssertTrue(posted("Self after changing owner")?.body?["bot"] == nil || posted("Self after changing owner")?.body?["bot"] is NSNull)
-        title.tap()
-        title.typeText("Solo bot task")
-        bot.tap()
-        app.buttons["Give to Hermes"].firstMatch.tap()
-        app.buttons["tasks.new.add"].firstMatch.tap()
-        XCTAssertTrue(waitUntil(10) { posted("Solo bot task") != nil })
-        XCTAssertEqual(posted("Solo bot task")?.body?["who"] as? String, "bot")
-        XCTAssertEqual(posted("Solo bot task")?.body?["bot"] as? String, "default")
     }
 
     private func askedPrompts() -> [String] {

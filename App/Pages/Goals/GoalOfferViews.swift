@@ -36,6 +36,9 @@ final class GoalOfferCell: ChatBaseCell {
     private let header = UILabel()
     private let summary = UILabel()
     private var headerLabels: [UILabel] = []
+    /// [goals set-up] The plan's "Built on" lines, and its set-up rows (a label and a value each).
+    private var noteLabels: [UILabel] = []
+    private var setupLabels: [(label: UILabel, value: UILabel)] = []
     private var moreButtons: [UIButton] = []
     private var lineViews: [LineView] = []
     private var buttons: [UIButton] = []
@@ -153,6 +156,43 @@ final class GoalOfferCell: ChatBaseCell {
                 .font: g.smallFont, .foregroundColor: ChatPalette.label2, .kern: 0.4])
             label.accessibilityTraits = .header
         }
+        while noteLabels.count < g.notes.count {
+            let label = UILabel()
+            label.numberOfLines = 2
+            label.isUserInteractionEnabled = false
+            label.accessibilityIdentifier = "chat.goal-offer.built-on"
+            contentView.addSubview(label)
+            noteLabels.append(label)
+        }
+        for (i, label) in noteLabels.enumerated() {
+            guard i < g.notes.count else { label.isHidden = true; continue }
+            label.isHidden = false
+            label.frame = g.notes[i].frame
+            label.font = g.detailFont
+            label.textColor = ChatPalette.label2
+            label.text = g.notes[i].text
+        }
+        while setupLabels.count < g.setupLines.count {
+            let label = UILabel(), value = UILabel()
+            value.numberOfLines = 2
+            for v in [label, value] { v.isUserInteractionEnabled = false; contentView.addSubview(v) }
+            setupLabels.append((label, value))
+        }
+        for (i, pair) in setupLabels.enumerated() {
+            guard i < g.setupLines.count else { pair.label.isHidden = true; pair.value.isHidden = true; continue }
+            let line = g.setupLines[i]
+            pair.label.isHidden = false
+            pair.value.isHidden = false
+            pair.label.frame = line.labelFrame
+            pair.value.frame = line.valueFrame
+            pair.label.font = g.detailFont
+            pair.label.textColor = ChatPalette.label2
+            pair.label.text = line.row.label
+            // One element per row for VoiceOver ("Name: Draw every day"), read in the card's order.
+            pair.label.isAccessibilityElement = false
+            pair.value.accessibilityLabel = GoalOffers.setupSpoken(line.row)
+            pair.value.accessibilityIdentifier = "chat.goal-offer.setup.\(line.row.key)"
+        }
         while lineViews.count < g.lines.count { lineViews.append(LineView(in: contentView)) }
         for (i, v) in lineViews.enumerated() {
             guard i < g.lines.count else { v.hidden = true; continue }
@@ -230,6 +270,12 @@ final class GoalOfferCell: ChatBaseCell {
         foot = GoalOffers.foot(offer, past: live.past)
         let added = offer.state == "accepted"
         let gone = offer.state == "undone" || offer.state == "declined"
+        // [goals set-up] The set-up rows follow the state in ink alone (struck through once undone or declined).
+        for (i, pair) in setupLabels.enumerated() where i < g.setupLines.count {
+            pair.value.attributedText = NSAttributedString(string: g.setupLines[i].row.value, attributes: gone
+                ? [.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: ChatPalette.label2, .font: g.detailFont]
+                : [.foregroundColor: ChatPalette.label, .font: g.detailFont])
+        }
         for (i, v) in lineViews.enumerated() where i < g.lines.count {
             let line = g.lines[i]
             let symbol = line.line.milestone ? (added ? "checkmark.square.fill" : "square") : (added ? "checkmark.circle.fill" : "circle")
@@ -453,6 +499,27 @@ struct GoalOfferCard: View {
             }
             let added = offer.state == "accepted"
             let gone = offer.state == "undone" || offer.state == "declined"
+            // [goals set-up] What the plan rests on (quiet lines), then what accepting it also sets on the goal. Both are
+            // the offer's own words, so they hold the card's height in every state; only their ink follows it.
+            let builtOn = GoalOffers.builtOn(offer)
+            if !builtOn.isEmpty {
+                section(GoalOffers.builtOnHeader) {
+                    ForEach(Array(builtOn.enumerated()), id: \.offset) { _, words in
+                        Text(words)
+                            .font(Font.hq(.footnote))
+                            .foregroundStyle(Color.hqLabel2)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("goal.offer-card.built-on")
+                    }
+                }
+            }
+            let setup = GoalOffers.setupRows(offer, now: Date())
+            if !setup.isEmpty {
+                section(GoalOffers.setupHeader) {
+                    ForEach(setup, id: \.key) { row in setupLine(row, gone: gone) }
+                }
+            }
             if !offer.milestones.isEmpty {
                 section(GoalOffers.milestoneCount(offer.milestones.count)) {
                     ForEach(Array(offer.milestones.prefix(GoalOffers.shown).enumerated()), id: \.offset) { _, m in
@@ -493,22 +560,47 @@ struct GoalOfferCard: View {
 
     @ViewBuilder private var footer: some View {
         let foot = model.foot
-        if let main = foot.main {
-            let all = [main] + foot.others
-            if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 8) { ForEach(all, id: \.self) { button($0) } }
-            } else {
-                HStack(spacing: 8) { ForEach(all, id: \.self) { button($0).frame(maxWidth: .infinity) } }
-            }
-            if let quiet = foot.quiet {
-                Button { tap(quiet) } label: {
-                    Text(quiet.title).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.plain)
-                .disabled(!enabled || model.busy)
-                .accessibilityIdentifier("goal.offer-card.quiet")
-            }
+        if foot.main != nil {
+            buttons(foot)
         } else {
+            // [goals set-up] One height in every state (docs/goals.md "Offer cards"): the answered line stands in the
+            // room the buttons took, so the card doesn't shrink under your finger when you tap one.
+            ZStack {
+                buttons(waitingFoot).hidden().accessibilityHidden(true)
+                answeredLine(foot)
+            }
+        }
+    }
+
+    /// The foot the card had while it waited (what the answered line keeps the room of).
+    private var waitingFoot: GoalOfferFoot {
+        var waiting = model.offer
+        waiting.state = "new"
+        return GoalOffers.foot(waiting, past: false)
+    }
+
+    @ViewBuilder private func buttons(_ foot: GoalOfferFoot) -> some View {
+        if let main = foot.main {
+            VStack(spacing: 8) {   // the card's own spacing, as when these sat in it directly
+                let all = [main] + foot.others
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) { ForEach(all, id: \.self) { button($0) } }
+                } else {
+                    HStack(spacing: 8) { ForEach(all, id: \.self) { button($0).frame(maxWidth: .infinity) } }
+                }
+                if let quiet = foot.quiet {
+                    Button { tap(quiet) } label: {
+                        Text(quiet.title).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!enabled || model.busy)
+                    .accessibilityIdentifier("goal.offer-card.quiet")
+                }
+            }
+        }
+    }
+
+    private func answeredLine(_ foot: GoalOfferFoot) -> some View {
             HStack(spacing: 7) {
                 if foot.good {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(TodoInk.color(.ready)).accessibilityHidden(true)
@@ -527,7 +619,6 @@ struct GoalOfferCard: View {
                 }
             }
             .frame(minHeight: 34)
-        }
     }
 
     private func button(_ item: GoalOfferButton) -> some View {
@@ -572,6 +663,29 @@ struct GoalOfferCard: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    /// "Name   Draw every day": the label quiet at a fixed width, the value in the label's ink (struck through once the
+    /// plan is undone or declined, as the plan's lines are).
+    private func setupLine(_ row: GoalSetupRow, gone: Bool) -> some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 1))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        return layout {
+            Text(row.label)
+                .font(Font.hq(.footnote))
+                .foregroundStyle(Color.hqLabel2)
+                .frame(minWidth: typeSize.isAccessibilitySize ? nil : 58, alignment: .leading)
+            Text(row.value)
+                .font(Font.hq(.footnote))   // one weight in every state: the words wrap the same, the card keeps its height
+                .strikethrough(gone)
+                .foregroundStyle(gone ? Color.hqLabel2 : Color.hqLabel)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(GoalOffers.setupSpoken(row))
+        .accessibilityIdentifier("goal.offer-card.setup.\(row.key)")
     }
 
     @ViewBuilder private func trail(due: String?, bot: String?, milestone: Bool) -> some View {
@@ -653,6 +767,30 @@ struct GoalOfferAllView: View {
 
     var body: some View {
         List {
+            // [goals set-up] What the plan rests on, and what accepting it also sets, as on the card.
+            let builtOn = GoalOffers.builtOn(offer)
+            if !builtOn.isEmpty {
+                Section {
+                    ForEach(Array(builtOn.enumerated()), id: \.offset) { _, words in
+                        Text(words).foregroundStyle(Color.hqLabel2).accessibilityIdentifier("goal.offer-all.built-on")
+                    }
+                } header: { HQSectionLabel { Text(GoalOffers.builtOnHeader) } }
+            }
+            let setup = GoalOffers.setupRows(offer, now: Date())
+            if !setup.isEmpty {
+                Section {
+                    ForEach(setup, id: \.key) { row in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(row.label).foregroundStyle(Color.hqLabel2)
+                            Spacer(minLength: 12)
+                            Text(row.value).multilineTextAlignment(.trailing)
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(GoalOffers.setupSpoken(row))
+                        .accessibilityIdentifier("goal.offer-all.setup.\(row.key)")
+                    }
+                } header: { HQSectionLabel { Text(GoalOffers.setupHeader) } }
+            }
             if !offer.milestones.isEmpty {
                 Section {
                     ForEach(Array(offer.milestones.enumerated()), id: \.offset) { _, m in

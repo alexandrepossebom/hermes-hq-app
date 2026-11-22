@@ -116,7 +116,6 @@ final class BlockView: UIView, UIScrollViewDelegate {
     private var chip: LinkChipView?
     /// A page card (`PageCardView`): a bot's HTML page pictured, opened live on a tap.
     private var pageCard: PageCardView?
-    private var phoneCard: PhoneChatCardControl?
     /// [transcript] A table card's footer: its size and Expand, a button the width of the card.
     private let expandButton = TableFooterControl()
     /// [transcript] A wide table's edges fade where columns go on past them.
@@ -128,11 +127,10 @@ final class BlockView: UIView, UIScrollViewDelegate {
         if !expandButton.isHidden, expandButton.isEnabled { views.append(expandButton) }
         if let chip, !chip.isHidden { views.append(chip) }
         if let pageCard, !pageCard.isHidden { views.append(pageCard) }
-        if let phoneCard, !phoneCard.isHidden { views.append(phoneCard) }
         return views
     }
     /// Whether this block is a page card: the card is its own element, not part of the bubble's words.
-    var showsStandaloneCard: Bool { pageCard?.isHidden == false || phoneCard?.isHidden == false }
+    var showsPageCard: Bool { pageCard.map { !$0.isHidden } ?? false }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -359,7 +357,7 @@ final class BlockView: UIView, UIScrollViewDelegate {
             layer.borderWidth = 0
             desktopOutlined = Theme.isDesktop
             bubbleOutlined = !Theme.isDesktop && !mine
-        case .phoneProposal, .spacer, .media:                     // [attachments] a media block draws in the bubble's media view
+        case .spacer, .media:                     // [attachments] a media block draws in the bubble's media view
             isCard = false
             backgroundColor = .clear
         }
@@ -395,20 +393,6 @@ final class BlockView: UIView, UIScrollViewDelegate {
         } else if let pageCard {
             pageCard.isHidden = true
             pageCard.reset()
-        }
-        if case .phoneProposal(let url, let proposal) = placed.block {
-            let view = phoneCard ?? {
-                let made = PhoneChatCardControl()
-                addSubview(made)
-                phoneCard = made
-                return made
-            }()
-            view.isHidden = false
-            view.frame = CGRect(origin: .zero, size: placed.frame.size)
-            view.configure(.proposal(proposal), style: ChatStyleCache.shared.style(for: traitCollection.preferredContentSizeCategory))
-            view.open = { [weak self] in self?.onOpenLink?(url) }
-        } else {
-            phoneCard?.isHidden = true
         }
         if !isCard { layer.cornerRadius = 0; layer.borderWidth = 0 }
         outlineForDesktop()

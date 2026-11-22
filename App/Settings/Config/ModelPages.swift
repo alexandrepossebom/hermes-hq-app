@@ -645,8 +645,8 @@ struct FallbackModelsView: View {
                     }
                 } footer: { HQSectionFooter {
                     Text(SettingsWords.botScoped(list.isEmpty ? "No fallback models. If the default model fails, the chat shows the error."
-                         : DeviceWord.isMac ? "Tried in order when the default model fails. \(DeviceWord.hold) one to reorder."   // Mac polish #135: never "Control-" alone
-                         : "Tried in order when the default model fails.",
+                         : DeviceWord.isMac ? "Tried in order when the default model fails. Click one, then − to remove it; \(DeviceWord.hold) it to reorder."   // [mac] Stress test 2026-10-28 round 9: no "or down." alone on a line; Mac polish #135: never "Control-" alone
+                         : "Tried in order when the default model fails. \(DeviceWord.Tap) the red button to remove one; drag the handle to reorder.",
                                                  bot: botName, defaultBot: router.defaultBotName, otherBots: router.hasOtherBots))   // [model-scope]
                         .accessibilityIdentifier("fallbacks.footer")
                 } }
@@ -804,7 +804,9 @@ struct AuxiliaryTaskView: View {
                     }
                     .disabled(catalog.mainModel.isEmpty)
                     .accessibilityIdentifier("aux.use-main")
-                }
+                } footer: { HQSectionFooter {
+                    Text("Or pick a model for this job below.")
+                } }
             }.hqMacSettingsRowInsets() }
             .settingsList().hqMacSettingsRows()
             .frame(maxHeight: 150)
@@ -817,18 +819,6 @@ struct AuxiliaryTaskView: View {
 
 // MARK: - Mixture of Agents
 
-// [moa-setup] Owner 2026-11-21: "The mixture of agents setup page needs all kinds of work. It's basically not usable."
-// One page, reached from Settings › Model and from Settings › Providers › Mixture of Agents (which opened the page every
-// provider gets: a typed model ID, a Default Model, nothing that sets it up). What it is for (`MixtureRecord`):
-//   - Show in Model Menus. Mixture of Agents is a provider a chat picks, its presets the models; nothing here makes
-//     Hermes "use" it otherwise. The switch is the app's own, the one its Providers row has (`ProviderPrefs.isOff`).
-//     Turning it on also saves the presets to Hermes with one enabled when Hermes isn't listing it yet. (It was a
-//     switch on the preset's `enabled` under words saying several models then answer each turn, which it never did.)
-//   - Presets: pick one to set up, New Preset… (a copy of the one shown), Make Default (the one `/moa` uses) and
-//     Delete Preset. There was no way to add one, and one preset showed no Preset row at all.
-//   - A preset keeps at least one reference model: Hermes refuses a preset with none, so removing the last one used to
-//     leave a page that looked changed and had saved nothing.
-
 @MainActor @Observable
 final class MixtureModel {
     var record: JSONValue?
@@ -837,38 +827,16 @@ final class MixtureModel {
     /// The record that failed to save, for Try Again (UX #201); nil when there's nothing to send again.
     var unsaved: JSONValue?
     var saving = false
-    /// [moa-setup] Turned on, with the save that makes Hermes list it still on its way: the switch stands on meanwhile.
-    var showPending = false
-    /// [moa-setup] The app's own names and switches: Mixture of Agents turned off under Providers is off here too.
-    var prefs: ProviderPrefs
     @ObservationIgnored let api: GatewaySettingsAPI?
     @ObservationIgnored let readOnly: Bool
-    @ObservationIgnored let account: String?
-    /// [moa-setup] After a save Hermes took: the page reads the model catalog again (its row there follows the presets).
-    @ObservationIgnored var saved: (() -> Void)?
-    @ObservationIgnored private var prefsWatch: NSObjectProtocol?
 
-    init(api: GatewaySettingsAPI?, readOnly: Bool, account: String? = nil) {
+    init(api: GatewaySettingsAPI?, readOnly: Bool) {
         self.api = api
         self.readOnly = readOnly
-        self.account = account
-        prefs = Self.store(account)?.prefs ?? ProviderPrefs.active
-        prefsWatch = NotificationCenter.default.addObserver(forName: ProviderPrefsStore.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reloadPrefs() }
-        }
     }
 
-    isolated deinit { if let prefsWatch { NotificationCenter.default.removeObserver(prefsWatch) } }
-
-    private static func store(_ account: String?) -> ProviderPrefsStore? {
-        if let current = ProviderPrefsStore.current { return current }
-        return account.map { ProviderPrefsStore.of(accountId: $0) }
-    }
-
-    private func reloadPrefs() { prefs = Self.store(account)?.prefs ?? ProviderPrefs.active }
-
-    var presetNames: [String] { record.map(MixtureRecord.presetNames) ?? [] }
-    var defaultPreset: String { record.map(MixtureRecord.defaultPreset) ?? "" }
+    var presetNames: [String] { (record?["presets"]?.object ?? [:]).keys.sorted() }
+    var defaultPreset: String { record?["default_preset"]?.string ?? presetNames.first ?? "" }
 
     func preset(_ name: String) -> JSONValue? { record?["presets"]?[name] }
 
@@ -877,7 +845,6 @@ final class MixtureModel {
         do {
             record = try await api.moa()
             error = nil
-            tidyPrefs()
         } catch {
             AppLog.note("settings", "mixture of agents load failed: \(type(of: error))")
             self.error = SettingsErrorText.load(error)
@@ -885,85 +852,49 @@ final class MixtureModel {
     }
 
     /// Every slot of every preset has a provider and a model: the only state the gateway accepts (`moaConfigComplete`).
-    static func complete(_ record: JSONValue) -> Bool { MixtureRecord.complete(record) }
-
-    /// [moa-setup] A preset hidden, or a "model" typed in, on the provider page this row used to open: no page shows
-    /// either now, so opening this one undoes them (`MixtureRecord.tidied`).
-    private func tidyPrefs() {
-        guard let record, let store = Self.store(account),
-              let tidy = MixtureRecord.tidied(store.prefs, presets: MixtureRecord.presetNames(record)) else { return }
-        store.update { $0 = tidy }
-        prefs = store.prefs
-        if let account { ModelCatalogCache.shared.markStale(account: account) }
-        AppLog.note("settings", "mixture of agents: the provider page's hidden presets and typed models undone")
-    }
-
-    // MARK: [moa-setup] In the model menus, or not
-
-    /// In the app's model menus: not turned off here or under Providers, and listed by Hermes. `listed`: whether the
-    /// model catalog has it (nil before the catalog has loaded: the presets' own `enabled` stands in).
-    func isShown(listed: Bool?) -> Bool {
-        guard let record, !prefs.isOff(MixtureRecord.provider) else { return false }
-        return showPending || (listed ?? MixtureRecord.anyEnabled(record))
-    }
-
-    /// Off takes it out of the app's model menus and changes nothing on Hermes (as a provider's switch does). On puts
-    /// it back and, when Hermes isn't listing it, saves the presets with one enabled so it does.
-    func setShown(_ on: Bool, listed: Bool?) {
-        if let store = Self.store(account) {
-            store.update { $0.setOff(!on, provider: MixtureRecord.provider) }
-            prefs = store.prefs
-        }
-        if let account { ModelCatalogCache.shared.markStale(account: account) }
-        AppLog.note("settings", "mixture of agents turned \(on ? "on" : "off")")
-        guard on, let record else { return }
-        if let enabled = MixtureRecord.enabling(record) {
-            self.record = enabled
-            showPending = !readOnly
-            save()
-        } else if listed == false {
-            showPending = !readOnly
-            save()   // the presets are Hermes' defaults, never saved: saving them is what lists it
+    static func complete(_ record: JSONValue) -> Bool {
+        (record["presets"]?.object ?? [:]).values.allSatisfy { preset in
+            let refs = preset["reference_models"]?.array ?? []
+            func done(_ slot: JSONValue?) -> Bool {
+                !(slot?["provider"]?.string ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+                    && !(slot?["model"]?.string ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            }
+            return !refs.isEmpty && refs.allSatisfy(done) && done(preset["aggregator"])
         }
     }
-
-    // MARK: Changes
 
     /// Changes one preset, mirrors the default preset onto the top level (as the gateway serves it), and saves the whole
     /// record (`PUT /api/model/moa`) once it is complete.
     func edit(_ name: String, _ change: (inout [String: JSONValue]) -> Void) {
-        guard let record, var preset = MixtureRecord.presets(record)[name]?.object else { return }
+        guard var record, var preset = record["presets"]?[name]?.object else { return }
         change(&preset)
-        self.record = MixtureRecord.replacing(name, with: .object(preset), in: record)
+        record = ConfigPath.set(record, "presets.\(name)", .object(preset))
+        if name == defaultPreset {
+            for key in ["aggregator", "aggregator_temperature", "reference_models", "reference_temperature", "enabled"] {
+                if let value = preset[key] { record = ConfigPath.set(record, key, value) }
+            }
+        }
+        self.record = record
         save()
     }
 
-    /// [moa-setup] The preset `/moa` uses.
     func setDefault(_ name: String) {
-        guard let record, let next = MixtureRecord.settingDefault(name, in: record) else { return }
-        self.record = next
+        guard var record, var preset = record["presets"]?[name] else { return }
+        // [macpass-settings r3] Switching presets keeps Mixture of Agents as it was: a preset saved off (`enabled: false`)
+        // used to turn the whole feature off the moment it became Hermes's preset.
+        let wasOn = record["presets"]?[defaultPreset]?["enabled"]?.bool ?? record["enabled"]?.bool ?? false
+        preset = ConfigPath.set(preset, "enabled", .bool(wasOn))
+        record = ConfigPath.set(record, "presets.\(name)", preset)
+        record = ConfigPath.set(record, "default_preset", .string(name))
+        record = ConfigPath.set(record, "active_preset", .string(name))
+        for key in ["aggregator", "aggregator_temperature", "reference_models", "reference_temperature", "enabled"] {
+            if let value = preset[key] { record = ConfigPath.set(record, key, value) }
+        }
+        self.record = record
         save()
     }
 
-    /// [moa-setup] A new preset with the models of the one shown. Its name as kept, or nil when it couldn't be added.
-    func addPreset(_ typed: String, copying source: String) -> String? {
-        guard let record, let added = MixtureRecord.adding(typed, copying: source, to: record) else { return nil }
-        self.record = added.record
-        AppLog.note("settings", "mixture of agents preset added (\(MixtureRecord.presetNames(added.record).count) now)")
-        save()
-        return added.name
-    }
-
-    /// [moa-setup] Deletes a preset (never the last one).
-    func deletePreset(_ name: String) {
-        guard let record, let next = MixtureRecord.deleting(name, from: record) else { return }
-        self.record = next
-        AppLog.note("settings", "mixture of agents preset deleted (\(MixtureRecord.presetNames(next).count) left)")
-        save(gone: name)
-    }
-
-    /// `gone`: a preset this save deletes. A Hermes from before presets could be deleted answers with it still there.
-    private func save(gone: String? = nil) {
+    private func save() {
         guard let record, Self.complete(record), let api else { return }
         if readOnly { saveError = BotWriteError.readOnlyReason; unsaved = nil; return }
         saving = true
@@ -971,21 +902,15 @@ final class MixtureModel {
         Task {
             defer { saving = false }
             do {
-                let answer = try await api.saveMoa(record)
-                if answer["presets"] != nil { self.record = answer }
+                let saved = try await api.saveMoa(record)
+                if saved["presets"] != nil { self.record = saved }
                 saveError = nil
                 unsaved = nil
-                if let gone, answer["presets"]?[gone] != nil {
-                    saveError = "Hermes on \(HostWord.phrase) kept that preset. Update Hermes there, then delete it again."
-                }
                 AppLog.trace("settings", "mixture of agents saved in \(AppLog.ms(since: start)) ms")
-                if let account { ModelCatalogCache.shared.markStale(account: account) }
-                saved?()
             } catch {
                 AppLog.note("settings", "mixture of agents save failed after \(AppLog.ms(since: start)) ms: \(type(of: error))")
                 saveError = SettingsErrorText.save(error)
                 unsaved = record
-                showPending = false
                 await load()
             }
         }
@@ -1012,14 +937,8 @@ struct MixtureOfAgentsView: View {
     init(router: SettingsRouter) {
         self.router = router
         let api = router.gatewaySettings?.settingsAPI
-        _model = State(initialValue: MixtureModel(api: api, readOnly: router.gatewaySettings?.isReadOnlyGateway ?? false,
-                                                  account: router.services.account?.id))
+        _model = State(initialValue: MixtureModel(api: api, readOnly: router.gatewaySettings?.isReadOnlyGateway ?? false))
         _catalog = State(initialValue: ModelCatalogModel(api: api))
-    }
-
-    /// [moa-setup] Whether Hermes lists Mixture of Agents in its model catalog; nil until the catalog has loaded.
-    private var listed: Bool? {
-        catalog.loaded ? catalog.raw.contains { ProviderPrefs.providerKey($0.slug) == MixtureRecord.provider } : nil
     }
 
     var body: some View {
@@ -1030,34 +949,118 @@ struct MixtureOfAgentsView: View {
             }
             if let error = model.error, model.record == nil {
                 LoadFailureSection(title: "Couldn’t Load Mixture of Agents", text: error) { Task { await model.load() } }
-            } else if model.record == nil || !(catalog.loaded || catalog.loadError != nil) {
-                // [moa-setup] The switch reads the model catalog too: nothing shows until both have come, so it never
-                // stands one way and then flips.
+            } else if model.record == nil {
                 LoadingSection()
             } else {
-                let name = model.presetNames.contains(selected) ? selected : model.defaultPreset
-                // Stress test 2026-10-28 #83 (both): the switch comes first and the rows it governs (the preset, the
-                // models, Add Model, Aggregator) are dimmed while it is off, as a provider's models wait while it is off.
-                let on = model.isShown(listed: listed)
+                let name = selected.isEmpty ? model.defaultPreset : selected
+                // Stress test 2026-10-28 #83 (both): the switch comes first and the rows it governs (the models, Add Model,
+                // Aggregator) are dimmed while it is off. Preset stays live: the switch is that preset's own `enabled`, so the
+                // picker chooses which preset's switch is shown. The saved record is unchanged.
+                let on = model.preset(name)?["enabled"]?.bool ?? false
                 // Stress test 2026-10-28 #83, round 2 (both): `.disabled` alone left Model 1/2 and Aggregator at full
                 // strength, because `ValueRow` paints its title and value in fixed colours that ignore the disabled
                 // state (only Add Model…, a plain Label, dimmed). The rows the switch governs are now faded as well.
+                // Preset is held too while Hermes's own preset is off; a preset picked away from Hermes's one stays
+                // pickable, so the way back is never locked.
                 // [mac] Stress test 2026-10-28 round 7: on the Mac the rows dim themselves while disabled (labels and
                 // pop-ups in the secondary label colour, about 3:1 or better); 45 % opacity left them at about 1.5:1.
                 let dim: Double = on || DeviceWord.isMac ? 1 : 0.45
+                let presetHeld = !on && name == model.defaultPreset
                 if let preset = model.preset(name) {
                     Section {
-                        SwitchRow(title: "Show in Model Menus", isOn: Binding(
-                            get: { on },
-                            set: { model.setShown($0, listed: listed) }), disabled: model.readOnly)
+                        SwitchRow(title: "Mixture of Agents", isOn: Binding(
+                            get: { preset["enabled"]?.bool ?? false },
+                            set: { on in model.edit(name) { $0["enabled"] = .bool(on) } }))
                             .accessibilityIdentifier("moa.enabled")
                     } footer: { HQSectionFooter {
                         // [model-scope] Owner 2026-11-03: the default profile's presets (`/api/model/moa`); no other bot has this page.
-                        Text(SettingsWords.moaFooter(defaultBot: router.defaultBotName, on: on))
+                        Text(SettingsWords.moaFooter(defaultBot: router.defaultBotName))
                             .accessibilityIdentifier("moa.footer")
                     } }
-                    presetSection(name, on: on, dim: dim)
-                    referenceSection(name, preset, on: on, dim: dim)
+                    if model.presetNames.count > 1 {
+                        Section {
+                            presetPicker(name)
+                            .accessibilityIdentifier("moa.preset")
+                            .disabled(presetHeld)
+                            .opacity(presetHeld && !DeviceWord.isMac ? 0.45 : 1)   // [mac] Stress test 2026-10-28 round 7: the Mac row dims itself
+                            if name != model.defaultPreset {
+                                Button("Use This Preset") { Haptics.play(.selection); model.setDefault(name) }
+                            }
+                        } footer: { HQSectionFooter {
+                            Text(presetHeld ? "Turn on Mixture of Agents to choose a preset."
+                                 : name == model.defaultPreset ? "Hermes uses this preset’s models below."
+                                                             : "Hermes uses \(ConfigText.pretty(model.defaultPreset)). Use This Preset to switch to \(ConfigText.pretty(name)).")
+                        } }
+                    }
+                    Section {
+                        let refs = preset["reference_models"]?.array ?? []
+                        ForEach(Array(refs.enumerated()), id: \.offset) { index, slot in
+                            ChooserRow(title: "Model \(index + 1)",   // [mac] #51: a pop-up button on the Mac
+                                       value: catalog.describe(provider: slot["provider"]?.string ?? "", model: slot["model"]?.string ?? "")) {
+                                chooseSlot(name, title: "Model \(index + 1)", slot: slot) { provider, picked in
+                                    model.edit(name) { preset in
+                                        var list = preset["reference_models"]?.array ?? []
+                                        guard index < list.count else { return }
+                                        list[index] = ConfigPath.set(ConfigPath.set(list[index], "provider", .string(provider)), "model", .string(picked))
+                                        preset["reference_models"] = .array(list)
+                                    }
+                                }
+                            }
+                            .opacity(dim)
+                            .accessibilityIdentifier("moa.ref-\(index)")
+                            // [mac] Mac polish #40 (owner 2026-11-07): a click beside the pop-up picks the row for −,
+                            // as Fallback Models' rows are picked.
+                            .contentShape(Rectangle())
+                            .listRowBackground(DeviceWord.isMac && pickedModel == index ? Color.hqTint.opacity(0.18) : nil)
+                            .onTapGesture { if DeviceWord.isMac { pickedModel = index } }
+                            // [mac] A mouse has no swipe: Remove on a right-click (and a touch and hold).
+                            .contextMenu {
+                                Button("Remove", systemImage: "minus.circle", role: .destructive) { removeModel(name, at: index) }
+                            }
+                        }
+                        .onDelete { offsets in
+                            Haptics.play(.selection)
+                            model.edit(name) { preset in
+                                var list = preset["reference_models"]?.array ?? []
+                                list.remove(atOffsets: offsets)
+                                preset["reference_models"] = .array(list)
+                            }
+                        }
+                        if DeviceWord.isMac {
+                            // [mac] Mac polish #40 (owner 2026-11-07): + and − under the list, as Fallback Models has
+                            // and as the Mac's own System Settings lists do, in place of an Add Model… row.
+                            HStack(spacing: 0) {
+                                MacAddRemoveButtons(addLabel: "Add Reference Model", removeLabel: "Remove Reference Model",
+                                                    addHelp: "Add Reference Model…", removeHelp: "Remove the Selected Model",
+                                                    canRemove: pickedModel.map { refs.indices.contains($0) } ?? false,
+                                                    add: { addModel(name) },
+                                                    remove: { if let pickedModel { removeModel(name, at: pickedModel) } },
+                                                    addIdentifier: "moa.add", removeIdentifier: "moa.remove")
+                                Spacer(minLength: 0)
+                            }
+                        } else {
+                        Button {
+                            addModel(name)
+                        } label: {
+                            // Stress test 2026-10-28 round 6 (both): the + kept the full accent while the section was
+                            // dimmed (the disabled title went grey, the icon didn't); it dims with its title now.
+                            Label {
+                                Text("Add Model…")
+                            } icon: {
+                                Image(systemName: "plus")
+                                    .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.hqLabel3))
+                            }
+                        }
+                        .accessibilityIdentifier("moa.add")
+                        }
+                    } header: { HQSectionLabel {
+                        Text("Reference Models")
+                    } } footer: {
+                        if DeviceWord.isMac, !(preset["reference_models"]?.array ?? []).isEmpty {
+                            HQSectionFooter { Text("Click beside a model, then − to remove it.") }
+                        }
+                    }
+                    .disabled(!on)
                     Section {
                         let slot = preset["aggregator"]
                         ChooserRow(title: "Aggregator", value: catalog.describe(provider: slot?["provider"]?.string ?? "", model: slot?["model"]?.string ?? "")) {
@@ -1071,10 +1074,7 @@ struct MixtureOfAgentsView: View {
                         .opacity(dim)
                         .accessibilityIdentifier("moa.aggregator")
                     } footer: { HQSectionFooter {
-                        // [moa-setup] What the two kinds of model do, and how often the references are asked (the
-                        // preset's `fanout`): the page named them and said nothing of either.
-                        Text(model.saving ? "Saving…" : MixtureRecord.adviceLine(preset))
-                            .accessibilityIdentifier("moa.advice")
+                        Text(model.saving ? "Saving…" : "Changes save by themselves once every model is chosen.")
                     } }
                     .disabled(!on)
                 }
@@ -1083,76 +1083,10 @@ struct MixtureOfAgentsView: View {
         .settingsList().hqMacSettingsRows()
         .saveFailureFeedback(model.saveError)
         .task {
-            model.saved = { [catalog, weak model] in
-                Task {
-                    await catalog.load()
-                    model?.showPending = false
-                }
-            }
-            async let record: Void = model.load()
-            async let models: Void = catalog.load()
-            _ = await (record, models)
+            await model.load()
+            await catalog.load()
         }
         .accessibilityIdentifier("moa.list")
-    }
-
-    // MARK: [moa-setup] Presets
-
-    /// The preset being set up, and what can be done with presets: a new one, the one `/moa` uses, delete.
-    @ViewBuilder private func presetSection(_ name: String, on: Bool, dim: Double) -> some View {
-        let several = model.presetNames.count > 1
-        let isDefault = name == model.defaultPreset
-        Section {
-            presetPicker(name)
-                .accessibilityIdentifier("moa.preset")
-                .opacity(dim)
-            if DeviceWord.isMac {
-                // [mac] One row of push buttons under the pop-up, as a Mac form groups a list's actions.
-                HStack(spacing: 8) {
-                    Button("New Preset…") { newPreset(copying: name) }
-                        .buttonStyle(MacPushButtonStyle(kind: .plain))
-                        .accessibilityIdentifier("moa.preset-new")
-                    if !isDefault {
-                        Button("Make Default") { makeDefault(name) }
-                            .buttonStyle(MacPushButtonStyle(kind: .plain))
-                            .accessibilityIdentifier("moa.preset-default")
-                    }
-                    if several {
-                        Button("Delete Preset…", role: .destructive) { askDelete(name) }
-                            .buttonStyle(MacPushButtonStyle(kind: .destructive))
-                            .accessibilityIdentifier("moa.preset-delete")
-                    }
-                    Spacer(minLength: 0)
-                }
-            } else {
-                Button { newPreset(copying: name) } label: {
-                    Label {
-                        Text("New Preset…")
-                    } icon: {
-                        Image(systemName: "plus").foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.hqLabel3))
-                    }
-                }
-                .opacity(dim)   // its words stayed full-strength beside the faded rows while the page is off
-                .accessibilityIdentifier("moa.preset-new")
-                if !isDefault {
-                    Button("Make Default") { makeDefault(name) }
-                        .accessibilityIdentifier("moa.preset-default")
-                }
-                if several {
-                    Button("Delete Preset", role: .destructive) { askDelete(name) }
-                        .accessibilityIdentifier("moa.preset-delete")
-                }
-            }
-        } footer: {
-            // Which preset `/moa` sends a message through: only worth a line once there is more than one.
-            if several {
-                HQSectionFooter {
-                    Text(isDefault ? "/moa uses this preset." : "/moa uses \(ConfigText.pretty(model.defaultPreset)).")
-                        .accessibilityIdentifier("moa.preset-footer")
-                }
-            }
-        }
-        .disabled(!on)
     }
 
     /// [mac] Stress test 2026-10-28 round 6: on the Mac the Preset is a form row, its pop-up in the control column under
@@ -1172,116 +1106,6 @@ struct MixtureOfAgentsView: View {
         }
     }
 
-    private func newPreset(copying name: String) {
-        guard let record = model.record else { return }
-        TextPrompt.present(title: "New Preset", message: "It starts with \(ConfigText.pretty(name))’s models.", placeholder: "Name",
-                           action: "Add", maxLength: 40, identifier: "moa.preset-name", autocorrection: .no,
-                           problem: { MixtureRecord.nameProblem($0, in: record) }, from: router.presenter) { typed in
-            guard let added = model.addPreset(typed, copying: name) else { return }
-            selected = added
-            pickedModel = nil
-            Haptics.play(.success)
-        }
-    }
-
-    private func makeDefault(_ name: String) {
-        Haptics.play(.selection)
-        model.setDefault(name)
-    }
-
-    private func askDelete(_ name: String) {
-        TextPrompt.confirm(title: "Delete \(ConfigText.pretty(name))?", message: "A chat set to this preset will need another model.",
-                           action: "Delete", from: router.presenter) {
-            model.deletePreset(name)
-            selected = ""
-            pickedModel = nil
-            Haptics.play(.success)
-        }
-    }
-
-    // MARK: Reference models
-
-    @ViewBuilder private func referenceSection(_ name: String, _ preset: JSONValue, on: Bool, dim: Double) -> some View {
-        let refs = preset["reference_models"]?.array ?? []
-        // [moa-setup] The last one stays: Hermes refuses a preset with no reference model.
-        let canRemove = MixtureRecord.canRemoveReference(preset)
-        Section {
-            ForEach(Array(refs.enumerated()), id: \.offset) { index, slot in
-                // A reference switched off in the Hermes desktop app (its own `enabled`) says so.
-                let off = slot["enabled"]?.bool == false ? " · Off" : ""
-                ChooserRow(title: "Model \(index + 1)",   // [mac] #51: a pop-up button on the Mac
-                           value: catalog.describe(provider: slot["provider"]?.string ?? "", model: slot["model"]?.string ?? "") + off) {
-                    chooseSlot(name, title: "Model \(index + 1)", slot: slot) { provider, picked in
-                        model.edit(name) { preset in
-                            var list = preset["reference_models"]?.array ?? []
-                            guard index < list.count else { return }
-                            list[index] = ConfigPath.set(ConfigPath.set(list[index], "provider", .string(provider)), "model", .string(picked))
-                            preset["reference_models"] = .array(list)
-                        }
-                    }
-                }
-                .opacity(dim)
-                .accessibilityIdentifier("moa.ref-\(index)")
-                // [mac] Mac polish #40 (owner 2026-11-07): a click beside the pop-up picks the row for −,
-                // as Fallback Models' rows are picked.
-                .contentShape(Rectangle())
-                .listRowBackground(DeviceWord.isMac && pickedModel == index ? Color.hqTint.opacity(0.18) : nil)
-                .onTapGesture { if DeviceWord.isMac { pickedModel = index } }
-                // [mac] A mouse has no swipe: Remove on a right-click (and a touch and hold).
-                .contextMenu {
-                    if canRemove {
-                        Button("Remove", systemImage: "minus.circle", role: .destructive) { removeModel(name, at: index) }
-                    }
-                }
-            }
-            .onDelete { offsets in
-                Haptics.play(.selection)
-                model.edit(name) { preset in
-                    var list = preset["reference_models"]?.array ?? []
-                    guard list.count > offsets.count else { return }
-                    list.remove(atOffsets: offsets)
-                    preset["reference_models"] = .array(list)
-                }
-            }
-            .deleteDisabled(!canRemove)
-            if DeviceWord.isMac {
-                // [mac] Mac polish #40 (owner 2026-11-07): + and − under the list, as Fallback Models has
-                // and as the Mac's own System Settings lists do, in place of an Add Model… row.
-                HStack(spacing: 0) {
-                    MacAddRemoveButtons(addLabel: "Add Reference Model", removeLabel: "Remove Reference Model",
-                                        addHelp: "Add Reference Model…", removeHelp: "Remove the Selected Model",
-                                        canRemove: canRemove && (pickedModel.map { refs.indices.contains($0) } ?? false),
-                                        add: { addModel(name) },
-                                        remove: { if let pickedModel { removeModel(name, at: pickedModel) } },
-                                        addIdentifier: "moa.add", removeIdentifier: "moa.remove")
-                    Spacer(minLength: 0)
-                }
-            } else {
-                Button {
-                    addModel(name)
-                } label: {
-                    // Stress test 2026-10-28 round 6 (both): the + kept the full accent while the section was
-                    // dimmed (the disabled title went grey, the icon didn't); it dims with its title now.
-                    Label {
-                        Text("Add Model…")
-                    } icon: {
-                        Image(systemName: "plus")
-                            .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.hqLabel3))
-                    }
-                }
-                .opacity(dim)   // [moa-setup] as New Preset…: "Add Model…" read full-strength in a faded section
-                .accessibilityIdentifier("moa.add")
-            }
-        } header: { HQSectionLabel {
-            Text("Reference Models")
-        } } footer: {
-            if DeviceWord.isMac, canRemove {
-                HQSectionFooter { Text("Click beside a model, then − to remove it.") }
-            }
-        }
-        .disabled(!on)
-    }
-
     /// A reference model for `name`, chosen in the model sheet.
     private func addModel(_ name: String) {
         chooseSlot(name, title: "Add Model", slot: nil) { provider, picked in
@@ -1294,7 +1118,6 @@ struct MixtureOfAgentsView: View {
     }
 
     private func removeModel(_ name: String, at index: Int) {
-        guard MixtureRecord.canRemoveReference(model.preset(name)) else { return }
         Haptics.play(.selection)
         var left = 0
         model.edit(name) { preset in

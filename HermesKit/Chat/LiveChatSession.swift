@@ -287,9 +287,6 @@ final class LiveChatSession: ChatSessionModel {
     /// so there is no history to read: an empty open is the bot's intro at once, never a skeleton that ends in
     /// "Couldn't load this chat."
     let startsNew: Bool
-    /// [#440] A chat this screen starts that the lists show (not a task's or a tile's, born hidden): its row is listed
-    /// here as its first message goes out (`SessionStore.listStartedChat`).
-    var listsWhenStarted = false
     private let lastActive: Date?
     var ticker: FrameTicker!
 
@@ -1165,10 +1162,6 @@ final class LiveChatSession: ChatSessionModel {
 
     /// [tasks] Set by a task's page: what a typed send carries and shows instead (nil: as typed).
     var wrapsSend: ((String) -> (text: String, display: String)?)?
-    /// [phone-calls] Set by AppModel: the note a typed message carries when it mentions calling and Phone Calls is
-    /// ready (nil: none). Only what is sent carries it; the bubble shows the words as typed, also from history
-    /// (SentTitles strips it). A typed message that steers a running reply goes in as typed, without the note.
-    var notesTypedSend: ((String) -> String?)?
     /// [tasks] Opening the screen makes no session: the first message does (`openIfWaiting`).
     var opensOnFirstSend = false
     /// [tasks] A chat not made yet keeps its draft under this (a task's id) rather than under its bot alone: every
@@ -1188,14 +1181,8 @@ final class LiveChatSession: ChatSessionModel {
     func send(_ text: String, display: String?, attachments: [DraftAttachment] = []) {
         // [tasks] A task's chat: typed words go out with what the task adds (its details, the first time); the bubble
         // shows what the task says it shows.
-        let note = display == nil && !steersTyped(text, display: nil, attachments: attachments)
-            ? notesTypedSend?(text) : nil   // [phone-calls]
         if display == nil, let wrap = wrapsSend, let wrapped = wrap(text) {
-            send(note.map { wrapped.text + "\n\n" + $0 } ?? wrapped.text, display: wrapped.display, attachments: attachments)
-            return
-        }
-        if let note, !ChatText.trimmed(text).isEmpty {
-            send(text + "\n\n" + note, display: ChatText.trimmed(text), attachments: attachments)
+            send(wrapped.text, display: wrapped.display, attachments: attachments)
             return
         }
         if defersSendUntilReady && preOpenWaiting == 0 {
@@ -1280,7 +1267,6 @@ final class LiveChatSession: ChatSessionModel {
         let shown = attachments.isEmpty ? typed : AttachmentSender.bubbleText(typed: typed, attachments: attachments)  // [attachments]
         var bubble = ChatMessage(id: localId, role: .user, parts: [.text(shown)], timestamp: Date(), rowId: nil)
         bubble.isPending = true
-        if PhoneResultMessage.bubble(forStored: text) != nil { bubble.phoneResultText = text }
         appendMessage(bubble)
         if !attachments.isEmpty { noteLocalAttachments(localId, attachments) }                              // [attachments]
         let holdForStop = turn.stopTerminalPending

@@ -36,26 +36,7 @@ struct SessionRowView: View {
     /// Group By Recent is on: a card chat follows its Preview (`previewLine`); the other groupings' cards keep one line.
     var recentLayout = false
     var codingProject = false
-    /// [project-branch-rows] Project Settings › Show Branch on Rows (a coding project's page): the chat's branch, which
-    /// its coding line starts with. nil: off, or the chat has no branch.
-    var branchLead: String? = nil
-    /// [project-branch-rows] A branch as its row shows it: past 24 characters, its first and last 11 around an ellipsis.
-    nonisolated static func branchShown(_ branch: String) -> String {
-        branch.count > 24 ? String(branch.prefix(11)) + "…" + String(branch.suffix(11)) : branch
-    }
     enum Fresh { case pinned, recent }
-    /// [page-pinned-no-pin] A project page's Pinned pile: its heading says pinned, so the row draws no pin (owner
-    /// 2026-11-21). VoiceOver still says it.
-    var pinnedPile = false
-    /// [coding-pr-review] A coding project's page: a tap on the row's PR mark opens the PR card (nil: the mark is drawn
-    /// only). The row stays one element; VoiceOver has "Show Pull Request" among its actions.
-    var onPR: (() -> Void)? = nil
-    /// Whether a row draws its pin glyph: pinned (everywhere or in its project), and not in a Pinned whose heading
-    /// already says so (the main list's Pinned rows, compact or fresh, and a project page's Pinned pile). An archived
-    /// pinned chat listed in a page's Done keeps it: nothing else there says it is pinned.
-    nonisolated static func drawsPin(pinned: Bool, compact: Bool, fresh: Fresh?, pinnedPile: Bool) -> Bool {
-        pinned && !compact && fresh != .pinned && !pinnedPile
-    }
     /// [mac-pane] The Mac: the pointer over a row swaps its time for Pin, Archive and More (`SessionRowHover`). nil
     /// elsewhere (a finger has the swipes and the hold).
     var hover: SessionRowHover? = nil
@@ -85,12 +66,7 @@ struct SessionRowView: View {
     }
 
     var body: some View {
-        Group {
-            if hover != nil { rowBody.onHover { over = $0 } } else { rowBody }   // [mac-pane]
-        }
-        .accessibilityActions {
-            if let onPR { Button("Show Pull Request", action: onPR) }   // [coding-pr-review]
-        }
+        if hover != nil { rowBody.onHover { over = $0 } } else { rowBody }   // [mac-pane]
     }
 
     /// [mac-pane] Owner 2026-11-18 ("Are we separating them properly?"): the iOS look's one-line rows on the Mac stood a
@@ -142,7 +118,7 @@ struct SessionRowView: View {
                                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                         }
                         Text(Self.title(session))
-                            .font(desk ? Font.hq(DesktopRows.titleStyle).weight(session.unread ? .semibold : .regular) : titleFont)
+                            .font(desk ? Font.hq(.callout).weight(session.unread ? .semibold : .regular) : titleFont)
                             .foregroundStyle(Color.hqLabel)
                             .lineLimit(large ? 3 : 1)
                         if let color = session.color {
@@ -155,11 +131,9 @@ struct SessionRowView: View {
                     trailingText
                 }
                 .frame(minHeight: face)
-                if codingProject {
-                    codingSubtitle
-                } else if let status = cardStatus {
+                if let status = cardStatus {
                     Text(status.words)
-                        .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
+                        .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
                         .foregroundStyle(status.color)
                         .lineLimit(large ? 3 : 1)
                         .padding(.bottom, 2)
@@ -183,11 +157,11 @@ struct SessionRowView: View {
     /// does; none with Bot Faces off), the title, the time and a dot (blue: a reply not read yet; orange: waiting on
     /// you). In Recent, a second line only while the bot works or waits on you.
     private func freshBody(_ fresh: Fresh) -> some View {
-        let line: CGFloat = desk ? HQFont.scaled(DesktopRows.roomy ? 24 : 22) : Density.ios(24, 20)
+        let line: CGFloat = desk ? HQFont.scaled(22) : Density.ios(24, 20)
         let status = fresh == .recent ? cardStatus : nil
         return HStack(alignment: .top, spacing: desk ? DesktopRows.gap : ProjectCard.columnGap) {
             if faces {
-                HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(DesktopRows.roomy ? 22 : 18) : Density.ios(22, 18), working: session.isRunning,
+                HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(18) : Density.ios(22, 18), working: session.isRunning,
                           moods: session.isRunning)
                     .frame(width: desk ? DesktopRows.face : ProjectCard.column, height: line)
             }
@@ -199,7 +173,7 @@ struct SessionRowView: View {
                                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                         }
                         Text(Self.title(session))
-                            .font(desk ? Font.hq(DesktopRows.titleStyle).weight(session.unread ? .semibold : .regular) : titleFont)
+                            .font(desk ? Font.hq(.callout).weight(session.unread ? .semibold : .regular) : titleFont)
                             .foregroundStyle(Color.hqLabel)
                             .lineLimit(large ? 3 : 1)
                         if let color = session.color {
@@ -222,15 +196,13 @@ struct SessionRowView: View {
                     }
                 }
                 .frame(minHeight: line)
-                if codingProject {
-                    codingSubtitle
-                } else if let status {
+                if let status {
                     HStack(spacing: 6) {
                         if session.status != .needsInput {
                             ProgressView().controlSize(.mini).tint(Color.hqLabel2)
                         }
                         Text(status.words)
-                            .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
+                            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
                             .foregroundStyle(status.color)
                             .lineLimit(large ? 3 : 1)
                     }
@@ -242,7 +214,7 @@ struct SessionRowView: View {
         }
         .padding(.vertical, fresh == .pinned ? (desk ? 4 : Self.macTight(7, 4, mac: 5)) : (desk ? 6 : Self.macTight(10, 5, mac: 6)))
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, minHeight: fresh == .pinned ? (desk ? HQFont.scaled(DesktopRows.roomy ? 40 : 32) : Self.macTight(40, 30, mac: 36)) : (desk ? HQFont.scaled(DesktopRows.roomy ? 44 : 36) : Self.macTight(44, 32, mac: 36)),
+        .frame(maxWidth: .infinity, minHeight: fresh == .pinned ? (desk ? HQFont.scaled(32) : Self.macTight(40, 30, mac: 36)) : (desk ? HQFont.scaled(36) : Self.macTight(44, 32, mac: 36)),
                alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -265,63 +237,11 @@ struct SessionRowView: View {
 
     private func previewText(_ words: String) -> some View {
         Text(words)
-            .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
+            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
             .foregroundStyle(Color.hqLabel2)
             .lineLimit(large ? 3 : 1)
             .truncationMode(.tail)
             .padding(.bottom, 2)
-    }
-
-    /// Coding project rows always use the same quiet, one-line status, independent of Preview.
-    @Environment(\.colorSchemeContrast) private var subtitleContrast
-    private var codingLine: String? { CodingSessionSubtitle.line(session) }
-    /// The subtitle names a live step: running, not waiting on you, nothing unsent.
-    private var codingWorking: Bool {
-        (session.isRunning || session.status == .working) && session.status != .needsInput && session.pending == nil
-    }
-
-    /// The coding line's quiet ink (the finished summary's, and the verdict's).
-    private var quietInk: Color { Color.hqLabel2.opacity(subtitleContrast == .increased ? 1 : 0.78) }
-
-    /// [pr-verdict] What the row says about its lead pull request (draft or open): nil off a coding project's page.
-    private var codingVerdict: PRVerdict? { codingProject ? PRVerdict.of(session.pullRequest) : nil }
-
-    @ViewBuilder private var codingSubtitle: some View {
-        if let codingLine {
-            HStack(spacing: 6) {
-                // While the turn runs, the same small spinner a Recent row's step line has (owner, 2026-11-20).
-                if codingWorking {
-                    ProgressView().controlSize(.mini).tint(Color.hqLabel2)
-                        .accessibilityHidden(true)
-                }
-                if let branchLead {
-                    // [project-branch-rows] The branch first, cut in its middle when long, then the usual line.
-                    // A long branch is cut in its middle by characters, so the dot sits right after the words (a
-                    // width-capped Text left a gap whenever its cut fell short of the cap).
-                    Text(Self.branchShown(branchLead) + " · ")
-                        .font(Font.hq(.footnote))
-                        .foregroundStyle(Color.hqLabel2)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                        .padding(.trailing, -6)
-                }
-                Text(codingLine)
-                    .font(Font.hq(.footnote))
-                    // Working reads in the tint a card's step line has; the finished summary goes quiet again.
-                    .foregroundStyle(codingWorking ? Color.hqTintText : quietInk)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                // [pr-verdict] The lead pull request's checks and size at the line's trailing end, under the mark, in
-                // the line's quiet ink; the words give way first. At the accessibility sizes it leaves the row.
-                if let verdict = codingVerdict, !large {
-                    Spacer(minLength: 6)
-                    PRVerdictView(verdict: verdict, ink: quietInk)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // The platform mark precedes the title, not the title's text.
-            .padding(.leading, origin == nil ? 0 : (desk ? 14 : 16) + 6)
-        }
     }
 
     /// [project-cards] The second line a chat in a card has only while it needs one: waiting on you, or its bot's step.
@@ -337,7 +257,7 @@ struct SessionRowView: View {
     /// does), the title, then the figures and time.
     private var compactBody: some View {
         HStack(spacing: desk ? DesktopRows.gap : ProjectCard.columnGap) {
-            HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(DesktopRows.roomy ? 26 : 22) : ProjectCard.face, working: session.isRunning,
+            HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(22) : ProjectCard.face, working: session.isRunning,
                       moods: session.isRunning)
                 .overlay(alignment: .topTrailing) {
                     if session.unread || session.status == .needsInput {
@@ -348,46 +268,35 @@ struct SessionRowView: View {
                     }
                 }
                 .frame(width: desk ? DesktopRows.face : ProjectCard.column)
-            if codingProject {
-                VStack(alignment: .leading, spacing: 1) {
-                    compactTitleLine
-                    codingSubtitle
+            SessionTitleLine(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let origin {
+                        PlatformMark(source: origin, size: desk ? 14 : 16)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                    }
+                    Text(Self.title(session))
+                        .font(desk ? Font.hq(.callout).weight(.semibold) : titleFont)
+                        .foregroundStyle(Color.hqLabel)
+                        .lineLimit(1)
+                    if let color = session.color {
+                        Circle().fill(Color(uiColor: SessionsOrganizer.uiColor(color)))
+                            .frame(width: 9, height: 9)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
+                            .accessibilityHidden(true)
+                    }
                 }
-            } else {
-                compactTitleLine
+                trailingText
             }
         }
         .padding(.vertical, desk ? 4 : Density.ios(7, 4))
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, minHeight: desk ? HQFont.scaled(DesktopRows.roomy ? 44 : 36) : Density.ios(44, 32), alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: desk ? HQFont.scaled(36) : Density.ios(44, 32), alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(.isButton)
         .rowArc(showsArc)
         .opacity(busy ? 0.45 : 1)
-    }
-
-    private var compactTitleLine: some View {
-        SessionTitleLine(spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if let origin {
-                    PlatformMark(source: origin, size: desk ? 14 : 16)
-                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                }
-                Text(Self.title(session))
-                    .font(desk ? Font.hq(DesktopRows.titleStyle).weight(.semibold) : titleFont)
-                    .foregroundStyle(Color.hqLabel)
-                    .lineLimit(1)
-                if let color = session.color {
-                    Circle().fill(Color(uiColor: SessionsOrganizer.uiColor(color)))
-                        .frame(width: 9, height: 9)
-                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
-                        .accessibilityHidden(true)
-                }
-            }
-            trailingText
-        }
     }
 
     private var fullBody: some View {
@@ -404,7 +313,7 @@ struct SessionRowView: View {
                                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                             }
                             Text(Self.title(session))
-                                .font(desk ? Font.hq(DesktopRows.titleStyle).weight(.semibold) : titleFont)
+                                .font(desk ? Font.hq(.callout).weight(.semibold) : titleFont)
                                 .foregroundStyle(Color.hqLabel)
                                 .lineLimit(large ? 3 : titleLines)
                             if let color = session.color {
@@ -415,10 +324,10 @@ struct SessionRowView: View {
                                     .accessibilityHidden(true)
                             }
                         }
-                        if !large || codingProject { trailingText }
+                        if !large { trailingText }
                     }
-                    if codingProject { codingSubtitle } else { secondLine }
-                    if large && !codingProject { trailingText }
+                    secondLine
+                    if large { trailingText }
                 }
             }
             .padding(.vertical, desk ? (fixedDeskHeight ? 0 : 9) : Density.ios(13, 7))
@@ -437,7 +346,7 @@ struct SessionRowView: View {
     }
 
     /// The look's rows are 60 pt; a title allowed a second line lets the row grow to fit it.
-    private var fixedDeskHeight: Bool { titleLines <= 1 && !codingProject }
+    private var fixedDeskHeight: Bool { titleLines <= 1 }
 
     /// The working arc (V:store/session-dot-state.ts:75): running, not waiting on the person.
     /// [working-ring] The working state only: `rowArc`'s gate reads Working Ring, so the ring follows the switch live.
@@ -477,54 +386,22 @@ struct SessionRowView: View {
         ring && (session.isRunning || session.status == .working) && session.status != .needsInput && !busy
     }
 
-    /// [pr-pill] The lead pull request as a tinted pill, its state's mark and number in its state's colour, then how
-    /// many more (owner 2026-11-20 picked option C, "Tinted pills", over coloured numbers). The lead: not merged yet
-    /// first, then unknown, merged, closed; newest first within each. The row's words say it all (summary).
-    @ViewBuilder private var prMark: some View {
-        if codingProject, let pr = session.pullRequest, pr.state != .none {   // no code changes: no pill
-            let tags = pr.tags(limit: 1)
-            let mark = HStack(spacing: 4) {
-                if let tag = tags.shown.first {
-                    SessionPRPill(tag: tag)
-                }
-                if tags.more > 0 {
-                    Text(verbatim: "+\(tags.more)")
-                        .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
-                        .foregroundStyle(Color.hqLabel3)
-                }
-            }
-            .lineLimit(1).fixedSize()
-            if let onPR {
-                // [coding-pr-review] The mark opens the PR card: the same drawing, its touch 44 pt reaching into the
-                // row's own padding (the row's height is unchanged); elsewhere the row opens the chat.
-                Button(action: onPR) { mark.contentShape(.interaction, AtLeastHitShape(side: 44)) }
-                    .buttonStyle(.plain)
-                    .help(pr.summary)
-                    .accessibilityIdentifier("session-row.pr")
-                    .accessibilityHidden(true)
-            } else {
-                mark
-                    .help(pr.summary)
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-
     @ViewBuilder private var trailingText: some View {
         if busy {
             ProgressView().controlSize(.small).accessibilityLabel("Deleting")
         } else if showsHover, let hover {
-            HStack(spacing: 6) {
-                // [coding-pr-review] The Mac: the PR mark stays a click target beside the hover buttons.
-                if onPR != nil { prMark }
-                SessionRowHoverButtons(hover: hover, pinned: session.pinned || session.projectPinned, archived: session.archived)   // [mac-pane]
-            }
+            SessionRowHoverButtons(hover: hover, pinned: session.pinned, archived: session.archived)   // [mac-pane]
         } else {
             HStack(alignment: large ? .firstTextBaseline : .center, spacing: 4) {
-                prMark
+                if codingProject, let pr = session.pullRequest {
+                    Image(uiImage: SessionPRGlyph.image(pr.state))
+                        .renderingMode(.template)
+                        .foregroundStyle(Color(uiColor: SessionPRGlyph.color(pr.state)))
+                        .help(pr.label)
+                        .accessibilityHidden(true)
+                }
                 if showsWorkingDots { workingDots }   // [working-ring]
-                // [sessions-layout] Pinned's own rows need no pin; [page-pinned-no-pin] nor a project page's Pinned pile.
-                if Self.drawsPin(pinned: session.pinned || session.projectPinned, compact: compact, fresh: fresh, pinnedPile: pinnedPile) {
+                if session.pinned && !compact && fresh != .pinned {   // [sessions-layout] Pinned's own rows need no pin
                     Image(systemName: "pin.fill")
                         .font(Font.hq(.caption2))
                         .foregroundStyle(Color.hqLabel3)
@@ -607,40 +484,20 @@ struct SessionRowView: View {
         } else if let words = SessionRowWords.detailText(session, detail: detail) {
             rest = Text(words).foregroundStyle(Color.hqLabel2)
         } else {
-            return Text("\(owner)").font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline)).lineLimit(desk || ((DeviceWord.isMac || shortPreview) && !large) ? 1 : large ? 4 : 2).frame(maxWidth: .infinity, alignment: .leading)
+            return Text("\(owner)").font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline)).lineLimit(desk || ((DeviceWord.isMac || shortPreview) && !large) ? 1 : large ? 4 : 2).frame(maxWidth: .infinity, alignment: .leading)
         }
         // [mac] Stress test 2026-10-28: one line in both looks on the Mac (the iOS look wrapped to two or three).
         // [toolnow] A step's line stays one line too, so the row keeps its height as the steps change.
         let stepLine = session.step != nil && (session.isRunning || session.status == .working) && session.searchSnippet == nil
             && session.status != .needsInput
         return Text("\(owner)\(Text(" · ").foregroundStyle(Color.hqLabel2))\(rest)")
-            .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
+            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
             .lineLimit(desk || ((DeviceWord.isMac || stepLine || shortPreview) && !large) ? 1 : large ? 4 : 2)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// [sessions-m9] One stop, the web's order (`SessionRowWords.accessibilityLabel`).
     private var accessibilityText: String {
-        if codingProject {
-            // Match the visible line rather than announcing the regular list's preview/status a second time.
-            var parts = [Self.title(session)]
-            if let branchLead { parts.append("Branch " + branchLead) }   // [project-branch-rows]
-            if let codingLine, !codingLine.isEmpty { parts.append(codingLine) }
-            parts.append(ownerName)
-            if detail.contains(.tokens), let tokens = SessionRowWords.compactTokens(session.tokens) { parts.append("\(tokens) tokens") }
-            if detail.contains(.cost), let cost = SessionRowWords.cost(session.cost) { parts.append(cost) }
-            if detail.contains(.time), !time.isEmpty { parts.append(time) }
-            if session.unread { parts.append("Unread") }
-            if session.pinned { parts.append("Pinned") } else if session.projectPinned { parts.append("Pinned in project") }
-            if session.archived { parts.append("Archived") }
-            if let pr = session.pullRequest { parts.append("Pull request: " + pr.summary) }
-            if let verdict = codingVerdict { parts.append(verdict.spoken) }   // [pr-verdict]
-            if muted { parts.append("Muted") }
-            if let color = SessionColors.name(session.color), !color.isEmpty { parts.append("Color: " + color) }
-            if busy { parts.append("Deleting") }
-            if let origin { parts.append("From \(ChatSource.label(origin))") }
-            return parts.joined(separator: ". ")
-        }
         let label = SessionRowWords.accessibilityLabel(title: Self.title(session), session: session, ownerName: ownerName, detail: detail, time: time,
                                            snippet: session.searchSnippet.map(SessionSearch.plain), colorName: SessionColors.name(session.color),
                                            busy: busy, muted: muted, showPR: codingProject)
@@ -742,8 +599,6 @@ struct SessionProjectSummary {
     var home = false
     /// The project above is open: this one stands a card's gap below its card.
     var afterCard = false
-    /// [project-look] The project's own emoji and colour, in place of the folder.
-    var look = ProjectLook()
 
     /// "Otto, Herald, Hermes · 12 chats"; past three bots "5 bots · 23 chats"; under a chip "Otto · 3 of 12 chats".
     var whoWords: String {
@@ -1071,7 +926,7 @@ struct SessionDateHeaderView: View {
             if let seeAll { seeAllButton(seeAll) }
             if let onEditCaption {
                 Button("Edit", action: onEditCaption)
-                    .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
+                    .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
                     .foregroundStyle(Color.hqTintText)
                     .buttonStyle(.plain)
                     .frame(minWidth: 44, minHeight: Self.captionHeight, alignment: .trailing)
@@ -1164,15 +1019,6 @@ struct SessionSeeAll {
 
 /// A touch area reaching `above` over the view's top and no further down: a caption's tap takes the break above it,
 /// never the top of the row below (a separate cell).
-/// [coding-pr-review] A touch at least `side` across each way, centred on what is drawn (a small mark's 44 pt).
-nonisolated struct AtLeastHitShape: Shape {
-    var side: CGFloat
-    func path(in rect: CGRect) -> Path {
-        let width = max(rect.width + 8, side), height = max(rect.height, side)
-        return Path(CGRect(x: rect.midX - width / 2, y: rect.midY - height / 2, width: width, height: height))
-    }
-}
-
 nonisolated struct RaisedHitShape: Shape {
     var above: CGFloat
     func path(in rect: CGRect) -> Path {
@@ -1370,28 +1216,5 @@ private struct SessionRowHoverButton: View {
         .help(words)
         .accessibilityLabel(words)
         .accessibilityIdentifier("session-row.hover.\(id)")
-    }
-}
-
-/// [pr-pill] A pull request as its state's mark and "#44" in the state's colour, with no capsule (owner 2026-11-21)
-/// on a soft wash of it (owner 2026-11-20, option C). Shared by the rows and the project guide.
-struct SessionPRPill: View {
-    let tag: SessionPRStatus.Tag
-    var body: some View {
-        let tint = Color(uiColor: SessionPRGlyph.color(tag.state))
-        HStack(spacing: 3) {
-            Image(uiImage: SessionPRGlyph.image(tag.state)).renderingMode(.template)
-                .resizable().scaledToFit()
-                .frame(width: HQFont.scaled(12), height: HQFont.scaled(12))
-            // Owner 2026-11-21: "If it can't match a number to the PR it should not write out the status" — the
-            // icon alone says the state; only a real number is written.
-            if let number = tag.number {
-                Text(verbatim: "#\(number)")
-                    .font(Font.hq(.caption2).weight(.semibold)).monospacedDigit()
-            }
-        }
-        // Owner 2026-11-21: no capsule around it ("doesn't seem like it fits") — the mark and words in the state's color.
-        .foregroundStyle(tint)
-        .lineLimit(1).fixedSize()
     }
 }

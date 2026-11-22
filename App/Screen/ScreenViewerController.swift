@@ -78,36 +78,15 @@ final class ScreenViewerController: UIViewController {
 
     static func present(profile: String, name: String, service: ScreenService, from presenter: UIViewController,
                         configure: (ScreenViewerController) -> Void = { _ in }) {
-        // [#351] On the Mac the Screen has a window of its own and the main window stays usable beside it: the same
-        // bot's Screen asked for again comes to the front, another bot's takes its place. iPhone and iPad: one at a time.
-        let shown = current
-        switch ViewerReopen.decide(shown: shown?.profile, leaving: shown?.gone ?? false, asked: profile,
-                                   ownWindow: shown.map { ViewerWindow.owns($0) } ?? false) {
-        case .ignore: return
-        case .front:
-            if let shown { ViewerWindow.bringForward(shown) }
-            return
-        case .replace: shown?.close()
-        case .open: break
-        }
+        guard current == nil else { return }
         let viewer = ScreenViewerController(profile: profile, name: name, service: service)
         configure(viewer)
         viewer.opener = presenter
+        let navigation = ScreenNavigationController(rootViewController: viewer)
         current = viewer
         Haptics.play(.selection)
-        // [#351] Mac: a window of its own, resizable, zoomable and full screen; over the right pane only if the Mac
-        // gives no window.
-        let opened = ViewerWindow.open(viewer, title: viewer.screenTitle) { [weak viewer, weak presenter] in
-            guard let viewer, !viewer.gone else { return }
-            guard let presenter, presenter.viewIfLoaded?.window != nil else { viewer.left(); return }
-            PaneViewer.present(ScreenNavigationController(rootViewController: viewer), from: presenter)
-        }
-        if opened { return }
-        PaneViewer.present(ScreenNavigationController(rootViewController: viewer), from: presenter)   // [mac] over the right pane; full screen elsewhere
+        PaneViewer.present(navigation, from: presenter)   // [mac] over the right pane; full screen elsewhere
     }
-
-    /// "Otto’s Screen": the bar's title, and on the Mac the window's name (the Window menu, Mission Control).
-    var screenTitle: String { "\(botName)’s Screen" }
 
     init(profile: String, name: String, service: ScreenService) {
         self.profile = profile
@@ -136,7 +115,7 @@ final class ScreenViewerController: UIViewController {
         super.viewDidLoad()
         // Stress test 2026-10-28 #56, #78: in the Desktop Look, the look's page and bar, as Watch Browser.
         view.backgroundColor = HQPalette.plainPage
-        navigationItem.title = screenTitle   // the Browser viewer's pattern ("Ivy’s Browser")
+        navigationItem.title = "\(botName)’s Screen"   // the Browser viewer's pattern ("Ivy’s Browser")
         navigationItem.largeTitleDisplayMode = .never
         let close = UIBarButtonItem.hqClose(action: UIAction { [weak self] _ in self?.close() })
         close.accessibilityIdentifier = "screen.close"
@@ -806,7 +785,6 @@ final class ScreenViewerController: UIViewController {
         keyField.resignFirstResponder()
         // Leave first: the hand-back does not wait for the dismissal, and never for the network.
         left()
-        if ViewerWindow.close(self) { return }   // [#351] the Mac: its own window closes
         presentingViewController?.dismiss(animated: true)
     }
 
@@ -863,17 +841,6 @@ final class ScreenViewerController: UIViewController {
             + " backlog=\(session.typingBacklog) covered=\(covered ? 1 : 0)"
             + String(format: " shotZoom=%.2f", Double(fallback?.zoomScale ?? 0))   // a Double: a bare 0 would be passed as an Int
             + " pills=\(pillsShown) lastPill=\(lastPill)"
-    }
-}
-
-/// [#351] The Mac's Screen window closed by its red button (or by the window's own ⌘W): control goes back, as with ✕.
-extension ScreenViewerController: MacWindowPage {
-    func windowClosed() {
-        guard !gone else { return }
-        typingWanted = false
-        pendingPaste = nil
-        keyField.resignFirstResponder()
-        left()
     }
 }
 

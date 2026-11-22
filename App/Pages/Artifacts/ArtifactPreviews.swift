@@ -100,11 +100,6 @@ final class ArtifactPreviews {
         if !waiting.isEmpty { waiting.removeLast().1() }
     }
 
-    /// The image's own bytes (the viewer's Save to Photos, Share… and Copy Image).
-    func imageData(_ record: ArtifactRecord) async throws -> Data {
-        try await ArtifactFiles.imageData(client, record)
-    }
-
     /// Full size for the viewer (not cached beyond the tile's own).
     func fullImage(_ record: ArtifactRecord) async throws -> UIImage {
         let data = try await ArtifactFiles.imageData(client, record)

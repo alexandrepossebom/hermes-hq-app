@@ -1,6 +1,5 @@
 // The image viewer (docs/spec/1x-pages.md §5.6): full screen on black, paging across the current filter's images,
 // pinch and double-tap zoom, fling up or down to close (`PhotoFling`); toolbar Share, Show in Chat, Info (name, chat, time, path, Copy Path).
-// Owner 2026-11-22: press and hold (right-click on the Mac) on the image: Save to Photos, Share…, Copy Image, as a chat photo.
 
 import UIKit
 
@@ -100,20 +99,7 @@ final class ArtifactImageViewer: UIViewController, UIPageViewControllerDataSourc
     private func page(_ i: Int) -> ZoomImagePage {
         let page = ZoomImagePage(record: records[i], index: i, previews: previews)
         page.onTap = { [weak self] in self?.toggleChrome() }
-        page.imageMenu = { [weak self, weak page] record in
-            guard let self, let page else { return nil }
-            return MediaActions.menu(for: self.source(record), from: self, anchor: page.view)
-        }
         return page
-    }
-
-    /// The image's bytes from the gateway, as a file named after it.
-    private func source(_ record: ArtifactRecord) -> MediaSource {
-        let previews = self.previews
-        return MediaSource(name: record.label, explain: { ArtifactFiles.failureText($0, image: true) }) {
-            let data = try await previews.imageData(record)
-            return try MediaSource.temporaryFile(data, name: record.label)
-        }
     }
 
     private func updateTitle() {
@@ -173,9 +159,6 @@ final class ZoomImagePage: UIViewController, UIScrollViewDelegate {
     private let spinner = UIActivityIndicatorView(style: .large)
     private let failure = UILabel()
     var onTap: (() -> Void)?
-    /// The press-and-hold menu for this page's image (nil until it shows).
-    var imageMenu: ((ArtifactRecord) -> UIMenu?)?
-    private var menuInteraction: ViewerImageMenu?
 
     init(record: ArtifactRecord, index: Int, previews: ArtifactPreviews) {
         self.record = record
@@ -226,12 +209,6 @@ final class ZoomImagePage: UIViewController, UIScrollViewDelegate {
         let single = UITapGestureRecognizer(target: self, action: #selector(singleTapped))
         single.require(toFail: double)
         view.addGestureRecognizer(single)
-        let menu = ViewerImageMenu { [weak self] in
-            guard let self, self.imageView.image != nil else { return nil }
-            return self.imageMenu?(self.record)
-        }
-        menu.attach(to: imageView)
-        menuInteraction = menu
         if case .image(let thumb) = previews.state(record) { show(thumb) }
         spinner.startAnimating()
         Task { [weak self] in

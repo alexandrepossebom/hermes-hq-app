@@ -105,20 +105,6 @@ nonisolated enum SessionProjects {
 
 /// [project-pills] Owner 2026-11-15 ("a way to manage coding projects"): a project's state comes from its chats, never
 /// set by hand (it would be stale the moment a bot finished); only Archive is the owner's. In rank order.
-/// [project-sort] A project page's ⋯ › Sort: what needs the owner first (the default), newest first, or
-/// [project-by-status] by status (owner 2026-11-22, after T3 Code's sidebar: "show if sessions are done and ready for
-/// you to view/reply"): a section per state, Needs You, New, Working, then Earlier.
-nonisolated enum ProjectPageSort: String, Hashable, Sendable, CaseIterable {
-    case needsMeFirst = "needs-me-first", newest, byStatus = "by-status"
-    var title: String {
-        switch self {
-        case .needsMeFirst: "Needs Me First"
-        case .newest: "Newest"
-        case .byStatus: "By Status"
-        }
-    }
-}
-
 nonisolated enum SessionProjectState: Int, Hashable, Sendable, CaseIterable {
     /// A bot waits on the owner there (an approval, a question).
     case needsYou
@@ -361,8 +347,6 @@ nonisolated enum SessionFilterAction: Hashable, Sendable {
     case botFaces
     /// Show › Project Chats in Recent.
     case projectChatsInRecent
-    /// [chats-projects] Show › Projects (the Chats side's projects).
-    case showProjects
     case clear
     case readAll
 }
@@ -454,14 +438,9 @@ nonisolated enum SessionFilterMenuModel {
         // Faces under Group By Project too, whose rows are Recent's.
         var faces: [SessionFilterNode] = []
         if prefs.recentRows { faces.append(check("sessions.filter.faces", "Bot Faces", prefs.botFaces, .botFaces, symbol: "face.smiling")) }
-        // [chats-projects] Projects (off by default) brings the projects back above Recent; Project Chats in Recent
-        // shows only while it is on (with no projects above it, Recent holds every chat whatever it says).
         if SessionListPipeline.isFresh(prefs) {
-            faces.append(check("sessions.filter.projects", "Projects", prefs.showProjects, .showProjects, symbol: "folder"))
-            if prefs.showProjects {
-                faces.append(check("sessions.filter.projectchats", "Project Chats in Recent", prefs.projectChatsInRecent,
-                                   .projectChatsInRecent, symbol: "folder"))
-            }
+            faces.append(check("sessions.filter.projectchats", "Project Chats in Recent", prefs.projectChatsInRecent, .projectChatsInRecent,
+                               symbol: "folder"))
         }
         filter.append(SessionFilterNode(
             id: "sessions.filter.show", title: "Show", subtitle: W.showSubtitle(state), symbol: "eye", kind: .submenu(single: false),
@@ -515,7 +494,6 @@ nonisolated enum SessionFilterApply {
         case .archived: state.prefs.showArchived.toggle()
         case .botFaces: state.prefs.botFaces.toggle()
         case .projectChatsInRecent: state.prefs.projectChatsInRecent.toggle()
-        case .showProjects: state.prefs.showProjects.toggle()
         case .clear: clear(&state)
         case .newProject, .readAll, .reorderGroups: return false
         }
@@ -523,8 +501,7 @@ nonisolated enum SessionFilterApply {
     }
 
     /// Clear Filters (`filter-apply.ts:22-29`): status, project and the chip's bot go off; Sort By, Group By,
-    /// Row Detail and Show's choices (Bot Faces, Projects, Project Chats in Recent, Outside Chats, Background Runs,
-    /// Archived) stay.
+    /// Row Detail and Show's choices (Bot Faces, Project Chats in Recent, Outside Chats, Background Runs, Archived) stay.
     static func clear(_ state: inout SessionFilterState) {
         clearStrip(&state)
         state.botFilter = nil

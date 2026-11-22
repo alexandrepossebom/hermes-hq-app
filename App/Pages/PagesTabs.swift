@@ -143,8 +143,6 @@ final class PagesTabs {
     private var lastProbe: Date?
     private var eventsTask: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
-    /// [jobs-badge] Fires when the next job turns overdue, so the Jobs tab's count rises without a read.
-    private var attentionTimer: Timer?
     private var registryObserver: UUID?
     /// The tab saved by the last run, read before this run's first selection can overwrite it.
     private var savedTab: Int?
@@ -196,10 +194,7 @@ final class PagesTabs {
         }
         self.account = account
         self.client = client
-        // [favorites-retired] A retired page's saved tag reads as the tag of the page that replaced it.
-        savedTab = (UserDefaults.standard.object(forKey: Self.tabKey(account)) as? Int).map { tag in
-            tag >= TabChoice.firstPageTag ? TabChoice(tag: tag)?.tag ?? tag : tag
-        }
+        savedTab = UserDefaults.standard.object(forKey: Self.tabKey(account)) as? Int
         let directory = PagesCache.directory(for: account)
         self.directory = directory
         let scope = PagesScope(account: account)
@@ -251,48 +246,17 @@ final class PagesTabs {
     }
 
     /// The Jobs tab while jobs run (owner 2026-10-30: "some indicator on the Jobs page icon … that jobs are currently
-    /// running"; a spinner, not a dot): the icon's clock turns (`TabIcons.jobsRunning`). [jobs-badge] And a red count of
-    /// the jobs under Needs Attention, cleared as Settings › Tabs › Jobs Badge says (`JobsBadge`). Its accessibility
-    /// value says how many of each.
+    /// running"; a spinner, not a dot): the icon's clock turns (`TabIcons.jobsRunning`). Its accessibility value says
+    /// how many.
     private func watchWorking() {
-        guard let jobsStore else { return }
-        // Everything both counts read (the jobs, Run Now's, what the list has shown), whichever way the badge clears.
-        withObservationTracking { _ = (jobsStore.workingCount, jobsStore.attentionCount(clear: .whenSeen)) } onChange: { [weak self] in
+        guard let jobsStore, let item = jobsNav?.tabBarItem else { return }
+        var count = withObservationTracking { jobsStore.workingCount } onChange: { [weak self] in
             Task { @MainActor in self?.watchWorking() }
         }
-        showJobsTab()
-    }
-
-    /// Draws the Jobs tab from the store as it is now. Also after the Jobs Badge setting changes and when a job turns
-    /// overdue with no read to say so (`attentionTimer`).
-    private func showJobsTab() {
-        guard let jobsStore, let item = jobsNav?.tabBarItem else { return }
-        let now = Date()
-        var count = jobsStore.workingCount
-        var attention = jobsStore.attentionCount(clear: JobsBadgePref.clear, now: now)
         #if DEBUG
         if UserDefaults.standard.bool(forKey: "HQDebugJobsRunning") { count = max(count, 1) }   // screenshots of the spinner
-        // `-HQDebugJobsAttention <n>`: screenshots of the badge.
-        if UserDefaults.standard.object(forKey: "HQDebugJobsAttention") != nil { attention = UserDefaults.standard.integer(forKey: "HQDebugJobsAttention") }
         #endif
-        item.accessibilityValue = [count > 0 ? "\(count) running" : nil,
-                                   attention > 0 ? "\(attention) \(attention == 1 ? "needs" : "need") attention" : nil]
-            .compactMap { $0 }.joined(separator: ", ").nilIfEmpty
-        let badge = BadgeMath.backTitle(attention)
-        if item.badgeValue != badge {
-            AppLog.trace("pages", "jobs tab badge \(attention) (\(JobsBadgePref.clear.rawValue))")
-            item.badgeValue = badge
-            (host as? MainTabController)?.badgeChanged()
-        }
-        attentionTimer?.invalidate()
-        attentionTimer = JobsBadge.nextChange(jobsStore.jobs, now: now).map { at in
-            let timer = Timer(fire: at, interval: 0, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.showJobsTab() }
-            }
-            timer.tolerance = 5
-            RunLoop.main.add(timer, forMode: .common)
-            return timer
-        }
+        item.accessibilityValue = count > 0 ? "\(count) running" : nil
         let image = count > 0 ? TabIcons.jobsRunning : Self.jobsIcon
         guard item.image !== image else { return }
         AppLog.trace("pages", "jobs tab spinner \(count > 0 ? "on" : "off") (\(count) working)")
@@ -301,7 +265,6 @@ final class PagesTabs {
 
     isolated deinit {
         eventsTask?.cancel()
-        attentionTimer?.invalidate()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         if let registryObserver { Self.registryObservers[registryObserver] = nil }
     }
@@ -494,8 +457,6 @@ final class PagesTabs {
         // Then Marketplace and the plugin pages (Mac polish #33).
         // [more-bots] Bots, while it is no place: the list of bots, first of the Tools (the sidebar has no bots then).
         var tools: [String] = rows[Self.botsRowID] == nil ? [] : [Self.botsRowID]
-        // [mac-favorites] Favorites next, first of the pages as it is first in the iPhone's More.
-        if rows[QuickTileStore.rowID] != nil, !chosen.contains(QuickTileStore.rowID) { tools.append(QuickTileStore.rowID) }
         tools += sections.filter { Self.toolSections.contains($0.id) }.flatMap { $0.rows() }
             .filter { $0.card == nil && TabChoice.pageIDs.contains($0.id) && !chosen.contains($0.id) }.map(\.id)
         tools += Self.toolPages.filter { rows[$0] != nil && !chosen.contains($0) }
@@ -574,22 +535,6 @@ final class PagesTabs {
         return ArtifactsViewController(store: artifactsStore, scope: scope, services: services, pinnedOnly: true, makeChat: makeChat)
     }
 
-    /// [quick-actions] More › Quick Actions (docs/spec/3x-morepages.md §25): the same page the shortcut opens, on
-    /// More's stack.
-    func makeQuickActions() -> UIViewController {
-        QuickActionsViewController(inSheet: false)
-    }
-
-    /// [quick-actions] Every page a Quick Actions tile can open: More's rows in More's groups (those that are tabs now
-    /// too), without the gateway card, Quick Actions itself, or a row listed twice.
-    func quickActionChoices() -> [MoreSection] {
-        var seen: Set<String> = [QuickTileStore.rowID]
-        return moreSections().compactMap { section in
-            let rows = section.rows().filter { $0.card == nil && seen.insert($0.id).inserted }
-            return rows.isEmpty ? nil : MoreSection(id: section.id, header: section.header) { rows }
-        }
-    }
-
     // MARK: More
 
     /// Every More row, the ones that are tabs now too (More search, Settings › Tabs).
@@ -621,19 +566,6 @@ final class PagesTabs {
             sections["workspace"] = MoreSection(id: "workspace", header: "Workspace") { (extra?.rows() ?? []) + workspace }
         }
         var all = Self.merged(sections)   // [morepages] appended rows
-        // [quick-actions] The page the Quick Actions shortcut opens, first in More (over Settings, under the gateway
-        // card), where Favorites was (§25 Q11; owner 2026-11-22: Quick Actions replaces Favorites). [mac-favorites]
-        // On the Mac too (owner 2026-11-22: "I don't see the Favorites page as an option"): its tiles are actions, not
-        // a list of places the sidebar already is, so there it is the first of the sidebar's Tools (`pageTabs`).
-        if services != nil {
-            // [favorites-name] Owner 2026-11-22: "Icon should be a star and it needs to animate like all of others" (the
-            // star's tab motion: `TabMotion.favorite`). Yellow, as the retired Favorites row was.
-            let quick = MoreRow(id: QuickTileStore.rowID, title: IntentsText.quickActions, symbol: "star.circle.fill", image: nil,
-                                tile: UIColor(red: 1, green: 0xB3 / 255, blue: 0, alpha: 1)) { [weak self] in self?.makeQuickActions() }
-            // One group with Settings, above it (a lone row reads as a stray card).
-            let settings = all["settings"]
-            all["settings"] = MoreSection(id: "settings", header: settings?.header) { [quick] + (settings?.rows() ?? []) }
-        }
         // [more-bots] A tester, 2026-11-14: a hidden Bots tab is a page in More too, first under Bots (above
         // Bot Profiles). [mac] The owner, 2026-11-15: "it needs to be on the Mac build too in some way". The Mac has no
         // More, and with Bots off its sidebar loses the bots: there the row is the first of the sidebar's Tools
@@ -791,14 +723,10 @@ final class PagesTabs {
                 self.overrideChanged()
             }
         })
-        observers.append(center.addObserver(forName: JobsBadgePref.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.showJobsTab() }   // [jobs-badge]
-        })
         observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.jobsStore?.appDidBecomeActive()
-                self.showJobsTab()   // [jobs-badge] a job may have turned overdue while the app was away
                 self.madeKanban?.appDidBecomeActive()
                 if self.lastProbe.map({ Date().timeIntervalSince($0) > 600 }) ?? true { Task { await self.probe() } }
             }
@@ -835,7 +763,7 @@ final class PagesTabs {
         let defaults = UserDefaults.standard
         for key in [tabKey(account), availabilityKey(account), KanbanStore.slugKey(account), PagesScope.defaultsKey(account),
                     ArtifactsViewController.filterKey(account), MoreAvailability.key(account),   // [morepages]
-                    TasksHub.scopeKey(account), JobsBadge.seenKey(account)] {   // [tasks] [jobs-badge]
+                    TasksHub.scopeKey(account)] {   // [tasks]
             defaults.removeObject(forKey: key)
         }
     }

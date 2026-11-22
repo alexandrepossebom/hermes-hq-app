@@ -247,31 +247,12 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   unless turned off: the bots are in the sidebar. Off (`MacSidebar.botsInSidebar`, kept in `HQMacBotsInSidebar`): Bots
   is a row among the places, where Settings › Sidebar orders it (above Sessions by default), the sidebar draws no bots
   open or folded, and the Bots list is a list column beside the sidebar as Sessions' is (`listFolded` no longer counts
-  Bots), so one list shows at a time. Sessions keeps its Chats | Projects switch. The switch is in Settings › Sidebar
+  Bots), so one list shows at a time. Sessions keeps its Bots | Projects switch. The switch is in Settings › Sidebar
   and in the sidebar's own menu (a right click between rows, the foot's +), only while Bots is a place. Check:
   `-HQMacBotsInSidebar NO` with `-HQDebugMacShots <name>`.
-- **Pinned Bots Only** (owner 2026-11-22: "I'd like to have the ability to pin only certain bots to the sidebar on
-  Mac"). Off, as it was and unless turned on: every bot. On (`MacSidebar.pinnedOnly`, kept in `HQMacSidebarPinnedOnly`,
-  this Mac only): the sidebar, open or folded, lists the pinned bots and group chats, and any other only while it
-  wants the person (working, waiting for an answer, unread) or is the chat on show (`BotList.pinnedOnly`, applied to
-  `railSections` in `MacSidebar.botsChanged`); a group left with nothing has no heading. Hidden follows Show Hidden
-  Bots as before, and with nothing pinned every bot shows (an empty sidebar would read as no bots). The pins are the
-  list's own, shared with the iPhone's tiles: there is no second, Mac-only set. The bots left out are in ⌘K and the
-  Bots list. The switch is in Settings › Sidebar and in the sidebar's own menu, under Bots in Sidebar and only while
-  that is on. Check: `-HQMacSidebarPinnedOnly YES` with `-HQDemoLists -HQDebugMacShots <name>`.
 - **Tools** = More's Workspace and Insights pages (`PagesTabs.toolSections`, `toolIDs`, `isTool`). Each is a page tab
   as one added from More is; `MainTabController.setViewControllers` places them after the Settings › Tabs places.
   A tool's menu has Move to Places. Folded, Tools is one button whose menu clicks the hidden rows.
-- **Added pages under a line** (owner 2026-11-22, `[sidebar-divider]`: "add additional … page options on the left
-  sidebar … a little divider line … to separate them from the main icons"). Pages added from Add to Sidebar or
-  Settings › Tabs follow the main places (Bots, Sessions, Jobs, Kanban/Artifacts) under the faint line the bots' groups
-  use, open or folded (`MainTabController.setViewControllers` orders them, `MacSidebar.rebuild` draws the line,
-  `SidebarEditing.isAddedPage`). Move Up/Down and drags stay on their own side of it. ⌘1…⌘9 follow the sidebar's order.
-  Check: `-HQDebugMacShots <name> -HQDebugMacShotsDivider YES` against `scripts/fixtures/morepages-gateway.py`.
-- **Add to Sidebar offers the Tools again** (owner 2026-11-22, `[sidebar-add-tools]`, the menu showing only setup
-  pages: "There is a lot that I cannot add to the sidebar"; Mac calls Q11 had left them out). After the other pages,
-  under "From Tools", in the Tools' order; added, a Tool leaves Tools for the pages under the line (as its own Move to
-  Places does). Plugin pages (no Settings › Tabs place) and Bots (Bots in Sidebar decides) are not offered.
 - **More** has no sidebar row. It stays placed out of sight: ⌘K (Open Quickly) opens its results from More's stack.
   Its setup pages (Bot Profiles, Messaging, Webhooks, Import Sessions) are rows in the Settings window
   (`SettingsRootView.movedFromMore`, only with `model.ownWindow`).
@@ -283,7 +264,7 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   while the tab shows).
 - **A bot's chats on its chat** (owner 2026-11-18, `[bot-chat-sessions]`, `[bot-tabs-ux]`): on a bot's own chat only,
   a row of underline tabs under the bar (`SessionStrip`, Settings › Chat › Other Chats at the Top, on unless turned off
-  on the Mac; on iPhone and iPad the mobile Live Tabs are opt-in and appear only on the bot’s own chat): Bot Chat with the tint's line under it,
+  on the Mac; the iPhone and iPad keep their pills on any chat with the bot): Bot Chat with the tint's line under it,
   a short rule, then only what is live (chats working, unread, pinned, and the ones shown before this run). A tab is
   one target that lights under the pointer; its tip is the whole title and last line; a right-click offers Open, Mark
   as Read, Pin, Remove from Tabs and Archive. Tabs keep their places (`SessionStripRules.settled`: a new one comes in
@@ -299,17 +280,6 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   600×640 on the screen (Polish pass), themed. Info.plist is preprocessed so only the Mac build supports multiple scenes (`HQ_MAC_WINDOWS`). Its list's
   soft top edge shows only once rows scroll under the bar: SwiftUI re-shows a list's edge on every update, so the
   list hides it itself (`SoftEdgeOnlyScrolled`: `onScrollGeometryChange` + `scrollEdgeEffectHidden`).
-- **Watch Screen and Watch Browser windows** (#351, a tester: the Screen "stays very small and cannot be enlarged",
-  zoom only enlarged the picture): each opens in a window of its own (`ViewerWindow`, a page window from
-  `MacFileWindow.open(page:)`), nearly the main window's size and placed as a file window is, then resized by its
-  edges, zoomed by the green button or made full screen. The picture fits the window as it changes (a zoomed picture
-  keeps the same part of the desktop in the middle, `ScreenViewMath.resized`; the pointer is kept as fractions of the
-  desktop, so it stays on its pixel); − / + and ⌘-scroll still zoom the picture inside the window. The main window
-  stays usable beside it: the same bot's viewer asked for again comes to the front, another bot's replaces it, a held
-  screen or browser handed back first (`ViewerReopen`). Its ✕, ⌘W, Escape (when not typing on the bot's screen) and
-  the red button close it and hand control back (`MacWindowPage.windowClosed`). Should the Mac give no window, the
-  viewer covers the right pane as before (`PaneViewer`); `-HQDebugViewersInPane YES` puts it there for a "before"
-  picture. Not yet checked by eye against the screen fixture on a Mac.
 - **No pull-to-refresh** on the Mac (`hqInstallRefresh` keeps the control for ⌘R only). Swipe rows kept (Mail has them).
 - Checks: `-HQDemoRealChat YES` (a real chat in the lists demo), `-HQDemoHelpers YES` (three pretend helpers),
   `-HQDemoHelperOpen <id>`, `-HQMacInspectorShown YES -HQMacInspectorTab 0…4`, `-HQDebugSettingsWindow <name>`.
@@ -324,17 +294,14 @@ match." So the order of sections, a row's words and the text size are the iPhone
 the Mac's. (A first try that put New for You and Working above Pinned on the Mac alone was taken out for that rule; a
 search field always showing was turned down: "behind a click".)
 
-- **The row under the bar** (`SessionsHeaderView.macRow`): the Chats | Projects switch (it said Bots until 2026-11-20), the view's "All Bots" / "All
+- **The row under the bar** (`SessionsHeaderView.macRow`): the Bots | Projects switch, the view's "All Bots" / "All
   Projects" menu (`pages.scope`), and New and Working as counts at its end ("5 new"; a click narrows the list, another
   clears it). No pills that scroll sideways. This reverses the owner's 2026-11-17 pick of the iPhone's pill row.
   [mac-top] Owner 2026-11-19 ("the top section feels so messy", then "redo what we have to be better suited"): the
   same three in the same places as one set of Mac controls (`SessionsMacControl`: 24 pt high, 6 pt corners, footnote
   medium), their left edge on the project header's. The switch is a segmented control with a grey segment for the view
   shown, not the 44 pt glass capsule. A narrow pane drops the counts' words ("● 5"), then the switch's glyphs (it always
-  says Chats and Projects), before the menu's name is cut (it had run past both edges). On a project's page the counts are only the header's.
-  [switch-sides] Owner 2026-11-22: the switch is not a toggle. Each segment goes to its own view, and the segment
-  already shown goes to that view's home (every bot or project, New/Working cleared, the list at its top), as on the
-  iPhone (`SessionsViewController.goHome`).
+  says Bots and Projects), before the menu's name is cut (it had run past both edges). On a project's page the counts are only the header's.
 - **Rows** (`SessionRowView.macTight`, `ProjectCard.rowPad`): in the iOS look at Standard density a one-line chat row
   and a project's row are 36 pt (about 32 on the screen; they were 44 and 39). Compact and the Desktop Look keep theirs.
 - **Captions** are a size under the rows' titles (`SessionDateHeaderView.captionStyle`, footnote) in the iOS look.
@@ -360,7 +327,7 @@ search field always showing was turned down: "behind a click".)
 - **The message box follows the system's text settings** (`ComposerKeyboard.followsSystem`): autocorrect and spell
   check are `.default` on the Mac, so System Settings › Keyboard decides. Not checked with correction turned off.
 - **The Sessions header in a narrow pane** (`SessionsHeaderView.macRow`, `ViewThatFits`): the whole row; then New and
-  Working as numbers; then the switch's words without their glyphs (owner 2026-11-19: it always says both names, now Chats and Projects;
+  Working as numbers; then the switch's words without their glyphs (owner 2026-11-19: it always says Bots and Projects;
   1135 had dropped the words), then the menu's pictures. Checked with a real drag of the divider (AX frames) and the
   tour's two narrow-pane pictures; at the narrowest (320 pt) everything is inside the pane.
 - **Watch Screen takes the keyboard when control is taken** (`ScreenViewerController.couldSendInput`): no keyboard button
@@ -406,8 +373,7 @@ fixed on the owner's "yes to all, go". Commits end "(Mac polish #N)". What chang
   Nov 7).
 - **Notices** under a chat's bar (the voice banner, "Switching to …") sit on a page-coloured backing that fades out
   below them, so no half-covered line shows beside them. **Mixture of Agents** adds and removes models with + and −
-  under the list, as Fallback Models does (the − waits while a preset has one model left); its preset's New Preset…,
-  Make Default and Delete Preset… are one row of push buttons under the Preset pop-up (owner, Nov 21). **Marketplace's** featured picture shows whole (owner, Nov 7).
+  under the list, as Fallback Models does. **Marketplace's** featured picture shows whole (owner, Nov 7).
 - **Settings from the window** (owner, Nov 7 evening: "I don't see where I can access More or Settings"): a gear at
   the sidebar's foot (beside the +; above the toggle when folded) opens the Settings window, where More's setup pages
   are (Bots & Tools). **Usage** is one of the Tools again. The Update Add-on and Update Hermes sheets are the other

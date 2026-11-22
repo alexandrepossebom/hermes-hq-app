@@ -23,6 +23,7 @@ enum TasksHub {
             if made.settings.enabled { TaskReminders.sync(tasks) } else { TaskReminders.removeAll() }
         }
         made.onEnabledChanged = { on in noteEnabled(on, account: made.account) }
+        made.onPlanTaken = { [weak made] offer in if let made { GoalPlanTaken.tell(offer, store: made) } }
         store = made
         noteEnabled(made.settings.enabled, account: made.account)
         return made
@@ -128,13 +129,6 @@ enum TasksHub {
     /// A task's alert or a chat card's row: the page, then that task's sheet (`atReply`: at its chat's newest end, for a
     /// reply's alert). False when there is no Tasks page to show.
     @discardableResult
-    /// The New Task sheet over the Tasks page: a widget's New Task, and [quick-actions] an Add Task tile (its bot chosen).
-    static func newTask(bot: String? = nil) {
-        guard let page = showPage() else { return }
-        page.loadViewIfNeeded()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { page.newTask(bot: bot) }
-    }
-
     static func open(taskID: String?, atReply: Bool = false) -> Bool {
         guard let page = showPage() else { return false }
         guard let taskID else { return true }

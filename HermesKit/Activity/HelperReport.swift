@@ -35,9 +35,7 @@ nonisolated struct HelperReport: Hashable, Sendable {
         }
     }
     private static let delegation = TRx(#"^\[ASYNC DELEGATION[^\]\n]*[—–-]\s*(deleg_[A-Za-z0-9_-]+)\]"#)
-    /// The status is its first word: the gateway follows it with the call count and duration
-    /// (`(status=completed, api_calls=34, 1192.42s)`), and a cut-short run adds a TRUNCATED note.
-    private static let batch = TRx(#"(?m)^--- [✓✗⚠] TASK \d+/\d+: (.+?) {2}\(status=([A-Za-z_]+)[^\n]*\) ---\r?$"#)
+    private static let batch = TRx(#"(?m)^--- [✓✗⚠] TASK \d+/\d+: (.+?) {2}\(status=([^\n)]+)\) ---\r?$"#)
     private static let goal = TRx(#"(?m)^Original goal: *(.+?)\r?$"#)
     private static let state = TRx(#"(?m)^Status: *([A-Za-z_]+)"#)
 

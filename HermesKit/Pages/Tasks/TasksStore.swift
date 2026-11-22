@@ -218,17 +218,12 @@ final class TasksStore {
     private(set) var offers: [TodoOffer] = []
     /// [goals] Every goal, any status (optimistic edits applied); docs/goals.md.
     private(set) var goals: [Goal] = [] { didSet { TodoOfferStates.noteGoals(goals) } }
-    /// [goals] The add-on keeps goals (`goals` in `GET /tasks`). Without it the page offers the update in Goals' place
-    /// (`goalsNeedAddOn`). Public from hermes-hq-push 0.9.73 as re-published 2026-11-20 and 0.9.74; the "0.9.65" and
-    /// "0.9.66" named here and in goals.py were only ever installed on the owner's computer (PushPolicy.goals).
+    /// [goals] The add-on keeps goals (0.9.65+: `goals` in `GET /tasks`). Without it nothing of Goals shows.
     private(set) var goalsSupported = false
-    /// [goals-addon] Tasks work but the add-on keeps no goals: an add-on from before Goals was published. The Goals
-    /// pill stays and says to update the add-on (a public tester, 2026-11-20: "can't see Goals in Tasks").
-    var goalsNeedAddOn: Bool { hasList && !needsAddOn && !goalsSupported }
-    /// [goals step 3] The add-on puts bots on goals (`goal_bots`, with Goals in the public add-on): a lead, helpers,
-    /// offers, the check-in.
+    /// [goals step 3] The add-on puts bots on goals (0.9.66's `goal_bots`): a lead, helpers, offers, the check-in. With
+    /// 0.9.65 none of it shows.
     private(set) var goalBotsSupported = false
-    /// [goals step 5] The add-on draws Goal Pages (`goal_pages` in `/status`).
+    /// [goals step 5] The add-on draws Goal Pages (0.9.66's `goal_pages` in `/status`).
     private(set) var goalPagesSupported = false
     /// [goals step 3] Goal offers seen here, by id (newest kept, 80 at most): what a goal's chat card draws once the
     /// gateway has let the offer go ("Answered").
@@ -439,42 +434,6 @@ final class TasksStore {
     }
 
     // MARK: Writes
-
-    /// Acceptance is conditional on the exact revision shown. Never retry a conflict: the suggestion may have changed.
-    func acceptSuggestedTitle(_ id: String, suggestion: String, forTitle: String) async -> Bool {
-        guard !refuse(about: id) else { return false }
-        guard inFlight[id] == nil else {
-            notice("This task is being saved. Try again in a moment.", about: id)
-            return false
-        }
-        guard let base = task(id), !TodoIDs.isLocal(id),
-              base.title == forTitle, base.currentSuggestedTitle == suggestion else {
-            notice("This suggestion is no longer current.", about: id)
-            return false
-        }
-        begin(id)
-        defer { end(id) }
-        do {
-            let answer = try await api.patch(id, rev: base.rev, fields: ["title": .string(suggestion)])
-            put(answer); save(); changed()
-            guard answer.title == suggestion else {
-                notice("Couldn’t save the suggested title. Showing the saved task.", about: id)
-                return false
-            }
-            return true
-        } catch {
-            if let current = TasksAPI.conflict(error) {
-                put(current); save(); changed()
-                notice("This task changed somewhere else. Showing the latest.", about: id)
-            } else if PagesREST.status(error) == 404 {
-                tasks.removeAll { $0.id == id }; save(); changed()
-                notice("This task was deleted somewhere else.", about: id)
-            } else {
-                notice("Couldn’t save the suggested title. \(PagesREST.reason(error))", about: id)
-            }
-            return false
-        }
-    }
 
     private func refuse(quiet: Bool = false, about task: String? = nil) -> Bool {
         guard readOnlyGateway else { return false }
@@ -714,6 +673,9 @@ final class TasksStore {
         if let at = goals.firstIndex(where: { $0.id == goal.id }) { goals[at] = goal } else { goals.append(goal) }
     }
 
+    /// [goals set-up] A plan offer this device accepted (the gateway's answer): the app tells the goal's lead once.
+    @ObservationIgnored var onPlanTaken: ((TodoOffer) -> Void)?
+
     /// Why the last `addGoal` failed, in words (New Goal says it on its own line; nil when it worked).
     @ObservationIgnored private(set) var addGoalFailure: String?
 
@@ -723,7 +685,7 @@ final class TasksStore {
         addGoalFailure = nil
         guard !refuse() else { addGoalFailure = JobsStore.readOnlyNotice; return nil }
         guard goalsSupported else {
-            addGoalFailure = "Goals need the newest HQ add-on on your computer (0.9.74 or later)."   // [goals-addon] PushPolicy.goals
+            addGoalFailure = "Goals need the newest HQ add-on on your computer (0.9.65 or later)."
             notice(addGoalFailure ?? "")
             return nil
         }
@@ -734,11 +696,12 @@ final class TasksStore {
         if shown.color == nil { shown.color = GoalViews.nextColor(goals).rawValue }
         goals.append(shown)
         changed()
-        // POST /goals takes no team (the add-on's GoalIn): a lead or helpers go in a PATCH right after.
-        let team = fields.filter { GoalWire.teamKeys.contains($0.key) }
+        // [goals set-up] One write: POST /goals takes the lead, helpers, adds and review. An add-on from before that
+        // ignores them, and what it left out goes in a PATCH right after (as it all did before).
         do {
-            var made = try await goalsAPI.create(fields.filter { !GoalWire.teamKeys.contains($0.key) })
-            if !team.isEmpty, let led = try? await goalsAPI.patch(made.id, rev: made.rev, fields: team) { made = led }
+            var made = try await goalsAPI.create(GoalWire.createBody(fields))
+            let left = GoalWire.teamLeft(fields, made: made)
+            if !left.isEmpty, let led = try? await goalsAPI.patch(made.id, rev: made.rev, fields: left) { made = led }
             goals.removeAll { $0.id == localID }
             putGoal(made)
             save()
@@ -953,6 +916,9 @@ final class TasksStore {
             if let goals = answer.goals { adoptGoals(goals) }
             save()
             changed()
+            // [goals set-up] This device took a plan: its lead is told, once (`GoalPlanTold`). Only here, on the
+            // gateway's yes to this tap: another device's answer reaches this one as a 409 or a read, never as this.
+            if action == .accept, answer.offer.kind == "plan", answer.offer.state == "accepted" { onPlanTaken?(answer.offer) }
             lastReadAt = nil
             await refresh(force: true)
             return true

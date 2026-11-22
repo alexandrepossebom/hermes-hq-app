@@ -463,7 +463,6 @@ final class PagesTests: XCTestCase {
         let add = app.navigationBars.buttons["kanban.new.add"]
         XCTAssertTrue(add.waitForExistence(timeout: 5))
         XCTAssertFalse(add.isEnabled, "Add waits for a title")
-        shot("parity-kanban-empty")
         app.textFields["kanban.new.title"].typeText("Write the release post")
         app.buttons["kanban.new.nobody"].tap()
         app.segmentedControls["kanban.new.start"].buttons["Ready"].tap()
@@ -836,9 +835,7 @@ final class PagesTests: XCTestCase {
         // The chat links the page inline; a page alone on its line is what draws a card.
         try account.control("/__fixture/append", ["session_id": "s-report", "role": "assistant", "text": "MEDIA:/home/hermes/site/index.html"])
         page.cells["pin-card-index.html"].buttons["Actions for Index"].tap()   // [tiles] the name in words
-        // [tile-chats] A page tile's chat is Open Chat, in place of Show in Chat (owner 2026-11-21).
-        XCTAssertFalse(app.buttons["Show in Chat"].firstMatch.exists, "a page tile says Open Chat")
-        app.buttons["Open Chat"].firstMatch.tap()
+        app.buttons["Show in Chat"].firstMatch.tap()
         let card = app.descendants(matching: .any)["chat.page-card"]
         XCTAssertTrue(card.waitForExistence(timeout: 10), "the chat shows its page card")
         XCTAssertTrue(waitUntil(5) { (card.value as? String) == "Pinned" }, "the card is marked Pinned")
@@ -935,12 +932,6 @@ final class PagesTests: XCTestCase {
         Thread.sleep(forTimeInterval: 2)
         shot("pins-tile-making-chat")
         XCTAssertTrue(app.descendants(matching: .any)["chat.table"].waitForExistence(timeout: 5), "the row opens the tile's chat")
-        // [tile-chats] The tile's chat is made hidden (owner 2026-11-21: "Tile sessions are hidden from everywhere else").
-        let state = (try? account.control("/__fixture/state")) ?? [:]
-        let creates = ((state["rpc"] as? [[String: Any]]) ?? []).filter { ($0["method"] as? String) == "session.create" }
-            .compactMap { $0["params"] as? [String: Any] }
-        XCTAssertFalse(creates.isEmpty, "the tile's chat was made")
-        XCTAssertTrue(creates.allSatisfy { ($0["hidden"] as? Bool) == true }, "made hidden: \(creates)")
     }
 
     /// [dashboard] Pages on the Dashboard (owner 2026-11-03): ＋ makes one, a tile moves there, swipe back to Main.
@@ -1223,70 +1214,6 @@ final class PagesTests: XCTestCase {
             for _ in 0..<6 where !app.segmentedControls["artifacts.filter"].isHittable { list.swipeDown() }   // the largest text
             XCTAssertTrue(waitUntil(5) { list.cells["pin-card-\(label)"].exists }, "\(label) is on the shelf")
         }
-    }
-
-    /// [tile-chats] Owner 2026-11-21: "an easy way to be able to open the session attached to a Tile". The opened tile has
-    /// a chat button on its bar, and the tile's hold menu says Open Chat beside Open: each opens the tile's own chat.
-    @MainActor func testArt19_TileOpensItsChat() throws {
-        let (arguments, shot) = pinsLook()
-        app = launchSignedIn(arguments + ["-HQDebugResetPins", "YES"])
-        try account.control("/__fixture/append", ["session_id": "s-report", "role": "assistant", "text": "MEDIA:/home/hermes/site/tile.html"])
-        try account.control("/__fixture/tile-job", [:])
-        openArtifacts()
-        let list = app.collectionViews["artifacts.list"]
-        let row = list.cells["artifact-row-tile.html"]
-        XCTAssertTrue(waitUntil(15) { row.exists || self.scrollTo(row, in: list) }, "tile.html is listed")
-        row.swipeRight()
-        app.buttons["Pin"].firstMatch.tap()
-        list.swipeDown(); list.swipeDown()
-        app.buttons["pins.view"].firstMatch.tap()
-        app.buttons["pins.open-page"].firstMatch.tap()
-        let tiles = app.collectionViews["pinned.list"]
-        let tile = tiles.cells["pin-card-tile.html"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 5), "the tile on Tiles")
-
-        // The opened tile: a chat button on its bar.
-        tile.tap()
-        let headline = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Revenue $12K")).firstMatch
-        XCTAssertTrue(headline.waitForExistence(timeout: 15), "the tile draws")
-        let chatButton = app.buttons["tile.chat.button"].firstMatch
-        XCTAssertTrue(chatButton.waitForExistence(timeout: 5), "a chat button on the opened tile's bar")
-        XCTAssertEqual(chatButton.label, "Open Chat")
-        XCTAssertTrue(app.buttons["tile.updates.button"].firstMatch.exists, "beside its Updates")
-        // Comment under ⋯, so the bar keeps the tile's name (owner 2026-11-21: "Comment moves under ⋯").
-        XCTAssertFalse(app.buttons["page.comment"].firstMatch.exists, "no Comment on the bar")
-        XCTAssertTrue(app.navigationBars.staticTexts["Revenue This Week"].firstMatch.exists, "the tile's name on the bar")
-        Thread.sleep(forTimeInterval: 1)
-        shot("tile-chat-button")
-        app.buttons["page.more"].firstMatch.tap()
-        let comment = app.buttons["Comment on the Page"].firstMatch
-        XCTAssertTrue(comment.waitForExistence(timeout: 5), "Comment under ⋯")
-        shot("tile-more-comment")
-        comment.tap()
-        XCTAssertTrue(waitUntil(5) { self.app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "to comment")).firstMatch.exists },
-                      "Comment from ⋯ turns commenting on")
-        app.buttons["page.more"].firstMatch.tap()
-        XCTAssertTrue(comment.waitForExistence(timeout: 5))
-        comment.tap()   // checked: off again
-        chatButton.tap()
-        let card = app.descendants(matching: .any)["chat.page-card"]
-        XCTAssertTrue(app.descendants(matching: .any)["chat.table"].waitForExistence(timeout: 10), "the tile's chat opens")
-        XCTAssertTrue(card.waitForExistence(timeout: 10), "the chat the tile came from (its page card)")
-        XCTAssertFalse(app.otherElements["html.page"].firstMatch.exists, "the tile closed for its chat")
-        Thread.sleep(forTimeInterval: 2)
-        shot("tile-chat-opened")
-
-        // Back on Tiles: the hold menu's Open Chat, second after Open.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(tile.waitForExistence(timeout: 5), "back on Tiles")
-        tile.press(forDuration: 1)
-        let open = app.buttons["Open Chat"].firstMatch
-        XCTAssertTrue(open.waitForExistence(timeout: 5), "Open Chat in the tile's menu")
-        XCTAssertFalse(app.buttons["Show in Chat"].firstMatch.exists, "in place of Show in Chat")
-        XCTAssertLessThan(app.buttons["Open"].firstMatch.frame.minY, open.frame.minY, "after Open")
-        shot("tile-hold-open-chat")
-        open.tap()
-        XCTAssertTrue(card.waitForExistence(timeout: 10), "Open Chat opens the tile's chat")
     }
 
     /// [dashboard] Grid (tester feedback, 2026-11-01: "reduce or remove footer and stack these in a grid layout"): the
@@ -1910,17 +1837,6 @@ final class PagesTests: XCTestCase {
         let read = requests().first { $0.path == "/api/fs/read-data-url" && ($0.query["path"] ?? "").hasSuffix("results.png") }
         XCTAssertEqual(read?.query["session_id"], "s-reading")
         XCTAssertEqual(read?.query["profile"], "research")
-        // Owner 2026-11-22: press and hold on the image: Save to Photos, Share…, Copy Image; Copy says Copied.
-        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
-        XCTAssertTrue(app.buttons["Copy Image"].waitForExistence(timeout: 5), "the image has the image menu")
-        XCTAssertTrue(app.buttons["Save to Photos"].exists)
-        XCTAssertTrue(app.buttons["Share…"].exists)
-        shot("artifact-image-menu")
-        app.buttons["Copy Image"].tap()
-        let hud = app.otherElements["menus.hud"]
-        XCTAssertTrue(waitUntil(5) { hud.exists && hud.label == "Copied" }, "Copy Image says Copied")
-        XCTAssertTrue(app.otherElements["artifact.image"].exists, "still in the viewer after Copy")
-        Thread.sleep(forTimeInterval: 2)
         app.swipeDown(velocity: .fast)
         XCTAssertTrue(app.collectionViews["artifacts.list"].waitForExistence(timeout: 5))
         XCTAssertTrue(waitUntil(5) { !app.otherElements["artifact.image"].exists }, "swipe down closes")

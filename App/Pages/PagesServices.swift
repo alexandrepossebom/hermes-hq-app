@@ -12,10 +12,8 @@ protocol PagesServices: AnyObject {
     var readOnlyGateway: Bool { get }
     /// Opening a run or an artifact's chat.
     func chat(for session: SessionSummary) -> ChatSessionModel
-    /// [dashboard] A fresh chat with a bot.
+    /// [dashboard] A fresh chat with a bot (New Tile asks for its tile there).
     func newChat(for bot: Bot, folder: String?) -> ChatSessionModel
-    /// [tile-chats] A tile's own fresh chat (New Tile, Change…): born hidden from every list, opened from its tile.
-    func tileChat(for bot: Bot) -> ChatSessionModel
     /// [tasks] A task's own chat, born hidden from every list (AppModel.taskChat).
     func taskChat(for bot: Bot, sessionTitle: String, shownTitle: String,
                   created: @escaping @MainActor (String) -> Void) -> ChatSessionModel
@@ -28,8 +26,6 @@ protocol PagesServices: AnyObject {
 extension PagesServices {
     /// Services with no gateway chats (demos, tests): a chat that says so.
     func newChat(for bot: Bot, folder: String?) -> ChatSessionModel { UnavailableChat(title: "New Chat", profile: bot.id, head: bot.head) }
-    /// Services with no hidden chats of their own (demos, tests): a fresh chat as `newChat` makes it.
-    func tileChat(for bot: Bot) -> ChatSessionModel { newChat(for: bot, folder: nil) }
     func botModelName(_ profile: String) -> String? { nil }
     func taskChat(for bot: Bot, sessionTitle: String, shownTitle: String,
                   created: @escaping @MainActor (String) -> Void) -> ChatSessionModel {

@@ -271,12 +271,6 @@ import UIKit
         reader.inputEnded()
         screen?.view.setNeedsLayout()
     }
-    /// [question-dictate] A dictation into the question card began or ended (#438): as the composer's, no tip over it,
-    /// and a reply that waited behind it is read once it ends.
-    func cardDictationChanged(_ active: Bool) {
-        guard isAvailable else { return }
-        if active { dictationShown() } else { dictationEnded() }
-    }
 
     var canSendMemo: Bool { isOnScreen && (composer?.isEnabled ?? false) }
 

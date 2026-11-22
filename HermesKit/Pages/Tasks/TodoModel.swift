@@ -12,8 +12,6 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var rev: Int
     var title: String
-    var suggestedTitle: String?
-    var suggestedForTitle: String?
     var notes: String
     /// "me" | "bot" | "together".
     var who: String
@@ -78,7 +76,6 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
         case statusNote = "status_note", repeatRule = "repeat", createdAt = "created_at", updatedAt = "updated_at"
         case doneAt = "done_at", createdBy = "created_by", pageAt = "page_at", page, nextCheck = "next_check", choices
         case priority, tags, alert, starts, offer, goal, milestone
-        case suggestedTitle = "suggested_title", suggestedForTitle = "suggested_for_title"
         // App-only: kept in the disk cache and edit merges so a reopened list still knows the gateway said "no chat".
         case chatKnown = "chat_known"
     }
@@ -100,8 +97,6 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
         id = try c.decode(String.self, forKey: .id)
         rev = (try? c.decodeIfPresent(Int.self, forKey: .rev)) ?? 0
         title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
-        suggestedTitle = try? c.decodeIfPresent(String.self, forKey: .suggestedTitle)
-        suggestedForTitle = try? c.decodeIfPresent(String.self, forKey: .suggestedForTitle)
         notes = (try? c.decodeIfPresent(String.self, forKey: .notes)) ?? ""
         who = (try? c.decodeIfPresent(String.self, forKey: .who)) ?? "me"
         bot = (try? c.decodeIfPresent(String.self, forKey: .bot)).flatMap { $0?.isEmpty == true ? nil : $0 }
@@ -145,13 +140,6 @@ nonisolated struct TodoTask: Codable, Hashable, Sendable, Identifiable {
     }
 
     var isDone: Bool { status == "done" }
-    /// Only offer a suggestion for the exact title it was generated from.
-    var currentSuggestedTitle: String? {
-        guard suggestedForTitle == title, let suggestedTitle,
-              !suggestedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              suggestedTitle != title else { return nil }
-        return suggestedTitle
-    }
     /// Who does it, as the app reads it ("me" for anything it doesn't know).
     var whoKind: TodoWho { TodoWho(rawValue: who) ?? .me }
     /// The bot on a bot or together task (a together task with none named reads as the root bot's).

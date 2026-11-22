@@ -3,7 +3,7 @@ import UIKit
 // [background] The Background tasks card on the chat's shelf (owner 2026-11-15: "Shouldn't that background work be shown
 // the same as subagents do?"). A bot that starts a command in the background (a test run, a build) ends its turn and
 // looked idle while the command ran. The chip sits beside Subagents on the same glass; opened, it lists each running
-// command: a spinner, its name (BackgroundTaskText.title, not a bare `cd …`), how long it has run, the newest line it printed, and Stop behind a menu (one
+// command: a spinner, its first line, how long it has run, the newest line it printed, and Stop behind a menu (one
 // tap would end a long test run by accident). Read from `process.list` (`ChatActivityController.backgroundPoll`).
 
 final class BackgroundTasksBody: UIView, ShelfMeasuredBody {
@@ -34,7 +34,7 @@ final class BackgroundTasksBody: UIView, ShelfMeasuredBody {
     /// `stopping`: ids whose Stop went out (their row says "Stopping…").
     func update(_ commands: [BackgroundProcess], stopping: Set<String>) {
         var h = Hasher()
-        for c in commands { h.combine(c.id); h.combine(c.headline); h.combine(c.detailLine); h.combine(c.lastLine.isEmpty) }
+        for c in commands { h.combine(c.id); h.combine(c.title); h.combine(c.lastLine.isEmpty) }
         revision.note(h.finalize())
         let ids = commands.map(\.id)
         for (id, row) in rows where !ids.contains(id) { row.removeFromSuperview(); rows[id] = nil }
@@ -55,16 +55,12 @@ final class BackgroundTasksBody: UIView, ShelfMeasuredBody {
     }
 }
 
-/// One running job: spinner · its name (2 lines) · time · ⋯ (Stop); who runs it and where; the newest output line, or
-/// an honest quiet line (`BackgroundProcess.headline` / `detailLine` / `statusLine`).
+/// One running command: spinner · its first line (2 lines) · time · ⋯ (Stop); the newest output line under it.
 final class BackgroundTaskRow: UIView {
     var onStop: ((String) -> Void)?
     private let spinner = GlyphSpinner(style: .braille, color: ChatPalette.label2, size: HQFont.symbolSize(15, like: .subheadline, cap: 24))
     private let title = ShelfText.label(ShelfText.footnoteBold, lines: 2)
-    private let detail = ShelfText.label(ShelfText.footnote, color: ChatPalette.label2, lines: 1)
     private let subtitle = ShelfText.label(ShelfText.footnote, color: ChatPalette.label2, lines: 1)
-    private var subtitleUnderTitle: NSLayoutConstraint!
-    private var subtitleUnderDetail: NSLayoutConstraint!
     private let timer = UILabel()
     private let more = UIButton(type: .system)
     private var command: BackgroundProcess?
@@ -74,8 +70,6 @@ final class BackgroundTaskRow: UIView {
         title.lineBreakMode = .byTruncatingTail
         title.accessibilityIdentifier = "chat.background.title"
         subtitle.lineBreakMode = .byTruncatingTail
-        detail.lineBreakMode = .byTruncatingMiddle
-        detail.accessibilityIdentifier = "chat.background.detail"
         subtitle.font = HQFont.monoFace(ofSize: ShelfText.caption.pointSize, weight: .regular)
         subtitle.accessibilityIdentifier = "chat.background.output"
         timer.font = HQFont.monoDigitFace(ofSize: ShelfText.footnote.pointSize, weight: .regular)
@@ -88,7 +82,7 @@ final class BackgroundTaskRow: UIView {
         more.showsMenuAsPrimaryAction = true
         more.accessibilityLabel = "Task Actions"
         more.accessibilityIdentifier = "chat.background.more"
-        for v: UIView in [spinner, title, detail, subtitle, timer, more] {
+        for v: UIView in [spinner, title, subtitle, timer, more] {
             v.translatesAutoresizingMaskIntoConstraints = false
             addSubview(v)
         }
@@ -107,16 +101,11 @@ final class BackgroundTaskRow: UIView {
             more.centerYAnchor.constraint(equalTo: centerYAnchor),
             more.widthAnchor.constraint(equalToConstant: 44),
             more.heightAnchor.constraint(equalToConstant: 44),
-            detail.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            detail.trailingAnchor.constraint(equalTo: more.leadingAnchor, constant: -4),
-            detail.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 2),
             subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
             subtitle.trailingAnchor.constraint(equalTo: more.leadingAnchor, constant: -4),
+            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3),
             subtitle.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
         ])
-        subtitleUnderTitle = subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3)
-        subtitleUnderDetail = subtitle.topAnchor.constraint(equalTo: detail.bottomAnchor, constant: 3)
-        subtitleUnderTitle.isActive = true
         accessibilityIdentifier = "chat.background.row"
     }
 
@@ -124,15 +113,9 @@ final class BackgroundTaskRow: UIView {
 
     func update(_ command: BackgroundProcess, stopping: Bool) {
         self.command = command
-        let name = command.headline
-        if title.text != name { title.text = name }
-        let place = command.detailLine
-        if detail.text != place { detail.text = place }
-        detail.isHidden = place == nil
-        subtitleUnderTitle.isActive = place == nil
-        subtitleUnderDetail.isActive = place != nil
+        if title.text != command.title { title.text = command.title }
         title.numberOfLines = ShelfText.isLarge ? 0 : 2
-        let line = stopping ? "Stopping…" : command.statusLine
+        let line = stopping ? "Stopping…" : command.lastLine.isEmpty ? "No output yet" : command.lastLine
         if subtitle.text != line { subtitle.text = line }
         let time = command.uptimeSeconds.map(BackgroundProcess.duration) ?? ""
         if timer.text != time { timer.text = time }
@@ -145,7 +128,7 @@ final class BackgroundTaskRow: UIView {
                 self?.onStop?(id)
             },
         ])
-        title.accessibilityLabel = "\(name), running" + (time.isEmpty ? "" : " for \(time)")
+        title.accessibilityLabel = "\(command.title), running" + (time.isEmpty ? "" : " for \(time)")
         subtitle.accessibilityLabel = line
     }
 }

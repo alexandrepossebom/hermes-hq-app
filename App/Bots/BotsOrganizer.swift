@@ -649,7 +649,7 @@ extension BotsOrganizer: UICollectionViewDragDelegate, UICollectionViewDropDeleg
     }
 
     func collectionView(_ collectionView: UICollectionView, canHandle session: UIDropSession) -> Bool {
-        session.localDragSession != nil || SessionFileDrop.carriesFiles(session)   // [spring-drop]
+        session.localDragSession != nil
     }
 
     private func isTileDrag(_ session: UIDropSession) -> Bool {
@@ -662,10 +662,6 @@ extension BotsOrganizer: UICollectionViewDragDelegate, UICollectionViewDropDeleg
 
     func collectionView(_ collectionView: UICollectionView, dropSessionDidUpdate session: UIDropSession,
                         withDestinationIndexPath destinationIndexPath: IndexPath?) -> UICollectionViewDropProposal {
-        // [spring-drop] Files from outside the app: a bot's row (or a chat under it) lights, and held there it opens.
-        if session.localDragSession == nil {
-            return UICollectionViewDropProposal(operation: host?.fileDrop.update(session) ?? .cancel, intent: .unspecified)
-        }
         if isTileDrag(session) {
             // Only among the tiles; a tick each time the others slide to make room in a new slot.
             guard let destination = destinationIndexPath, host?.isTileSlot(destination) == true else {
@@ -707,21 +703,11 @@ extension BotsOrganizer: UICollectionViewDragDelegate, UICollectionViewDropDeleg
         return services.bots.first { $0.id == id }
     }
 
-    func collectionView(_ collectionView: UICollectionView, dropSessionDidExit session: UIDropSession) {
-        setDropTarget(nil)
-        host?.fileDrop.exit()
-    }
+    func collectionView(_ collectionView: UICollectionView, dropSessionDidExit session: UIDropSession) { setDropTarget(nil) }
 
-    func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: UIDropSession) {
-        setDropTarget(nil)
-        host?.fileDrop.exit()
-    }
+    func collectionView(_ collectionView: UICollectionView, dropSessionDidEnd session: UIDropSession) { setDropTarget(nil) }
 
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
-        if coordinator.session.localDragSession == nil {   // [spring-drop] files let go on a bot's row or a chat's
-            host?.fileDrop.perform(coordinator.session)
-            return
-        }
         if isTileDrag(coordinator.session) {
             dropTile(coordinator)
             return

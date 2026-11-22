@@ -64,11 +64,21 @@ struct AskBotIntent: AppIntent {
         guard let record = VoiceBotCatalog.resolve(id: bot.id), let profile = VoiceBotCatalog.profile(key: record.key) else {
             throw VoiceNoteError.unavailableBot
         }
+        let roster = AskRoster.read()
+        guard let target = roster?.bots.first(where: { $0.profile == profile }) else { throw AskBotError.words(.noRoster, bot: record.name) }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ask-" + UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let attachments = try Self.stage(files ?? [], in: folder)
-        let (target, result) = try await Self.send(profile: profile, name: record.name, message: message, attachments: attachments,
-                                                   wait: waitForReply)
+        let request = ShareRequest(bot: target, message: message, attachments: attachments,
+                                   limit: roster?.limitBytes ?? ShareRules.defaultLimitBytes, replyWait: waitForReply ? Self.replyWait : 0)
+        let result: ShareResult
+        do {
+            result = try await ShareSender().send(request, roster: roster)
+        } catch let failure as ShareFailure {
+            AppLog.note("intents", "Ask Bot shortcut: \(failure.name)")
+            throw AskBotError.words(failure, bot: target.name)
+        }
+        AppLog.note("intents", "Ask Bot shortcut: sent (\(result.status))\(result.reply.map { " reply \(AskBotError.logName($0))" } ?? "")")
         switch result.reply {
         case nil:
             return .result(value: "", dialog: "Sent to \(target.name).")
@@ -80,28 +90,6 @@ struct AskBotIntent: AppIntent {
             throw AskBotError.message("\(target.name) got your message and is still working on it. The reply will be in the chat.")
         case .failed(let said):
             throw AskBotError.message(said.isEmpty ? "\(target.name) couldn’t finish replying. Open the chat in Hermes HQ to see why." : said)
-        }
-    }
-
-    /// [quick-actions] The send itself, as the Share extension makes it (`ShareSender`, `AskRoster`'s Bot Chat): this
-    /// intent's road, and a Quick Actions Send a Message tile's with Open the Chat off (I22, no wait). A failure is in a
-    /// shortcut's words (`AskBotError`).
-    static func send(profile: String, name: String, message: String, attachments: [ShareAttachment] = [],
-                     wait: Bool) async throws -> (target: ShareBot, result: ShareResult) {
-        let roster = AskRoster.read()
-        guard let target = roster?.bots.first(where: { $0.profile == profile }) else { throw AskBotError.words(.noRoster, bot: name) }
-        let request = ShareRequest(bot: target, message: message, attachments: attachments,
-                                   limit: roster?.limitBytes ?? ShareRules.defaultLimitBytes, replyWait: wait ? Self.replyWait : 0)
-        let sent = await Result.of { try await ShareSender().send(request, roster: roster) }
-        switch sent {
-        case .success(let result):
-            AppLog.note("intents", "Ask Bot: sent (\(result.status))\(result.reply.map { " reply \(AskBotError.logName($0))" } ?? "")")
-            return (target, result)
-        case .failure(let failure as ShareFailure):
-            AppLog.note("intents", "Ask Bot: \(failure.name)")
-            throw AskBotError.words(failure, bot: target.name)
-        case .failure(let error):
-            throw error
         }
     }
 

@@ -121,52 +121,6 @@ extension SessionsTests {
         XCTAssertTrue(app.tables["chat.table"].waitForExistence(timeout: 10), "the new chat opens")
     }
 
-    /// [own-folder-everywhere] The same tester, 2026-11-21, on build 1166: with their own chats recording no folder, New
-    /// Chat still listed the other bots' own folders, and Sessions › Projects listed them as projects. Each bot's folder
-    /// is now read from its `terminal.cwd` and is no project or folder anywhere, whichever bot is picked.
-    @MainActor func testC3h_NoBotsOwnFolderAnywhere() throws {
-        fixture("/__fixture/mode", ["projects": "configured"])
-        let app = launch()
-        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        XCTAssertTrue(waitUntil(10) { self.rpc("projects.tree").contains { $0["profile"] as? String == "default" } }, "projects read with the list")
-        XCTAssertTrue(waitUntil(10) { !self.rest("GET", "/api/config").isEmpty }, "each bot's config is read with its projects")
-        Thread.sleep(forTimeInterval: 2.5)
-        app.buttons["sessions.compose"].tap()
-        let checkout = app.buttons["new-chat-folder-checkout"]
-        XCTAssertTrue(checkout.waitForExistence(timeout: 5), "a folder Hermes found, as a folder")
-        func noOwnFolder(_ picked: String) {
-            for own in ["default", "research", "deploys"] {
-                XCTAssertFalse(app.buttons["new-chat-folder-\(own)"].exists || app.buttons["new-chat-project-\(own)"].exists,
-                               "\(own)'s own working folder is not offered with \(picked) picked")
-            }
-        }
-        noOwnFolder("the first bot")
-        shot(app, "compose-no-bots-folders")
-        for bot in ["research", "deploys"] where app.buttons["new-chat-bot-\(bot)"].exists {
-            app.buttons["new-chat-bot-\(bot)"].tap()
-            Thread.sleep(forTimeInterval: 0.4)
-            noOwnFolder(bot)
-        }
-        XCTAssertTrue(app.buttons["new-chat-project-Website"].exists, "saved projects stay projects")
-        app.swipeDown(velocity: .fast)
-        XCTAssertTrue(waitUntil(6) { !checkout.exists }, "the sheet closes")
-        // Filter › Project: the saved projects and the checkout; no bot's own folder.
-        var listed = false
-        for _ in 0..<4 where !listed {
-            openFilter(app)
-            tapFilter(app, "project")
-            listed = filterItem(app, "project.0").waitForExistence(timeout: 3)
-            if !listed { closeFilter(app) }
-        }
-        XCTAssertTrue(listed, "Project lists the projects")
-        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.filter.project.'"))
-        let labels = (0..<rows.count).map { rows.element(boundBy: $0).label }
-        XCTAssertTrue(labels.contains("checkout") && labels.contains("Website"), "\(labels)")
-        for own in ["default", "research", "deploys"] { XCTAssertFalse(labels.contains(own), "\(own) is no project (\(labels))") }
-        shot(app, "filter-project-no-bots-folders")
-        closeFilter(app)
-    }
-
     /// Owner 2026-11-11: "Test for very long project titles." A long name (with spaces, without any, accented) keeps
     /// its row one line high and inside the sheet (cut in the middle), leaves room for "Last used", and reads whole to
     /// VoiceOver; All Projects gives it two lines.

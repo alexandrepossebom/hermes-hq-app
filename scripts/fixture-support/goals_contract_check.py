@@ -144,7 +144,9 @@ def sequence(side):
                                               'measure': {'unit': 'testers', 'start': 0, 'target': 10}})
     ids['a'] = a.get('id'); step('POST /goals', code, a)
     code, b = side.request('POST', '/goals', {'title': 'Learn to sail', 'lead': 'otto', 'helpers': ['wren']})
-    ids['b'] = b.get('id'); step('POST /goals with a lead (POST takes none)', code, b)
+    ids['b'] = b.get('id'); step('POST /goals with a lead and a helper (one write, one "Added")', code, b)
+    code, body = side.request('POST', '/goals', {'title': 'Bad team', 'lead': 'two words', 'review': {'day': 9, 'time': '08:00'}})
+    step('POST /goals refused: a lead with a space, review day 9', code, body)
     code, a = side.request('PATCH', f"/goals/{ids['a']}", {'rev': a['rev'], 'lead': 'otto', 'helpers': ['wren', 'otto', 'wren'],
                                                          'adds': 'auto', 'known_to_all': False,
                                                          'chat': {'profile': 'otto', 'session_id': 'g1'},
@@ -229,6 +231,43 @@ def sequence(side):
     step('Keep the Goal, No Plan on a plan (declines it)', code, body)
     code, body = side.offer('otto', 'plan', {'goal': ids['a'], 'tasks': [{'title': 'Pick a date'}]})
     step('a plan after Keep the Goal, No Plan', code, body)
+
+    # [goals set-up] A plan's set-up fields: each keep/drop rule, built_on, accept, undo, undo after a change, only set-up
+    code, o = side.offer('otto', 'plan', {'goal': ids['b'], 'name': 'Sail solo by June', 'why': 'To  take the  kids out myself.',
+                                          'due': '2027-06-30', 'measure': {'unit': 'hours', 'start': 0, 'target': 40},
+                                          'built_on': ['Your notes from the taster day', '  ', 'x' * 120, 'The club’s course', 'A fourth line'],
+                                          'milestones': [{'title': 'Ten hours on the water'}]})
+    ids['o_setup'] = o.get('id'); step('offer a plan with name, why, due, measure and built_on (all kept)', code, o)
+    code, body = side.offer('otto', 'plan', {'goal': ids['a'], 'asked': True, 'name': 'SHIP the BETA', 'why': 'A new why',
+                                             'measure': {'unit': 'testers', 'start': 0, 'target': 50}, 'due': '2027-01-31',
+                                             'tasks': [{'title': 'Ask the club for dates'}]})
+    step('a plan on a goal with a why and a number: name same but case, why and measure dropped, due kept', code, body)
+    code, body = side.offer('otto', 'plan', {'goal': ids['b'], 'name': 'Ship the beta', 'tasks': [{'title': 'Ring the club'}]})
+    step('a plan whose name another active goal has (name dropped; replaces the waiting one)', code, body)
+    code, o = side.offer('otto', 'plan', {'goal': ids['b'], 'name': 'Sail solo by June', 'why': 'To take the kids out myself.',
+                                          'due': '2027-06-30', 'measure': {'unit': 'hours', 'start': 0, 'target': 40},
+                                          'built_on': ['Your notes from the taster day'], 'milestones': [{'title': 'Ten hours on the water'}]})
+    ids['o_setup'] = o.get('id'); step('offer the set-up plan again', code, o)
+    code, body = side.request('POST', f"/tasks/offers/{ids['o_setup']}", {'action': 'accept'})
+    step('accept the set-up plan (renamed, why, due, number at its start, one "Plan added")', code, body)
+    step('the goal after accepting', 200, goal('b'))
+    code, body = side.request('POST', f"/tasks/offers/{ids['o_setup']}", {'action': 'undo'})
+    step('undo the set-up plan (all four back)', code, body)
+    step('the goal after undo', 200, goal('b'))
+    code, o = side.offer('otto', 'plan', {'goal': ids['b'], 'asked': True, 'name': 'Sail solo by June', 'due': '2027-06-30'})
+    ids['o_only'] = o.get('id'); step('a plan with only set-up fields', code, o)
+    code, body = side.request('POST', f"/tasks/offers/{ids['o_only']}", {'action': 'accept'})
+    step('accept it (the old name becomes the why)', code, body)
+    b = goal('b') or {}
+    code, b = side.request('PATCH', f"/goals/{ids['b']}", {'rev': b.get('rev'), 'due': '2027-08-01'})
+    step('change its date after accepting', code, b)
+    code, body = side.request('POST', f"/tasks/offers/{ids['o_only']}", {'action': 'undo'})
+    step('undo it (name and why back, the changed date stays)', code, body)
+    step('the goal after that undo', 200, goal('b'))
+    code, body = side.offer('otto', 'plan', {'goal': ids['b'], 'asked': True, 'built_on': ['Only this']})
+    step('a plan with only built_on (refused)', code, body)
+    code, body = side.offer('otto', 'plan', {'goal': ids['b'], 'asked': True, 'measure': {'unit': 'hours', 'start': 5, 'target': 5}})
+    step('a plan with a number whose target is its start (refused)', code, body)
 
     # Held and replaced offers, and the check-in that folds the held ones
     code, o = side.offer('juno', 'tasks', {'goal': ids['a'], 'tasks': [{'title': 'Ask the neighbours'}]})

@@ -101,8 +101,63 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
                 cell.accessibilityIdentifier = "more-row-\(row.id)"
                 return
             }
+            // [capabilities] a row with a status is a value cell: the value sits before the chevron, red for an issue,
+            // and wraps under the title at accessibility sizes (the system's own stacked layout).
             let status = row.status?()
-            cell.contentConfiguration = Self.rowContent(row, status: status)
+            var content = status == nil ? UIListContentConfiguration.cell().hqScaled() : UIListContentConfiguration.valueCell().hqScaled()
+            content.text = row.title
+            // [ui-sizing 2026-11-09] × UI Scale on the iPhone too, as the Mac's: the rows grew and the tiles stayed 29 pt.
+            let side = HQFont.scaled(29)
+            content.image = Self.tile(row, side: side)
+            content.imageProperties.maximumSize = CGSize(width: side, height: side)
+            content.imageToTextPadding = 14
+            content.directionalLayoutMargins.top = MoreMetrics.rowPad      // [compact] as tall as a Settings row
+            content.directionalLayoutMargins.bottom = MoreMetrics.rowPad
+            if Theme.inkIcons == .plain {   // [paper-icons] the glyph alone in the theme's text, in the tile's column
+                content.image = Self.glyph(row, configuration: UIImage.SymbolConfiguration(pointSize: 18 * side / 29, weight: .regular))
+                content.imageProperties.reservedLayoutSize = CGSize(width: side, height: side)
+                content.imageProperties.tintColor = HQPalette.label
+            }
+            if Theme.isDesktop {   // [desktoplook2] the desktop's small monochrome glyph, no coloured tile (css:157-162)
+                content.image = Self.glyph(row)
+                content.imageProperties.maximumSize = CGSize(width: 20, height: 20)
+                content.imageProperties.reservedLayoutSize = CGSize(width: 20, height: 20)
+                content.imageProperties.tintColor = HQPalette.label2
+                content.imageToTextPadding = 12
+                content.textProperties.font = HQFont.preferred(.callout)
+            }
+            if DeviceWord.isMac {
+                // [mac] Stress test 2026-10-28 #58: one glyph size and weight (`MacIcon.row`, the row text's size) in a
+                // fixed column, so Changes and Spawn Tree aren't shrunk thin and Kanban and Bot Profiles aren't bigger;
+                // the iOS look's tiles grow with the text as the rows do.
+                let column = Theme.isDesktop ? MacIcon.rowColumn : HQFont.scaled(29)
+                if Theme.isDesktop { content.image = Self.macGlyph(row) }
+                else { content.image = Self.tile(row, side: column) }
+                content.imageProperties.maximumSize = CGSize(width: column, height: column)
+                content.imageProperties.reservedLayoutSize = CGSize(width: column, height: column)
+            }
+            if let status {
+                content.secondaryText = status.text
+                content.secondaryTextProperties.color = status.isIssue ? .systemRed : HQPalette.label2
+                content.secondaryTextProperties.numberOfLines = 0
+                // [mac-audit] Owner 2026-11-02 (#21): the value at the row's own size; in the Desktop Look the rows are
+                // callout and "Update Hermes" stood larger than the name beside it.
+                if Theme.isDesktop { content.secondaryTextProperties.font = content.textProperties.font }
+            }
+            if row.dimmed {
+                // [mac-audit] Owner 2026-11-02 (#21): a page this Hermes doesn't have reads as greyed out, its
+                // "Update Hermes" as quiet as its title; the row still opens the page, which says why.
+                content.textProperties.color = Self.dimmedInk
+                content.secondaryTextProperties.color = Self.dimmedInk
+                content.imageProperties.tintColor = HQPalette.label3   // the glyph (and the faded tile) say it's unavailable
+                if let image = content.image, image.renderingMode != .alwaysTemplate, !image.isSymbolImage {
+                    let alpha: CGFloat = Theme.isDesktop ? 0.4 : 0.55
+                    content.image = UIGraphicsImageRenderer(size: image.size).image { _ in
+                        image.draw(at: .zero, blendMode: .normal, alpha: alpha)
+                    }
+                }
+            }
+            cell.contentConfiguration = content
             // [mac] Stress test 2026-10-28 #51: More is a source list on the Mac, its rows have no › chevron.
             cell.accessories = DeviceWord.isMac ? [] : [.disclosureIndicator()]
             let badge = row.badge?().flatMap { $0.count > 0 ? $0 : nil }
@@ -116,7 +171,12 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
         }
         let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
             elementKind: UICollectionView.elementKindSectionHeader) { [weak self] header, _, path in
-            header.contentConfiguration = Self.headerContent(self.flatMap { path.section < $0.current.count ? $0.current[path.section].section.header : nil })
+            var content = UIListContentConfiguration.header().hqScaled()
+            content.text = self.flatMap { path.section < $0.current.count ? $0.current[path.section].section.header : nil }
+            if Theme.isDesktop, let text = content.text {   // [desktoplook2] the desktop's label
+                content.attributedText = NSAttributedString(string: text.uppercased(), attributes: DesktopLayout.labelAttributes())
+            }
+            header.contentConfiguration = content.hqMacSectionHeader()   // [mac] Stress test 2026-10-28 #52
         }
         dataSource = UICollectionViewDiffableDataSource<String, String>(collectionView: collectionView) { cv, path, id in
             cv.dequeueConfiguredReusableCell(using: cell, for: path, item: id)
@@ -128,81 +188,6 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
             kind == MoreLinksFooter.kind ? cv.dequeueConfiguredReusableSupplementary(using: links, for: path)
                 : cv.dequeueConfiguredReusableSupplementary(using: header, for: path)
         }
-        installObservers()
-    }
-
-    /// A group's name as More draws it.
-    static func headerContent(_ text: String?) -> UIContentConfiguration {
-        var content = UIListContentConfiguration.header().hqScaled()
-        content.text = text
-        if Theme.isDesktop, let text = content.text {   // [desktoplook2] the desktop's label
-            content.attributedText = NSAttributedString(string: text.uppercased(), attributes: DesktopLayout.labelAttributes())
-        }
-        return content.hqMacSectionHeader()   // [mac] Stress test 2026-10-28 #52
-    }
-
-    /// A row's tile (or glyph), title and status as More draws them in the current skin.
-    static func rowContent(_ row: MoreRow, status: MoreRowStatus?) -> UIListContentConfiguration {
-        // [capabilities] a row with a status is a value cell: the value sits before the chevron, red for an issue,
-        // and wraps under the title at accessibility sizes (the system's own stacked layout).
-        var content = status == nil ? UIListContentConfiguration.cell().hqScaled() : UIListContentConfiguration.valueCell().hqScaled()
-        content.text = row.title
-        // [ui-sizing 2026-11-09] × UI Scale on the iPhone too, as the Mac's: the rows grew and the tiles stayed 29 pt.
-        let side = HQFont.scaled(29)
-        content.image = Self.tile(row, side: side)
-        content.imageProperties.maximumSize = CGSize(width: side, height: side)
-        content.imageToTextPadding = 14
-        content.directionalLayoutMargins.top = MoreMetrics.rowPad      // [compact] as tall as a Settings row
-        content.directionalLayoutMargins.bottom = MoreMetrics.rowPad
-        if Theme.inkIcons == .plain {   // [paper-icons] the glyph alone in the theme's text, in the tile's column
-            content.image = Self.glyph(row, configuration: UIImage.SymbolConfiguration(pointSize: 18 * side / 29, weight: .regular))
-            content.imageProperties.reservedLayoutSize = CGSize(width: side, height: side)
-            content.imageProperties.tintColor = HQPalette.label
-        }
-        if Theme.isDesktop {   // [desktoplook2] the desktop's small monochrome glyph, no coloured tile (css:157-162)
-            content.image = Self.glyph(row)
-            content.imageProperties.maximumSize = CGSize(width: 20, height: 20)
-            content.imageProperties.reservedLayoutSize = CGSize(width: 20, height: 20)
-            content.imageProperties.tintColor = HQPalette.label2
-            content.imageToTextPadding = 12
-            content.textProperties.font = HQFont.preferred(.callout)
-        }
-        if DeviceWord.isMac {
-            // [mac] Stress test 2026-10-28 #58: one glyph size and weight (`MacIcon.row`, the row text's size) in a
-            // fixed column, so Changes and Spawn Tree aren't shrunk thin and Kanban and Bot Profiles aren't bigger;
-            // the iOS look's tiles grow with the text as the rows do.
-            let column = Theme.isDesktop ? MacIcon.rowColumn : HQFont.scaled(29)
-            if Theme.isDesktop { content.image = Self.macGlyph(row) }
-            else { content.image = Self.tile(row, side: column) }
-            content.imageProperties.maximumSize = CGSize(width: column, height: column)
-            content.imageProperties.reservedLayoutSize = CGSize(width: column, height: column)
-        }
-        if let status {
-            content.secondaryText = status.text
-            content.secondaryTextProperties.color = status.isIssue ? .systemRed : HQPalette.label2
-            content.secondaryTextProperties.numberOfLines = 0
-            // [mac-audit] Owner 2026-11-02 (#21): the value at the row's own size; in the Desktop Look the rows are
-            // callout and "Update Hermes" stood larger than the name beside it.
-            if Theme.isDesktop { content.secondaryTextProperties.font = content.textProperties.font }
-        }
-        if row.dimmed {
-            // [mac-audit] Owner 2026-11-02 (#21): a page this Hermes doesn't have reads as greyed out, its
-            // "Update Hermes" as quiet as its title; the row still opens the page, which says why.
-            content.textProperties.color = Self.dimmedInk
-            content.secondaryTextProperties.color = Self.dimmedInk
-            content.imageProperties.tintColor = HQPalette.label3   // the glyph (and the faded tile) say it's unavailable
-            if let image = content.image, image.renderingMode != .alwaysTemplate, !image.isSymbolImage {
-                let alpha: CGFloat = Theme.isDesktop ? 0.4 : 0.55
-                content.image = UIGraphicsImageRenderer(size: image.size).image { _ in
-                    image.draw(at: .zero, blendMode: .normal, alpha: alpha)
-                }
-            }
-        }
-        return content
-    }
-
-    /// The rest of `viewDidLoad`: what reloads the list, the search, and [mac] the bar's hairline.
-    private func installObservers() {
         // [capabilities] issue counts change while More is on screen: reconfigure in place (no scroll jump).
         NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {                       // [desktoplook2] rows, glyphs and the outline follow the look
