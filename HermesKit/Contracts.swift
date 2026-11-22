@@ -595,6 +595,8 @@ protocol AppServices: AnyObject {
     var bots: [Bot] { get }
     /// The Sessions list's recents slice (all bots); cron and messaging-platform rows are not in it.
     var sessions: [SessionSummary] { get }
+    /// [project-keep] `sessions` less the chats a kept project keeps on its page: what the bots' rows list under them.
+    var sessionsOutsideKeptProjects: [SessionSummary] { get }
     var connection: ConnectionState { get }
     var onBotsChange: (() -> Void)? { get set }
     var onSessionsChange: (() -> Void)? { get set }
@@ -622,6 +624,7 @@ protocol AppServices: AnyObject {
 
 extension AppServices {
     var botsLoaded: Bool { true }
+    var sessionsOutsideKeptProjects: [SessionSummary] { sessions }
     func setSessionsListShown(_ shown: Bool) {}
     func setListsBesideChat(_ beside: Bool) {}
     func prefetchChat(for bot: Bot) {}

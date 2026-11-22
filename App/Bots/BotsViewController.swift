@@ -799,7 +799,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         foldedTileCount = 0
         chatRows = [:]
         moreCounts = [:]
-        chatsByBot = Dictionary(grouping: services.sessions, by: \.profile)
+        chatsByBot = Dictionary(grouping: services.sessionsOutsideKeptProjects, by: \.profile)   // [project-keep]
 
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
         if let token = BotsBar.token(kind: kind, activity: activity) {
@@ -1048,7 +1048,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     /// list: Filter › Chats Under Bots or the bot's own choice. Bots with nothing to show are left out.
     func railChats(for bots: [String]) -> [String: (shown: [SessionSummary], more: Int)] {
         guard BotChatsPrefs.inUse else { return [:] }
-        let byBot = Dictionary(grouping: services.sessions, by: \.profile)
+        let byBot = Dictionary(grouping: services.sessionsOutsideKeptProjects, by: \.profile)   // [project-keep]
         var out: [String: (shown: [SessionSummary], more: Int)] = [:]
         for id in bots {
             var picked = BotChatsUnder.pick(byBot[id] ?? [], bot: id, choice: BotChatsPrefs.choice(for: id))

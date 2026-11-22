@@ -194,6 +194,16 @@ extension SessionStore {
     /// The kept projects (keys), for the pipeline.
     var keptProjects: Set<String> { Set(device.projectKeep.filter { $0.value && $0.key != SessionProjects.homeKey }.keys) }
 
+    /// [project-keep] `sessions` less the kept projects' chats (`SessionListPipeline.isKeptAway`), for the lists outside
+    /// Sessions. `keeping`: the chat on screen, which stays.
+    func sessionsOutsideKeptProjects(keeping id: String? = nil) -> [SessionSummary] {
+        let kept = keptProjects
+        guard !kept.isEmpty else { return sessions }
+        return sessions.filter {
+            $0.id == id || !SessionListPipeline.isKeptAway($0, kept: kept, projectsByProfile: projectsByProfile)
+        }
+    }
+
     /// [project-auto-done] Move Quiet Chats to Done.
     func projectAutoDone(_ key: String) -> ProjectAutoDone { ProjectAutoDone(raw: device.projectAutoDone[key]) }
 

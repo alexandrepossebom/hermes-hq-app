@@ -144,7 +144,7 @@ final class BotChatsPanel: UIViewController, UITableViewDataSource, UITableViewD
                            working: bot.isWorking, unread: bot.unread && !onBotChat, current: onBotChat))
         }
         out.append(Row(kind: .newChat, id: "", title: "New Chat"))
-        let chats = SessionStripRules.chats(bot: bot, sessions: app.sessions, profile: profile)
+        let chats = SessionStripRules.chats(bot: bot, sessions: app.sessionsOutsideKeptProjects(keeping: currentId), profile: profile)
         for group in SessionStripRules.groups(chats) {
             out.append(Row(kind: .header, id: group.title, title: group.title))
             for chat in group.chats {

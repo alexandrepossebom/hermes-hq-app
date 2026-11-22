@@ -170,6 +170,35 @@ extension SessionsTests {
         shot(app, "PS1-list-after-off")
     }
 
+    /// Owner 2026-11-22 ("I don't believe the keep chats in this project feature is working"): with Chats Under Bots on,
+    /// Quarterly budget (Website's) sat under its bot's row in Bots even with the project keeping its chats. Kept, it
+    /// leaves there as it leaves Recent; turned off, it is back.
+    @MainActor func test40l2_KeptChatsLeaveTheBotsRows() throws {
+        let app = launch(projectPages: true, extra: ["-hq.bots.chatsUnder", "recent:5"])
+        XCTAssertTrue(row(app, "s-budget").waitForExistence(timeout: 15), "Quarterly budget is in Recent")
+        let bots = app.tabBars.buttons["Bots"], sessions = app.tabBars.buttons["Sessions"]
+        let under = app.cells["bot-chat-s-budget"]
+        bots.tap()
+        XCTAssertTrue(under.waitForExistence(timeout: 10), "Quarterly budget is under its bot's row")
+        shot(app, "PS1b-bots-before")
+
+        sessions.tap()
+        openWebsitePage(app)
+        openProjectSettings(app)
+        flipProjectSwitch(app, "sessions.projectSettings.keep", to: true)
+        closeProjectSettings(app)
+        bots.tap()
+        XCTAssertTrue(waitUntil(8) { !under.exists }, "kept: Quarterly budget left its bot's row")
+        shot(app, "PS1b-bots-kept")
+
+        sessions.tap()
+        openProjectSettings(app)
+        flipProjectSwitch(app, "sessions.projectSettings.keep", to: false)
+        closeProjectSettings(app)
+        bots.tap()
+        XCTAssertTrue(under.waitForExistence(timeout: 8), "off again: back under its bot's row")
+    }
+
     // MARK: Step 2: Move Quiet Chats to Done
 
     /// Website's page with a chat quiet for ten days: After 7 Days lists it in Done (closed, counted), nothing is

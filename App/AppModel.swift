@@ -160,6 +160,12 @@ final class AppModel: AppServices {
 
     var bots: [Bot] { botStore?.bots ?? [] }
     var sessions: [SessionSummary] { sessionStore?.sessions ?? [] }
+    var sessionsOutsideKeptProjects: [SessionSummary] { sessionStore?.sessionsOutsideKeptProjects() ?? [] }
+
+    /// [project-keep] The lists beside a chat: `sessions` less a kept project's chats, the chat on screen kept.
+    func sessionsOutsideKeptProjects(keeping id: String?) -> [SessionSummary] {
+        sessionStore?.sessionsOutsideKeptProjects(keeping: id) ?? []
+    }
 
     func refreshBots() {
         guard let botStore else { return }

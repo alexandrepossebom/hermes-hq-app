@@ -1073,6 +1073,28 @@ import Testing
 extension SessionListPipelineTests {
     private static let site = "/home/hermes/site"
 
+    /// [project-keep] Owner 2026-11-22 ("I don't believe the keep chats in this project feature is working"): the bots'
+    /// rows, the strip over a chat and the Mac's Chats tab listed a kept project's chats too. They leave those as they
+    /// leave Recent: still shown when pinned everywhere or waiting on the owner.
+    @Test func aKeptProjectsChatsLeaveTheBotsRows() {
+        var asks = Self.chat("asks", ago: 50, status: .needsInput, cwd: Self.site)
+        asks.unread = false
+        let rows = [Self.chat("quiet", ago: 10, cwd: Self.site), Self.chat("unread", ago: 20, status: .unread, cwd: Self.site),
+                    Self.chat("busy", ago: 30, status: .working, cwd: Self.site), asks,
+                    Self.chat("pin", ago: 70, pinned: true, cwd: Self.site), Self.chat("home", ago: 60)]
+        let away = Set(rows.filter { SessionListPipeline.isKeptAway($0, kept: [Self.site], projectsByProfile: Self.projects) }.map(\.id))
+        #expect(away == ["quiet", "unread", "busy"])
+        #expect(!rows.contains { SessionListPipeline.isKeptAway($0, kept: [], projectsByProfile: Self.projects) })
+        #expect(!rows.contains { SessionListPipeline.isKeptAway($0, kept: ["/elsewhere"], projectsByProfile: Self.projects) })
+
+        // Under the bot's row (Pinned + 2 Recent): before, the project's newest two; kept, Home's chat and the asking one.
+        let before = BotChatsUnder.pick(rows, bot: "default", choice: BotChatsChoice(mode: .recent, count: 2))
+        #expect(before.shown.map(\.id) == ["pin", "quiet", "unread"])
+        let listed = rows.filter { !away.contains($0.id) }
+        let after = BotChatsUnder.pick(listed, bot: "default", choice: BotChatsChoice(mode: .recent, count: 2))
+        #expect(after.shown.map(\.id) == ["pin", "asks", "home"] && after.more == 0)
+    }
+
     /// [project-keep] Owner 2026-11-20: a kept project's chats leave Recent, the days, Group By Status, Group By Bot,
     /// a flat sort and the status chips; they stay in their project (page, row, counts), in Pinned when pinned
     /// everywhere, and in New for You and under the New chip only while they wait on the owner.

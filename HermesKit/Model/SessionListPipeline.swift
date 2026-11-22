@@ -147,6 +147,15 @@ nonisolated enum SessionListPipeline {
     /// [sessions-fresh] Group By Recent's layout: Pinned, Projects, Recent.
     static func isFresh(_ prefs: SessionsViewPrefs) -> Bool { prefs.groupBy == .date && !isFlat(prefs) }
 
+    /// [project-keep] A kept project's chat that stays off the lists outside Sessions (the bots' chats under their rows,
+    /// the strip over a chat, the Mac's Chats tab), as `listed` keeps it out of Recent: shown anyway when pinned
+    /// everywhere or while it waits on the owner (`needsInput`).
+    static func isKeptAway(_ session: SessionSummary, kept: Set<String>,
+                           projectsByProfile: [String: [SessionProject]]) -> Bool {
+        guard !kept.isEmpty, !session.pinned, session.status != .needsInput else { return false }
+        return kept.contains(SessionProjects.key(cwd: session.cwd, profile: session.profile, projectsByProfile: projectsByProfile))
+    }
+
     /// [sessions-fresh] A chat a status chip lists. Never an archived one.
     static func matches(_ chip: SessionStatusChip, _ session: SessionSummary, keep: Set<String> = []) -> Bool {
         switch chip {

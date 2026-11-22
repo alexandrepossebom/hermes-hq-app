@@ -332,7 +332,10 @@ Sort (`V/store/sidebar-sort.ts`), ties always broken by recency (newest first), 
   Still shown: its page, its own row or card and their counts, Pinned for a chat pinned everywhere, and, only while
   the chat waits on the owner (`needsInput`), New for You and the New pill, whose count follows (`chipCounts`). A
   reply not read yet does not bring one back. Search is unchanged. Under Group By Recent there is no New for You, so
-  such a chat is under the New pill and in its project.
+  such a chat is under the New pill and in its project. Owner 2026-11-22 ("I don't believe it's working"): the lists
+  outside Sessions follow the same rule (`SessionListPipeline.isKeptAway`, `SessionStore.sessionsOutsideKeptProjects`):
+  the chats under each bot's row and the Mac rail's, the strip over a chat and its All sheet, and the Mac's Chats tab.
+  Pinned everywhere and waiting on the owner still show; the chat on screen always stays in its strip.
 - **DECISION (2026-11-21, owner): quiet chats can move to Done on a project's page** [project-auto-done]. Move Quiet
   Chats to Done: Never, After 3, 7 or 14 Days, and in a coding project a switch, When the Pull Request Merges
   (`projectAutoDone`, `ProjectAutoDone`). On that page a live chat that is quiet, not pinned (either kind), not read

@@ -207,13 +207,16 @@ extension SessionStripRules {
     static func count(app: AppModel, model: any ChatSessionModel) -> Int {
         if !DeviceWord.isMac { return phoneChats(app: app, model: model).count }
         let profile = model.profile.isEmpty ? "default" : model.profile
-        return SessionStripRules.chats(bot: app.botStore?.bot(named: profile), sessions: app.sessions, profile: profile).count
+        let current = (model as? LiveChatSession)?.storedSessionId
+        return SessionStripRules.chats(bot: app.botStore?.bot(named: profile), sessions: app.sessionsOutsideKeptProjects(keeping: current),
+                                       profile: profile).count
     }
 
     /// The sheet and its All count must use exactly the same membership as the phone strip.
     static func phoneChats(app: AppModel, model: any ChatSessionModel) -> [SessionSummary] {
         let profile = model.profile.isEmpty ? "default" : model.profile
-        return SessionStripRules.phoneChats(bot: app.botStore?.bot(named: profile), sessions: app.sessions,
+        let current = (model as? LiveChatSession)?.storedSessionId
+        return SessionStripRules.phoneChats(bot: app.botStore?.bot(named: profile), sessions: app.sessionsOutsideKeptProjects(keeping: current),
                                             profile: profile, hidden: phoneHiddenChats(app: app))
     }
 
@@ -249,7 +252,8 @@ extension SessionStripRules {
         }
         let live = model as? LiveChatSession
         let profile = model.profile.isEmpty ? "default" : model.profile
-        let entries = SessionStripRules.entries(bot: app.botStore?.bot(named: profile), sessions: app.sessions, profile: profile,
+        let entries = SessionStripRules.entries(bot: app.botStore?.bot(named: profile),
+                                                sessions: app.sessionsOutsideKeptProjects(keeping: live?.storedSessionId), profile: profile,
                                                 currentId: live?.storedSessionId, onBotChat: live?.isBotChat == true,
                                                 kept: shownBefore[profile] ?? [], recent: !DeviceWord.isMac)
         shownBefore[profile, default: []].formUnion(entries.filter { !$0.isBotChat }.map(\.id))
