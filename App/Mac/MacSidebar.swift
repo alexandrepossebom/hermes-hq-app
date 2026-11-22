@@ -102,6 +102,22 @@ final class MacSidebar: UIView {
             NotificationCenter.default.post(name: botsInSidebarChanged, object: nil)
         }
     }
+    /// [pinned-only] Owner 2026-11-22: "I'd like to have the ability to pin only certain bots to the sidebar on Mac".
+    /// On: the sidebar (open or folded) lists the pinned bots and group chats, and any other only while it wants the
+    /// person or is the chat on show (`BotList.pinnedOnly`). Off, as it was: every bot. This Mac only; the pins
+    /// themselves are the list's, as on the iPhone.
+    static let pinnedOnlyKey = "HQMacSidebarPinnedOnly"
+    static let pinnedOnlyChanged = Notification.Name("HQMacSidebarPinnedOnlyChanged")
+    private static var storedPinnedOnly = UserDefaults.standard.bool(forKey: pinnedOnlyKey)
+    static var pinnedOnly: Bool {
+        get { storedPinnedOnly }
+        set {
+            guard newValue != storedPinnedOnly else { return }
+            storedPinnedOnly = newValue
+            UserDefaults.standard.set(newValue, forKey: pinnedOnlyKey)
+            NotificationCenter.default.post(name: pinnedOnlyChanged, object: nil)
+        }
+    }
     /// Folded by the person (kept across launches), or by a narrow window (below).
     static var isCollapsed: Bool { savedCollapsed || (narrowWindow && !openedWhileNarrow) }
     private static var savedCollapsed: Bool {
@@ -596,6 +612,10 @@ final class MacSidebar: UIView {
                 self.tabs?.split?.listFoldMayHaveChanged()
             }
         })
+        // [pinned-only] Pinned Bots Only flipped (Settings › Sidebar, the sidebar's own menu): the bots again.
+        sceneTokens.append(NotificationCenter.default.addObserver(forName: Self.pinnedOnlyChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.botsChanged() }
+        })
         #if DEBUG
         // `-HQDebugBotsInSidebarFlip <s>`: Bots in Sidebar flips that many seconds after the sidebar is made, as the
         // menu's item does (pair it with `-HQDebugMacShots <name> -HQDebugMacShotsWait <more s>` for the picture after).
@@ -906,7 +926,9 @@ final class MacSidebar: UIView {
         let open = !Self.isCollapsed
         let bots = tabs.botsViewController
         // [mac] Show Hidden Bots (the right click): a Hidden group last, open sidebar or rail.
-        let groups = MacBotsRail.titledGroups(bots.railSections(), showHidden: bots.railShowsHidden)
+        // [pinned-only] Pinned Bots Only: the pins, and any other bot only while it wants the person or is on show.
+        let sections = Self.pinnedOnly ? BotList.pinnedOnly(bots.railSections(), open: openOwners) : bots.railSections()
+        let groups = MacBotsRail.titledGroups(sections, showHidden: bots.railShowsHidden)
             .filter { open || !$0.items.isEmpty }   // the rail draws no empty section (no heading to carry it)
         // [chats-under] Open, each bot's chats under its row, as Filter › Chats Under Bots lists them in the Bots list
         // (the rail's heads have no room for them).
@@ -1163,15 +1185,31 @@ final class MacSidebar: UIView {
             if let split = tabs.split { split.switchPlace(to: bots) { tabs.pick(bots) } } else { tabs.pick(bots) }
         }
         MacSelection.focus(on: .sidebar)
-        openHead = key
+        setOpenHead(key)
         markHeads()
     }
 
     /// The bot (or group chat, by room key) whose own chat is on show beside the list (nil: none, or another screen).
     /// [chats-under] `chat`: a bot's other chat on show (bot id + U+001F + session id), marked under its bot if listed there.
     func markOpen(bot: String?, room: String? = nil, chat: String? = nil) {
-        openHead = bot ?? room.map(MacBotsRail.Item.roomKey) ?? chat
+        setOpenHead(bot ?? room.map(MacBotsRail.Item.roomKey) ?? chat)
         markHeads()
+    }
+
+    /// [pinned-only] The chat on show changed: under Pinned Bots Only its bot is listed while it is (and no longer).
+    private func setOpenHead(_ key: String?) {
+        guard key != openHead else { return }
+        openHead = key
+        if Self.pinnedOnly { botsChanged() }
+    }
+
+    /// [pinned-only] The bot or room of the chat on show, as `BotList.pinnedOnly` names them: a bot's id (its own chat,
+    /// or another of its chats: bot id + U+001F + session id), a room's id (the head's key without its prefix).
+    private var openOwners: Set<String> {
+        guard let openHead, tabs?.shownTab == .bots else { return [] }
+        let room = MacBotsRail.Item.roomKey("")
+        if openHead.hasPrefix(room) { return [String(openHead.dropFirst(room.count))] }
+        return [openHead.split(separator: "\u{1F}", maxSplits: 1).first.map(String.init) ?? openHead]
     }
 
     private func markHeads() {
@@ -1674,7 +1712,9 @@ final class MacSidebar: UIView {
         let shown = tabs.selectedViewController
         for row in rows { row.isMarked = row.controller != nil && row.controller === shown }
         foldedTools?.isMarked = shown.map { isTool($0) } ?? false   // [mac-layout]
-        markHeads()   // [bots-rail] a head is marked only while Bots is on show
+        // [bots-rail] a head is marked only while Bots is on show. [pinned-only] And the chat on show keeps its bot
+        // listed only while Bots is: the bots again (which marks them).
+        if Self.pinnedOnly, showsBots { botsChanged() } else { markHeads() }
         // [mac-sidebar] A place picked by ⌘9 or a link, below the fold of a long list, scrolls into view (in its own list:
         // Mac polish #27). A Tool on the folded rail is its Tools button.
         let marked = rows.first(where: { $0.isMarked && !$0.isHidden }) ?? foldedTools.flatMap({ $0.isMarked ? $0 : nil })
