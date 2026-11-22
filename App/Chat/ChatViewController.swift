@@ -2236,7 +2236,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         let bottom = max(0, view.bounds.maxY - dockTop) + ChatMetrics.composerContentGap
         // [Mac AAA 2026-11-17] The Find bar standing in the empty status line's place (`findGap`) takes that much less.
         let findRoom = findInset > 0 && findGap < 0 ? max(0, findInset + findGap) : findInset
-        let top = view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findRoom
+        let top = max(view.safeAreaInsets.top + macTitleOverhang + ChatMetrics.statusLineHeight - 4 + ChatMetrics.transcriptTopGap + findRoom,
+                      earlierRoom)
         let old = tableView.contentInset
         // The scroll bar runs the whole height the rows can show in: down behind the composer to the screen's bottom
         // edge (above the home indicator), or to the keys when they're up. Owner 2026-11-01: ended at the composer's
@@ -3776,8 +3777,9 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private func installEarlierPill() {
         earlierPill.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(earlierPill)
-        // [Mac AAA 2026-11-17] As the Find bar and the notice: in the empty status line's place on the Mac (`findGap`).
-        let earlierTop = earlierPill.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: DeviceWord.isMac ? findGap : 8)
+        // [Mac AAA 2026-11-17] As the Find bar and the notice: in the empty status line's place (`earlierGap`). The
+        // iPhone and iPad too since owner 2026-11-22 (it sat a whole empty status line under the title there).
+        let earlierTop = earlierPill.topAnchor.constraint(equalTo: statusPill.bottomAnchor, constant: earlierGap)
         earlierPillTop = earlierTop
         NSLayoutConstraint.activate([
             earlierPill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -3803,7 +3805,21 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         else if failed { state = .failed }
         else { state = .idle }
         let offline: Bool = if case .offline = session.connection { true } else { false }
+        let before = earlierPill.state
         earlierPill.set(state, offline: offline)
+        // The room kept under the pill (`earlierRoom`) follows whether there is more before, and the failure's height.
+        if earlierPill.state != before { updateInsets() }
+    }
+
+    /// Owner 2026-11-22: the pill stood over the top of what is loaded ("Today 7:13 AM"). While there are earlier
+    /// messages to show, the transcript's top rests under the pill's foot (the y it must reach, from the view's top), so
+    /// arriving at the top shows the pill above the first row, never on it. Not on the Mac: its pill is the status
+    /// capsule's 34 pt sibling and the transcript already starts under it.
+    private var earlierRoom: CGFloat {
+        guard !DeviceWord.isMac, isViewLoaded, session.hasOlder, findInset == 0, !transcriptCovered else { return 0 }
+        let words = statusPill.text == nil ? 0 : ChatMetrics.statusLineHeight + ChatMetrics.underBarGap
+        let pillTop = view.safeAreaInsets.top + ChatMetrics.statusPillTop + words
+        return pillTop + max(48, earlierPill.bounds.height) + 8
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -4850,9 +4866,16 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         return statusPill.text == nil ? -ChatMetrics.statusLineHeight : ChatMetrics.underBarGap
     }
 
+    /// The Search Earlier pill's top under the status line, every device: in the status line's place with no words,
+    /// under the words when they show (the notice's `noticeGap`).
+    private var earlierGap: CGFloat {
+        statusPill.text == nil ? -ChatMetrics.statusLineHeight : ChatMetrics.underBarGap
+    }
+
     private func updateNoticeTop() {
-        if DeviceWord.isMac, let earlierPillTop, earlierPillTop.constant != findGap {
-            earlierPillTop.constant = findGap
+        if let earlierPillTop, earlierPillTop.constant != earlierGap {
+            earlierPillTop.constant = earlierGap
+            updateInsets()
             if view.window != nil, !earlierPill.isHidden {
                 HQMotion.animate(HQMotion.fade, options: [.beginFromCurrentState], changes: { self.view.layoutIfNeeded() })
             }

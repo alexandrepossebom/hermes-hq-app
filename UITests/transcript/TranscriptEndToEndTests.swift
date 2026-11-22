@@ -503,6 +503,35 @@ final class TranscriptEndToEndTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["chat.earlier.text"].exists, "nothing more to show at the very start")
     }
 
+    // MARK: T15c The pill sits in the empty status line's place and covers no message (owner 2026-11-22)
+
+    /// Owner screenshot 2026-11-22: in the Desktop Look "Loading earlier messages…" was a round capsule a whole empty
+    /// status line under the title, over the top row ("Today 7:13 AM"). It takes the status line's place under the
+    /// title (as the notice and the Mac's pill do), and the top of what is loaded rests under it, never behind it.
+    @MainActor func testT15c_EarlierPillSitsUnderTheTitleAndCoversNoRow() throws {
+        let account = try FixtureAccount.load()
+        try preset(account, "long")
+        try account.control("/__fixture/older", ["fail": 0, "seconds": 30])
+        defer { _ = try? account.control("/__fixture/older", ["fail": 0, "seconds": 0]) }
+        for desktop in [true, false] {
+            let app = launch(account, args: ["-HQDebugDesktopLook", desktop ? "YES" : "NO"])
+            XCTAssertTrue(labelled(app, containing: "Line 200 of a long chat.").waitForExistence(timeout: 10))
+            let table = app.tables["chat.table"]
+            let pill = app.descendants(matching: .any)["chat.earlier"]
+            for _ in 0..<30 where !(pill.exists && pill.isHittable) { table.swipeDown(velocity: .fast) }
+            XCTAssertTrue(pill.waitForExistence(timeout: 5), "at the top of what loaded the pill shows")
+            Thread.sleep(forTimeInterval: 1)   // the scroll settles at the top
+            shot("earlier-pill-top-\(desktop ? "desktop" : "ios")")
+            let bar = app.navigationBars.firstMatch.frame
+            XCTAssertLessThanOrEqual(pill.frame.minY - bar.maxY, 8, "under the title, not a whole status line lower")
+            // The highest row on screen (the day's header over the first loaded message, in the owner's picture).
+            let rows = table.cells.allElementsBoundByIndex.map(\.frame).filter { $0.maxY > bar.maxY && $0.minY < app.frame.maxY && $0.height > 0 }
+            let highest = try XCTUnwrap(rows.map(\.minY).min(), "rows on screen")
+            XCTAssertGreaterThanOrEqual(highest + 1, pill.frame.maxY, "the pill covers no row (\(highest) under \(pill.frame.maxY))")
+            app.terminate()
+        }
+    }
+
     // MARK: T15b A tap on the status bar goes to the top of the chat, the oldest message loaded (owner 2026-11-19)
 
     @MainActor func testT15b_StatusBarTapGoesToTheTop() throws {

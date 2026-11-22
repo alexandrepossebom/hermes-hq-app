@@ -778,6 +778,16 @@ compiling; the fake gains a way to fail a page for the UI test.
 - VoiceOver: when a page lands, `HQAnnounce.say("Earlier messages loaded")` only if focus was on the
   earlier row.
 
+- **DECISION (owner, 2026-11-22): where the pill stands and its shape** [earlier-pill-place]. As built it is a
+  floating pill (`ChatEarlierPill`), not a row. On every device it takes the empty status line's place under the
+  title and steps down under the status words when they show (`ChatViewController.earlierGap`, as the notice's
+  `noticeGap`; the Mac since 2026-11-17, the iPhone and iPad since this decision: it stood a whole empty status line
+  lower). While there are earlier messages the transcript's top rests under the pill's foot
+  (`ChatViewController.earlierRoom`, not on the Mac, whose transcript already starts under its 34 pt pill), so it
+  never covers the first row (it stood on "Today 7:13 AM"). In the Desktop Look it is the look's 4 pt box in every
+  state (`ChatEarlierPill.corners`; the capsule build 436 set after `ThemeChrome.solidify` left it round). Tests:
+  unit `EarlierPillShapeTests`, UI `testT15c_EarlierPillSitsUnderTheTitleAndCoversNoRow`.
+
 **Wire.** `GET /api/sessions/{id}/messages` with the paging params the app already sends (unchanged).
 
 **Fixture.** Preset `long`; `POST /__fixture/fail {"path":"/api/sessions/*/messages","code":503,"times":2}`
