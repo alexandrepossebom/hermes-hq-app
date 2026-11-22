@@ -1257,6 +1257,10 @@ Web: `V:app/chat/composer/hooks/use-voice-recorder.ts`, `V:app/chat/composer/voi
 `W:build/fe-voice-gates.ts` FE-009 and r1-22 ("trigger becomes Stop; × cancels"), and the phone's "Done" button.
 
 Started only from the voice options menu ("Dictate with Hermes"), under the `.dictation` audio owner (§10.1).
+[question-dictate] 2026-11-22 (#438): also from the mic in a bot's question card's answer field, the same dictation
+with its words typed into that field (docs/spec/1x-questions.md §4.3). Each take has an owner, the composer or the
+card, and only the owner shows its row; while the card stands in the composer's place, Dictate with Hermes and Try
+Again go to the card.
 
 **DECISION T32.** Dictation does not use the conversation's engine. `DictationRecorder` (`HermesKit/Voice/`) is an
 `AVAudioRecorder` with the memo recorder's proven settings (AAC, mono, 24 kHz, metering on), behind a four-method

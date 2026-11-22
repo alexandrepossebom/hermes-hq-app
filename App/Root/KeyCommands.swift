@@ -408,7 +408,8 @@ extension MoreViewController: KeySearchable {}
         case .resignField: "Leave Message Field"
         case .nothing: escapePageStep(root) == .goBack ? "Go Back" : "Stop Reply"
         // Mac polish #7: out of the card's "Something else…" field first, as its Escape does.
-        case .skipQuestion: questionCard(root)?.isTyping == true ? "Leave Answer Field" : "Skip Question"
+        case .skipQuestion: questionCard(root)?.isDictating == true ? "Cancel Dictation"   // [question-dictate]
+            : questionCard(root)?.isTyping == true ? "Leave Answer Field" : "Skip Question"
         // Mac polish #15: a group chat's Stop, as its ⋯ names it.
         case .stop: root.chatOnShow?.roomChrome != nil ? "Stop All" : "Stop Reply"
         case .system: "Stop Reply"
