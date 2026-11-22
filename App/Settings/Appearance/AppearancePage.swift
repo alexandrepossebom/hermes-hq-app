@@ -110,7 +110,9 @@ struct AppearanceSections: View {
 
     static var compactNote: String {
         // [mac] The Mac's bots are in the sidebar, and its rows have one line of preview whatever the density.
-        DeviceWord.isMac
+        // [desktop-density] The Mac's sidebar is the same at both in the Desktop Look.
+        DeviceWord.isMac && Theme.isDesktop ? "Compact fits more on the Sessions page: smaller faces and shorter rows."
+        : DeviceWord.isMac
             ? "Compact fits more in the sidebar's bots and on the Sessions page: smaller faces and shorter rows."
             : "Compact fits more on the Bots and Sessions pages: smaller faces, shorter rows and one line of preview."
     }
@@ -121,7 +123,7 @@ struct AppearanceSections: View {
     }
 
     private func listsNote(_ state: ThemeState) -> String {
-        [state.desktopLook ? nil : Self.compactNote, SettingsSearch.workingRingNote].compactMap { $0 }.joined(separator: " ")
+        [Self.compactNote, SettingsSearch.workingRingNote].compactMap { $0 }.joined(separator: " ")
     }
 
     // MARK: Look
@@ -263,11 +265,9 @@ struct AppearanceSections: View {
 
     @ViewBuilder private func lists(_ state: ThemeState) -> some View {
         Section {
-            // [density] The iOS look's; the Desktop Look keeps its own rows.
-            if !state.desktopLook {
-                DensityRow(state: state, symbol: "rectangle.compress.vertical")
-                    .revealRow(AppearanceRows.density, revealed)
-            }
+            // [desktop-density] Both looks: the Desktop Look's Compact is the look as it was.
+            DensityRow(state: state, symbol: "rectangle.compress.vertical")
+                .revealRow(AppearanceRows.density, revealed)
             // [chats-under] The line beside each bot's chats on the Bots page, in both looks (owner 2026-11-08).
             BotChatsStyleRow { router.push(BotChatsStyleSettings.make()) }
             workingRingRow(state)
@@ -359,27 +359,55 @@ struct UIScaleRow: View {
     }
 }
 
-/// [density] Standard or Compact (the iOS look; the Desktop Look keeps its own rows).
+/// [density] Standard or Compact. [desktop-density] Each look has its own; the Desktop Look's Compact is its rows as they were.
 struct DensityRow: View {
     var state: ThemeState
     var symbol: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// [desktop-density] Owner 2026-11-22: the strip hugged its words (10 pt beside each in the Desktop Look). Two equal
+    /// halves of a set width, so both words have 20 pt or more beside them, in iOS's own segments too.
+    private var stripWidth: CGFloat { HQFont.scaled(state.desktopLook ? 204 : 180) }
+    /// What the name and the strip need side by side: the symbol's column, the name whole on one line, the strip.
+    /// A row's label reports no width of its own to `ViewThatFits`, so the name is measured here.
+    private var besideWidth: CGFloat {
+        let name = ("Density" as NSString).size(withAttributes: [.font: HQFont.preferred(.body)]).width.rounded(.up)
+        return (symbol == nil ? 0 : HQFont.scaled(52) * max(1, HQFont.dynamicRatio(nil))) + name + 12 + stripWidth
+    }
 
     var body: some View {
-        HStack(spacing: 12) {
-            AppearanceControlTitle(title: "Density", symbol: symbol)
-            Spacer(minLength: 8)
-            HQSegmentedPicker("Density", options: [("Standard", ListDensity.standard), ("Compact", ListDensity.compact)],
-                              selection: Binding(get: { state.density }, set: { next in
-                                  guard next != state.density else { return }
-                                  Haptics.play(.selection)
-                                  Theme.shared.setDensity(next)
-                                  AppLog.trace("settings", "density \(next.rawValue)")
-                              }), ticks: false)
-            .labelsHidden()
-            .fixedSize()
+        let _ = typeSize   // measured again at a new text size
+        // Where the name no longer fits whole beside the strip (a large UI Scale or text size: it broke mid-word), the
+        // strip goes under it at the row's width.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                AppearanceControlTitle(title: "Density", symbol: symbol)
+                Spacer(minLength: 8)
+                picker.frame(minWidth: stripWidth).fixedSize()
+            }
+            .frame(minWidth: besideWidth)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 0) {
+                    AppearanceControlTitle(title: "Density", symbol: symbol)
+                    Spacer(minLength: 0)
+                }
+                picker
+            }
+            .hqRowPadding(4)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("theme.density")
+    }
+
+    private var picker: some View {
+        HQSegmentedPicker("Density", options: [("Standard", ListDensity.standard), ("Compact", ListDensity.compact)],
+                          selection: Binding(get: { state.appliedDensity }, set: { next in
+                              guard next != state.appliedDensity else { return }
+                              Haptics.play(.selection)
+                              Theme.shared.setDensity(next)
+                              AppLog.trace("settings", "density \(next.rawValue)")
+                          }), ticks: false, wholeLabels: true)
+        .labelsHidden()
     }
 }
 

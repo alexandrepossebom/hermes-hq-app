@@ -64,14 +64,14 @@ struct OtherAppsRowView: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("Other Apps")
-                        .font(desk ? Font.hq(.callout).weight(.semibold) : Font.hq(Density.compact ? .callout : .body))
+                        .font(desk ? Font.hq(DesktopRows.titleStyle).weight(.semibold) : Font.hq(Density.compact ? .callout : .body))
                         .foregroundStyle(Color.hqLabel)
                         .lineLimit(large ? 3 : 1)
                     Spacer(minLength: 4)
                     Text(time).font(Font.hq(desk ? .caption2 : .subheadline)).foregroundStyle(Color.hqLabel2).monospacedDigit()
                 }
                 secondLine
-                    .font(Font.hq(desk ? .footnote : .subheadline))
+                    .font(Font.hq(desk ? DesktopRows.previewStyle : .subheadline))
                     .lineLimit(large ? 3 : 1)
             }
             SettingsChevron()

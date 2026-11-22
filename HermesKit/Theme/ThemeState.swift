@@ -35,6 +35,9 @@ nonisolated struct ThemeState: Sendable, Hashable {
     /// (a tester 2026-11-08: "everything a lot more compact", who used the Desktop Look at 90 % for it; owner: the same
     /// choice in the iOS look). Only with the Desktop Look off: the look keeps its own rows.
     var density = ListDensity.standard
+    /// [desktop-density] The Desktop Look's own Density (owner 2026-11-22): Compact, the look's rows as they were,
+    /// unless Standard was picked there, so nobody's Desktop Look changes until they choose. Each look keeps its own.
+    var desktopDensity = ListDensity.compact
     /// [message-colour] Chat Bubbles › Colour: the colour of your own messages. The theme's own unless another was
     /// picked (owner 2026-11-11: "keep the blue but make an option for Mac and iOS where you can change the color").
     /// Only with the Desktop Look off: the look keeps its own boxes.
@@ -57,6 +60,11 @@ nonisolated struct ThemeState: Sendable, Hashable {
     var contrastApplies: Bool { desktopLook && highContrast }
     /// [density] Compact draws only in the iOS look.
     var compact: Bool { !desktopLook && density == .compact }
+    /// [desktop-density] The Desktop Look at Standard: larger faces, taller rows, two lines of preview. Its Compact
+    /// is the look as it was.
+    var desktopRoomy: Bool { desktopLook && desktopDensity == .standard }
+    /// [desktop-density] The Density of the look in use (what Appearance's control shows).
+    var appliedDensity: ListDensity { desktopLook ? desktopDensity : density }
 
     /// [mac] What 100 % is on the Mac, per look. × 1.3 and × 1.15 are Grok Bot's Mac app's sizes (owner 2026-10-27:
     /// "mimic that closely while sticking to our brand"): the Mac draws the iPad layout at 77 %, so the Desktop Look's
@@ -143,6 +151,7 @@ nonisolated struct ThemeState: Sendable, Hashable {
         hasher.combine(contrastApplies)
         hasher.combine(uiScalePercent)
         hasher.combine(compact)
+        hasher.combine(desktopRoomy)
         hasher.combine(desktopLook ? skin.sansFamily : nil)
         hasher.combine(skin.accentReadsAsText)   // [paper-links] its replies' links are underlined
         // Photo albums and voice memos inside a bubble keep its corner in their layouts.
@@ -275,12 +284,14 @@ nonisolated struct ThemeStore: @unchecked Sendable {
         static let desktopComposer = "hqn.theme.desktopComposer"
         /// [density] `ListDensity`'s raw value, stored only when it isn't Standard.
         static let density = "hqn.theme.density"
+        /// [desktop-density] `ListDensity`'s raw value for the Desktop Look, stored only when it isn't Compact.
+        static let desktopDensity = "hqn.theme.desktopDensity"
         /// [message-colour] `MessageColour.stored`, stored only when it isn't the theme's own.
         static let messageColour = "hqn.theme.messageColour"
         /// [plain-replies] Stored only when on (`true`).
         static let plainReplies = "hqn.theme.plainReplies"
         static let all = [skin, chosen, desktopLook, skinBeforeLook, highContrast, uiScale, bubbleCorners, glassBubbles, bubbleStyle, topEdge,
-                          desktopCorners, desktopComposer, density, messageColour, plainReplies]
+                          desktopCorners, desktopComposer, density, desktopDensity, messageColour, plainReplies]
     }
 
     var defaults: UserDefaults = .standard
@@ -331,6 +342,7 @@ nonisolated struct ThemeStore: @unchecked Sendable {
         }
         if let edge = (defaults.object(forKey: Key.topEdge) as? String).flatMap(TopEdge.init(rawValue:)) { state.topEdge = edge }
         if let density = (defaults.object(forKey: Key.density) as? String).flatMap(ListDensity.init(rawValue:)) { state.density = density }
+        if let density = (defaults.object(forKey: Key.desktopDensity) as? String).flatMap(ListDensity.init(rawValue:)) { state.desktopDensity = density }
         state.messageColour = MessageColour(stored: defaults.object(forKey: Key.messageColour))
         state.plainReplies = flag(Key.plainReplies)
         return state
@@ -415,9 +427,11 @@ nonisolated struct ThemeStore: @unchecked Sendable {
         if edge == .hard { defaults.removeObject(forKey: Key.topEdge) } else { defaults.set(edge.rawValue, forKey: Key.topEdge) }
     }
 
-    /// [density] Standard, the default, is stored as nothing.
-    func setDensity(_ density: ListDensity) {
-        if density == .standard { defaults.removeObject(forKey: Key.density) } else { defaults.set(density.rawValue, forKey: Key.density) }
+    /// [density] Standard, the default, is stored as nothing. [desktop-density] The Desktop Look's own, whose default
+    /// is Compact.
+    func setDensity(_ density: ListDensity, desktop: Bool = false) {
+        let key = desktop ? Key.desktopDensity : Key.density
+        if density == (desktop ? .compact : .standard) { defaults.removeObject(forKey: key) } else { defaults.set(density.rawValue, forKey: key) }
     }
 
     /// [message-colour] The theme's own, the default, is stored as nothing.

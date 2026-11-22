@@ -142,7 +142,7 @@ struct SessionRowView: View {
                                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                         }
                         Text(Self.title(session))
-                            .font(desk ? Font.hq(.callout).weight(session.unread ? .semibold : .regular) : titleFont)
+                            .font(desk ? Font.hq(DesktopRows.titleStyle).weight(session.unread ? .semibold : .regular) : titleFont)
                             .foregroundStyle(Color.hqLabel)
                             .lineLimit(large ? 3 : 1)
                         if let color = session.color {
@@ -159,7 +159,7 @@ struct SessionRowView: View {
                     codingSubtitle
                 } else if let status = cardStatus {
                     Text(status.words)
-                        .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
+                        .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
                         .foregroundStyle(status.color)
                         .lineLimit(large ? 3 : 1)
                         .padding(.bottom, 2)
@@ -183,11 +183,11 @@ struct SessionRowView: View {
     /// does; none with Bot Faces off), the title, the time and a dot (blue: a reply not read yet; orange: waiting on
     /// you). In Recent, a second line only while the bot works or waits on you.
     private func freshBody(_ fresh: Fresh) -> some View {
-        let line: CGFloat = desk ? HQFont.scaled(22) : Density.ios(24, 20)
+        let line: CGFloat = desk ? HQFont.scaled(DesktopRows.roomy ? 24 : 22) : Density.ios(24, 20)
         let status = fresh == .recent ? cardStatus : nil
         return HStack(alignment: .top, spacing: desk ? DesktopRows.gap : ProjectCard.columnGap) {
             if faces {
-                HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(18) : Density.ios(22, 18), working: session.isRunning,
+                HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(DesktopRows.roomy ? 22 : 18) : Density.ios(22, 18), working: session.isRunning,
                           moods: session.isRunning)
                     .frame(width: desk ? DesktopRows.face : ProjectCard.column, height: line)
             }
@@ -199,7 +199,7 @@ struct SessionRowView: View {
                                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                         }
                         Text(Self.title(session))
-                            .font(desk ? Font.hq(.callout).weight(session.unread ? .semibold : .regular) : titleFont)
+                            .font(desk ? Font.hq(DesktopRows.titleStyle).weight(session.unread ? .semibold : .regular) : titleFont)
                             .foregroundStyle(Color.hqLabel)
                             .lineLimit(large ? 3 : 1)
                         if let color = session.color {
@@ -230,7 +230,7 @@ struct SessionRowView: View {
                             ProgressView().controlSize(.mini).tint(Color.hqLabel2)
                         }
                         Text(status.words)
-                            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
+                            .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
                             .foregroundStyle(status.color)
                             .lineLimit(large ? 3 : 1)
                     }
@@ -242,7 +242,7 @@ struct SessionRowView: View {
         }
         .padding(.vertical, fresh == .pinned ? (desk ? 4 : Self.macTight(7, 4, mac: 5)) : (desk ? 6 : Self.macTight(10, 5, mac: 6)))
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, minHeight: fresh == .pinned ? (desk ? HQFont.scaled(32) : Self.macTight(40, 30, mac: 36)) : (desk ? HQFont.scaled(36) : Self.macTight(44, 32, mac: 36)),
+        .frame(maxWidth: .infinity, minHeight: fresh == .pinned ? (desk ? HQFont.scaled(DesktopRows.roomy ? 40 : 32) : Self.macTight(40, 30, mac: 36)) : (desk ? HQFont.scaled(DesktopRows.roomy ? 44 : 36) : Self.macTight(44, 32, mac: 36)),
                alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -265,7 +265,7 @@ struct SessionRowView: View {
 
     private func previewText(_ words: String) -> some View {
         Text(words)
-            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
+            .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
             .foregroundStyle(Color.hqLabel2)
             .lineLimit(large ? 3 : 1)
             .truncationMode(.tail)
@@ -337,7 +337,7 @@ struct SessionRowView: View {
     /// does), the title, then the figures and time.
     private var compactBody: some View {
         HStack(spacing: desk ? DesktopRows.gap : ProjectCard.columnGap) {
-            HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(22) : ProjectCard.face, working: session.isRunning,
+            HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(DesktopRows.roomy ? 26 : 22) : ProjectCard.face, working: session.isRunning,
                       moods: session.isRunning)
                 .overlay(alignment: .topTrailing) {
                     if session.unread || session.status == .needsInput {
@@ -359,7 +359,7 @@ struct SessionRowView: View {
         }
         .padding(.vertical, desk ? 4 : Density.ios(7, 4))
         .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, minHeight: desk ? HQFont.scaled(36) : Density.ios(44, 32), alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: desk ? HQFont.scaled(DesktopRows.roomy ? 44 : 36) : Density.ios(44, 32), alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
@@ -376,7 +376,7 @@ struct SessionRowView: View {
                         .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                 }
                 Text(Self.title(session))
-                    .font(desk ? Font.hq(.callout).weight(.semibold) : titleFont)
+                    .font(desk ? Font.hq(DesktopRows.titleStyle).weight(.semibold) : titleFont)
                     .foregroundStyle(Color.hqLabel)
                     .lineLimit(1)
                 if let color = session.color {
@@ -404,7 +404,7 @@ struct SessionRowView: View {
                                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                             }
                             Text(Self.title(session))
-                                .font(desk ? Font.hq(.callout).weight(.semibold) : titleFont)
+                                .font(desk ? Font.hq(DesktopRows.titleStyle).weight(.semibold) : titleFont)
                                 .foregroundStyle(Color.hqLabel)
                                 .lineLimit(large ? 3 : titleLines)
                             if let color = session.color {
@@ -607,14 +607,14 @@ struct SessionRowView: View {
         } else if let words = SessionRowWords.detailText(session, detail: detail) {
             rest = Text(words).foregroundStyle(Color.hqLabel2)
         } else {
-            return Text("\(owner)").font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline)).lineLimit(desk || ((DeviceWord.isMac || shortPreview) && !large) ? 1 : large ? 4 : 2).frame(maxWidth: .infinity, alignment: .leading)
+            return Text("\(owner)").font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline)).lineLimit(desk || ((DeviceWord.isMac || shortPreview) && !large) ? 1 : large ? 4 : 2).frame(maxWidth: .infinity, alignment: .leading)
         }
         // [mac] Stress test 2026-10-28: one line in both looks on the Mac (the iOS look wrapped to two or three).
         // [toolnow] A step's line stays one line too, so the row keeps its height as the steps change.
         let stepLine = session.step != nil && (session.isRunning || session.status == .working) && session.searchSnippet == nil
             && session.status != .needsInput
         return Text("\(owner)\(Text(" · ").foregroundStyle(Color.hqLabel2))\(rest)")
-            .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
+            .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
             .lineLimit(desk || ((DeviceWord.isMac || stepLine || shortPreview) && !large) ? 1 : large ? 4 : 2)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1071,7 +1071,7 @@ struct SessionDateHeaderView: View {
             if let seeAll { seeAllButton(seeAll) }
             if let onEditCaption {
                 Button("Edit", action: onEditCaption)
-                    .font(Font.hq(desk || DeviceWord.isMac ? .footnote : .subheadline))
+                    .font(Font.hq(desk ? DesktopRows.previewStyle : DeviceWord.isMac ? .footnote : .subheadline))
                     .foregroundStyle(Color.hqTintText)
                     .buttonStyle(.plain)
                     .frame(minWidth: 44, minHeight: Self.captionHeight, alignment: .trailing)

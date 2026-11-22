@@ -164,9 +164,9 @@ final class Theme {
         reload()
     }
 
-    /// [density] Theme › Density (the iOS look).
+    /// [density] Theme › Density. [desktop-density] The look in use's own: each look keeps the one picked in it.
     func setDensity(_ density: ListDensity) {
-        store.setDensity(density)
+        store.setDensity(density, desktop: state.desktopLook)
         reload()
     }
 

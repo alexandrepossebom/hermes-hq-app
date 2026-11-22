@@ -21,6 +21,23 @@ private func set(look: Bool, scale: Int = 100) -> ThemeSet {
         }
     }
 
+    /// [desktop-density] Density › Standard in the look: taller rows, larger faces and type, two lines of preview.
+    /// Compact, the look's default, is the rows above.
+    @Test func standardDensityGivesTheLookRoomierRows() {
+        var state = ThemeState(skinID: "midnight", desktopLook: true, highContrast: false, uiScalePercent: 100)
+        state.desktopDensity = .standard
+        ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
+            #expect(DesktopRows.roomy && DesktopRows.height == 74 && DesktopRows.face == 42 && DesktopRows.gap == 12)
+            #expect(DesktopRows.titleStyle == .body && DesktopRows.previewStyle == .subheadline && DesktopRows.previewLines == 2)
+        }
+        ThemeTable.$testSet.withValue(set(look: true)) {
+            #expect(!DesktopRows.roomy && DesktopRows.gap == 10)
+            #expect(DesktopRows.titleStyle == .callout && DesktopRows.previewStyle == .footnote && DesktopRows.previewLines == 1)
+        }
+        state.desktopLook = false
+        ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) { #expect(!DesktopRows.roomy) }
+    }
+
     @Test func aPressIsAFlatRoundedInsetBoxAndRestIsClear() {
         ThemeTable.$testSet.withValue(set(look: true)) {
             var state = UICellConfigurationState(traitCollection: UITraitCollection())
