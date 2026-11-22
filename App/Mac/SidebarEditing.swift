@@ -13,6 +13,8 @@ import UIKit
         var choice: TabChoice
         var title: String
         var image: UIImage?
+        /// [sidebar-add-tools] One of the Tools now: added, it leaves Tools for the pages under the line.
+        var fromTools = false
     }
 
     /// A row's drag (`MacSidebar`): the place it shows.
@@ -25,29 +27,41 @@ import UIKit
 
     /// What could join the sidebar now, as Settings › Tabs' add list has it: the main tabs not in it, then the More
     /// pages this gateway has, in More's order.
-    /// Owner 2026-11-17 (Mac calls Q11): Only pages in neither the places nor Tools: a Tool is already in the
-    /// sidebar, and its own Control-click has Move to Places (two ways to one thing before).
+    /// Owner 2026-11-17 (Mac calls Q11) had left the Tools out (a Tool is already in the sidebar, with Move to Places).
+    /// [sidebar-add-tools] Owner 2026-11-22, the Add to Sidebar menu listing only setup pages: "There is a lot that I
+    /// cannot add to the sidebar" (as on 2026-11-09: "I don't see tasks or tiles as options to add"). The Tools are
+    /// offered again, after the rest and marked `fromTools` (the menu lists them under "From Tools"). Bots stays out:
+    /// Bots in Sidebar decides where it is.
     static func addable() -> [Place] {
         let shown = TabOrder.tabs
-        let mains = HQTab.movable.map(TabChoice.main).filter { !shown.contains($0) && !isTool($0) }
-        let pages = TabOrderPage.pageChoices().filter { !shown.contains(.page($0.id)) && !isTool(.page($0.id)) }
-        return mains.map { Place(choice: $0, title: TabOrderPage.title($0), image: image($0, symbol: nil)) }
-            + pages.map { Place(choice: .page($0.id), title: $0.title, image: image(.page($0.id), symbol: $0.symbol)) }
+        let mains = HQTab.movable.map(TabChoice.main).filter { !shown.contains($0) && !($0 == .main(.bots) && isTool($0)) }
+        let pages = TabOrderPage.pageChoices().filter { !shown.contains(.page($0.id)) }
+        let all = mains.map { Place(choice: $0, title: TabOrderPage.title($0), image: image($0, symbol: nil), fromTools: isTool($0)) }
+            + pages.map { Place(choice: .page($0.id), title: $0.title, image: image(.page($0.id), symbol: $0.symbol), fromTools: isTool(.page($0.id))) }
+        // The Tools in the order the sidebar lists them.
+        let toolOrder = MainTabController.current?.pages?.toolIDs ?? []
+        func rank(_ place: Place) -> Int { toolID(place.choice).flatMap(toolOrder.firstIndex) ?? Int.max }
+        let tools = all.enumerated().filter { $0.element.fromTools }
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        return all.filter { !$0.fromTools } + tools
     }
 
     /// `choice` stands under the sidebar's Tools now (a page More's working sections give it, Marketplace, a plugin
     /// page, or Bots while it is no place).
     private static func isTool(_ choice: TabChoice) -> Bool {
         guard let pages = MainTabController.current?.pages else { return false }
-        let id: String?
+        return toolID(choice).map(pages.toolIDs.contains) ?? false
+    }
+
+    /// The More row id `choice` would have among the Tools.
+    private static func toolID(_ choice: TabChoice) -> String? {
         switch choice {
-        case .page(let page): id = page
-        case .main(.jobs): id = "jobs"
-        case .main(.workspace): id = pages.workspaceRowID
-        case .main(.bots): id = PagesTabs.botsRowID
-        case .main: id = nil
+        case .page(let page): return page
+        case .main(.jobs): return "jobs"
+        case .main(.workspace): return MainTabController.current?.pages?.workspaceRowID
+        case .main(.bots): return PagesTabs.botsRowID
+        case .main: return nil
         }
-        return id.map(pages.toolIDs.contains) ?? false
     }
 
     /// The place a More row opens, when it can be in the sidebar: a hidden Jobs or Kanban/Artifacts tab, or a page.
@@ -159,9 +173,7 @@ import UIKit
         let add: UIMenuElement = places.isEmpty
             // Owner 2026-11-17 (Mac calls Q11): Nothing left to add: the item itself, dimmed, not an empty submenu.
             ? UIAction(title: "Add to Sidebar", image: UIImage(systemName: "plus"), attributes: .disabled) { _ in }
-            : UIMenu(title: "Add to Sidebar", image: UIImage(systemName: "plus"), children: places.map { place in
-                UIAction(title: place.title, image: place.image) { _ in add(place.choice) }
-            })
+            : UIMenu(title: "Add to Sidebar", image: UIImage(systemName: "plus"), children: addGroups(places))
         let settings = UIAction(title: "Sidebar Settings…", image: UIImage(systemName: "gearshape")) { _ in openSettings() }
         // [bots-place] The bots in the sidebar, or a Bots row whose list opens beside it (while Bots is a place).
         var view: [UIMenuElement] = []
@@ -172,6 +184,18 @@ import UIKit
         }
         return UIMenu(children: [UIMenu(options: .displayInline, children: [add]), UIMenu(options: .displayInline, children: view),
                                  UIMenu(options: .displayInline, children: [settings])])
+    }
+
+    /// [sidebar-add-tools] Add to Sidebar's items: the pages in neither list first, then "From Tools" (each leaves
+    /// Tools for the pages under the line), each group only when it has items.
+    private static func addGroups(_ places: [Place]) -> [UIMenuElement] {
+        func item(_ place: Place) -> UIAction { UIAction(title: place.title, image: place.image) { _ in add(place.choice) } }
+        let others = places.filter { !$0.fromTools }.map(item)
+        let tools = places.filter(\.fromTools).map(item)
+        var groups: [UIMenuElement] = []
+        if !others.isEmpty { groups.append(UIMenu(options: .displayInline, children: others)) }
+        if !tools.isEmpty { groups.append(UIMenu(title: "From Tools", options: .displayInline, children: tools)) }
+        return groups
     }
 
     /// A More row's Control-click: Add to Sidebar, when its page can be there.

@@ -259,6 +259,10 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   use, open or folded (`MainTabController.setViewControllers` orders them, `MacSidebar.rebuild` draws the line,
   `SidebarEditing.isAddedPage`). Move Up/Down and drags stay on their own side of it. ⌘1…⌘9 follow the sidebar's order.
   Check: `-HQDebugMacShots <name> -HQDebugMacShotsDivider YES` against `scripts/fixtures/morepages-gateway.py`.
+- **Add to Sidebar offers the Tools again** (owner 2026-11-22, `[sidebar-add-tools]`, the menu showing only setup
+  pages: "There is a lot that I cannot add to the sidebar"; Mac calls Q11 had left them out). After the other pages,
+  under "From Tools", in the Tools' order; added, a Tool leaves Tools for the pages under the line (as its own Move to
+  Places does). Plugin pages (no Settings › Tabs place) and Bots (Bots in Sidebar decides) are not offered.
 - **More** has no sidebar row. It stays placed out of sight: ⌘K (Open Quickly) opens its results from More's stack.
   Its setup pages (Bot Profiles, Messaging, Webhooks, Import Sessions) are rows in the Settings window
   (`SettingsRootView.movedFromMore`, only with `model.ownWindow`).

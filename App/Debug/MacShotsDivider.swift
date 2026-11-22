@@ -46,6 +46,25 @@ extension MacShots {
             try? await Task.sleep(for: .seconds(0.6))
             state("dropped \(first.key) above Sessions")
         }
+        // [sidebar-add-tools] Add to Sidebar's list (a system menu can't be photographed: its items as text), then the
+        // first of the Tools added from it: it leaves Tools for the pages under the line.
+        func list(_ menu: UIMenu, _ pad: String = "  ") -> String {
+            menu.children.map { element in
+                if let sub = element as? UIMenu { return "\(pad)— \(sub.title)\n" + list(sub, pad + "  ") }
+                return "\(pad)\((element as? UIAction)?.title ?? "?")\n"
+            }.joined()
+        }
+        let space = SidebarEditing.spaceMenu()
+        if let add = space.children.compactMap({ ($0 as? UIMenu)?.children.first as? UIMenu }).first(where: { $0.title == "Add to Sidebar" }) {
+            log += "Add to Sidebar:\n" + list(add)
+        } else {
+            log += "Add to Sidebar: none\n"
+        }
+        if let tool = SidebarEditing.addable().first(where: \.fromTools) {
+            SidebarEditing.add(tool.choice)
+            log += "added from Tools: \(tool.title)\n"
+            await shoot("1b-added-tool")
+        }
         MacSidebar.railNamed = false
         bar.toggleCollapsed()
         await shoot("2-folded")
