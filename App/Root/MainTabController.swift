@@ -37,7 +37,12 @@ final class MainTabController: UITabBarController, UITabBarControllerDelegate {
         // [mac-layout] The sidebar's Tools (More's working pages) aren't in Settings › Tabs: they follow the places,
         // before More.
         let tools = builtTabs.filter { tool in pages?.isTool(tool) == true && !shown.contains { $0 === tool } }
-        var placing = shown
+        // [sidebar-divider] Owner 2026-11-22 ("a little divider line … to separate them from the main icons"): the
+        // pages added to the sidebar follow the main places, under a line (`MacSidebar.rebuild`), whatever order
+        // Settings › Tabs saved; ⌘1…⌘9 and Open Quickly follow this order too.
+        let added = shown.filter { SidebarEditing.isAddedPage($0.tabBarItem.tag) }
+        var placing = shown.filter { !SidebarEditing.isAddedPage($0.tabBarItem.tag) }
+        placing.insert(contentsOf: added, at: placing.firstIndex { $0.tabBarItem.tag == HQTab.more.rawValue } ?? placing.count)
         placing.insert(contentsOf: tools, at: placing.firstIndex { $0.tabBarItem.tag == HQTab.more.rawValue } ?? placing.count)
         placed = viewControllers == nil ? [] : placing
         super.setViewControllers(viewControllers == nil ? nil : slots(keeping: [selectedViewController]), animated: animated)

@@ -74,6 +74,16 @@ import UIKit
         TabOrder.tabs = tabs.filter { $0 != choice }
     }
 
+    /// [sidebar-divider] A page added to the sidebar (More's, from Add to Sidebar or Settings › Tabs), not one of the
+    /// main places (Bots, Sessions, Jobs, Kanban or Artifacts): those added sit under a line after the main ones.
+    static func isAddedPage(_ tag: Int) -> Bool {
+        if case .page? = TabChoice(tag: tag) { return true }
+        return false
+    }
+
+    /// Moves stay on their own side of the line: a page among the pages, a main place among the main places.
+    private static func sameSide(_ a: TabChoice, _ b: TabChoice) -> Bool { isAddedPage(a.tag) == isAddedPage(b.tag) }
+
     /// The places in the sidebar's order as it shows them (a page this gateway lacks is in `TabOrder.tabs` but not
     /// here: moves step over it).
     /// Only rows a move can land beside: Bots has no row here (the bots themselves stand for it) and the Tools sit
@@ -87,23 +97,32 @@ import UIKit
 
     /// `choice` one row up (-1) or down (+1); false when it is already at that end.
     static func canMove(_ choice: TabChoice, by step: Int) -> Bool {
-        let rows = shown
+        let rows = shown.filter { sameSide($0, choice) }   // [sidebar-divider] not across the line
         guard let index = rows.firstIndex(of: choice) else { return false }
         return rows.indices.contains(index + step)
     }
 
     static func move(_ choice: TabChoice, by step: Int) {
-        let rows = shown
+        let rows = shown.filter { sameSide($0, choice) }
         guard let index = rows.firstIndex(of: choice), rows.indices.contains(index + step) else { return }
         AppLog.note("mac", "sidebar: moved \(choice.key) \(step < 0 ? "up" : "down")")
         place(choice, beside: rows[index + step], after: step > 0)
     }
 
     /// A dragged row dropped above `target`, or below the last row (nil).
+    /// [sidebar-divider] Dropped on the other side of the line, it lands at the end of its own side nearest the drop:
+    /// a page let go among the main places is the first page, a main place let go among the pages the last main place.
     static func move(_ choice: TabChoice, before target: TabChoice?) {
         guard target != choice else { return }
         AppLog.note("mac", "sidebar: dragged \(choice.key) above \(target?.key ?? "the end")")
-        if let target { place(choice, beside: target, after: false) } else if let last = shown.last, last != choice { place(choice, beside: last, after: true) }
+        let side = shown.filter { sameSide($0, choice) }
+        if let target, sameSide(target, choice) {
+            place(choice, beside: target, after: false)
+        } else if isAddedPage(choice.tag), target != nil {
+            if let first = side.first, first != choice { place(choice, beside: first, after: false) }
+        } else if let last = side.last, last != choice {
+            place(choice, beside: last, after: true)
+        }
     }
 
     private static func place(_ choice: TabChoice, beside neighbour: TabChoice, after: Bool) {

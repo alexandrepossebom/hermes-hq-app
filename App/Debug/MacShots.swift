@@ -346,6 +346,10 @@ enum MacShots {
                 await toolsTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
+            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsDivider") {   // [sidebar-divider] MacShotsDivider.swift
+                await dividerTour(window, tabs: tabs, name: name, folder: folder)
+                exit(0)
+            }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsSidebar") {
                 await sidebarTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)

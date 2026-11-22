@@ -253,6 +253,12 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
 - **Tools** = More's Workspace and Insights pages (`PagesTabs.toolSections`, `toolIDs`, `isTool`). Each is a page tab
   as one added from More is; `MainTabController.setViewControllers` places them after the Settings › Tabs places.
   A tool's menu has Move to Places. Folded, Tools is one button whose menu clicks the hidden rows.
+- **Added pages under a line** (owner 2026-11-22, `[sidebar-divider]`: "add additional … page options on the left
+  sidebar … a little divider line … to separate them from the main icons"). Pages added from Add to Sidebar or
+  Settings › Tabs follow the main places (Bots, Sessions, Jobs, Kanban/Artifacts) under the faint line the bots' groups
+  use, open or folded (`MainTabController.setViewControllers` orders them, `MacSidebar.rebuild` draws the line,
+  `SidebarEditing.isAddedPage`). Move Up/Down and drags stay on their own side of it. ⌘1…⌘9 follow the sidebar's order.
+  Check: `-HQDebugMacShots <name> -HQDebugMacShotsDivider YES` against `scripts/fixtures/morepages-gateway.py`.
 - **More** has no sidebar row. It stays placed out of sight: ⌘K (Open Quickly) opens its results from More's stack.
   Its setup pages (Bot Profiles, Messaging, Webhooks, Import Sessions) are rows in the Settings window
   (`SettingsRootView.movedFromMore`, only with `model.ownWindow`).

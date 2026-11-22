@@ -774,7 +774,21 @@ final class MacSidebar: UIView {
             footEdgeHeight.constant = folded ? 9 + foot.spacing : 10
         }
         scroll.contentInset.bottom = showsBots && !folded ? 1 : 6
-        placeRows.forEach { nav.addArrangedSubview($0) }
+        // [sidebar-divider] Owner 2026-11-22: "a little divider line … to separate them from the main icons". The pages
+        // added to the sidebar come after the main places (`MainTabController.setViewControllers`), under a faint line,
+        // the one between the bots' groups, open or folded. No line while only main places (or only pages) show.
+        var sawMain = false, lined = false
+        for row in placeRows {
+            let added = SidebarEditing.isAddedPage(row.item.tag)
+            if added, sawMain, !lined {
+                let line = MacRailLine(wide: !folded)
+                line.accessibilityIdentifier = "mac-sidebar.added-pages-line"
+                nav.addArrangedSubview(line)
+                lined = true
+            }
+            if !added { sawMain = true }
+            nav.addArrangedSubview(row)
+        }
         addTools(toolRows, folded: folded, into: nav)
         if showsBots { botsChanged() }
         placeRailGateway()
@@ -1384,6 +1398,16 @@ final class MacSidebar: UIView {
     }
     func debugClick(_ index: Int) { if rows.indices.contains(index) { rows[index].sendActions(for: .touchUpInside) } }
     var debugScroll: UIScrollView { scroll }
+    /// [sidebar-divider] The places' list top to bottom: each row's name, `|` for a line, `Tools` for its heading.
+    var debugDivider: String {
+        let nav = showsBots ? foot : stack
+        return nav.arrangedSubviews.filter { !$0.isHidden }.map { view in
+            if let row = view as? Row { return row.title ?? "?" }
+            if view is MacRailLine { return "|" }
+            if view is MacSidebarHeading { return "Tools▾" }
+            return ""
+        }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
     /// [Mac AAA 2026-11-16] The frame tour: place row `index` and the second bot's row drawn as under the pointer.
     func debugHover(place index: Int) {
         if rows.indices.contains(index) { rows[index].debugHover() }
