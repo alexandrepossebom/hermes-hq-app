@@ -113,6 +113,28 @@ struct ChatGatewayExtrasTests {
         #expect(unknown.lastLine.hasSuffix("…"))
     }
 
+    /// [background] A row is named by what the job runs, not its `cd`, and a quiet job writing to a file says so
+    /// (owner 2026-11-22: rows read "cd ~/Projects/…" over "No output yet" for half an hour).
+    @Test func backgroundRowsSayWhatTheJobIs() {
+        func job(_ command: String) -> BackgroundProcess {
+            BackgroundProcess(id: "p", command: command, status: "running", uptimeSeconds: 60, exitCode: nil, tail: "")
+        }
+        let archive = job("cd ~/Projects/app-wt/ship-42-mac && PLATFORM=mac BUILD=42 python3 scripts/ship.py archive > /tmp/e/archive.log 2>&1; echo $? > /tmp/rc")
+        #expect(archive.title == "python3 scripts/ship.py archive · ship-42-mac")
+        #expect(archive.quietLine == "Writing to archive.log")
+        let named = job("# Watching build 42\nwhile tmux has-session -t s; do sleep 30; done")
+        #expect(named.title == "Watching build 42")
+        #expect(named.quietLine == "No output yet")
+        let loop = job("for i in $(seq 1 19); do sleep 30; s=$(wc -l < /tmp/x.log); xcrun simctl list > /dev/null; done")
+        #expect(loop.title == "xcrun simctl list", "loop words and captured values are not the job")
+        #expect(loop.quietLine == "No output yet", "output thrown away is not a file to read")
+        let onlyLoop = job("for i in $(seq 1 19); do sleep 30; s=$(wc -l < /tmp/x.log); echo $s; done")
+        #expect(onlyLoop.title.hasPrefix("for i in $(seq 1 19)"), "nothing better: its own first line")
+        #expect(job("npm test 2>&1 | tee test.log").quietLine == "No output yet", "tee still prints, so the row shows it")
+        #expect(job("make >> build.log").quietLine == "Writing to build.log")
+        #expect(job("").title == "Background command")
+    }
+
     @Test func runningCommandsListsAndStopsOne() async throws {
         let h = try ChatHarness()
         h.setPage("24", rows: [])

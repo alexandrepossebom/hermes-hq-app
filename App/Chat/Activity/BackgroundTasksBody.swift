@@ -3,7 +3,7 @@ import UIKit
 // [background] The Background tasks card on the chat's shelf (owner 2026-11-15: "Shouldn't that background work be shown
 // the same as subagents do?"). A bot that starts a command in the background (a test run, a build) ends its turn and
 // looked idle while the command ran. The chip sits beside Subagents on the same glass; opened, it lists each running
-// command: a spinner, its first line, how long it has run, the newest line it printed, and Stop behind a menu (one
+// command: a spinner, its name (BackgroundTaskText.title, not a bare `cd …`), how long it has run, the newest line it printed, and Stop behind a menu (one
 // tap would end a long test run by accident). Read from `process.list` (`ChatActivityController.backgroundPoll`).
 
 final class BackgroundTasksBody: UIView, ShelfMeasuredBody {
@@ -115,7 +115,7 @@ final class BackgroundTaskRow: UIView {
         self.command = command
         if title.text != command.title { title.text = command.title }
         title.numberOfLines = ShelfText.isLarge ? 0 : 2
-        let line = stopping ? "Stopping…" : command.lastLine.isEmpty ? "No output yet" : command.lastLine
+        let line = stopping ? "Stopping…" : command.lastLine.isEmpty ? command.quietLine : command.lastLine
         if subtitle.text != line { subtitle.text = line }
         let time = command.uptimeSeconds.map(BackgroundProcess.duration) ?? ""
         if timer.text != time { timer.text = time }

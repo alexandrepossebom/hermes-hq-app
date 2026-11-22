@@ -51,11 +51,15 @@ nonisolated struct BackgroundProcess: Hashable, Sendable, Identifiable {
 
     var isRunning: Bool { status == "running" }
 
-    /// The command's first line ("npm test"); "Background command" when it has none.
+    /// The job's name (`BackgroundTaskText.title`): its leading `# comment`, else the program it runs and its folder
+    /// ("npm test", "make · app" for `cd ~/app && make`), not a bare `cd …`; "Background command" when it has none.
     var title: String {
-        let first = command.split(whereSeparator: \.isNewline).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
-        return first.isEmpty ? "Background command" : first
+        let name = BackgroundTaskText.title(command: command)
+        return name == "background process" ? "Background command" : name
     }
+
+    /// [background] The row's line while the job has printed nothing: where its output goes when it writes to a file.
+    var quietLine: String { BackgroundTaskText.quietLine(command: command) }
 
     /// "Running · 3m" (or "Running" while the time is unknown).
     var detail: String {

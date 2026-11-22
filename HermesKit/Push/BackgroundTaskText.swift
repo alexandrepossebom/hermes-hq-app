@@ -34,7 +34,25 @@ nonisolated enum BackgroundTaskText {
             }
         }
         if let folder { return "cd \(folder)" }
-        return "background process"
+        // Nothing but loop words and setup (`for i in …; do sleep 30; done`): its own first line says the most.
+        return lines.first(where: { !$0.hasPrefix("#") }) ?? "background process"
+    }
+
+    /// What a quiet job's row says under its name: "Writing to archive.log" when its output goes to a file (so the
+    /// row can't show it), else "No output yet".
+    static func quietLine(command: String?) -> String {
+        let words = (command ?? "").split(whereSeparator: { $0 == " " || $0.isNewline }).map(String.init)
+        for (i, word) in words.enumerated() {
+            var target: String?
+            if word == ">" || word == ">>" || word == "&>" || word == "1>" { target = words.indices.contains(i + 1) ? words[i + 1] : nil }
+            else if word.hasPrefix(">>") || word.hasPrefix("&>") || word.hasPrefix("1>") { target = String(word.dropFirst(2)) }
+            else if word.hasPrefix(">"), !word.hasPrefix(">&") { target = String(word.dropFirst()) }
+            guard let path = target?.trimmingCharacters(in: CharacterSet(charactersIn: "\"';&|)")), !path.isEmpty,
+                  !path.hasPrefix("&"), path != "/dev/null" else { continue }
+            let name = path.split(separator: "/").last.map(String.init) ?? path
+            return "Writing to \(name)"
+        }
+        return "No output yet"
     }
 
     /// The command's steps, split on `&&`, `||` and `;`.
@@ -58,8 +76,13 @@ nonisolated enum BackgroundTaskText {
     /// The step's program and arguments, without setup steps, leading `VAR=value`s or what follows a redirect or pipe.
     private static func program(_ segment: String) -> String? {
         var words = segment.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        let setup: Set<String> = ["export", "source", ".", "set", "unset", "true", "echo", "sleep", "popd", "umask", "ulimit"]
+        // A loop's or test's own words (`for i in …`, `if [ … ]`, `done`) name nothing; `do`/`then`/`nohup` lead into the real step.
+        while let word = words.first, ["do", "then", "else", "nohup", "time", "exec", "{", "("].contains(word) { words.removeFirst() }
+        let setup: Set<String> = ["export", "source", ".", "set", "unset", "true", "echo", "sleep", "popd", "umask", "ulimit",
+                                  "for", "while", "until", "if", "elif", "case", "done", "fi", "esac", "}", ")", "[", "[[", "test", "wait", "printf"]
         guard let verb = words.first, !setup.contains(verb) else { return nil }
+        // `s=$(wc -l < f)` captures a value; it isn't the job.
+        if isAssignment(verb), verb.contains("$(") || verb.contains("`") { return nil }
         while let word = words.first, isAssignment(word) { words.removeFirst() }
         if words.first == "env" { words.removeFirst(); while let word = words.first, isAssignment(word) { words.removeFirst() } }
         var kept: [String] = []
@@ -68,7 +91,7 @@ nonisolated enum BackgroundTaskText {
             kept.append(word)
         }
         let run = kept.joined(separator: " ")
-        return run.isEmpty ? nil : run
+        return run.isEmpty || run.hasPrefix("-") ? nil : run
     }
 
     private static func isAssignment(_ word: String) -> Bool {
