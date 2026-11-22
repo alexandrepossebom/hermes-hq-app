@@ -280,6 +280,17 @@ Activity place / "I'd like to see it all built". Mac only; the iPhone and iPad k
   600×640 on the screen (Polish pass), themed. Info.plist is preprocessed so only the Mac build supports multiple scenes (`HQ_MAC_WINDOWS`). Its list's
   soft top edge shows only once rows scroll under the bar: SwiftUI re-shows a list's edge on every update, so the
   list hides it itself (`SoftEdgeOnlyScrolled`: `onScrollGeometryChange` + `scrollEdgeEffectHidden`).
+- **Watch Screen and Watch Browser windows** (#351, a tester: the Screen "stays very small and cannot be enlarged",
+  zoom only enlarged the picture): each opens in a window of its own (`ViewerWindow`, a page window from
+  `MacFileWindow.open(page:)`), nearly the main window's size and placed as a file window is, then resized by its
+  edges, zoomed by the green button or made full screen. The picture fits the window as it changes (a zoomed picture
+  keeps the same part of the desktop in the middle, `ScreenViewMath.resized`; the pointer is kept as fractions of the
+  desktop, so it stays on its pixel); − / + and ⌘-scroll still zoom the picture inside the window. The main window
+  stays usable beside it: the same bot's viewer asked for again comes to the front, another bot's replaces it, a held
+  screen or browser handed back first (`ViewerReopen`). Its ✕, ⌘W, Escape (when not typing on the bot's screen) and
+  the red button close it and hand control back (`MacWindowPage.windowClosed`). Should the Mac give no window, the
+  viewer covers the right pane as before (`PaneViewer`); `-HQDebugViewersInPane YES` puts it there for a "before"
+  picture. Not yet checked by eye against the screen fixture on a Mac.
 - **No pull-to-refresh** on the Mac (`hqInstallRefresh` keeps the control for ⌘R only). Swipe rows kept (Mail has them).
 - Checks: `-HQDemoRealChat YES` (a real chat in the lists demo), `-HQDemoHelpers YES` (three pretend helpers),
   `-HQDemoHelperOpen <id>`, `-HQMacInspectorShown YES -HQMacInspectorTab 0…4`, `-HQDebugSettingsWindow <name>`.

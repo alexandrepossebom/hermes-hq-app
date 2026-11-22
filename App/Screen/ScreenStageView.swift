@@ -156,8 +156,18 @@ final class ScreenStageView: UIView {
         framebuffer = (0, 0)
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// [#351] The stage's size at the last layout: the Mac's Screen window is resized freely.
+    private var laidOut: CGSize = .zero
+    #endif
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        #if targetEnvironment(macCatalyst)
+        // [#351] A zoomed picture keeps the same part of the desktop in the middle as the window grows or shrinks.
+        if laidOut != bounds.size, laidOut.width > 0, framebuffer.width > 0 { gesture.resized(from: laidOut, context) }
+        laidOut = bounds.size
+        #endif
         gesture.relayout(context)
         place()
     }

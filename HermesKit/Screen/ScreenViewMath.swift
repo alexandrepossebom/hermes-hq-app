@@ -88,6 +88,26 @@ nonisolated enum ScreenViewMath {
         return clampToDesktop(ScreenView(zoom: zoom, x: 0, y: height / 2 - (fy ?? 0.5) * drawnHeight), width: width, height: height, aspect: aspect)
     }
 
+    /// [#351] The stage changed size while zoomed in (the Mac's Screen window resized, zoomed or made full screen): the
+    /// zoom stays, and the part of the desktop that was in the middle of the stage stays in the middle. A view's offsets
+    /// are stage points, so re-clamping alone kept the top-left corner where it was and slid the rest. At Fit (or with
+    /// no size or picture yet) the view is only clamped, as before.
+    static func resized(_ view: ScreenView, from old: CGSize, to new: CGSize, aspect: CGFloat) -> ScreenView {
+        guard view.zoom > 1, aspect > 0, old.width > 0, old.height > 0, new.width > 0, new.height > 0 else {
+            return clampToDesktop(view, width: new.width, height: new.height, aspect: aspect)
+        }
+        let before = drawn(stage: old, aspect: aspect, view: view)
+        guard before.width > 0, before.height > 0 else { return clampToDesktop(view, width: new.width, height: new.height, aspect: aspect) }
+        // The desktop's fraction at the old stage's middle.
+        let fx = (old.width / 2 - before.minX) / before.width, fy = (old.height / 2 - before.minY) / before.height
+        let fit = fitted(width: new.width, height: new.height, aspect: aspect)
+        let width = fit.width * view.zoom, height = fit.height * view.zoom
+        let left = new.width / 2 - fx * width, top = new.height / 2 - fy * height
+        // `drawn` puts the desktop at x + zoom·(stage − fitted)/2 across and at y down.
+        let next = ScreenView(zoom: view.zoom, x: left - view.zoom * (new.width - fit.width) / 2, y: top)
+        return clampToDesktop(next, width: new.width, height: new.height, aspect: aspect)
+    }
+
     /// Pan a zoomed view so a point (stage-local y) stays `margin` inside its bottom and top edges.
     static func keepVisible(_ view: ScreenView, pointY: CGFloat, width: CGFloat, height: CGFloat, margin: CGFloat = keepClear) -> ScreenView {
         let room = min(margin, height / 2)
@@ -202,6 +222,12 @@ nonisolated struct ScreenGesture: Sendable {
                                                  width: context.stage.width, height: context.stage.height, aspect: context.aspect)
         }
         view = next
+    }
+
+    /// [#351] The stage went from `old` to the context's size (the Mac's window resized): the zoomed view keeps its middle
+    /// (`ScreenViewMath.resized`). The pointer is kept as fractions of the desktop, so it stays on the same pixel.
+    mutating func resized(from old: CGSize, _ context: Context) {
+        view = ScreenViewMath.resized(view, from: old, to: context.stage, aspect: context.aspect)
     }
 
     mutating func resetPointer() { pointer = ScreenPointer() }
