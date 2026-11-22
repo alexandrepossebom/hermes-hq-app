@@ -1044,6 +1044,11 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
     /// look, not the app's (2026-11-03: a light tile's words were light grey on white in dark mode). Then `window.hermes.send` (posting to the app, or answering that it can't).
     /// [tile-soft] A background that is a `color-mix()` reads back as `color(srgb 0.95 0.95 0.96)`, its parts from 0 to 1,
     /// not 0 to 255: such a pale page was taken for black, and its words went white on it.
+    /// [page-defaults] Plain HTML looks at home too (owner 2026-11-21: bots' pages kept the same small faults): fields
+    /// and buttons in the page's own type (16 pt, so iOS doesn't zoom into a tapped field) and ink, a checkbox or radio
+    /// kept on the line of its words, links and checkboxes in the theme's tint, long words and code wrapped rather than
+    /// widening the page. All in :where(), so a page that styles any of it keeps its own. The add-on's page check
+    /// (hermes-hq-push skills/html-page/check_page.py, DEFAULTS) draws pages with the same rules: keep the two alike.
     static func prelude(_ traits: UITraitCollection, talks: Bool) -> String {
         func css(_ dynamic: UIColor) -> String {
             let color = dynamic.resolvedColor(with: traits)
@@ -1057,10 +1062,14 @@ final class HTMLPageSheet: UIViewController, WKNavigationDelegate, WKScriptMessa
         :root{--foreground:\(css(ChatPalette.label));--muted-foreground:\(css(ChatPalette.label2));\
         --accent:\(css(ChatPalette.tint));--border:\(css(ChatPalette.separator));--card:\(css(ChatPalette.elevated));\
         --hq-radius:\(ThemeTable.desktopLook ? Int(DesktopRows.radius) : 16)px;\
-        color-scheme:\(traits.userInterfaceStyle == .dark ? "dark" : "light");color:var(--foreground);\
+        color-scheme:\(traits.userInterfaceStyle == .dark ? "dark" : "light");color:var(--foreground);accent-color:var(--accent);\
         font-family:-apple-system,system-ui,sans-serif;-webkit-text-size-adjust:100%}\
-        :where(html,body){margin:0;padding:0;background:transparent}:where(body){padding:12px 16px;box-sizing:border-box}\
-        :where(img,svg,canvas,video){max-width:100%}:where(svg[viewBox]){height:auto}
+        :where(html,body){margin:0;padding:0;background:transparent}:where(body){padding:12px 16px;box-sizing:border-box;\
+        overflow-wrap:break-word}:where(img,svg,canvas,video){max-width:100%}:where(svg[viewBox]){height:auto}\
+        :where(input,select,textarea,button){font:inherit;color:inherit}\
+        :where(label:has(>input[type=checkbox],>input[type=radio])){display:inline-flex;align-items:baseline;gap:.4em}\
+        :where(a){color:var(--accent)}:where(pre){white-space:pre-wrap}\
+        :where(hr){border:0;border-top:1px solid var(--border)}:where(iframe){max-width:100%;border:0}
         """
         let escaped = style.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "`", with: "\\`")
         let send = talks ? """

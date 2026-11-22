@@ -877,6 +877,12 @@ hash>.json` (`HermesKit/Pages/ArtifactHidden.swift`); nothing on the bot's compu
   or black, hue kept; words lost outright on the app's page get the contrast they had on white. A drawing whose words
   and lines were both made for white gets a white card instead. Left as drawn: words over a picture, video, canvas
   or frame, what a canvas draws, shapes with no words, and anything inside a frame.
+- Plain HTML in a page gets the app's defaults before the page's own styles, all in `:where()` so any rule of the
+  page's wins (`HTMLPageSheet.prelude`, owner 2026-11-21: bots' pages kept the same small faults on a phone): fields
+  and buttons in the page's type and ink (16 pt, so iOS doesn't zoom into a tapped field), a checkbox or radio kept on
+  the line of its words, links and checkboxes in the theme's tint, long words and code wrapped instead of widening the
+  page. How a bot lays a page out is the add-on's `hermes-hq-push:html-page` skill (a starter page in the app's look
+  and `check_page.py`, which draws a page with these same defaults at phone size).
 - Run-output documents from Jobs use the same viewer, read-only, Back named for the job (§3.7).
 
 ### 5.7 States
