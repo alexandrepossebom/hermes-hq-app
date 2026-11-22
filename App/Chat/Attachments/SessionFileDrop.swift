@@ -282,7 +282,7 @@ final class SpringLight: UIView {
         layer.cornerCurve = .continuous
         layer.borderWidth = 2
         apply()
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _: UITraitCollection) in self.apply() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (self: Self, _: UITraitCollection) in self.apply() }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
