@@ -494,16 +494,32 @@ struct NewTodoView: View {
         .accessibilityIdentifier("tasks.new.section")
     }
 
-    private var whoStrip: some View {
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 18) {
-                personButton(name: "You", id: nil)
-                ForEach(model.bots, id: \.id) { bot in personButton(name: bot.name, id: bot.id) }
-            }.padding(.vertical, 4)
-        }.scrollIndicators(.hidden)
+    @ViewBuilder private func whoPeople(column: Bool) -> some View {
+        personButton(name: "You", id: nil, column: column)
+        ForEach(model.bots, id: \.id) { bot in personButton(name: bot.name, id: bot.id, column: column) }
     }
 
-    private func personButton(name: String, id: String?) -> some View {
+    @ViewBuilder private var whoStrip: some View {
+        if DeviceWord.isMac {
+            // [new-task-who-mac] Owner 2026-11-21 (Mac screenshot): the sideways strip showed a grey scroller over the
+            // names, and a click on a bot didn't pick it. On the Mac the faces wrap to more rows instead (FEEL-LIST #32):
+            // no scroller, nothing out of reach, and each face is a plain button. Owner, same day, on Mac 1199: "The
+            // bots don't line up properly" (each row started where its names' widths left it): the rows are a grid of
+            // equal columns, each face centred over its name, a long name on two lines.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96, maximum: 128), spacing: 8, alignment: .top)],
+                      alignment: .leading, spacing: 12) { whoPeople(column: true) }
+                .padding(.vertical, 4)
+        } else {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 18) { whoPeople(column: false) }.padding(.vertical, 4)
+            }
+            // `.hidden` still shows the scroller with a mouse attached (an iPad with a trackpad); `.never` hides it.
+            .scrollIndicators(.never)
+        }
+    }
+
+    /// `column`: a cell of the Mac's grid, filling its column with the name under the face on up to two lines.
+    private func personButton(name: String, id: String?, column: Bool = false) -> some View {
         let selected = model.helper == id
         return Button { model.setWho(id, alone: false) } label: {
             VStack(spacing: 5) {
@@ -516,9 +532,11 @@ struct NewTodoView: View {
                 }
                 .padding(3)
                 .overlay(Circle().stroke(selected ? Color.hqTint : .clear, lineWidth: 2))
-                Text(name).font(Font.hq(.caption)).lineLimit(1)
+                Text(name).font(Font.hq(.caption)).lineLimit(column ? 2 : 1)
+                    .multilineTextAlignment(.center)
                     .foregroundStyle(selected ? Color.hqTintText : Color.hqLabel2)
-            }.frame(minWidth: 52, minHeight: 60)
+            }.frame(minWidth: 52, maxWidth: column ? .infinity : nil, minHeight: 60, alignment: .top)
+            .contentShape(Rectangle())   // the whole face and name take the click, not only their drawn pixels
         }
         .buttonStyle(.plain)
         .accessibilityLabel(name)
