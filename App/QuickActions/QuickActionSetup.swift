@@ -396,7 +396,7 @@ struct QuickActionSetupView: View {
         return HStack {
             Spacer(minLength: 0)
             QuickTileFace(name: tile.name, subtitle: subtitle, symbol: tile.symbol, color: QuickTileLook.color(tile.tint),
-                          stacked: typeSize >= .accessibility3)
+                          stacked: typeSize >= .accessibility3, short: tile.short)
                 .background(RoundedRectangle(cornerRadius: QuickTileCell.radius, style: .continuous)
                     .fill(Color(uiColor: HQPalette.sheetCard)))
                 .overlay {
@@ -482,6 +482,16 @@ struct QuickActionSetupView: View {
                     .pickerStyle(.segmented)
                     .fixedSize()
                     .accessibilityIdentifier("quick.setup.size")
+                }
+                // [quick-actions] Owner 2026-11-21: "I also want to be able to change the height to make them shorter."
+                LabeledContent("Height") {
+                    Picker("Height", selection: $draft.tile.short) {
+                        Text("Tall").tag(false)
+                        Text("Short").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    .accessibilityIdentifier("quick.setup.height")
                 }
             } header: { HQSectionLabel { Text("Look") } }
             .hqSheetRows()

@@ -72,6 +72,9 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
     /// `QuickTileColor`'s raw value.
     var color: String
     var wide = false
+    /// [quick-actions] Owner 2026-11-21: "I also want to be able to change the height to make them shorter." A Short
+    /// tile is one line high: its icon beside the name and subtitle (3x-morepages Q13).
+    var short = false
     /// The bot's profile, and its name when the tile was set up (said when the bot isn't on this gateway).
     var bot: String? = nil
     var botName: String? = nil
@@ -94,7 +97,7 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
     var unreadable: JSONValue? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, name, symbol, color, wide, bot, botName, project, projectName, message, flag, job, jobName, page, pageName
+        case id, kind, name, symbol, color, wide, short, bot, botName, project, projectName, message, flag, job, jobName, page, pageName
     }
 
     var known: QuickTileKind? { unreadable == nil ? QuickTileKind(rawValue: kind) : nil }
@@ -117,6 +120,7 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
         symbol = "questionmark.square.dashed"
         color = QuickTileColor.gray.rawValue
         wide = raw["wide"]?.bool ?? false
+        short = raw["short"]?.bool ?? false
         unreadable = raw
     }
 
@@ -141,6 +145,7 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
         symbol = try c.decodeIfPresent(String.self, forKey: .symbol) ?? "square.grid.2x2.fill"
         color = try c.decodeIfPresent(String.self, forKey: .color) ?? QuickTileColor.gray.rawValue
         wide = try c.decodeIfPresent(Bool.self, forKey: .wide) ?? false
+        short = try c.decodeIfPresent(Bool.self, forKey: .short) ?? false
         bot = try c.decodeIfPresent(String.self, forKey: .bot)
         botName = try c.decodeIfPresent(String.self, forKey: .botName)
         project = try c.decodeIfPresent(String.self, forKey: .project)
@@ -162,6 +167,7 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
         try c.encode(symbol, forKey: .symbol)
         try c.encode(color, forKey: .color)
         if wide { try c.encode(wide, forKey: .wide) }
+        if short { try c.encode(short, forKey: .short) }
         try c.encodeIfPresent(bot, forKey: .bot)
         try c.encodeIfPresent(botName, forKey: .botName)
         try c.encodeIfPresent(project, forKey: .project)
@@ -302,6 +308,10 @@ nonisolated struct QuickTileList: Equatable, Sendable {
 
     mutating func setWide(_ id: String, _ wide: Bool) {
         if let index = tiles.firstIndex(where: { $0.id == id }) { tiles[index].wide = wide }
+    }
+
+    mutating func setShort(_ id: String, _ short: Bool) {
+        if let index = tiles.firstIndex(where: { $0.id == id }) { tiles[index].short = short }
     }
 
     /// Moves the tile to `index` (clamped).

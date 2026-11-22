@@ -207,6 +207,11 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         change { $0.setWide(id, wide) }
     }
 
+    private func setShort(_ id: String, _ short: Bool) {
+        PagesHaptics.selection()
+        change { $0.setShort(id, short) }
+    }
+
     private func step(_ id: String, by delta: Int) -> Bool {
         var moved = false
         change { moved = $0.step(id, by: delta) }
@@ -269,7 +274,7 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         let subtitle = tile.subtitle(botName: QuickActionsRouter.botName(tile.bot))
         cell.contentConfiguration = UIHostingConfiguration {
             QuickTileFace(name: tile.name, subtitle: subtitle, symbol: tile.symbol, color: QuickTileLook.color(tile.tint),
-                          stacked: stacked, dimmed: missing != nil)
+                          stacked: stacked, dimmed: missing != nil, short: tile.short)
         }
         .margins(.all, 0)
         cell.style(inSheet: inSheet, dashed: false, dimmed: missing != nil)
@@ -333,6 +338,10 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
             self?.setWide(id, !tile.wide)
             return true
         })
+        actions.append(UIAccessibilityCustomAction(name: tile.short ? "Make Tall" : "Make Short") { [weak self] _ in
+            self?.setShort(id, !tile.short)
+            return true
+        })
         return actions
     }
 
@@ -362,7 +371,7 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         }
     }
 
-    /// Holding a tile out of Edit: Small, Wide, Edit… and Remove.
+    /// Holding a tile out of Edit: Small, Wide, Tall, Short, Edit… and Remove.
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
                         point: CGPoint) -> UIContextMenuConfiguration? {
         // In Edit a hold picks the tile up to drag (as the Home Screen's jiggle mode); the − badge, a tap (Edit Action)
@@ -380,7 +389,14 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
             let remove = UIAction(title: "Remove", image: UIImage(systemName: "minus.circle"), attributes: .destructive) { _ in
                 self?.remove(id)
             }
+            let tall = UIAction(title: "Tall", image: UIImage(systemName: "rectangle.portrait"), state: tile.short ? .off : .on) { _ in
+                self?.setShort(id, false)
+            }
+            let short = UIAction(title: "Short", image: UIImage(systemName: "rectangle.compress.vertical"), state: tile.short ? .on : .off) { _ in
+                self?.setShort(id, true)
+            }
             return UIMenu(children: [UIMenu(options: .displayInline, children: [small, wide]),
+                                     UIMenu(options: .displayInline, children: [tall, short]),
                                      UIMenu(options: .displayInline, children: [edit, remove])])
         }
     }

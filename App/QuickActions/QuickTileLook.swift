@@ -74,11 +74,19 @@ struct QuickTileFace: View {
     var color: UIColor
     var stacked = false
     var dimmed = false
+    /// [quick-actions] A Short tile (3x-morepages Q13): one line high, the icon beside the words.
+    var short = false
 
     var body: some View {
-        let side = HQFont.scaled(34)
+        let side = HQFont.scaled(short ? 28 : 34)
         Group {
-            if stacked {
+            if short {
+                HStack(alignment: .center, spacing: 10) {
+                    QuickTileIcon(symbol: symbol, color: color, side: side)
+                    lines(name: name.isEmpty ? " " : name, subtitle: subtitle, limit: 1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if stacked {
                 HStack(alignment: .center, spacing: 12) {
                     QuickTileIcon(symbol: symbol, color: color, side: side)
                     words(reserve: false)
@@ -92,8 +100,8 @@ struct QuickTileFace: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, short ? 12 : 14)
+        .padding(.vertical, short ? 9 : 12)
         .opacity(dimmed ? 0.4 : 1)
     }
 
@@ -122,7 +130,7 @@ struct QuickTileFace: View {
             Text(subtitle)
                 .font(Font.hq(.subheadline))
                 .foregroundStyle(Color.hqLabel2)
-                .lineLimit(limit == 2 ? 1 : nil)
+                .lineLimit(limit <= 2 ? 1 : nil)
         }
     }
 }

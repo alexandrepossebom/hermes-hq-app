@@ -32,6 +32,22 @@ private func tile(_ kind: QuickTileKind, id: String = UUID().uuidString, bot: St
         #expect(raw?["version"] as? Int == QuickTileStore.version)
     }
 
+    // Q13: Short is stored only when set; an entry from before it reads Tall; setShort changes one tile.
+    @Test func shortIsStoredAndOlderTilesReadTall() throws {
+        let box = IntentsDefaults()
+        var list = QuickTileList()
+        list.add(tile(.memo, id: "a", bot: "ivy"))
+        list.add(tile(.talk, id: "b", bot: "ivy"))
+        list.setShort("b", true)
+        #expect(QuickTileStore.save(list, box.defaults))
+        let back = QuickTileStore.load(box.defaults)
+        #expect(back.tiles.map(\.short) == [false, true])
+        let raw = try #require(String(data: box.defaults.data(forKey: QuickTileStore.key) ?? Data(), encoding: .utf8))
+        #expect(raw.components(separatedBy: "\"short\"").count == 2, "only the Short tile writes the key")
+        let old = try JSONDecoder().decode(QuickTile.self, from: Data(#"{"id":"c","kind":"memo","name":"Memo","symbol":"mic.fill","color":"red"}"#.utf8))
+        #expect(!old.short)
+    }
+
     // Q7: a kind this build doesn't know, or an entry it can't read, is kept as written and drawn switched off.
     @Test func unknownKindsAndUnreadableEntriesAreKept() throws {
         let box = IntentsDefaults()

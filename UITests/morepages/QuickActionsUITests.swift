@@ -96,6 +96,7 @@ final class QuickActionsUITests: MorePagesCase {
         let size = app.segmentedControls["quick.setup.size"]
         for _ in 0..<5 where !size.isHittable { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(size.isHittable, "Set Up shows Size")
+        XCTAssertTrue(app.segmentedControls["quick.setup.height"].exists, "and Height (Tall / Short)")
         size.buttons["Wide"].tap()
         shot("quick-actions-setup-size")
         app.buttons["quick.setup.save"].tap()
@@ -124,12 +125,22 @@ final class QuickActionsUITests: MorePagesCase {
 
         // Wide: holding a tile offers Small, Wide, Edit… and Remove.
         tile("starter-memo").press(forDuration: 1.2)
-        for word in ["Small", "Wide", "Edit…", "Remove"] {
+        for word in ["Small", "Wide", "Tall", "Short", "Edit…", "Remove"] {
             XCTAssertTrue(app.buttons[word].waitForExistence(timeout: 3), "the hold menu offers \(word)")
         }
         shot("quick-actions-hold-menu")
         app.buttons["Wide"].tap()
         XCTAssertTrue(waitUntil(5) { self.tile("starter-memo").frame.width > self.tile("starter-talk").frame.width * 1.6 }, "Memo is Wide")
+
+        // Short (owner 2026-11-21: "I also want to be able to change the height to make them shorter."): Talk sits
+        // alone in its row (New Chat after it is Wide), so its own height shows.
+        let tallHeight = tile("starter-talk").frame.height
+        tile("starter-talk").press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["Short"].waitForExistence(timeout: 3))
+        app.buttons["Short"].tap()
+        XCTAssertTrue(waitUntil(5) { self.tile("starter-talk").frame.height < tallHeight * 0.75 },
+                      "Short makes Talk shorter: \(tile("starter-talk").frame.height) vs \(tallHeight)")
+        shot("quick-actions-short-tile")
 
         // A tile whose bot isn't on this gateway: drawn switched off, and a tap says why.
         hook("quick-tile-add:talk:juno")
@@ -150,6 +161,7 @@ final class QuickActionsUITests: MorePagesCase {
         XCTAssertEqual(shownIDs, order, "in its order, never seeded again")
         XCTAssertEqual(tile("starter-talk").label, "Talk Now, with Hermes")
         XCTAssertTrue(tile("starter-memo").frame.width > tile("starter-talk").frame.width * 1.6, "Memo stays Wide")
+        XCTAssertLessThan(tile("starter-talk").frame.height, tile("starter-memo").frame.height * 0.75, "Talk stays Short")
         XCTAssertFalse(app.cells["quick-tile-starter-add-task"].exists, "Add Task stays removed")
     }
 
