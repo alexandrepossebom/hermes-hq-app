@@ -1035,6 +1035,10 @@ struct NewChatSheetView: View {
 
     private var faceSize: CGFloat { Theme.isDesktop ? HQFont.scaled(20) : HQFont.scaled(24) }
     private static let rowInsets = EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+    /// The bot pills' room inside their card (owner 2026-11-22: 2pt left them pressed against the card's sides). The
+    /// same 8 all round, so the pills sit centred with an even rim; on the phone it is the strip's content inset, so a
+    /// scrolled pill still slides out under the card's edge.
+    private static let pillInset = EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
 
     private var botName: String { bots.first { $0.id == bot }?.name ?? "Hermes" }
 
@@ -1095,7 +1099,7 @@ struct NewChatSheetView: View {
                     // edge (Finance, cut in half with five bots) was out of reach without a trackpad. On the Mac the
                     // pills wrap to another line, as the job editor's faces do (FEEL-LIST #32).
                     PagesFlowLayout(spacing: 8, lineSpacing: 8) { botPills }
-                        .padding(.horizontal, 2)
+                        .padding(Self.pillInset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
@@ -1103,7 +1107,7 @@ struct NewChatSheetView: View {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal) {
                             HStack(spacing: 8) { botPills }
-                                .padding(.horizontal, 2)
+                                .padding(Self.pillInset)
                         }
                         .scrollIndicators(.hidden)
                         .onAppear { proxy.scrollTo(bot, anchor: .center) }
