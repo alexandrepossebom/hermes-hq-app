@@ -331,10 +331,25 @@ sample wait for the next frame (`PCMCarry`), never dropped (`V:lib/voice-playbac
 `POST /api/audio/speak?profile=<profile>` body `{"text": "Your first meeting is at nine."}`, timeout 60 s.
 
 Answer: `200 {"ok": true, "data_url": "data:audio/mpeg;base64,…", "mime_type": "audio/mpeg", "provider": "edge"}`.
-`400 {"detail": "Text is required"}` for empty text. The app decodes the data URL to a temporary file and plays it
-with `AVAudioPlayer`. `audio/mpeg`, `audio/wav`, `audio/x-wav`, `audio/flac`, `audio/mp4`, `audio/aac` play; anything
-else fails with "Your gateway’s voice uses a format iPhone can’t play (<mime>). Pick another Text to Speech provider
-in Settings › Voice." (title "Voice Playback Failed").
+`400 {"detail": "Text is required"}` for empty text. `audio/mpeg`, `audio/wav`, `audio/x-wav`, `audio/flac`,
+`audio/mp4`, `audio/aac` play; anything else fails with "Your gateway’s voice uses a format iPhone can’t play (<mime>).
+Pick another Text to Speech provider in Settings › Voice." (title "Voice Playback Failed").
+
+**Playing a clip (#412, a tester: a plain 24 kHz MP3 was called "a format iPhone can't play" while the output was
+busy, and the gateway's voice was then skipped for 30 minutes).** The app decodes the data URL and plays it with
+`AVAudioPlayer`, the tolerant ways in turn (`SpeechClipPlayback.swift`, `ClipStart`): (1) the bytes from memory, with
+the type their first bytes say (`VoiceWire.sniff`: MP3 frame, ADTS AAC, an ID3 tag skipped, RIFF/WAVE, fLaC, `ftyp`,
+caff, AIFF; else the label's type), so an AAC body a gateway labels `audio/mpeg` (an extension Hermes doesn't know
+falls back to that label) plays as AAC; (2) the same bytes written to a temporary file named for that kind,
+`AVAudioPlayer(contentsOf:)`; (3) only when a player was made and `play()` said no: the audio session is set active
+again once for whoever holds it (`AudioSessionCoordinator.reactivate`; inside a conversation only `setActive(true)`)
+and the file is tried once more. A clip that still won't play is **not** a format problem: "iPhone couldn’t play your
+gateway’s voice just now (<why>). Try again." (`VoiceWire.playbackFailed`; <why> is "the audio output was busy" for
+`!pla`/`!int`/`!pri`/`!act`, "the audio session wasn’t active" for `inac`, "the audio couldn’t be read" for
+`fmt?`/`typ?`/`dta?`, "the audio output didn’t start" when `play()` returned false, nothing otherwise), with the
+error's domain, code, four-character code, label, sniffed kind and size in Voice Diagnostics' events. It is this
+reply's alone (§7.7: never remembered). The format sentence stays for a label the list above refuses and for bytes
+no player here reads whatever their label (Ogg, WebM: "… can’t play (audio/ogg) …"), which are remembered as before.
 
 ### 3.5 Warm-up leases (best effort)
 
@@ -992,6 +1007,7 @@ denied, otherwise **Try Again**.
 | transcription failed 3 times running (T15) | (title Voice Transcription Failed) <the gateway's last reason> | status code and body |
 | the chat cannot send any more (session gone, signed out) | (title Voice Transcription Failed) This chat can’t send right now. | the refusal's text |
 | speech could not be played at all (unplayable format, §3.4) | (title Voice Playback Failed) Your gateway’s voice uses a format iPhone can’t play (<mime>). Pick another Text to Speech provider in Settings › Voice. | — |
+| a clip of a playable kind would not play here (§3.4, #412) and the iPhone's voice can't play either | (title Voice Playback Failed) iPhone couldn’t play your gateway’s voice just now (<why>). Try again. | — (not fatal: the next reply tries the gateway's voice again) |
 
 A single transcription failure or a single speech failure does **not** stop the conversation. The strip shows the
 reason for that turn ("Voice Transcription Failed. <reason>" / "Voice Playback Failed. <reason>") in the warning
@@ -1205,6 +1221,7 @@ Details** (the web's failure alert, `W:src/ui-chat/composer.tsx`).
 | gateway unreachable | The computer running Hermes isn’t reachable right now. Try again when it reconnects. |
 | the gateway answered an error | the gateway's `detail`, word for word |
 | unplayable format | Your gateway’s voice uses a format iPhone can’t play (<mime>). Pick another Text to Speech provider in Settings › Voice. |
+| a clip of a playable kind would not play (output busy, session lost, bad clip; §3.4) | iPhone couldn’t play your gateway’s voice just now (<why>). Try again. |
 | no speech arrived for 15 s | The voice didn’t answer in time. Try again. |
 | nothing to read | There’s nothing to read in this reply. |
 
@@ -1229,13 +1246,17 @@ failed (edge): … 403 …" because the bot's profile had no `tts:` section, Her
   second of audio, whole sentences only), or from the start when nothing played. Its PCM goes to the same
   `SpeechOutput` as the gateway's: inside the conversation's engine (voice processing cancels it, barge-in works) and on
   the level meter. A failure is: an error answer from either speech route (provider error, 4xx/5xx, unplayable audio),
+  a clip that came and would not play here after the tolerant tries of §3.4,
   or **no audio at all 20 s after the reply is complete** (`VoiceWire.phoneVoiceAfter`, the one constant: Hermes makes a
   whole first sentence before any audio and a cold local voice can take 10–15 s; Read Aloud's own "didn't answer" waits
   10 s longer so the iPhone's voice always gets its turn). A connection that drops mid-reply also continues on the
   iPhone's voice, without a notice.
 - **Remembered**: an error answer is remembered per gateway and profile for 30 minutes (`PhoneVoiceFallback`); later
   replies start on the iPhone's voice with no failing round trip, then the computer is asked again. A slow computer
-  (the 20 s wait) is never remembered. Any save of the gateway's settings forgets it at once.
+  (the 20 s wait) is never remembered, nor a clip of a playable kind that would not play here (#412: a busy output or
+  a lost audio session is the phone's moment, not the computer's voice; the next reply asks the computer again). A
+  clip whose bytes no player here reads (Ogg, WebM under any label) is remembered like an error answer. Any save of the
+  gateway's settings forgets it at once.
 - **Told once**, per gateway and profile while the app runs, in the chat on screen: the one-line notice under the title
   (8 s) "Using the iPhone’s voice. <Bot>’s voice on your computer isn’t working." with **Fix…**, which opens Settings ›
   Voice › Text to Speech for that bot (its own profile's settings, `?profile=`) with Text to Speech Provider on top. No
@@ -1940,6 +1961,7 @@ Accept: the checks of L539 and L530.
 | `TalkEchoTests`, `SpeechTextTests` | the vendor's own vectors (`V:lib/voice-tts-echo.test.ts`, `V:lib/speech-text.test.ts` where present), ported |
 | `TalkVADTests` | level maths (silence 0, a full-scale sine near 1), end of speech at 1.25 s, idle at 12 s, the 60 s cap, the barge trigger (calibration, 300 ms and 80 %, the 0.14–0.37 clamp while playing, grace, multiplier), pre-roll |
 | `KeepAwakeTests`, `VoiceReportTests`, `TalkRouteNameTests` | §10.2, §9.4, §6.5 |
+| `SpeechClipPlaybackTests` | §3.4's clip playback (#412): what the first bytes say (MP3, ADTS, ID3 skipped, WAV, FLAC, M4A, CAF, AIFF, Ogg, WebM), the tolerant tries in order (reactivation only after a player that would not start; none once stopped), a playable kind's failure is the playback sentence with its code, Ogg bytes under any label are the format, and the real player with garbage and with a WAV labelled MP3; with `PhoneVoiceTests`: a playback failure is read by the iPhone's voice and never remembered |
 | `ReadAloudCenterTests` | with `FixtureTalkSpeaker`: §7.4's rules, replacing (T30), failure leaves the switch on |
 | `TalkControllerTests` | with fixture capture and speaker and a fake chat: one conversation app-wide, notices per chat, start clears stale notices, auto-mute for questions and other audio |
 | `VoiceSettingsCatalogTests` | section order, hidden keys absent from pages and search, makers' names, provider-only fields |
