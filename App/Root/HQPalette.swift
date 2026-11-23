@@ -389,6 +389,12 @@ private final class EdgeHostScrollView: UIScrollView {
     /// pills over sharp rows. In the look the band is ours, as the Mac chat's `barBlur`: a frost from the top down the
     /// whole header (the bar and the strip under it), cut off straight with a hairline, once rows are under it.
     private let desktopBand = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    /// [tinted-top-band] Owner 2026-11-22 (a recording of Sessions on a dark skin): the band came in as a neutral grey
+    /// (#2B2D2F over a #13151B page), a block of another colour. It carries the look's bar veil over the frost, as the
+    /// chat's band does (`DesktopFrost.barTintAlpha`), so it reads as the page frosted.
+    private let desktopVeil = UIView()
+    private var pageColour: UIColor = .clear
+    private static let bandFade: TimeInterval = 0.2
     private let desktopLine = UIView()
     /// [backdrop-ink] Owner 2026-11-15 (More scrolled on a night sky, Soft Cards): "I'm not happy with this… Look at top
     /// bar text color." Under the bar the soft edge blurs the pale cards and the dark picture between them into one
@@ -427,6 +433,11 @@ private final class EdgeHostScrollView: UIScrollView {
         desktopBand.alpha = 0
         desktopBand.accessibilityIdentifier = "list.desktopBand"
         desktopLine.isUserInteractionEnabled = false
+        pageColour = page
+        desktopVeil.isUserInteractionEnabled = false
+        desktopVeil.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        desktopVeil.backgroundColor = DesktopFrost.tint(page, alpha: DesktopFrost.barTintAlpha)
+        desktopBand.contentView.addSubview(desktopVeil)
         desktopBand.contentView.addSubview(desktopLine)
         superview?.insertSubview(desktopBand, aboveSubview: self)   // over the rows, under the strip and the bar
         cardBand.isUserInteractionEnabled = false
@@ -435,7 +446,10 @@ private final class EdgeHostScrollView: UIScrollView {
         cardFade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
         cardBand.layer.mask = cardFade
         superview?.insertSubview(cardBand, aboveSubview: self)
-        registerForTraitChanges([ThemeGenerationTrait.self]) { (host: EdgeHostScrollView, _) in host.setNeedsLayout() }
+        registerForTraitChanges([ThemeGenerationTrait.self]) { (host: EdgeHostScrollView, _) in
+            host.desktopVeil.backgroundColor = DesktopFrost.tint(host.pageColour, alpha: DesktopFrost.barTintAlpha)   // the new skin's page
+            host.setNeedsLayout()
+        }
         #endif
         offsetWatch = list.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.updateEdge() }
@@ -487,8 +501,18 @@ private final class EdgeHostScrollView: UIScrollView {
             CATransaction.commit()
         }
         desktopLine.backgroundColor = HQPalette.separator
-        let bandAlpha: CGFloat = desktop ? min(max(scrolledUnder / 10, 0), 1) : 0
-        if desktopBand.alpha != bandAlpha { desktopBand.alpha = bandAlpha }
+        // [tinted-top-band] In over a fixed time once rows are under it, out as they leave: tied to the first 10 pt of
+        // scroll, a flick crossed that in one frame and the band snapped on (owner 2026-11-22).
+        let bandAlpha: CGFloat = desktop && scrolledUnder > 0 ? 1 : 0
+        if desktopBand.alpha != bandAlpha {   // the model value is the target from the animation's start
+            if window != nil, !HQMotion.reduced {
+                UIView.animate(withDuration: Self.bandFade, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: a fade, nothing moves
+                    self.desktopBand.alpha = bandAlpha
+                }
+            } else {
+                desktopBand.alpha = bandAlpha
+            }
+        }
         #endif
         if topEdgeEffect.isHidden != hidden { topEdgeEffect.isHidden = hidden }
         // [backdrop-ink] On Soft Cards the rows under the bar are on cards of the page's colour: the bar's words keep
