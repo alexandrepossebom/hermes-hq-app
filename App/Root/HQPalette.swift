@@ -394,7 +394,6 @@ private final class EdgeHostScrollView: UIScrollView {
     /// chat's band does (`DesktopFrost.barTintAlpha`), so it reads as the page frosted.
     private let desktopVeil = UIView()
     private var pageColour: UIColor = .clear
-    private static let bandFade: TimeInterval = 0.2
     private let desktopLine = UIView()
     /// [backdrop-ink] Owner 2026-11-15 (More scrolled on a night sky, Soft Cards): "I'm not happy with this… Look at top
     /// bar text color." Under the bar the soft edge blurs the pale cards and the dark picture between them into one
@@ -430,7 +429,7 @@ private final class EdgeHostScrollView: UIScrollView {
         addSubview(backing)
         #else
         desktopBand.isUserInteractionEnabled = false
-        desktopBand.alpha = 0
+        desktopBand.isHidden = true
         desktopBand.accessibilityIdentifier = "list.desktopBand"
         desktopLine.isUserInteractionEnabled = false
         pageColour = page
@@ -501,17 +500,12 @@ private final class EdgeHostScrollView: UIScrollView {
             CATransaction.commit()
         }
         desktopLine.backgroundColor = HQPalette.separator
-        // [tinted-top-band] In over a fixed time once rows are under it, out as they leave: tied to the first 10 pt of
-        // scroll, a flick crossed that in one frame and the band snapped on (owner 2026-11-22).
-        let bandAlpha: CGFloat = desktop && scrolledUnder > 0 ? 1 : 0
-        if desktopBand.alpha != bandAlpha {   // the model value is the target from the animation's start
-            if window != nil, !HQMotion.reduced {
-                UIView.animate(withDuration: Self.bandFade, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {   // motion-ok: a fade, nothing moves
-                    self.desktopBand.alpha = bandAlpha
-                }
-            } else {
-                desktopBand.alpha = bandAlpha
-            }
+        // A fast swipe can put a row under the filters on the first frame. Fade only the hairline:
+        // fading the frost and its page tint let the moving row's letters show through until they caught up.
+        let hideBand = !desktop || scrolledUnder <= 0
+        if desktopBand.isHidden != hideBand {
+            desktopBand.isHidden = hideBand
+            if !hideBand, window != nil { desktopLine.hqFadeIn(HQMotion.fade) }
         }
         #endif
         if topEdgeEffect.isHidden != hidden { topEdgeEffect.isHidden = hidden }

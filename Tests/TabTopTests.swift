@@ -119,6 +119,40 @@ import UIKit
         #expect(heard == 1)
     }
 
+    #if !targetEnvironment(macCatalyst)
+    /// A fast swipe from rest can put a project's name under the pinned filters in a single frame.
+    /// The frost must cover that frame too, not just look correct when the scroll settles.
+    @Test func desktopHeaderCoversRowsOnTheFirstFrameOfEachSwipe() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        var state = ThemeTable.current.state
+        state.desktopLook = true
+        try ThemeTable.$testSet.withValue(ThemeResolver.resolve(state)) {
+            let (page, list) = pinned(desktop: true)
+            let window = UIWindow(windowScene: scene)
+            page.additionalSafeAreaInsets.top = 48
+            window.rootViewController = page
+            window.isHidden = false
+            defer { window.isHidden = true }
+            window.layoutIfNeeded()
+            let band = try #require(page.view.subviews.first { $0.accessibilityIdentifier == "list.desktopBand" })
+            list.contentSize = CGSize(width: list.bounds.width, height: 3000)
+            let rest = -list.adjustedContentInset.top
+            for overscroll in [0, -12] as [CGFloat] {
+                list.contentOffset.y = rest + overscroll
+                CATransaction.flush()
+                #expect(band.isHidden || band.alpha == 0, "the page has no frosted strip at rest or when pulled down")
+                list.contentOffset.y = rest + 64
+                CATransaction.flush()
+                #expect(!band.isHidden && band.alpha == 1)
+                // The model already says 1 while an opacity animation is still displaying its start value.
+                let fade = band.layer.animation(forKey: "opacity") as? CABasicAnimation
+                let firstOpacity = (fade?.fromValue as? NSNumber)?.doubleValue ?? Double(band.layer.opacity)
+                #expect(firstOpacity >= 0.999, "moving row text must never show through the pinned filters, even on a quick reversal")
+            }
+        }
+    }
+    #endif
+
     /// The Desktop Look: the look's frost, on the phone as on the Mac (it was solid on the phone).
     @Test func desktopLookBarIsFrosted() {
         var state = ThemeTable.current.state
