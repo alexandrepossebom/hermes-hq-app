@@ -13,7 +13,7 @@ extension SessionsTests {
         if !project.waitForExistence(timeout: 3) {     // on the Chats side (a project's page shows its pills already)
             let toProjects = app.buttons["sessions.pills.projects"]
             XCTAssertTrue(toProjects.waitForExistence(timeout: 15), "the Projects side", file: file, line: line)
-            toProjects.tap()
+            tapSide(app, toProjects)
         }
         XCTAssertTrue(project.waitForExistence(timeout: 10), "App's pill", file: file, line: line)
         onScreen(app, project).tap()

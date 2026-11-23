@@ -50,7 +50,7 @@ extension SessionsTests {
         fixture("/__fixture/emit", ["request": ["method": "clarify", "params": ["questions": [["qid": "layout", "question": question, "choices": ["Compact", "Expanded"]]]]], "session_id": "s-release"])
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", question)).firstMatch.waitForExistence(timeout: 10))
         backToList(app)
-        app.buttons["sessions.pills.projects"].tap()
+        tapSide(app, app.buttons["sessions.pills.projects"])
         let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
@@ -96,7 +96,7 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-shortcuts").waitForExistence(timeout: 15))
         if !faces { openFilter(app); tapFilter(app, "show", "faces"); closeFilter(app) }
         // The project page first: a running chat reorders the chips.
-        app.buttons["sessions.pills.projects"].tap()
+        tapSide(app, app.buttons["sessions.pills.projects"])
         let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
@@ -134,7 +134,7 @@ extension SessionsTests {
         ]])
         let app = launch(projectPages: true)
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        app.buttons["sessions.pills.projects"].tap()
+        tapSide(app, app.buttons["sessions.pills.projects"])
         let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
@@ -201,7 +201,7 @@ extension SessionsTests {
         ]])
         let app = launch(projectPages: true)
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        app.buttons["sessions.pills.projects"].tap()
+        tapSide(app, app.buttons["sessions.pills.projects"])
         let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
@@ -303,7 +303,7 @@ extension SessionsTests {
             XCTAssertNotNil(label.range(of: #"\b([0-9]{1,2}:[0-9]{2} (AM|PM)|Yesterday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b"#, options: .regularExpression), "normal timestamp: \(label)")
         }
         shot(app, "pr-tracking-general-list")
-        app.buttons["sessions.pills.projects"].tap()
+        tapSide(app, app.buttons["sessions.pills.projects"])
         let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()
@@ -345,7 +345,7 @@ extension SessionsTests {
         ]])
         let app = launch(projectPages: true)
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
-        app.buttons["sessions.pills.projects"].tap()
+        tapSide(app, app.buttons["sessions.pills.projects"])
         let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH 'App project'")).firstMatch
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         project.tap()

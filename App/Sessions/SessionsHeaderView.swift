@@ -378,6 +378,9 @@ struct SessionsHeaderView: View {
     /// [switch-toggles] Owner 2026-11-17: "Why can't the toggle toggle when you click it anywhere?" A tap anywhere on it
     /// flips the view. The side drawn had also been All (a tap on it cleared a picked pill and otherwise did nothing,
     /// so the switch seemed to ignore the tap); the lit pill clears itself with a tap, as it always has.
+    /// [switch-sides] Owner 2026-11-22 reversed that: "require you to click on either Chats or Projects based on where
+    /// you want to go instead of it being a toggle", so the side you are on takes you back to its main page. Each side
+    /// is its own button: the other side goes there, the side shown goes to its home (every bot or project, the top).
     /// [switch-scrolls] Owner 2026-11-17: it scrolls with the pills, as the row's first item ("I want for this to scroll
     /// with everything else in this row"; on 2026-11-16 he had turned down a fixed switch with words). [switch-words]
     /// Then: each side carries its name beside its glyph (`switchSide`).
@@ -1015,14 +1018,14 @@ struct SessionsPillsSwitch: View {
 
     /// [mac-top] Owner 2026-11-19: the Mac's switch is a segmented control of the menu's height and corner beside it (it
     /// was the iPhone's 44 pt glass capsule, a second style of control in one row). The view shown is a raised grey
-    /// segment, never the tint; a click anywhere on it flips the view, as on the iPhone ([switch-toggles]).
+    /// segment, never the tint. [switch-sides] Each segment goes to its own view, the one shown to its home, as on the
+    /// iPhone.
     private var macBody: some View {
-        let other: SessionPills = model.pills == .bots ? .projects : .bots
         let inner = SessionsMacControl.radius - 2
-        return Button { model.onSwitch(other) } label: {
-            HStack(spacing: 0) {
-                ForEach([SessionPills.bots, .projects], id: \.self) { view in
-                    let here = model.pills == view
+        return HStack(spacing: 0) {
+            ForEach([SessionPills.bots, .projects], id: \.self) { view in
+                let here = model.pills == view
+                Button { model.onSwitch(view) } label: {
                     HStack(spacing: 4) {
                         if macIcons {
                             Image(systemName: Self.symbol(view)).font(Font.hqSystem(size: HQFont.scaled(11), weight: .medium))
@@ -1036,18 +1039,16 @@ struct SessionsPillsSwitch: View {
                     .background {
                         if here { RoundedRectangle(cornerRadius: inner, style: .continuous).fill(Color.hqLabel.opacity(0.12)) }
                     }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(here ? Self.word(view) + ": back to the top" : "Show " + Self.word(view))
+                .modifier(SwitchSideAccessibility(view: view, here: here))
             }
-            .padding(2)
-            .frame(height: SessionsMacControl.height)
-            .background(Color.hqFill3, in: RoundedRectangle(cornerRadius: SessionsMacControl.radius, style: .continuous))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help("Show " + Self.word(other))
-        .accessibilityLabel("Switch to " + Self.word(other))
-        .accessibilityValue(Self.word(model.pills))
-        .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
+        .padding(2)
+        .frame(height: SessionsMacControl.height)
+        .background(Color.hqFill3, in: RoundedRectangle(cornerRadius: SessionsMacControl.radius, style: .continuous))
     }
 
     private var phoneBody: some View {
@@ -1084,27 +1085,23 @@ struct SessionsPillsSwitch: View {
             .hqPickGlass(false, in: Capsule(), prominent: true)
             .accessibilityHidden(true)
             .frame(height: touch)
-            // The touch: one clear button over the whole switch, reaching past both ends of the capsule (its own drawing,
-            // unseen, sizes it). VoiceOver: "Switch to Projects", and the view shown as its value.
+            // [switch-sides] The touch: a clear button over each side (its own drawing, unseen, sizes it), the outer one
+            // reaching past its end of the capsule. Each goes to its own view; the side shown goes to that view's home.
             .overlay {
-                let other: SessionPills = model.pills == .bots ? .projects : .bots
-                Button {
-                    model.onSwitch(other)
-                } label: {
-                    HStack(spacing: 0) {
-                        ForEach(views, id: \.self) { view in
+                HStack(spacing: 0) {
+                    ForEach(views, id: \.self) { view in
+                        Button {
+                            model.onSwitch(view)
+                        } label: {
                             switchSide(view, here: model.pills == view, half: half, side: side).hidden()
+                                .padding(view == .bots ? .leading : .trailing, 2 + reach)
+                                .frame(height: touch)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .modifier(SwitchSideAccessibility(view: view, here: model.pills == view))
                     }
-                    .padding(2)
-                    .padding(.horizontal, reach)
-                    .frame(height: touch)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Switch to " + Self.word(other))
-                .accessibilityValue(Self.word(model.pills))
-                .accessibilityIdentifier("sessions.pills.\(other.rawValue)")
                 .fixedSize()
             }
         }
@@ -1138,4 +1135,19 @@ struct SessionsPillsSwitch: View {
         .frame(minWidth: half, minHeight: side, maxHeight: side)
     }
 
+}
+
+/// [switch-sides] One side of the Chats | Projects switch to VoiceOver: its view's name, selected while shown (a tap
+/// there goes to that view's home). Its id is the view's (`sessions.pills.bots` is the Chats side).
+private struct SwitchSideAccessibility: ViewModifier {
+    let view: SessionPills
+    let here: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityLabel(SessionsPillsSwitch.word(view))
+            .accessibilityAddTraits(here ? .isSelected : [])
+            .accessibilityHint(here ? "Back to the top of " + SessionsPillsSwitch.word(view) : "")
+            .accessibilityIdentifier("sessions.pills.\(view.rawValue)")
+    }
 }

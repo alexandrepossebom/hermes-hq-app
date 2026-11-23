@@ -12,7 +12,7 @@ extension SessionsTests {
         let toProjects = app.buttons["sessions.pills.projects"], toBots = app.buttons["sessions.pills.bots"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
         func openWebsite() {
-            toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+            tapSide(app, toProjects)
             let website = app.buttons["sessions.chip.project.0"]
             XCTAssertTrue(website.waitForExistence(timeout: 6))
             onScreen(app, website).tap()
@@ -49,8 +49,8 @@ extension SessionsTests {
         shot(app, "PP2-pinned-in-project")
 
         // The list: Quarterly budget is in no Pinned (Ship the 2.4 release notes, pinned everywhere, still is).
-        toBots.tap()
-        XCTAssertTrue(waitUntil(6) { toProjects.exists && !app.cells["sessions.projectPage"].exists }, "back on the list")
+        tapSide(app, toBots)
+        XCTAssertTrue(waitUntil(6) { toBots.isSelected && !app.cells["sessions.projectPage"].exists }, "back on the list")
         XCTAssertTrue(row(app, "s-release").waitForExistence(timeout: 6))
         let listed = row(app, "s-budget")
         XCTAssertTrue(listed.waitForExistence(timeout: 6), "Quarterly budget on the list")
@@ -81,7 +81,7 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         let toProjects = app.buttons["sessions.pills.projects"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
-        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        tapSide(app, toProjects)
         let website = app.buttons["sessions.chip.project.0"]
         XCTAssertTrue(website.waitForExistence(timeout: 6))
         onScreen(app, website).tap()
