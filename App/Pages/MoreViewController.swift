@@ -62,7 +62,7 @@ final class MoreViewController: UIViewController, UICollectionViewDelegate {
                 section.boundarySupplementaryItems.append(NSCollectionLayoutBoundarySupplementaryItem(
                     layoutSize: size, elementKind: MoreLinksFooter.kind, alignment: .bottom))
             }
-            return section
+            return ScrollBarLane.keep(section)
         }
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]

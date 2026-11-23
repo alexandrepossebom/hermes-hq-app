@@ -125,6 +125,7 @@ import UIKit
         insets.trailing += lane
         // A header lays itself out across the list (See All, Edit at its end): it narrows with the card.
         if lane > 0 { section.boundarySupplementaryItems.forEach { $0.contentInsets.trailing += lane } }
+        ScrollBarLane.markKept(section)
         if !keepWidth {
             insets.leading += side
             insets.trailing += side
@@ -142,6 +143,28 @@ import UIKit
         section.decorationItems.append(card)
     }
 }
+
+// [mac] The up-and-down scroller's lane for a section that is not on a soft card (owner 2026-11-23: "Scroll bar is too
+// busy/touching other stuff"). A list's provider passes every section it returns through `keep`: what stands in the
+// section (its rows, its header and foot, a card it draws itself) ends `ScrollBarLane.listTrailing` short of the
+// list's trailing edge. A section a soft card already moved in (`BackdropCards.card`) is left as it is.
+extension ScrollBarLane {
+    @MainActor @discardableResult
+    static func keep(_ section: NSCollectionLayoutSection) -> NSCollectionLayoutSection {
+        let lane = listTrailing
+        guard lane > 0, objc_getAssociatedObject(section, &keptKey) == nil else { return section }
+        section.contentInsets.trailing += lane
+        section.boundarySupplementaryItems.forEach { $0.contentInsets.trailing += lane }
+        section.decorationItems.forEach { $0.contentInsets.trailing += lane }
+        markKept(section)
+        return section
+    }
+
+    @MainActor static func markKept(_ section: NSCollectionLayoutSection) {
+        objc_setAssociatedObject(section, &keptKey, true, .OBJC_ASSOCIATION_RETAIN)
+    }
+}
+nonisolated(unsafe) private var keptKey: UInt8 = 0
 
 /// [soft-cards] Owner 2026-11-13 (a screenshot of Sessions on build 974, three projects on one card): each project
 /// showed as a band of its own. A joined card was one piece of frosted glass per section, and each piece softens only

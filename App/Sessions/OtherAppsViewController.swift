@@ -108,7 +108,7 @@ final class OtherAppsViewController: UIViewController, UICollectionViewDelegate 
             let section = NSCollectionLayoutSection.list(using: config, layoutEnvironment: environment)
             section.boundarySupplementaryItems.forEach { $0.pinToVisibleBounds = false }
             BackdropCards.card(section, on: BackdropCards.on(self), header: true)   // [backdrop-cards]
-            return section
+            return ScrollBarLane.keep(section)
         }
         BackdropCards.register(in: cards)   // [backdrop-cards]
         return cards

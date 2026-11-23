@@ -42,7 +42,11 @@ final class MoreSearchUI: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         var config = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
         config.headerMode = .supplementary
         config.backgroundColor = HQPalette.groupedPage
-        list = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: config))
+        // [mac] Each group keeps the scroller's lane (`ScrollBarLane.keep`).
+        let layout = UICollectionViewCompositionalLayout { _, environment in
+            ScrollBarLane.keep(NSCollectionLayoutSection.list(using: config, layoutEnvironment: environment))
+        }
+        list = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
         list.translatesAutoresizingMaskIntoConstraints = false
         list.backgroundColor = HQPalette.groupedPage
         list.delegate = self

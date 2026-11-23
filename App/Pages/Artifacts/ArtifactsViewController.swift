@@ -527,11 +527,11 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                     BackdropCards.card(pinned, on: BackdropCards.on(self), header: !self.tilesInBar, keepWidth: ArtifactPins.view == .grid,
                                        extraBottom: ArtifactPins.view == .grid ? 11 : 0)
                 }
-                return pinned
+                return ScrollBarLane.keep(pinned)
             case .images where self.isGrid:
-                return self.gridImagesLayout(environment)
+                return ScrollBarLane.keep(self.gridImagesLayout(environment))
             case .day where self.isGrid:
-                return self.gridCardsLayout(environment)
+                return ScrollBarLane.keep(self.gridCardsLayout(environment))
             case .images:
                 let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(1 / 3), heightDimension: .fractionalWidth(1 / 3)))
                 item.contentInsets = NSDirectionalEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
@@ -557,7 +557,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                 } else {
                     s.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0)
                 }
-                return s
+                return ScrollBarLane.keep(s)
             default:
                 var config = UICollectionLayoutListConfiguration(appearance: .plain)
                 config.backgroundColor = .clear
@@ -613,7 +613,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
                     BackdropCards.card(s, on: BackdropCards.on(self))
                 default: break
                 }
-                return s
+                return ScrollBarLane.keep(s)
             }
         }
         BackdropCards.register(in: cards)   // [backdrop-cards]
@@ -625,7 +625,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
 
     /// [mac-tools] Thumbnails 150 pt or wider, as many across as fit (three at least, as the list's grid).
     private func gridImagesLayout(_ environment: NSCollectionLayoutEnvironment) -> NSCollectionLayoutSection {
-        let width = environment.container.effectiveContentSize.width - 2 * Self.gridInset
+        let width = environment.container.effectiveContentSize.width - 2 * Self.gridInset - ScrollBarLane.listTrailing   // [mac] the scroller's lane
         let columns = max(3, Int((width + Self.gridSpacing) / (150 + Self.gridSpacing)))
         let side = floor((width - CGFloat(columns - 1) * Self.gridSpacing) / CGFloat(columns))
         let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(side), heightDimension: .absolute(side)))
@@ -643,7 +643,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     /// [mac-tools] A day's files and links as cards 300 pt or wider: one column beside an open file, four or so
     /// across the whole window.
     private func gridCardsLayout(_ environment: NSCollectionLayoutEnvironment) -> NSCollectionLayoutSection {
-        let width = environment.container.effectiveContentSize.width - 2 * Self.gridInset
+        let width = environment.container.effectiveContentSize.width - 2 * Self.gridInset - ScrollBarLane.listTrailing   // [mac] the scroller's lane
         let columns = max(1, Int((width + Self.gridSpacing) / (300 + Self.gridSpacing)))
         let card = floor((width - CGFloat(columns - 1) * Self.gridSpacing) / CGFloat(columns))
         let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .absolute(card), heightDimension: .estimated(64)))
@@ -786,7 +786,7 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     /// [dashboard] Grid: square cells 150 pt or wider (two across a phone, more on a wider screen), each tile spanning its
     /// size's cells (`PinGridPacking`), with room for a name under every row of tiles when names show.
     private func pinnedGridLayout(_ environment: NSCollectionLayoutEnvironment) -> NSCollectionLayoutSection {
-        let width = environment.container.effectiveContentSize.width
+        let width = environment.container.effectiveContentSize.width - ScrollBarLane.listTrailing   // [mac] the scroller's lane
         let inset = Self.gridInset, spacing = Self.gridSpacing
         let layout = Self.gridMetrics(width: width - 2 * inset, spacing: spacing, scale: HQFont.scale)
         let name = ArtifactPins.showsNames ? PinTileView.nameHeight : 0

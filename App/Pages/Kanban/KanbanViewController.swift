@@ -303,7 +303,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
                 s.contentInsets = NSDirectionalEdgeInsets(top: section == .top ? first : 8, leading: 0, bottom: 0, trailing: 0)
                 // [backdrop-cards] The board's button and its status chips are one card on Soft Cards.
                 if section == .top { BackdropCards.card(s, on: BackdropCards.on(self), join: self.dataSource?.sectionIdentifier(for: index + 1) == .chips ? .below : []) }
-                return s
+                return ScrollBarLane.keep(s)
             case .chips:
                 let chipHeight = KanbanChipView.height(for: environment.traitCollection)   // [a11y] grows with the text
                 let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .estimated(90), heightDimension: .absolute(chipHeight)))
@@ -316,7 +316,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
                     s.interGroupSpacing = 8
                     s.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 20, bottom: Self.chipsFoot(BackdropCards.on(self)), trailing: 20)
                     BackdropCards.card(s, on: BackdropCards.on(self), keepWidth: true, join: .above, extraBottom: Self.chipsRoom)   // [backdrop-cards]
-                    return s
+                    return ScrollBarLane.keep(s)
                 }
                 let group = NSCollectionLayoutGroup.horizontal(layoutSize: .init(widthDimension: .estimated(90), heightDimension: .absolute(chipHeight)), subitems: [item])
                 let s = NSCollectionLayoutSection(group: group)
@@ -324,7 +324,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
                 s.interGroupSpacing = 8
                 s.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 20, bottom: Self.chipsFoot(BackdropCards.on(self)), trailing: 20)
                 BackdropCards.card(s, on: BackdropCards.on(self), keepWidth: true, join: .above, extraBottom: Self.chipsRoom)   // [backdrop-cards]
-                return s
+                return ScrollBarLane.keep(s)
             case .group:
                 var config = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
                 config.headerMode = .supplementary
@@ -350,7 +350,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
                     s.contentInsets.leading = BackdropCards.side + 4
                     s.contentInsets.trailing = BackdropCards.side + 4
                     BackdropCards.card(s, on: true, header: true, keepWidth: true)
-                    return s
+                    return ScrollBarLane.keep(s)
                 }
                 // UX study #175: in light the card is the page's white with a hairline edge, not a grey fill; the
                 // decoration draws it behind the rows (dark keeps the grey card). Reverse: drop this and the clear rows.
@@ -359,7 +359,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
                     card.contentInsets = s.contentInsets
                     s.decorationItems = [card]
                 }
-                return s
+                return ScrollBarLane.keep(s)
             }
         }
         layout.register(KanbanCardBackground.self, forDecorationViewOfKind: KanbanCardBackground.kind)

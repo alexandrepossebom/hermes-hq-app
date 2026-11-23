@@ -207,7 +207,7 @@ final class JobsViewController: UIViewController, UICollectionViewDelegate, UISe
             let carded: Bool = switch section { case .group?, .blueprints?: true; default: false }
             let onCards = carded && BackdropCards.on(self)
             BackdropCards.card(layout, on: onCards, header: config.headerMode == .supplementary)
-            return layout
+            return ScrollBarLane.keep(layout)
         }
         BackdropCards.register(in: cards)   // [backdrop-cards]
         return cards

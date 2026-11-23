@@ -371,7 +371,7 @@ final class TasksViewController: UIViewController, UICollectionViewDelegate, UIS
             let folded = config.headerMode == .supplementary && (self?.collectionView.numberOfItems(inSection: index) ?? 1) == 0
             BackdropCards.card(layout, on: onCards, header: config.headerMode == .supplementary,
                                extraBottom: folded ? 4 : onCards ? self?.footRoom(index) ?? 0 : 0)
-            return layout
+            return ScrollBarLane.keep(layout)
         }
         BackdropCards.register(in: cards)   // [backdrop-cards]
         return cards
