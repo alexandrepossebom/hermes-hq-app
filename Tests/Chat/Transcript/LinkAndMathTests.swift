@@ -426,7 +426,18 @@ nonisolated final class LinkStubProtocol: URLProtocol, @unchecked Sendable {
         #expect(MarkdownMedia.ref(fromLink: url) == nil, "not a media link")
     }
 
+    @MainActor @Test func documentPathsOpenAsFilesWithoutChangingTextAndFolderRouting() {
+        for name in ["brief.DOCX", "letter.doc", "slides.pptx", "budget.xlsx", "scan.PDF", "page.html"] {
+            #expect(WorkspacePage.opensElsewhere(name), "\(name) opens the file, not its source")
+        }
+        for name in ["draft.md", "notes.txt", "main.swift", "Makefile", "folder", ""] {
+            #expect(!WorkspacePage.opensElsewhere(name), "\(name) stays in Files")
+        }
+    }
+
     @Test func folderAndName() {
+        #expect(FileLinks.place("brief.docx") == (".", "brief.docx"))
+        #expect(FileLinks.place("") == ("", nil))
         #expect(FileLinks.place("/a/b/c.md") == ("/a/b", "c.md"))
         #expect(FileLinks.place("/a/b/") == ("/a/b", nil))
         #expect(FileLinks.place("/a.md") == ("/", "a.md"))

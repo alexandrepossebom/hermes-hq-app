@@ -168,7 +168,7 @@ nonisolated enum FileLinks {
             let folder = String(path.dropLast())
             return (folder.isEmpty || (windows && folder.count == 2) ? path : folder, nil)
         }
-        guard let cut = path.lastIndex(where: separator) else { return (path, nil) }
+        guard let cut = path.lastIndex(where: separator) else { return path.isEmpty ? (path, nil) : (".", path) }
         let name = String(path[path.index(after: cut)...])
         var folder = String(path[..<cut])
         if folder.isEmpty || (windows && folder.count == 2) { folder.append(path[cut]) }   // "/" and "C:\"

@@ -157,13 +157,8 @@ extension ChatViewController: ChatMediaCellDelegate {
     func openFileLink(_ url: URL) -> Bool {
         guard let path = FileLinks.path(fromLink: url) else { return false }
         view.endEditing(true)
-        let name = FileLinks.place(path).name ?? ""
-        if WorkspacePage.opensElsewhere(name) || !(session is ChatSessionMoreActions), let context = mediaContext, !name.isEmpty {
-            FilePreviewPresenter.shared.open(path: path, name: name, context: context, from: self, row: nil)
-        } else if let actions = session as? ChatSessionMoreActions {
-            let sheet = WorkspacePage.make(path: path, workspace: actions.workspace, media: mediaContext)
-            MenusSheet.top(self)?.present(sheet, animated: true)
-        }
+        WorkspacePage.present(path: path, workspace: (session as? ChatSessionMoreActions)?.workspace, media: mediaContext,
+                              from: MenusSheet.top(self) ?? self)
         return true
     }
 }

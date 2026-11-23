@@ -409,6 +409,11 @@ final class TodoSheetModel {
     func share(_ made: TodoMade) {
         guard let top else { return }
         Haptics.play(.selection)
+        if made.kind == "file" {
+            FilePreviewPresenter.shared.shareFile(path: made.ref, name: MediaKinds.name(ofPath: made.ref, image: false),
+                                                  context: fileContext, from: top, row: nil)
+            return
+        }
         let words: Any = made.kind == "link" ? (TodoMade.linkURL(made.ref).map { $0 as Any } ?? made.ref) : made.ref
         let sheet = UIActivityViewController(activityItems: [words], applicationActivities: nil)
         if let popover = sheet.popoverPresentationController {
@@ -498,11 +503,20 @@ final class TodoSheetModel {
         return file
     }
 
-    /// A file the bot made or names: Files opens at it, over whatever this sheet shows now (a note's own sheet too).
+    /// The task's account and bot, including its chat for relative paths. A task without a chat can still open a file.
+    private var fileContext: MediaContext {
+        if let media = chat?.mediaContext { return media }
+        let link = task.flatMap { chatLink($0) }
+        return MediaContext(accountId: context.account.id, profile: link?.profile ?? task?.helper ?? task?.source?.profile ?? "default",
+                            storedSessionId: link?.sessionId)
+    }
+
+    /// Open over the visible sheet, including when the path was tapped inside a note or History.
     func openPath(_ path: String) {
         guard let top else { return }
-        let workspace = ChatWorkspace(client: context.client, profile: task?.helper)
-        top.present(WorkspacePage.make(path: path, workspace: workspace, media: nil), animated: true)
+        let media = fileContext
+        let workspace = ChatWorkspace(client: context.client, profile: media.profile)
+        WorkspacePage.present(path: path, workspace: workspace, media: media, from: top)
     }
 
     private var top: UIViewController? {

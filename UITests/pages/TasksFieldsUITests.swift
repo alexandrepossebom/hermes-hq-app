@@ -120,6 +120,33 @@ extension PagesTests {
         XCTAssertTrue(waitUntil(5) { self.requests().contains { $0.method == "DELETE" && $0.path.contains("/tasks/t_taxes/made/") } }, "the gateway is told")
     }
 
+    @MainActor private func wordAttachment() throws -> XCUIElement {
+        try account.control("/__fixture/tasks-mode", ["word_file": true])
+        app = launchSignedIn(Self.look + ["-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesOpenTask", "Find 3 venues for the party"])
+        let file = app.buttons["task.made.file"].firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout: 20))
+        return file
+    }
+
+    @MainActor func testTasks_ShareWordAttachment() throws {
+        try wordAttachment().press(forDuration: 1)
+        app.buttons["Share…"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(15) { self.seenWords(self.app).contains("Save to Files") }, "the system offers to save the document")
+        XCTAssertTrue(requests().contains { $0.path == "/api/fs/download" && $0.query["path"]?.hasSuffix("/brief.docx") == true
+            && $0.query["profile"] == "research" }, "Share hands over the document, not its gateway path")
+    }
+
+    /// A bot's label isn't the filename. Tap the row and read a line present only inside the Word document.
+    @MainActor func testTasks_OpenWordAttachment() throws {
+        try wordAttachment().tap()
+        let visible = waitUntil(20) { self.seenWords(self.app).contains("Orchard packing list") }
+        shot("task-word-preview")
+        XCTAssertTrue(visible, "The document body is readable after one tap: \(seenWords(app))")
+        let reads = requests().filter { $0.query["path"]?.hasSuffix("/brief.docx") == true }
+        XCTAssertTrue(reads.contains { $0.path == "/api/fs/download" && $0.query["profile"] == "research" })
+        XCTAssertFalse(reads.contains { $0.path == "/api/fs/read-text" })
+    }
+
     /// An add-on before 0.9.53 keeps none of it: no rows, no quiet words, no priority in Sort By.
     @MainActor func testTasks_FieldsNeedTheAddOn() throws {
         try account.control("/__fixture/tasks-mode", ["older_addon": true])

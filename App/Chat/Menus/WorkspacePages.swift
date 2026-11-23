@@ -1,4 +1,5 @@
 import UIKit
+import UniformTypeIdentifiers
 
 /// ⋯ › More › Files and Changes (parity 240 §8): the chat's folder as simple native lists in a sheet. Files lists the
 /// folder (folders first; a folder opens its own list, a text file its text, a photo, PDF or other file Quick Look or
@@ -55,6 +56,16 @@ final class WorkspacePage: UITableViewController {
         let sheet = ChatSheet.wrap(root, title: kind == .files ? "Files" : "Changes", detents: [.large()])
         SheetStyle.widen(sheet, to: 780, from: nil)   // [ipad-polish] file names and a file's text at a readable width
         return sheet
+    }
+
+    /// A path tapped from a task, a note or a chat. Use the original file for a document; keep Files' folder
+    /// navigation and formatted text viewer for the paths they handle.
+    static func present(path: String, workspace: ChatWorkspace?, media: MediaContext?, from host: UIViewController) {
+        if let name = FileLinks.place(path).name, !name.isEmpty, let media, workspace == nil || opensElsewhere(name) {
+            FilePreviewPresenter.shared.open(path: path, name: name, context: media, from: host, row: nil)
+        } else if let workspace {
+            host.present(make(path: path, workspace: workspace, media: media), animated: true)
+        }
     }
 
     /// Files opened at a path a bot named in its reply (`FileLinks`): the file on top of its folder's list (Back shows
@@ -475,12 +486,17 @@ final class WorkspacePage: UITableViewController {
 
     // MARK: Files that aren't text
 
-    /// A photo, film, sound, PDF, sheet or archive by its name: never read as text.
+    /// Media and formatted documents use the original file, not a text read of their bytes.
     static func opensElsewhere(_ name: String) -> Bool {
         if HTMLPageSheet.opens(name: name) { return true }   // a page opens live (its scripts run), not as its source
         switch MediaKinds.kind(ofName: name) {
         case .image, .video, .audio, .pdf, .table, .archive: return true
-        case .text, .folder, .other: return false
+        case .text, .folder: return false
+        case .other:
+            let ext = MediaKinds.ext(name)
+            // A .key in a workspace may be a text key rather than a Keynote presentation. Keep the text-first fallback.
+            guard !ext.isEmpty, ext != "key", let type = UTType(filenameExtension: ext) else { return false }
+            return type.conforms(to: .compositeContent) || type == .rtf   // Word, PowerPoint, Pages, rich text…
         }
     }
 

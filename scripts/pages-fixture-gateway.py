@@ -2676,8 +2676,9 @@ def handler(gateway):
                 if paced_fail: return paced_fail
                 if not real.is_file(): return 404, {'detail': 'File not found'}
                 data = real.read_bytes()
-                return 200, {'path': one('path'), 'text': data.decode('utf-8', 'replace'), 'binary': False, 'truncated': False,
-                             'byteSize': len(data)}
+                binary = b'\x00' in data[:4096]
+                return 200, {'path': one('path'), 'text': '' if binary else data.decode('utf-8', 'replace'), 'binary': binary,
+                             'truncated': False, 'byteSize': len(data)}
             if path == '/api/fs/write-text' and method == 'POST':
                 real = real_file(body.get('path') or '')
                 if not real.parent.is_dir(): return 400, {'detail': 'Parent directory does not exist'}
@@ -2744,6 +2745,12 @@ def handler(gateway):
                     TMODE['older_addon'] = bool(mode.get('older_addon'))
                     if mode.get('lists'): seed_task_lists()   # [task-lists] what --task-lists starts with
                     if mode.get('close'): seed_task_close()   # [chat-mark-done] a bot's offers to close your tasks, in chats
+                    if mode.get('word_file'):
+                        shutil.copyfile(pathlib.Path(__file__).parent / 'fixtures/brief.docx', FILES / 'brief.docx')
+                        task = TASKS['t_venues']
+                        task['made'].append({'id': 'm_brief', 'kind': 'file', 'title': 'Original document',
+                                             'ref': f'{HOME}/documents/{time.time_ns()}/brief.docx', 'by': 'research'})
+                        task['rev'] += 1
                     global GOAL_BOTS
                     GOAL_BOTS = bool(mode.get('goal_bots'))   # [goals steps 3-5] what --task-goal-bots starts with
                     if GOAL_BOTS and not mode.get('goals'): mode['goals'] = True
