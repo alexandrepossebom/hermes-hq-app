@@ -447,7 +447,9 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
     private static var openingGap: CGFloat { TopEdgeStyle.current == .hard ? 16 : 40 }
 
     private func tileSection(_ environment: NSCollectionLayoutEnvironment, count: Int, first: Bool, joinBelow: Bool = false) -> NSCollectionLayoutSection {
-        let width = environment.container.effectiveContentSize.width
+        // [mac] The faces centre in the room left of the scroller's lane, as the rows stop short of it (`listSection`).
+        let lane = BackdropCards.on(self) ? 0 : ScrollBarLane.listTrailing
+        let width = environment.container.effectiveContentSize.width - lane
         let side: CGFloat = 8, gap: CGFloat = 4
         let tile = floor((width - 2 * side - 2 * gap) / 3)
         let columns = max(1, min(3, count))
@@ -469,7 +471,7 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         // [soft-cards] A card of faces alone ends at the names: the room under them is the card's own, and the next card
         // one gap on (it stood 18 pt off, every other card 10).
         let alone = BackdropCards.on(self) && !joinBelow
-        section.contentInsets = NSDirectionalEdgeInsets(top: top, leading: inset, bottom: alone ? 0 : 8, trailing: inset)
+        section.contentInsets = NSDirectionalEdgeInsets(top: top, leading: inset, bottom: alone ? 0 : 8, trailing: inset + lane)
         // [backdrop-cards] The faces' names too. Joined to the rows under them, the faces stand as far under the card's
         // top as the last row stands over its foot.
         BackdropCards.card(section, on: BackdropCards.on(self), keepWidth: true, join: joinBelow ? .below : [],
@@ -520,6 +522,9 @@ final class BotsViewController: UIViewController, UICollectionViewDelegate, UISe
         else if first && (!Theme.isDesktop || DeviceWord.isMac) { section.contentInsets.top = Self.openingGap }   // [mac] Round 7: as the tiles
         else if first { section.contentInsets.top += DesktopRows.underBar }   // [top-bar-gap] as the tiles
         if apart { section.contentInsets.top = 24 }
+        // [mac] The scroller runs in a lane of its own beside the rows, not over a chosen row's box, its time or its pin
+        // (owner 2026-11-23, as Sessions' lists 2026-11-22). On Soft Cards the card keeps the lane (`BackdropCards.card`).
+        if !BackdropCards.on(self) { section.contentInsets.trailing += ScrollBarLane.listTrailing }
         return section
     }
 

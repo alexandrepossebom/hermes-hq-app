@@ -338,6 +338,10 @@ enum MacShots {
                 await sessionsTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
             }
+            if UserDefaults.standard.bool(forKey: "HQDebugMacShotsBotsLane") {   // [mac] MacShotsBotsLane.swift
+                await botsLaneTour(window, tabs: tabs, name: name, folder: folder)
+                exit(0)
+            }
             if UserDefaults.standard.bool(forKey: "HQDebugMacShotsFrame") {   // [Mac AAA 2026-11-16] MacShotsFrame.swift
                 await frameTour(window, tabs: tabs, name: name, folder: folder)
                 exit(0)
