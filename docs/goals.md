@@ -423,6 +423,14 @@ waited for the next Task prep run. The goal's name stayed the sentence, with no 
   order: **Name**, **Why**, **Number** ("0 of 100 drawings"), **By** ("Wed, Mar 31, 2027", as the page's date row
   without "By") (`GoalOffers.setupRows`). Each row is one VoiceOver element ("Name: Draw every day"), read before the
   milestones. A plan with neither looks as before.
+- **Taken lines read as added, not done** (owner 2026-11-22: green ticks looked like finished work): once a goal's
+  offer is accepted, each milestone line's mark is a green `plus.square.fill` and each task line's a green
+  `plus.circle.fill` (an empty box or ring while it waits), on the page, Today, the chat card and the whole-offer sheet
+  (`GoalOffers.lineMark`). VoiceOver reads the line with "added" (`GoalOffers.lineState`), never "done". The answered
+  line's own tick ("Added 4 milestones and 2 tasks") stays. List offers of Tasks' own keep their ticks.
+- **The goal's chat is headed by the goal's name as it is now** (`ChatViewController.shownName`,
+  `GoalPageModel.syncChatName`), its bot's name under it: a plan's name or Edit Goal renames it on the open page at
+  once, and a reopened chat starts from it. Before, the bar kept the name the chat was opened with.
 - **One height in every state**: the rows are the offer's own words and never change after an answer; only their ink
   does (struck through once undone or declined). On the page and Today the answered line now stands in the room the
   buttons took (it was about 20 pt shorter), as the chat card already did.

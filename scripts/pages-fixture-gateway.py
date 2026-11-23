@@ -1646,11 +1646,8 @@ def goal_plan_turn(session_id):
                         {'role': 'assistant', 'content': 'Here is a first plan. Nothing is added until you say so.'}):
             messages.append(dict(message, id=len(messages) + 1, timestamp=now()))
         STREAMING.discard(session_id)
-    for send in list(sockets):
-        for kind, payload in (('message.delta', {'text': 'Here is a first plan. Nothing is added until you say so.'}),
-                              ('message.complete', {'text': 'Here is a first plan. Nothing is added until you say so.', 'status': 'complete'})):
-            try: send({'jsonrpc': '2.0', 'method': 'event', 'params': {'type': kind, 'session_id': session_id, 'payload': payload}})
-            except Exception: sockets.discard(send)
+        receipt = turn_receipt(messages)
+    stream_turn(session_id, 'Here is a first plan. Nothing is added until you say so.', receipt)
 
 GOAL_TAKEN_REPLY = 'Started on my two. It stands at the first step, with the plan on it.'
 
@@ -1671,9 +1668,30 @@ def goal_taken_turn(session_id):
         messages.append({'role': 'assistant', 'content': GOAL_TAKEN_REPLY, 'id': len(messages) + 1, 'timestamp': now()})
         STREAMING.discard(session_id)
         TSTATE['rev'] += 1
+        receipt = turn_receipt(messages)
+    stream_turn(session_id, GOAL_TAKEN_REPLY, receipt)
+
+def turn_receipt(messages):
+    """[goals set-up 6] `message.complete.persisted_turn` as Hermes sends it (agent/persisted_turn_receipt.py): the turn's
+    committed rows from its prompt on (a hidden prompt too), the prompt's row, and the final reply's row when it is a
+    plain assistant row. The app binds a streamed reply to its stored row by `final_assistant_row_id`
+    (TranscriptMerge.graft): a reply with no prompt bubble of its own, as a hidden turn's, has nothing else to bind to,
+    and without it the stand-in drew the lead's reply twice, which a real gateway never sends that way."""
+    start = next((i for i in range(len(messages) - 1, -1, -1) if messages[i].get('role') == 'user'), None)
+    if start is None: return None
+    tail = messages[start:]
+    receipt = {'row_ids': [m['id'] for m in tail], 'complete': True, 'user_row_id': tail[0]['id']}
+    last = tail[-1]
+    if last.get('role') == 'assistant' and not last.get('tool_calls'): receipt['final_assistant_row_id'] = last['id']
+    else: receipt['complete'] = False
+    return receipt
+
+def stream_turn(session_id, text, receipt):
+    """A scripted reply's frames as a gateway sends them: message.start, the words, message.complete with its receipt."""
+    complete = {'text': text, 'status': 'complete'}
+    if receipt: complete['persisted_turn'] = receipt
     for send in list(sockets):
-        for kind, payload in (('message.delta', {'text': GOAL_TAKEN_REPLY}),
-                              ('message.complete', {'text': GOAL_TAKEN_REPLY, 'status': 'complete'})):
+        for kind, payload in (('message.start', {}), ('message.delta', {'text': text}), ('message.complete', complete)):
             try: send({'jsonrpc': '2.0', 'method': 'event', 'params': {'type': kind, 'session_id': session_id, 'payload': payload}})
             except Exception: sockets.discard(send)
 

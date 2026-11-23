@@ -382,6 +382,21 @@ nonisolated enum GoalOffers {
     /// VoiceOver for one set-up row: "Name: Draw every day".
     static func setupSpoken(_ row: GoalSetupRow) -> String { "\(row.label): \(row.value)" }
 
+    /// [goals set-up] The mark before a milestone or task line of a goal's offer: an empty box or ring while it waits,
+    /// a plus once taken, because the line was added, not done (owner 2026-11-22: green ticks read as done). A list
+    /// offer of Tasks' own keeps its ticks.
+    static func lineMark(milestone: Bool, added: Bool) -> String {
+        switch (milestone, added) {
+        case (true, true): "plus.square.fill"
+        case (true, false): "square"
+        case (false, true): "plus.circle.fill"
+        case (false, false): "circle"
+        }
+    }
+
+    /// What VoiceOver adds to a line once its offer was taken: "added" (never "done").
+    static func lineState(added: Bool) -> String { added ? "added" : "" }
+
     /// A task's who: "You", or the bot's name.
     static func who(_ task: TodoOfferTask, offer: TodoOffer, botName: (String?) -> String) -> String {
         task.botFor(offer).map { botName($0) } ?? "You"

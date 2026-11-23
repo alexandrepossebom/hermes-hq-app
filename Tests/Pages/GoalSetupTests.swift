@@ -173,6 +173,40 @@ struct GoalSetupTests {
         #expect(GoalPlanWith.note(["otto", "wren"], botName: name) == "Otto leads. Wren helps.", "with helpers as before")
     }
 
+    // MARK: A taken plan's lines were added, not done (set-up 6)
+
+    @Test func takenLinesHaveAPlusNotATick() {
+        #expect(GoalOffers.lineMark(milestone: true, added: true) == "plus.square.fill")
+        #expect(GoalOffers.lineMark(milestone: false, added: true) == "plus.circle.fill")
+        #expect(GoalOffers.lineMark(milestone: true, added: false) == "square", "waiting: an empty box")
+        #expect(GoalOffers.lineMark(milestone: false, added: false) == "circle", "waiting: an empty ring")
+        for milestone in [true, false] {
+            for added in [true, false] { #expect(!GoalOffers.lineMark(milestone: milestone, added: added).contains("checkmark")) }
+        }
+        #expect(GoalOffers.lineState(added: true) == "added")
+        #expect(GoalOffers.lineState(added: false).isEmpty)
+        #expect(!GoalOffers.lineState(added: true).contains("done"), "VoiceOver never says done")
+    }
+
+    // MARK: The lead's reply to "I took your plan" shows once (set-up 6)
+
+    /// The goal's chat after the hidden plan-taken turn: the stored prompt is hidden (no bubble), the reply is row 2. The
+    /// streamed bubble carries the turn end's `final_assistant_row_id` (`LiveChatSession.onComplete`), and the turn-end
+    /// read binds it to its stored row by that, so the reply shows once though no prompt bubble stands before it.
+    @Test func aHiddenTurnsReplyIsBoundToItsStoredRowByTheReceipt() throws {
+        let reply = "Started on my two. It stands at the first step, with the plan on it."
+        let page = Hydration.fold([
+            ["role": "user", "content": "I took your plan for “Draw every day”.", "display_kind": "hidden", "row_id": 1, "timestamp": 1_800_000_000],
+            ["role": "assistant", "content": .string(reply), "row_id": 2, "finish_reason": "stop", "timestamp": 1_800_000_005],
+        ], pageSeq: 1)
+        #expect(page.messages.map(\.role) == [.assistant], "the hidden prompt draws no bubble")
+        let live = ChatMessage(id: "local-assistant-1", role: .assistant, parts: [.text(reply)], timestamp: nil, rowId: 2)
+        let graft = TranscriptMerge.graft(fresh: page.messages, freshMeta: page.meta, onto: [live], previousMeta: [:],
+                                          aliases: [:], replaceAll: false)
+        #expect(graft.messages.map(\.id) == ["local-assistant-1"], "one bubble: the live one holds the stored row")
+        #expect(graft.messages.filter { $0.plainText == reply }.count == 1)
+    }
+
     // MARK: A waiting plan on the shelf and the Goals view
 
     @Test func aWaitingPlanSaysPlanToLookAt() throws {

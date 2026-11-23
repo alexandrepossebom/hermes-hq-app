@@ -165,7 +165,15 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
             applyState()
         }
     }
-    private var shownTitle: String { titleOverride ?? session.title }
+    /// [goals set-up] The name the bar shows in place of the chat's own, with its bot still named under it: a goal's
+    /// chat follows the goal's current name (a plan or Edit Goal renames it). `titleOverride` still comes first.
+    var shownName: String? {
+        didSet {
+            guard shownName != oldValue, isViewLoaded else { return }
+            applyState()
+        }
+    }
+    private var shownTitle: String { titleOverride ?? shownName ?? session.title }
 
     var transcriptCovered = false {
         didSet {

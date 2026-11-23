@@ -545,6 +545,13 @@ final class GoalPageModel {
         }
     }
 
+    /// [goals set-up] The goal's chat is headed by the goal's name as it is now, its bot under it: a plan's name or Edit
+    /// Goal renames it while the chat is open, and a reopened chat starts from it too.
+    func syncChatName() {
+        guard let chat, let goal else { return }
+        chat.shownName = goal.title.isEmpty ? nil : goal.title
+    }
+
     /// The goal moved while its page is open: the page is drawn again.
     func goalChanged(_ rev: Int) {
         guard let page = pageSheet, page.view.window != nil, rev != pageRev else { return }

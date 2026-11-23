@@ -278,9 +278,11 @@ final class GoalOfferCell: ChatBaseCell {
         }
         for (i, v) in lineViews.enumerated() where i < g.lines.count {
             let line = g.lines[i]
-            let symbol = line.line.milestone ? (added ? "checkmark.square.fill" : "square") : (added ? "checkmark.circle.fill" : "circle")
+            // [goals set-up] A plus once taken: the line was added, not done.
+            let symbol = GoalOffers.lineMark(milestone: line.line.milestone, added: added)
             v.mark.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: line.markFrame.height, weight: .light))
             v.mark.tintColor = added ? Self.green : ChatPalette.label3
+            v.title.accessibilityValue = GoalOffers.lineState(added: added)
             v.title.attributedText = NSAttributedString(string: line.line.title, attributes: gone
                 ? [.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: ChatPalette.label2, .font: g.detailFont]
                 : [.foregroundColor: ChatPalette.label, .font: g.detailFont])
@@ -649,7 +651,7 @@ struct GoalOfferCard: View {
 
     private func line<Trail: View>(_ title: String, milestone: Bool, added: Bool, gone: Bool, @ViewBuilder trail: () -> Trail) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: milestone ? (added ? "checkmark.square.fill" : "square") : (added ? "checkmark.circle.fill" : "circle"))
+            Image(systemName: GoalOffers.lineMark(milestone: milestone, added: added))   // [goals set-up] added, not done
                 .font(Font.hq(.footnote))
                 .foregroundStyle(added ? TodoInk.color(.ready) : Color.hqLabel3)
                 .accessibilityHidden(true)
@@ -663,6 +665,7 @@ struct GoalOfferCard: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+        .accessibilityValue(GoalOffers.lineState(added: added))
     }
 
     /// "Name   Draw every day": the label quiet at a fixed width, the value in the label's ink (struck through once the
@@ -766,6 +769,8 @@ struct GoalOfferAllView: View {
     var botName: (String?) -> String
 
     var body: some View {
+        // [goals set-up] Taken (as the store has it now): each line was added, so it has the card's plus.
+        let added = (TodoOfferStates.live(offer.id).offer ?? offer).state == "accepted"
         List {
             // [goals set-up] What the plan rests on, and what accepting it also sets, as on the card.
             let builtOn = GoalOffers.builtOn(offer)
@@ -795,11 +800,14 @@ struct GoalOfferAllView: View {
                 Section {
                     ForEach(Array(offer.milestones.enumerated()), id: \.offset) { _, m in
                         HStack {
-                            Image(systemName: "square").foregroundStyle(Color.hqLabel3).accessibilityHidden(true)
+                            mark(milestone: true, added: added)
                             Text(m.title)
                             Spacer()
                             if let day = TodoDates.due(m.due) { Text(TodoWords.day(day.date, now: Date())).foregroundStyle(Color.hqLabel2) }
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(GoalOffers.lineState(added: added))
+                        .accessibilityIdentifier("goal.offer-all.line")
                     }
                 } header: { HQSectionLabel { Text(GoalOffers.milestoneCount(offer.milestones.count)) } }
             }
@@ -807,11 +815,14 @@ struct GoalOfferAllView: View {
                 Section {
                     ForEach(Array(offer.tasks.enumerated()), id: \.offset) { _, task in
                         HStack {
-                            Image(systemName: "circle").foregroundStyle(Color.hqLabel3).accessibilityHidden(true)
+                            mark(milestone: false, added: added)
                             Text(task.title)
                             Spacer()
                             Text(GoalOffers.who(task, offer: offer, botName: botName)).foregroundStyle(Color.hqLabel2)
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(GoalOffers.lineState(added: added))
+                        .accessibilityIdentifier("goal.offer-all.line")
                     }
                 } header: { HQSectionLabel { Text(TodoLists.count(offer.tasks.count).capitalized) } }
             }
@@ -819,6 +830,12 @@ struct GoalOfferAllView: View {
         .hqGroupedPage()   // [desktoplook] the page follows the skin
         .font(Font.hq(.callout))
         .accessibilityIdentifier("goal.offer-all")
+    }
+
+    private func mark(milestone: Bool, added: Bool) -> some View {
+        Image(systemName: GoalOffers.lineMark(milestone: milestone, added: added))
+            .foregroundStyle(added ? TodoInk.color(.ready) : Color.hqLabel3)
+            .accessibilityHidden(true)
     }
 }
 

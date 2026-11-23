@@ -516,6 +516,8 @@ struct GoalOfferStoreTests {
         #expect(s.offers.first?.state == "accepted", "read again: what the other device did")
     }
 
+    /// [goals set-up] The lead goes in the POST (one write); an add-on from before that answers without it, and the
+    /// app sets it in a PATCH right after, as it all did before (`GoalWire.teamLeft`).
     @Test func aNewGoalsLeadIsSetRightAfterItIsMade() async throws {
         let client = PagesFakeClient { _ in Self.list(offers: [], goals: []) }
         let s = store(client)
@@ -527,7 +529,7 @@ struct GoalOfferStoreTests {
         let answer = await s.addGoal(body)
         #expect(answer?.lead == "default")
         let post = try #require(client.log.first { $0.method == "POST" })
-        #expect(post.path == Self.route + "/goals" && post.body?["lead"] == nil, "POST /goals takes no lead")
+        #expect(post.path == Self.route + "/goals" && post.body?["lead"]?.string == "default", "POST /goals carries the lead")
         let patch = try #require(client.log.first { $0.method == "PATCH" })
         #expect(patch.path == Self.route + "/goals/g_1" && patch.body?["lead"]?.string == "default" && ActivityJSON.int(patch.body?["rev"]) == 3)
         #expect(s.goal("g_1")?.lead == "default")

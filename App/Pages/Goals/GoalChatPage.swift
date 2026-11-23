@@ -125,6 +125,7 @@ enum GoalChatPage {
         page.controller = chat
         GoalPlanTaken.noteOpen(page)
         chat.goalChatID = goal.id
+        page.syncChatName()
         let host = GoalLeadHost(model: page)
         chat.setTopAccessory(host)
         chat.setTopAccessoryHeight(360, animated: false)
@@ -193,6 +194,7 @@ enum GoalChatPage {
         page.keptChat = chat
         GoalPlanTaken.noteOpen(page)
         chat.goalChatID = goal.id
+        page.syncChatName()
         chat.suppressesTalkTip = true
         chat.view.accessibilityIdentifier = "goal.chat-pane"
         chat.menus?.isTaskChat = true
@@ -271,6 +273,11 @@ struct GoalLeadRoot: View {
     var onBarHeight: (CGFloat) -> Void
 
     var body: some View {
+        // [goals set-up] The chat's bar names the goal as it is now (rolled up or not, a rename shows at once).
+        content.onChange(of: model.goal?.title) { model.syncChatName() }
+    }
+
+    @ViewBuilder private var content: some View {
         if model.tucked, let goal = model.goal {
             GoalBarView(model: model, goal: goal)
                 .fixedSize(horizontal: false, vertical: true)

@@ -90,6 +90,7 @@ struct GoalPlainView: View {
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await model.store.refresh(force: true) }
             .onChange(of: goal.rev) { _, rev in model.goalChanged(rev) }   // [goals step 5] an open Goal Page follows
+            .onChange(of: goal.title) { model.syncChatName() }   // [goals set-up] its chat's pane on the Mac too
         }
     }
 
