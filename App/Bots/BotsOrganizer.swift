@@ -796,7 +796,7 @@ struct BotSectionHintView: View {
             .foregroundStyle(Color.hqLabel2)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ListGutter.side)
             .padding(.vertical, 12)
             .accessibilityIdentifier(identifier)
     }

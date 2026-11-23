@@ -110,7 +110,7 @@ struct ProjectPageHeader: View {
         return counts
     }
 
-    private var lead: CGFloat { Theme.isDesktop ? DesktopRows.gutter : 20 }
+    private var lead: CGFloat { ProjectCard.gutter }   // [projects-tidy] the list's margin (14 pt on the Mac)
 
     // MARK: [project-header-card] The card
 

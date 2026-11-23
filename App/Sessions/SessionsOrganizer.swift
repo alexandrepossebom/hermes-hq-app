@@ -1162,7 +1162,7 @@ struct NewChatSheetView: View {
             }
             .hqProminentButtonStyle()
             .buttonBorderShape(.capsule)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ListGutter.side)
             .padding(.top, 8)
             .padding(.bottom, 6)
             .accessibilityLabel("Start Chat with \(botName)")

@@ -209,17 +209,22 @@ struct SessionsHeaderView: View {
         // its glyphs, before the menu's name is cut. The switch always says its two views' names (owner 2026-11-19: "The
         // toggle should have Bots and Projects written in it just like it has on iOS"; Chats and Projects since
         // [chats-switch]).
+        // [projects-tidy] Owner 2026-11-22: the menu's name could shrink to nothing, so the first choice always "fit"
+        // and the menu read "…" beside "5 new" and "2 working" in full. Each choice now keeps the start of the name
+        // (`ScopeNameKeep`), so the counts and the glyphs give way first, as the note above says; only a pane too
+        // narrow for every one of them cuts the name further (the last choice, as before).
         ViewThatFits(in: .horizontal) {
             macRowContent(switchIcons: true, countWords: true)
             macRowContent(switchIcons: true, countWords: false)
             macRowContent(switchIcons: false, countWords: false)
             macRowContent(switchIcons: false, countWords: false, menuPicture: false)   // [mac-scope-button] words over faces
+            macRowContent(switchIcons: false, countWords: false, menuPicture: false, keepName: false)
         }
         .frame(height: SessionsMacControl.height)
-        .padding(.leading, Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead)   // the project header's edge
+        .padding(.leading, ProjectCard.lead)   // the project header's edge ([projects-tidy] and every row's)
         // A count's text ends where the rows' times do (its 6 pt padding). [popup-room] With no counts after it, the menu's
         // box is the last thing on the row: its edge sits as far in as the switch's on the left.
-        .padding(.trailing, (Theme.isDesktop ? DesktopRows.gutter : ProjectCard.lead) - (menuEndsRow ? 0 : 6))
+        .padding(.trailing, ProjectCard.lead - (menuEndsRow ? 0 : 6))
         .padding(.top, Theme.isDesktop ? 6 : 4)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -228,13 +233,13 @@ struct SessionsHeaderView: View {
     /// [popup-room] The menu's box ends the row (no New / Working counts after it).
     private var menuEndsRow: Bool { model.hasPills && (model.onPage || model.shownStatus.isEmpty) }
 
-    private func macRowContent(switchIcons: Bool, countWords: Bool, menuPicture: Bool = true) -> some View {
+    private func macRowContent(switchIcons: Bool, countWords: Bool, menuPicture: Bool = true, keepName: Bool = true) -> some View {
         HStack(spacing: countWords ? 8 : 6) {
             if model.showsSwitch { SessionsPillsSwitch(model: model, macIcons: switchIcons).fixedSize() }
             // [popup-room] Owner 2026-11-21: "the project dropdown should be right aligned": the switch keeps the left,
             // the menu (and the counts after it) the right.
             Spacer(minLength: 0)
-            if model.hasPills { scopeMenu(picture: menuPicture).layoutPriority(1) }
+            if model.hasPills { scopeMenu(picture: menuPicture, keepName: keepName).layoutPriority(1) }
             if !model.onPage {
                 ForEach(model.shownStatus, id: \.self) { chip in macStatus(chip, words: countWords) }
             }
@@ -271,7 +276,7 @@ struct SessionsHeaderView: View {
     /// face (a project's folder) before its name, and the menu is a UIKit menu (`SessionsHeaderModel.scopeMenuElements`)
     /// so each row can carry the bot's face and what is going on there ("2 working · 1 new"), archived projects
     /// folded into a submenu. It had been names alone in a SwiftUI picker.
-    private func scopeMenu(picture: Bool) -> some View {
+    private func scopeMenu(picture: Bool, keepName: Bool = true) -> some View {
         let projects = model.pills == .projects
         let title = SessionsHeaderModel.scopeTitle(projects: projects, pickedProjects: model.pickedProjects,
                                                    labels: model.projects.map { ($0.key, $0.label) },
@@ -283,7 +288,20 @@ struct SessionsHeaderView: View {
         // Bots, the picked bot's face, a folder for projects), a downward chevron, and a fill under the pointer.
         return HStack(spacing: 6) {
             if picture { scopePicture(projects: projects, side: side) }
-            Text(title).lineLimit(1).truncationMode(.tail)
+            if keepName {
+                ScopeNameKeep(least: HQFont.scaled(84)) { Text(title).lineLimit(1).truncationMode(.tail) }
+            } else {
+                // [projects-tidy] The pane at its narrowest, where the name has room for a few letters at most: whole
+                // if it fits; else cut, while five letters of it still show; else what still says where you are in
+                // that room, never a bare "…": "All" (the lit side of the switch says of what), or the picked bot's
+                // face or project's folder.
+                let picked = projects ? !model.pickedProjects.isEmpty : model.picked != nil
+                ViewThatFits(in: .horizontal) {
+                    Text(title).lineLimit(1).fixedSize()
+                    Text(title).lineLimit(1).truncationMode(.tail).frame(minWidth: HQFont.scaled(46), idealWidth: HQFont.scaled(46), alignment: .leading)
+                    if picked { scopePicture(projects: projects, side: side) } else { Text("All").lineLimit(1).fixedSize() }
+                }
+            }
             Image(systemName: "chevron.down").font(Font.hqSystem(size: HQFont.scaled(9), weight: .bold))
                 .foregroundStyle(Color.hqLabel2)
                 .fixedSize()
@@ -1135,6 +1153,24 @@ struct SessionsPillsSwitch: View {
         .frame(minWidth: half, minHeight: side, maxHeight: side)
     }
 
+}
+
+/// [projects-tidy] The scope menu's name, never narrower than `least` (or than itself, when shorter): "All Projects"
+/// whole, a long project's name down to its first dozen letters. Past that it is cut as any text is.
+private struct ScopeNameKeep: Layout {
+    var least: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let view = subviews.first else { return .zero }
+        let ideal = view.sizeThatFits(ProposedViewSize(width: nil, height: proposal.height))
+        let floor = min(ideal.width, least)
+        guard let width = proposal.width else { return ideal }
+        return CGSize(width: min(ideal.width, max(width, floor)), height: ideal.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
 }
 
 /// [switch-sides] One side of the Chats | Projects switch to VoiceOver: its view's name, selected while shown (a tap

@@ -7,6 +7,20 @@ import ObjectiveC
 import SwiftUI
 import UIKit
 
+/// [projects-tidy] A list's side margin: its rows, captions and headers start and end this far from the list's edges.
+/// Owner 2026-11-22 (the Mac's Sessions: "less padding to left and right"): 14 pt on the Mac, in both looks and on
+/// every list that shares the pane (Bots, Sessions, Jobs, Tasks), where the pane is a narrow column and a selection's
+/// box (8 pt in) still clears the words by 6; 20 pt on the iPhone and iPad.
+nonisolated enum ListGutter {
+    static var side: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        return 14
+        #else
+        return 20
+        #endif
+    }
+}
+
 nonisolated enum DesktopRows {
     /// Bots and Sessions rows, one height (phone-ui-desktop.css:272-275), × UI Scale.
     static var height: CGFloat { HQFont.scaled(roomy ? 74 : 60) }
@@ -17,7 +31,7 @@ nonisolated enum DesktopRows {
     /// [desktop-density] Density › Standard in the look (Compact is the look as it was).
     static var roomy: Bool { ThemeTable.current.state.desktopRoomy }
     /// The page gutter (phone-ui-desktop.css:349).
-    static let gutter: CGFloat = 20
+    static var gutter: CGFloat { ListGutter.side }
     /// [top-bar-gap] Owner 2026-11-09: the extra room the first thing under a tab's bar gets in the Desktop Look on the
     /// iPhone and iPad, where the bar is a frosted band whose edge shows (pills, tiles and rows sat 4–8 pt under it).
     /// The Mac already opens its pages with the iOS look's room (stress test 2026-10-28 round 7); the iOS look's bar is

@@ -65,60 +65,192 @@ private struct TaskViewsBand: View {
     }
 
     @ViewBuilder private var pills: some View {
-        ForEach(model.pills) { pill in
-            let picked = model.picked == pill.view
-            // [Mac UI check 2026-11-13] Under a sheet the system greys the picked pill's tinted glass and
-            // its white words read faintly on the grey: the pick is then drawn as a plain pill in the
-            // label's ink with a ring, readable on the dimmed fill, and tinted again when the sheet goes.
-            let quiet = picked && model.dimmed && !Theme.isDesktop
-            SessionPill(caption: pill.title, name: spoken(pill), picked: picked && !quiet,
-                        identifier: pill.identifier, hasFace: pill.marked, lead: pill.marked ? 11 : nil,
-                        detail: pill.count.flatMap { $0 > 0 ? "\($0)" : nil }) {
-                onPick(pill.view)
-            } face: {
-                // [task-lists] The list's icon, grey ([tasks-colour]).
-                TaskListPillMark(color: pill.color, icon: pill.icon, picked: picked && !quiet)
-            }
-            .overlay {
-                if quiet {
-                    Capsule().strokeBorder(Color.hqLabel2, lineWidth: 1.5)
-                        .frame(height: HQFont.scaled(34))   // the pill's own height (`SessionPill`), not its 44 pt touch
-                        .allowsHitTesting(false)
-                }
-            }
-            .accessibilityAddTraits(quiet ? .isSelected : [])
-            .contextMenu { menu(for: pill) }
-            .id(pill.id)
+        ForEach(model.pills) { pill in pillView(pill) }
+        if model.editsLists { newListPill }
+    }
+
+    @ViewBuilder private func pillView(_ pill: TaskViewPill) -> some View {
+        let picked = model.picked == pill.view
+        // [Mac UI check 2026-11-13] Under a sheet the system greys the picked pill's tinted glass and
+        // its white words read faintly on the grey: the pick is then drawn as a plain pill in the
+        // label's ink with a ring, readable on the dimmed fill, and tinted again when the sheet goes.
+        let quiet = picked && model.dimmed && !Theme.isDesktop
+        SessionPill(caption: pill.title, name: spoken(pill), picked: picked && !quiet,
+                    identifier: pill.identifier, hasFace: pill.marked, lead: pill.marked ? 11 : nil,
+                    detail: pill.count.flatMap { $0 > 0 ? "\($0)" : nil }) {
+            onPick(pill.view)
+        } face: {
+            // [task-lists] The list's icon, grey ([tasks-colour]).
+            TaskListPillMark(color: pill.color, icon: pill.icon, picked: picked && !quiet)
         }
-        if model.editsLists {
-            SessionPill(caption: "", name: "New List", picked: false, identifier: "tasks.view.new-list", hasFace: true, lead: 10) {
-                actions.newList()
-            } face: {
-                Image(systemName: "plus")
-                    .font(Font.hq(Theme.isDesktop ? .caption : .footnote).weight(.semibold))
-                    .foregroundStyle(Color.hqLabel2)
-                    .padding(.trailing, -8)
+        .overlay {
+            if quiet {
+                Capsule().strokeBorder(Color.hqLabel2, lineWidth: 1.5)
+                    .frame(height: HQFont.scaled(34))   // the pill's own height (`SessionPill`), not its 44 pt touch
+                    .allowsHitTesting(false)
             }
+        }
+        .accessibilityAddTraits(quiet ? .isSelected : [])
+        .contextMenu { menu(for: pill) }
+        .id(pill.id)
+    }
+
+    @ViewBuilder private var newListPill: some View {
+        SessionPill(caption: "", name: "New List", picked: false, identifier: "tasks.view.new-list", hasFace: true, lead: 10) {
+            actions.newList()
+        } face: {
+            Image(systemName: "plus")
+                .font(Font.hq(Theme.isDesktop ? .caption : .footnote).weight(.semibold))
+                .foregroundStyle(Color.hqLabel2)
+                .padding(.trailing, -8)
         }
     }
 
     @ViewBuilder private var rail: some View {
         if DeviceWord.isMac {
-            // [Mac UI check 2026-11-13] Every view in sight: the pills wrap to a second line in a narrow pane ("Bots 2"
-            // stood cut at the pane's edge, a scroll a Mac gives no cue for).
-            PagesFlowLayout(spacing: 8, lineSpacing: 0) { pills }
-                .padding(.horizontal, Theme.isDesktop ? DesktopRows.gutter : 16)
-                .padding(.top, DesktopRows.underBar)
-                .padding(.bottom, Theme.isDesktop ? 2 : 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .hqPickGlassRow()
-                .hqFlatPicks()   // [Mac UI check 2026-11-13] no glass to carry the picked pill's blue onto its neighbours
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Views")
-                .accessibilityIdentifier("tasks.views")
+            // [mac-tasks-row] Owner 2026-11-22: the pills wrapped to a second line in a narrow pane ("You can't just
+            // stack the pills like that"), and a pop-up for every view hid an easy one-click move. One row: every
+            // pill that fits, in order, and the rest under a last "More" pill (the picked view always stays out).
+            // A full window fits them all and has no More.
+            macRow
         } else {
             scrollingRail
         }
+    }
+
+    /// Each pill's width (by its key; "+" for New List, "more" for More), and the row's.
+    @State private var widths: [String: CGFloat] = [:]
+    @State private var rowWidth: CGFloat = 0
+
+    private var macRow: some View {
+        let keys = model.pills.map(\.id)
+        let available = rowWidth - 2 * gutter
+        let whole = TaskViewsFit.fit(keys: keys, picked: model.picked.key, widths: widths,
+                                     newList: model.editsLists ? "+" : nil, available: available, spacing: 8)
+        // Owner 2026-11-22 ("What's a better way to do it?"): too narrow for them all, the other views become their
+        // icons (the name under the pointer), still one click each; the picked view keeps its name and count. Only a
+        // row too narrow even for the icons puts the last of them under "N More".
+        var icons = widths
+        for key in keys where key != model.picked.key { icons[key] = widths["icon." + key] }
+        let iconFit = TaskViewsFit.fit(keys: keys, picked: model.picked.key, widths: icons,
+                                       newList: model.editsLists ? "+" : nil, available: available, spacing: 8)
+        let fit = !whole.more ? whole : !iconFit.more ? iconFit
+            : TaskViewsFit.fit(keys: keys, picked: model.picked.key, widths: icons, newList: nil, available: available,
+                               spacing: 8, forceMore: true)
+        let shown = model.pills.filter { fit.shown.contains($0.id) }
+        let rest = model.pills.filter { !fit.shown.contains($0.id) }
+        let compact = whole.more
+        return HStack(spacing: 8) {
+            ForEach(shown) { pill in
+                if compact && pill.view != model.picked { iconPill(pill) } else { pillView(pill) }
+            }
+            if fit.more {
+                morePill(rest)
+            } else if model.editsLists {
+                newListPill
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, gutter)
+        .padding(.top, DesktopRows.underBar)
+        .padding(.bottom, Theme.isDesktop ? 2 : 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hqPickGlassRow()
+        .hqFlatPicks()   // [Mac UI check 2026-11-13] no glass to carry the picked pill's blue onto its neighbours
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+        // Every pill measured off screen, at its own size, so the row knows what fits before it draws.
+        .background(alignment: .topLeading) {
+            HStack(spacing: 8) {
+                ForEach(model.pills) { pill in
+                    pillView(pill).fixedSize().measured(pill.id, into: $widths)
+                    iconPill(pill).fixedSize().measured("icon." + pill.id, into: $widths)
+                }
+                newListPill.fixedSize().measured("+", into: $widths)
+                morePill([]).fixedSize().measured("more", into: $widths)
+            }
+            .fixedSize()
+            .hidden()
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Views")
+        .accessibilityIdentifier("tasks.views")
+    }
+
+    private var gutter: CGFloat { Theme.isDesktop ? DesktopRows.gutter : 16 }
+
+    /// [mac-tasks-row] A view as its icon alone, in a narrow row: its name under the pointer and for VoiceOver.
+    private func iconPill(_ pill: TaskViewPill) -> some View {
+        SessionPill(caption: "", name: spoken(pill), picked: false, identifier: pill.identifier, hasFace: true, lead: 10) {
+            onPick(pill.view)
+        } face: {
+            Image(systemName: Self.symbol(pill))
+                .font(Font.hq(Theme.isDesktop ? .caption : .footnote).weight(.medium))
+                .foregroundStyle(Color.hqLabel2)
+                .frame(minWidth: 14)
+                .padding(.trailing, -8)
+        }
+        .help(pill.count.flatMap { $0 > 0 ? "\(pill.title) (\($0))" : nil } ?? pill.title)
+        .contextMenu { menu(for: pill) }
+    }
+
+    static func symbol(_ pill: TaskViewPill) -> String {
+        switch pill.view {
+        case .goals: return "smallcircle.filled.circle"
+        case .today: return "sun.max"
+        case .upcoming: return "calendar"
+        case .inbox: return "tray"
+        case .bots: return "person.2"
+        case .list: return pill.icon ?? TodoListIcons.fallback
+        }
+    }
+
+    /// "3 More ⌄": the views that didn't fit (with their counts), then New List. Measured as "9 More" (`rest` empty).
+    private func morePill(_ rest: [TaskViewPill]) -> some View {
+        Menu {
+            ForEach(rest) { pill in
+                Button { onPick(pill.view) } label: {
+                    Text(pill.count.flatMap { $0 > 0 ? "\(pill.title)   \($0)" : nil } ?? pill.title)
+                }
+                .accessibilityIdentifier(pill.identifier)
+            }
+            if model.editsLists {
+                Divider()
+                Button { actions.newList() } label: { Label("New List…", systemImage: "plus") }
+                    .accessibilityIdentifier("tasks.view.new-list")
+            }
+        } label: {
+            // Owner 2026-11-22 ("Is the … the best way to make someone think they should click for the rest?"): "…" is
+            // the bar's own actions button; "3 More ⌄" says views are hidden, how many, and that it opens a menu.
+            HStack(spacing: 4) {
+                Text(rest.isEmpty ? "9 More" : "\(rest.count) More")
+                    .font(Font.hq(Theme.isDesktop ? .footnote : .subheadline).weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.hqLabel)
+                Image(systemName: "chevron.down")
+                    .font(Font.hq(.caption2).weight(.semibold))
+                    .foregroundStyle(Color.hqLabel2)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .frame(minHeight: SessionPill<EmptyView>.height)
+            .background {
+                if Theme.isDesktop {
+                    RoundedRectangle(cornerRadius: DesktopRows.radius, style: .continuous).fill(Color.hqFill3)
+                }
+            }
+            .hqPickGlass(false, in: Capsule(), prominent: true, still: false)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More views")
+        .accessibilityLabel(rest.isEmpty ? "More Views" : "\(rest.count) More Views")
+        .accessibilityIdentifier("tasks.views.more")
     }
 
     private var scrollingRail: some View {
@@ -275,5 +407,44 @@ final class TaskViewsHeader {
         } else {
             change()
         }
+    }
+}
+
+private extension View {
+    /// [mac-tasks-row] Writes the view's width into `widths` under `key`.
+    func measured(_ key: String, into widths: Binding<[String: CGFloat]>) -> some View {
+        onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if widths.wrappedValue[key] != width { widths.wrappedValue[key] = width }
+        }
+    }
+}
+
+/// [mac-tasks-row] Which of the Mac's view pills fit in one row.
+enum TaskViewsFit {
+    struct Result: Equatable {
+        var shown: Set<String>
+        var more: Bool
+    }
+
+    /// All of them (and New List's "+") when they fit. Otherwise as many as fit in order beside the More pill, the
+    /// picked one always among them (in its own place, the last that fit giving way). Unmeasured: all, no More.
+    /// `forceMore`: the row already overflowed with the counts on; fit the bare pills beside More regardless.
+    static func fit(keys: [String], picked: String, widths: [String: CGFloat], newList: String?, available: CGFloat,
+                    spacing: CGFloat, forceMore: Bool = false) -> Result {
+        let all = Set(keys)
+        guard available > 0, keys.allSatisfy({ widths[$0] != nil }), let more = widths["more"] else { return Result(shown: all, more: false) }
+        func total(_ ks: [String]) -> CGFloat { ks.reduce(0) { $0 + widths[$1]! } + spacing * CGFloat(max(0, ks.count - 1)) }
+        let whole = keys + (newList.flatMap { widths[$0] != nil ? [$0] : nil } ?? [])
+        if !forceMore, total(whole) <= available { return Result(shown: all, more: false) }
+        let room = available - more - spacing
+        var shown: [String] = []
+        for key in keys {
+            if total(shown + [key]) <= room { shown.append(key) } else { break }
+        }
+        if keys.contains(picked), !shown.contains(picked) {
+            while !shown.isEmpty, total(shown + [picked]) > room { shown.removeLast() }
+            shown.append(picked)
+        }
+        return Result(shown: Set(shown), more: true)
     }
 }

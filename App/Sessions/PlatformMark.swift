@@ -77,8 +77,8 @@ struct OtherAppsRowView: View {
             SettingsChevron()
                 .frame(width: 24)
         }
-        .padding(.leading, 20)
-        .padding(.trailing, desk ? 16 : 14)
+        .padding(.leading, ProjectCard.gutter)   // [projects-tidy] the list's margin
+        .padding(.trailing, ProjectCard.gutter - (desk ? 4 : 6))
         .padding(.vertical, desk ? 0 : Density.ios(13, 7))
         .frame(minHeight: large ? 0 : desk ? DesktopRows.height : Density.ios(72, 50))
         .frame(height: desk ? DesktopRows.height : nil)

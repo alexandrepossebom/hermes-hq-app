@@ -38,7 +38,7 @@ struct RosterNoticeCard: View {
         .padding(.vertical, 13)
         .padding(.horizontal, 16)
         .background(Color(uiColor: HQPalette.groupedCard), in: RoundedRectangle(cornerRadius: HQShape.radius(16, .card), style: .continuous))
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ListGutter.side)
         .padding(.vertical, 8)
     }
 }

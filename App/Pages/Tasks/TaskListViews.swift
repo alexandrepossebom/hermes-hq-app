@@ -71,7 +71,7 @@ struct TaskKeeperRow: View {
         }
         .font(Font.hq(.footnote))
         .foregroundStyle(Color.hqLabel2)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ListGutter.side)
         .padding(.top, 10)
         .padding(.bottom, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -92,8 +92,8 @@ struct TaskMoreRow: View {
         .font(Font.hq(.footnote))
         .foregroundStyle(Color.hqTintText)
         // In line with the tasks' names (the circle's 22 pt and its 12 pt gap).
-        .padding(.leading, 20 + 22 + 12)
-        .padding(.trailing, 20)
+        .padding(.leading, ListGutter.side + 22 + 12)
+        .padding(.trailing, ListGutter.side)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         .contentShape(Rectangle())

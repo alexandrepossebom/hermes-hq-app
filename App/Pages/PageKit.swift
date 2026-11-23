@@ -442,7 +442,7 @@ struct PageSlowNote: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .hqPictureBacking()   // [backdrop-cards]
-        .padding(.horizontal, Backdrop.app.cards && Backdrop.app.shows ? BackdropCards.side : 20)   // [backdrop-cards] as wide as a card
+        .padding(.horizontal, Backdrop.app.cards && Backdrop.app.shows ? BackdropCards.side : ListGutter.side)   // [backdrop-cards] as wide as a card
         .padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
@@ -478,7 +478,7 @@ struct PageSkeletonRow: View {
         // 68 the page jumped as the rows came in.
         .frame(height: tile ? 36 : 33)
         .padding(.vertical, 10)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ListGutter.side)
         .opacity(dim ? 0.45 : 1)
         .onAppear { pulse() }
         // [settings] Saving power stops the pulse; it starts again when saving ends (3x-settings §3).

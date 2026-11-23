@@ -66,8 +66,8 @@ struct JobRowView: View {
             }
         }
         .padding(.vertical, Theme.isDesktop ? 12 : 9)   // [compact] iOS look: 3 pt less a side (owner 2026-10-17)
-        .padding(.leading, 20)
-        .padding(.trailing, 20)
+        .padding(.leading, ListGutter.side)
+        .padding(.trailing, ListGutter.side)
         .frame(minHeight: Theme.isDesktop ? 56 : 52, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -186,7 +186,7 @@ struct JobSectionHeaderView: View {
                     .padding(.top, -18).padding(.bottom, -6)
             }
         }
-        .padding(.horizontal, onCard ? 20 + BackdropCards.side : 20)
+        .padding(.horizontal, onCard ? ListGutter.side + BackdropCards.side : ListGutter.side)
         // (UI Scale moves the name up in its line, the iPhone's text size down: measured at each.)
         .padding(.top, onCard ? 12 + BackdropCards.grown(9) - 10 * (BackdropCards.textSize - 1) : 20)
         .padding(.bottom, 6)
@@ -207,7 +207,7 @@ struct ShowCompletedRowView: View {
         }
         .foregroundStyle(Color.hqTint)
         .padding(.vertical, 12)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ListGutter.side)
         .frame(minHeight: 48)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -468,7 +468,7 @@ struct JobsPlainHeaderView: View {
             JobsHeaderWords(title: title, count: count)
             Spacer(minLength: 8)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ListGutter.side)
         .padding(.top, 20)
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -499,7 +499,7 @@ struct BlueprintRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             SettingsChevron()
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ListGutter.side)
         .padding(.vertical, 12)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)

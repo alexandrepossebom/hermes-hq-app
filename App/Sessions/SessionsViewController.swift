@@ -141,6 +141,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     /// the bot works or waits on you), and Group By Recent's Pinned (`freshPinnedKeys`: never a second line).
     private var freshKeys: Set<String> = []
     private var freshPinnedKeys: Set<String> = []
+    /// [projects-tidy] The Mac: a closed project's live chats under its row, set in to where its name starts.
+    private var nestedKeys: Set<String> = []
     /// [page-pinned-no-pin] A project page's Pinned pile: its rows draw no pin (the heading says it).
     private var pagePinnedKeys: Set<String> = []
     #if DEBUG
@@ -551,7 +553,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
                                time: time, busy: busy, detail: detail, muted: muted,
                                origin: origin, compact: compact, shortPreview: short, card: card, fresh: fresh, faces: faces,
                                recentLayout: self.freshLayout || self.projectLayout, codingProject: coding, branchLead: branchLead,
-                               pinnedPile: pinnedPile, onPR: onPR, hover: hover)
+                               nested: self.nestedKeys.contains(id), pinnedPile: pinnedPile, onPR: onPR, hover: hover)
             }
             .margins(.all, 0)
             // [sessions-layout] A one-line row is as tall as it draws itself (44 pt), not the list's taller least row.
@@ -1594,6 +1596,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         compactKeys = fresh ? [] : pinnedKeys
         freshPinnedKeys = fresh ? pinnedKeys : []
         freshKeys = []
+        nestedKeys = []
         pagePinnedKeys = []
         yesterdayKeys = []
         shortKeys = searching ? [] : Set(groups.first { $0.id == SessionListPipeline.newId }?.sessions.map(Self.key) ?? [])
@@ -1623,6 +1626,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             if !searching, group.id == SessionListPipeline.statePrefix + "pinned" { pagePinnedKeys.formUnion(items) }   // [page-pinned-no-pin]
             if !searching && ((fresh && recent) || group.id == SessionListPipeline.chipId || (projectLayout && !card)) { freshKeys.formUnion(items) }
             if !searching, DeviceWord.isMac, group.id == SessionListPipeline.recentId + "-yesterday" { yesterdayKeys.formUnion(items) }   // [mac-pane]
+            // [projects-tidy] The Mac: a closed project's live chats stand under its name, not out at the folder's edge.
+            if !searching, DeviceWord.isMac, projectLayout, !card, SessionListPipeline.isProject(group.id) { nestedKeys.formUnion(items) }
             snapshot.appendItems(items, toSection: section)
             if group.id == SessionListPipeline.otherAppsId { snapshot.appendItems([Self.otherAppsKey], toSection: section) }
             if group.id == SessionListPipeline.pageId { snapshot.appendItems([Self.pageKey], toSection: section) }
@@ -1678,6 +1683,7 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
             hasher.combine(shortKeys.contains(id))                          // [sessions-layout] New for You's one line
             hasher.combine(freshKeys.contains(id))                          // [sessions-fresh] Fresh's rows
             hasher.combine(freshPinnedKeys.contains(id))
+            hasher.combine(nestedKeys.contains(id))                         // [projects-tidy]
             hasher.combine(pagePinnedKeys.contains(id))                     // [page-pinned-no-pin]
             hasher.combine(yesterdayKeys.contains(id))                      // [mac-pane] the hour under Yesterday
             hasher.combine(store?.view.botFaces)                            // [sessions-fresh] Show › Bot Faces

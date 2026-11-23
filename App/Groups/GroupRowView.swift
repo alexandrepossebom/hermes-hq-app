@@ -102,7 +102,7 @@ struct GroupRowView: View {
                 .frame(minHeight: desk ? 0 : Density.ios(52, 34))
             }
             .padding(.vertical, desk ? DesktopRows.padV : BotRowMetrics.padV)
-            .padding(.horizontal, desk ? DesktopRows.gutter : 20)   // [botsminimal] no ⋯: the time meets the edge
+            .padding(.horizontal, ListGutter.side)   // [botsminimal] no ⋯: the time meets the edge
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
@@ -213,7 +213,7 @@ struct GroupSectionHintView: View {
             .foregroundStyle(Color.hqLabel2)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ListGutter.side)
             .padding(.vertical, 12)
             .accessibilityIdentifier("group-section-hint")
     }

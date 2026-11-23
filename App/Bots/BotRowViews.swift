@@ -198,7 +198,7 @@ extension View {
 enum BotRowMetrics {
     static var face: CGFloat { Density.ios(50, 34) }
     static var gap: CGFloat { Density.ios(12, 10) }
-    static let leading: CGFloat = 20
+    static var leading: CGFloat { ListGutter.side }
     static var padV: CGFloat { Density.ios(10, 6) }
     static var minHeight: CGFloat { Density.ios(74, 50) }
     /// Where the separator starts: under the text.
@@ -591,8 +591,8 @@ struct BotSectionHeaderView: View {
             Spacer(minLength: 0)
             trailing(font: Font.hq(.subheadline))
         }
-        .padding(.leading, 20)
-        .padding(.trailing, 20)
+        .padding(.leading, ListGutter.side)
+        .padding(.trailing, ListGutter.side)
         // [soft-cards] On a card the name stands as far under the card's top as the last row's words over its foot:
         // no room above for parting it from the group before (the card's own edge does that).
         .frame(minHeight: BackdropCards.live ? Density.ios(34, 28) : Density.ios(44, 34))   // [density]

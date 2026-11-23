@@ -44,6 +44,12 @@ struct SessionRowView: View {
         branch.count > 24 ? String(branch.prefix(11)) + "…" + String(branch.suffix(11)) : branch
     }
     enum Fresh { case pinned, recent }
+    /// [projects-tidy] Owner 2026-11-22 (the Mac's Projects side, Bot Faces off: "very visually messy"): a closed
+    /// project's live chats started at the list's edge, left of the project's own name, so they read as its parents.
+    /// Such a row's title starts exactly under its project's name: with Bot Faces off the row starts the folder's
+    /// column further in; with them on its face stands in that column, under the folder.
+    var nested = false
+    static var nestedLead: CGFloat { ProjectCardHeader.quietColumn + ProjectCard.columnGap }
     /// [page-pinned-no-pin] A project page's Pinned pile: its heading says pinned, so the row draws no pin (owner
     /// 2026-11-21). VoiceOver still says it.
     var pinnedPile = false
@@ -189,7 +195,9 @@ struct SessionRowView: View {
             if faces {
                 HeadImage(raw: ownerHead, profile: session.profile, size: desk ? HQFont.scaled(DesktopRows.roomy ? 22 : 18) : Density.ios(22, 18), working: session.isRunning,
                           moods: session.isRunning)
-                    .frame(width: desk ? DesktopRows.face : ProjectCard.column, height: line)
+                    // [projects-tidy] Under its project, the face in the folder's column: its title starts exactly
+                    // where the project's name does (in a face's own column it started 6 to 9 pt off it, a near miss).
+                    .frame(width: nested ? ProjectCardHeader.quietColumn : desk ? DesktopRows.face : ProjectCard.column, height: line)
             }
             VStack(alignment: .leading, spacing: 1) {
                 SessionTitleLine(spacing: ProjectCard.titleGap) {
@@ -199,7 +207,11 @@ struct SessionRowView: View {
                                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                         }
                         Text(Self.title(session))
-                            .font(desk ? Font.hq(DesktopRows.titleStyle).weight(session.unread ? .semibold : .regular) : titleFont)
+                            // [projects-tidy] Under its project a chat's title is a size under the project's name (they were one
+                            // size, told apart by weight alone), so the project reads as the parent at a glance. Never
+                            // bold there: the row's dot says unread, and bold put it back at the project's weight.
+                            .font(nested && !large ? Font.hq(.subheadline)
+                                  : desk ? Font.hq(DesktopRows.titleStyle).weight(session.unread ? .semibold : .regular) : titleFont)
                             .foregroundStyle(Color.hqLabel)
                             .lineLimit(large ? 3 : 1)
                         if let color = session.color {
@@ -241,14 +253,17 @@ struct SessionRowView: View {
             }
         }
         .padding(.vertical, fresh == .pinned ? (desk ? 4 : Self.macTight(7, 4, mac: 5)) : (desk ? 6 : Self.macTight(10, 5, mac: 6)))
-        .padding(.horizontal, 20)
+        .padding(.leading, nested && !faces ? Self.nestedLead : 0)   // [projects-tidy]
+        .padding(.horizontal, ProjectCard.gutter)
         .frame(maxWidth: .infinity, minHeight: fresh == .pinned ? (desk ? HQFont.scaled(DesktopRows.roomy ? 40 : 32) : Self.macTight(40, 30, mac: 36)) : (desk ? HQFont.scaled(DesktopRows.roomy ? 44 : 36) : Self.macTight(44, 32, mac: 36)),
                alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(.isButton)
-        .rowArc(showsArc)
+        // [projects-tidy] The Mac: a row whose second line already has the spinner and the step draws no ring round
+        // itself as well (owner 2026-11-22: caught mid-turn in a still it read as a broken box beside them).
+        .rowArc(showsArc && !(DeviceWord.isMac && (codingProject ? codingWorking && codingLine != nil : status != nil)))
         .opacity(busy ? 0.45 : 1)
     }
 
@@ -308,7 +323,7 @@ struct SessionRowView: View {
                 Text(codingLine)
                     .font(Font.hq(.footnote))
                     // Working reads in the tint a card's step line has; the finished summary goes quiet again.
-                    .foregroundStyle(codingWorking ? Color.hqTintText : quietInk)
+                    .foregroundStyle(codingWorking ? (DeviceWord.isMac ? quietInk : Color.hqTintText) : quietInk)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 // [pr-verdict] The lead pull request's checks and size at the line's trailing end, under the mark, in
@@ -324,11 +339,17 @@ struct SessionRowView: View {
         }
     }
 
+    /// [projects-tidy] The ink of a working chat's step line ("Working…", "Reading package.json…"). Owner 2026-11-22
+    /// (the Mac's list: "very visually messy"): in the tint, three working chats read as three blue links and outshouted
+    /// their titles. On the Mac the line is the preview's grey (the spinner beside it, or the face's ring, says it
+    /// works); "Needs your input" keeps its orange. The iPhone and iPad keep the tint.
+    private var workingInk: Color { DeviceWord.isMac ? Color.hqLabel2 : Color.hqTintText }
+
     /// [project-cards] The second line a chat in a card has only while it needs one: waiting on you, or its bot's step.
     private var cardStatus: (words: String, color: Color)? {
         if session.status == .needsInput { return ("Needs your input", Color.hqOrange) }
         if session.isRunning || session.status == .working {
-            return (session.step.map(LiveSteps.line) ?? "Working…", Color.hqTintText)
+            return (session.step.map(LiveSteps.line) ?? "Working…", workingInk)
         }
         return nil
     }
@@ -358,7 +379,7 @@ struct SessionRowView: View {
             }
         }
         .padding(.vertical, desk ? 4 : Density.ios(7, 4))
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ProjectCard.gutter)
         .frame(maxWidth: .infinity, minHeight: desk ? HQFont.scaled(DesktopRows.roomy ? 44 : 36) : Density.ios(44, 32), alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -422,7 +443,7 @@ struct SessionRowView: View {
                 }
             }
             .padding(.vertical, desk ? (fixedDeskHeight ? 0 : 9) : Density.ios(13, 7))
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ProjectCard.gutter)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
@@ -600,7 +621,7 @@ struct SessionRowView: View {
             rest = Text("Needs your input").foregroundStyle(Color.hqOrange)
         } else if session.isRunning || session.status == .working {
             // [toolnow] The step it is on ("Reading package.json…"), else "Working…".
-            rest = Text(session.step.map(LiveSteps.line) ?? "Working…").foregroundStyle(Color.hqTintText)
+            rest = Text(session.step.map(LiveSteps.line) ?? "Working…").foregroundStyle(workingInk)
         } else if let pending = session.pending {
             let prefix = Text(pending.prefix).fontWeight(.semibold).foregroundStyle(pending.failed ? Color.hqRed : Color.hqLabel)
             rest = Text("\(prefix) \(Text(pending.text).foregroundStyle(Color.hqLabel2))")
@@ -809,6 +830,13 @@ struct SessionDateHeaderView: View {
     /// section names do (it had no answer at all). The Mac only.
     @State private var over = false
     @State private var overCaption = false
+    /// [projects-tidy] The pointer is over a project's row (pictures: `-HQDebugRowHover <its name>`, no pointer there).
+    private var overRow: Bool {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "HQDebugRowHover") == title { return true }
+        #endif
+        return over
+    }
     private func ink(_ lit: Bool) -> Color { lit && DeviceWord.isMac ? .hqLabel : .hqLabel2 }
     /// A group's + (never a project's: [project-cards] New Chat is the foot of its card, and stays in its hold menu).
     private var showsNewChat: Bool { onNewChat != nil && summary == nil }
@@ -848,7 +876,8 @@ struct SessionDateHeaderView: View {
         Group {
             if let summary {
                 ProjectCardHeader(title: title, summary: summary, favorite: order?.favorite == true, folds: fold != nil,
-                                  dropTarget: dropTarget, motion: motion, menuSpot: hasMenu)
+                                  opensPage: fold?.opensPage == true, dropTarget: dropTarget, motion: motion, menuSpot: hasMenu,
+                                  over: overRow)
             } else {
                 captionRow
             }
@@ -857,7 +886,6 @@ struct SessionDateHeaderView: View {
             // A caption's tap reaches up into the break above it (the row below has its own); taps only, so VoiceOver's
             // frame stays the caption's.
             .contentShape(.interaction, RaisedHitShape(above: summary == nil ? Self.hitAbove : 0))
-            .onHover { over = $0 }
             .onTapGesture { fold?.toggle() }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(spokenLabel)
@@ -895,6 +923,8 @@ struct SessionDateHeaderView: View {
                     .animation(motion, value: summary?.collapsed)   // motion-ok: nil unless a fold's unfold runs
                 }
             }
+            // [projects-tidy] After the ⋯ laid over the row, so the pointer on it is still on the row.
+            .onHover { over = $0 }
             .padding(.trailing, captionButtonsWidth)
             .overlay(alignment: .trailing) {
                 HStack(spacing: 0) {
@@ -930,7 +960,7 @@ struct SessionDateHeaderView: View {
             // closed projects, rows on the page, stand as close as Pinned's.
             // [soft-cards] On a card a group's name starts where the rows' column does, as "Projects" does.
             .padding(.leading, summary == nil ? Self.captionLead : 0)
-            .padding(.trailing, summary == nil ? 16 : 0)
+            .padding(.trailing, summary == nil ? ProjectCard.gutter - 4 : 0)
             .padding(.top, topGap)
     }
 
@@ -1083,7 +1113,7 @@ struct SessionDateHeaderView: View {
         .frame(minHeight: Self.captionHeight)
         // [soft-cards] On a card the name starts where the rows' column does, as "Pinned" and "Recent" do.
         .padding(.leading, Self.captionLead)
-        .padding(.trailing, ProjectCard.soft ? 20 + BackdropCards.side : 20)
+        .padding(.trailing, ProjectCard.pageTrailing)
         .padding(.top, Self.breakAbove(first: first))
     }
 
@@ -1293,8 +1323,8 @@ struct SessionShowMoreRow: View {
                 .foregroundStyle(Color.hqTintText)
             Spacer(minLength: 0)
         }
-        .padding(.leading, 20)
-        .padding(.trailing, 20)
+        .padding(.leading, ProjectCard.gutter)
+        .padding(.trailing, ProjectCard.gutter)
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

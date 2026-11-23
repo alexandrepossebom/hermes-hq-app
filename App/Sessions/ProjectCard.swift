@@ -60,13 +60,15 @@ enum ProjectCardSlice {
     /// [soft-cards] Owner 2026-11-13 (a screenshot of Sessions): on a soft card the chats stand `side` in from the list's
     /// edge and the projects did not, so a project's folder stood 10 pt left of the faces over and under it. On a card
     /// the projects, and the chats inside an open one, keep the same column as every other chat.
-    static var lead: CGFloat { soft ? 20 + BackdropCards.side : 20 }
+    static var lead: CGFloat { soft ? gutter + BackdropCards.side : gutter }
+    /// [projects-tidy] The list's side margin (`ListGutter`: 14 pt on the Mac).
+    static var gutter: CGFloat { ListGutter.side }
     /// The line's centre: the middle of the face column.
     static var lineX: CGFloat { lead + column / 2 }
     static let lineWidth: CGFloat = 2
     /// The text's trailing edge inside the card. [card-gutters] On a soft card, as far in from the card's right edge as
     /// the captions and the folders are from its left (20 pt): the times, the ⋯ and See All end on one edge.
-    static var trailing: CGFloat { soft ? 20 + BackdropCards.side : 26 }
+    static var trailing: CGFloat { soft ? gutter + BackdropCards.side : gutter + 6 }
     /// The same edges in the card's own cells (a chat, Show More, New Chat), which start at the card's edge, so a swipe
     /// moves a chat inside the card and its buttons sit inside it.
     static var cellLead: CGFloat { lead - inset }
@@ -74,7 +76,7 @@ enum ProjectCardSlice {
     static var cellLineX: CGFloat { lineX - inset }
     /// A closed project's trailing edge on the page: a chat row's, so its count stands under Pinned's times.
     /// [card-gutters] On a soft card, the card's own edge (a closed project's ⋯ stood 12 pt from the card's side).
-    static var pageTrailing: CGFloat { soft ? 20 + BackdropCards.side : 20 }
+    static var pageTrailing: CGFloat { soft ? gutter + BackdropCards.side : gutter }
     /// A chat's face, and the space above and below it in its row (a one-line row is 44 pt, as Pinned's).
     static var face: CGFloat { Theme.isDesktop ? HQFont.scaled(22) : Density.ios(28, 22) }
     static var rowPad: CGFloat { Theme.isDesktop ? 7 : SessionRowView.macTight(8, 5, mac: 4) }   // [mac-pane] 36 pt rows on the Mac, as a chat's
@@ -677,17 +679,34 @@ struct ProjectCardHeader: View {
     var summary: SessionProjectSummary
     var favorite = false
     var folds = true
+    /// [project-opens-page] The row opens the project's page (nothing unfolds under it).
+    var opensPage = false
     var dropTarget = false
     /// [project-unfold] Opening or closing: what changes across the row (the count, time and dots tucking away, the
     /// caret, the card's fill) moves on this. Its move down into the card is the list's (see `rowShift`).
     var motion: Animation? = nil
     /// [header-menus] Room at the far right for the header's ⋯, which its header sets over it (`HeaderMenuSpot`).
     var menuSpot = false
+    /// [projects-tidy] The pointer is over the row.
+    var over = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorSchemeContrast) private var contrast
     private var large: Bool { typeSize.isAccessibilitySize }
     private var desk: Bool { Theme.isDesktop && !large }
     private var open: Bool { !summary.collapsed }
+    /// [projects-tidy] Owner 2026-11-22 (the Mac's Projects side: "very visually messy"; a row held a boxed folder, the
+    /// name, a star, a count, a caret, a time and a ⋯). The Mac's row that opens a page is quieter: the folder without
+    /// its box, no caret (it sat wherever the name ended, and a click anywhere on the row opens the page), and the ⋯
+    /// in the time's place only under the pointer, as a chat row's Pin, Archive and More (a right click has the menu too).
+    private var quiet: Bool { DeviceWord.isMac && opensPage && !large }
+    private var hoverMenu: Bool { quiet && menuSpot }
+    /// [projects-tidy] Owner 2026-11-22 ("more left align the projects so that the sessions under them can feel like
+    /// they belong to them"): the quiet row's folder stands on the list's edge, where "Projects" starts, in a column
+    /// its own size (it was centred in a face's column, 9 pt in from the caption in the Desktop Look), and its name
+    /// straight after. The chats under it then start further in than their project does.
+    /// The column is the glyph's own width (a face's left 7 pt of air after it), so the name, and the chats under it,
+    /// start closer to the edge.
+    static var quietColumn: CGFloat { (ProjectCard.face * 0.8).rounded() }
     // [ui-sizing] Compact's callout, as the chat rows under it.
     private var nameFont: Font { desk || Density.compact ? Font.hq(.callout).weight(.semibold) : Font.hq(.body).weight(.semibold) }
     /// The header sits on its card: open, or closed with a dragged chat held over it.
@@ -702,7 +721,7 @@ struct ProjectCardHeader: View {
             folder
                 .animation(motion, value: carded)   // motion-ok: nil unless a fold's unfold runs (reload skips it under Reduce Motion)
                 .geometryGroup()   // [project-unfold] its move down is the list's: only what changes inside it animates
-                .frame(width: ProjectCard.column)
+                .frame(width: quiet ? Self.quietColumn : ProjectCard.column, alignment: .leading)
             Group {
                 if DeviceWord.isMac && !large {
                     // [mac] A narrow list: the count goes first, then the time, before the name is cut short (it
@@ -788,7 +807,7 @@ struct ProjectCardHeader: View {
                 }
             }
             .layoutPriority(1)
-            if folds {
+            if folds && !quiet {
                 Image(systemName: "chevron.down")
                     .font(Font.hq(.caption).weight(.semibold))
                     .foregroundStyle(Color.hqLabel3)
@@ -806,6 +825,7 @@ struct ProjectCardHeader: View {
         let look = summary.home ? ProjectLook() : summary.look
         let colour = look.color.map { Color(uiColor: SessionsOrganizer.uiColor($0)) }
         let backed = look.emoji != nil && colour != nil
+        let bare = quiet && !carded   // [projects-tidy] no box on the Mac's page (a dragged chat held over it: its card's)
         return Group {
             if let emoji = look.emoji {
                 Text(emoji).font(.system(size: boxSize * 0.56))     // a11y-font-ok: sized to the face column, as the faces
@@ -816,14 +836,16 @@ struct ProjectCardHeader: View {
             }
         }
             // [slim-rail] In the slim column the folder stands alone, as wide as the column: no box.
-            .frame(width: ProjectCard.slim ? ProjectCard.column : boxSize, height: boxSize)
+            // [projects-tidy] Bare, the glyph starts on the column's leading edge (an emoji or a box stays centred).
+            .frame(width: ProjectCard.slim ? ProjectCard.column : bare ? Self.quietColumn : boxSize, height: boxSize,
+                   alignment: bare && look.emoji == nil ? .leading : .center)
             .background(RoundedRectangle(cornerRadius: desk ? 6 : 8, style: .continuous)
                 .fill(backed ? (colour ?? .clear).opacity(0.32) : Color(uiColor: carded && !ProjectCard.soft ? ProjectCard.box : ProjectCard.boxOnPage))
-                .frame(width: backed && ProjectCard.slim ? boxSize : nil)
-                .opacity(ProjectCard.slim && !backed ? 0 : 1))
+                .frame(width: backed && ProjectCard.slim ? boxSize : nil, height: backed && bare ? Self.quietColumn : nil)
+                .opacity((ProjectCard.slim || bare) && !backed ? 0 : 1))
             .overlay {
                 // The Desktop Look's page and card are close in light: its outline keeps the box.
-                if let edge = ProjectCard.edge {
+                if let edge = ProjectCard.edge, !bare || backed {
                     RoundedRectangle(cornerRadius: desk ? 6 : 8, style: .continuous).strokeBorder(Color(uiColor: edge), lineWidth: HQShape.hairline)
                 }
             }
@@ -845,6 +867,15 @@ struct ProjectCardHeader: View {
                     time
                     menuSpotView
                 }
+            } else if hoverMenu {
+                // [projects-tidy] The ⋯ in the time's place while the pointer is on the row: the time keeps its room
+                // (hidden), so nothing else in the row moves as the pointer comes and goes.
+                if showTime && !summary.time.isEmpty {
+                    time.opacity(over ? 0 : 1)
+                        .overlay(alignment: .trailing) { if over { menuSpotView } }
+                } else if over {
+                    menuSpotView.padding(.leading, 8)
+                }
             } else {
                 if showTime { time }
                 if menuSpot { menuSpotView.padding(.leading, 8) }
@@ -856,7 +887,8 @@ struct ProjectCardHeader: View {
         if !summary.time.isEmpty {
             Text(summary.time)
                 .font(Font.hq(desk ? .caption2 : DeviceWord.isMac ? .caption : ProjectCard.fresh ? .footnote : .subheadline))   // [card-gutters] as its chats' times
-                .foregroundStyle(summary.unread > 0 ? Color.hqTint : Color.hqLabel2)
+                // [projects-tidy] The Mac's quiet row: the unread count beside it already says it in the tint.
+                .foregroundStyle(summary.unread > 0 && !quiet ? Color.hqTint : Color.hqLabel2)
                 .monospacedDigit()
                 .lineLimit(1)
                 .fixedSize()   // [ui-sizing] whole: a long project name squeezed it to "Yest…"

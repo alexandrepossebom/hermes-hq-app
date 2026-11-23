@@ -141,7 +141,7 @@ struct TodoRowView: View {
             .accessibilityHidden(true)
         }
         .padding(.vertical, 8)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, ListGutter.side)
         .frame(minHeight: 42, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -220,8 +220,8 @@ struct TodoRowView: View {
             }
         }
         .padding(.vertical, Theme.isDesktop ? 10 : 8)
-        .padding(.leading, 20)
-        .padding(.trailing, 20)
+        .padding(.leading, ListGutter.side)
+        .padding(.trailing, ListGutter.side)
         .frame(minHeight: Theme.isDesktop ? 46 : 44, alignment: .leading)
         .contentShape(Rectangle())
         .help(pointerWords)
@@ -378,7 +378,7 @@ struct TodoGroupHeaderView: View {
                     .accessibilityIdentifier(foldID)
                 }
             }
-            .padding(.horizontal, onCard ? 20 + BackdropCards.side : 20)
+            .padding(.horizontal, onCard ? ListGutter.side + BackdropCards.side : ListGutter.side)
             .padding(.top, onCard ? 13 : 16)
             .padding(.bottom, note == nil ? 4 : 2)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -389,7 +389,7 @@ struct TodoGroupHeaderView: View {
                     .font(Font.hq(.footnote))
                     .foregroundStyle(Color.hqLabel2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, onCard ? 20 + BackdropCards.side : 20)
+                    .padding(.horizontal, onCard ? ListGutter.side + BackdropCards.side : ListGutter.side)
                     .padding(.bottom, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("tasks.stale.note")

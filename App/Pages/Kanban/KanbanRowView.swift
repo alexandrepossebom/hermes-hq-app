@@ -327,7 +327,7 @@ struct KanbanStatusView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(RoundedRectangle(cornerRadius: HQShape.radius(26, .card), style: .continuous).fill(Color.hqFill3))
-            .padding(.horizontal, 20)
+            .padding(.horizontal, ListGutter.side)
             .padding(.bottom, 20)
         } else {
             HStack(spacing: 8) {

@@ -342,6 +342,31 @@ search field always showing was turned down: "behind a click".)
   iPhone (`SessionsViewController.goHome`).
 - **Rows** (`SessionRowView.macTight`, `ProjectCard.rowPad`): in the iOS look at Standard density a one-line chat row
   and a project's row are 36 pt (about 32 on the screen; they were 44 and 39). Compact and the Desktop Look keep theirs.
+- **A list's margin** (`ListGutter.side`, owner 2026-11-22: "less padding to left and right"): 14 pt on the Mac (20
+  on the iPhone and iPad), one number for Sessions (the row under the bar, the captions, every chat row, the projects
+  and a project's page), the Bots list and its groups, Jobs, Tasks and the Desktop Look's gutter
+  (`DesktopRows.gutter`), so each list has one left edge and one right edge and the lists agree with each other. A
+  selection's box stands 8 pt in, 6 clear of the words.
+- **A project's row on the Projects side** (`ProjectCardHeader.quiet`, owner 2026-11-22: "very visually messy"): the
+  folder without its box, on the list's edge where "Projects" starts, in a column its glyph's width (`quietColumn`);
+  no caret after the name (a click anywhere opens the page), and the ⋯ in the time's place only under the pointer (a
+  right click has the menu too). A closed project's live chats start exactly under its name (`SessionRowView.nested`):
+  with Bot Faces on the face stands in the folder's column, with them off the row starts that column further in. Their
+  titles are a size under the project's name (subheadline under callout), never bold (the row's dot says unread). A
+  project's time is grey even with an unread chat (the count beside it says so in the tint).
+- **A working chat's step line** (`SessionRowView.workingInk`): the preview's grey on the Mac, beside its spinner (in
+  the tint, three working chats read as three links); "Needs your input" keeps its orange. The Bots list's row keeps
+  the tint.
+  A row with that line draws no working ring round itself as well.
+- **The scope menu at the pane's narrowest** (`SessionsHeaderView.scopeMenu`, `ScopeNameKeep`): each of the row's
+  shorter forms keeps the start of the menu's name, so the counts, the switch's glyphs and the menu's picture give way
+  first. In the narrowest pane, where the name had been cut to a bare "…", the menu says "All" (the lit side of the
+  switch says of what), or shows the picked bot's face or project's folder. Pictures at four pane widths:
+  `artifacts/projects-list-tidy/final-header-widths.png`.
+- Pictures of all three, both looks (Sessions with Bot Faces off and on, a selected row, the Chats side, Bots, Jobs,
+  Tasks): `artifacts/projects-list-tidy/`. NOT checked: the full Sessions UI suite, a real pointer on the ⋯ (the
+  picture stages the hover), Soft Cards, Kanban's and the empty states' margins (the same number, no picture), iPhone
+  and iPad (unchanged by the numbers).
 - **Captions** are a size under the rows' titles (`SessionDateHeaderView.captionStyle`, footnote) in the iOS look.
 - **A project's header** (`ProjectPageHeader.macBody`): no card and no count capsules. The name, then one grey line:
   folder, bots, "7 chats", and each count that isn't zero as words that narrow the page with a click.
