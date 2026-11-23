@@ -15,6 +15,11 @@ Mac window, scaled to Mac size. No separate code base; every iPhone and iPad cha
 - The window has no title text or toolbar row; the menu bar keeps the app's own commands (File › New Chat, View › tabs,
   Next / Previous Chat, Refresh, Settings… ⌘,) and drops the system's document, Format, toolbar and sidebar items;
   Help is "Hermes HQ Support", the website's support page (`App/Mac/MacWindow.swift`).
+- A double-click on the bars along the window's top zooms it, or minimises or does nothing, as System Settings ›
+  Desktop & Dock says (owner 2026-11-22). AppKit's title bar only answers the thin strip above the app's bars; the
+  band under it (a pane's bar, or a bar's height of a pane with none) goes through `MacTitleBarClick`, which skips
+  anything that takes a click of its own (buttons, search, the title's menu) and anything that scrolls. Main, Settings
+  and file windows (`App/Mac/MacTitleBarClick.swift`).
 - The Mac draws no fade under a clear bar, so a page that leaves its bar to the system (Settings, Bot Profiles,
   Status & Maintenance…) gets a solid bar in its page's colour (`MacWindow.pageBar`, from `PushedPageTitles`' didShow); chats
   keep their clear bar, and the Desktop Look has its own. More's open-page mark is a lighter grey than the Mac's own

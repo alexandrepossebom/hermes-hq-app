@@ -192,6 +192,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate, LaunchHost {
         #if targetEnvironment(macCatalyst)
         MacWindow.configure(windowScene)               // [mac]
         MacToolTips.install(on: window)                // [mac] icon buttons name themselves under the pointer
+        MacTitleBarClick.install(on: window)           // [mac] a double-click on the bars along the top zooms the window
         MacSelection.install(on: window)               // [mac] stress test #54: the pane a click lands in has the focus
         #endif
         #if DEBUG

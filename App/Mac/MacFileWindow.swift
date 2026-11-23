@@ -426,6 +426,7 @@ final class FileSceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         let window = UIWindow(windowScene: windowScene)
         MacToolTips.install(on: window)
+        MacTitleBarClick.install(on: window)
         AppearanceSetting.apply(to: window)
         Theme.shared.adopt(window)
         let navigation = UINavigationController(rootViewController: viewer)

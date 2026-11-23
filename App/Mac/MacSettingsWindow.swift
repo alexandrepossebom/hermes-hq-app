@@ -238,6 +238,7 @@ final class SettingsSceneDelegate: UIResponder, UIWindowSceneDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.opening = nil; self?.keeps = true }
         let window = UIWindow(windowScene: windowScene)
         MacToolTips.install(on: window)
+        MacTitleBarClick.install(on: window)
         AppearanceSetting.apply(to: window)
         Theme.shared.adopt(window)
         let root = SettingsRootController(services: services)
