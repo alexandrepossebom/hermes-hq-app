@@ -190,10 +190,10 @@ final class TasksStore {
     let api: TasksAPI
     let account: GatewayAccount
     let directory: URL?
-    var readOnlyGateway = false
+    var readOnlyGateway = false { didSet { TodoTaskStates.noteReadOnly(readOnlyGateway) } }
 
-    /// Every task (optimistic edits applied).
-    private(set) var tasks: [TodoTask] = []
+    /// Every task (optimistic edits applied). [chat-mark-done] The chat's close cards read a copy (`TodoTaskStates`).
+    private(set) var tasks: [TodoTask] = [] { didSet { TodoTaskStates.note(tasks) } }
     private(set) var settings = TodoSettings() {
         didSet { if oldValue.enabled != settings.enabled { onEnabledChanged?(settings.enabled) } }
     }
@@ -251,6 +251,9 @@ final class TasksStore {
     /// The task the last notice is about; nil when it is about the list as a whole (its settings or sections). The Mac's
     /// two panes say it on the task beside the list only when it is that task (Mac polish #44).
     @ObservationIgnored private(set) var noticeTask: String?
+    /// [chat-mark-done] The last notice's words: a chat card's refused save says why under the chat's bar (the card
+    /// clears it before its write).
+    @ObservationIgnored var lastNotice: String?
     /// A refresh failed while a list shows (the page says "Couldn’t refresh. Showing what was saved.", as Jobs does).
     @ObservationIgnored var onRefreshFailed: ((String) -> Void)?
     /// Why the last `add` failed, in words (New Task's sheet says it on its own line; nil when it worked).
@@ -408,6 +411,7 @@ final class TasksStore {
         self.rev = rev
         if let settings { self.settings = settings }
         hasList = true
+        TodoTaskStates.noteRead()   // [chat-mark-done] the gateway's list, not the one on disk
         save()
         changed()
     }
@@ -484,6 +488,7 @@ final class TasksStore {
 
     private func notice(_ text: String, about task: String? = nil) {
         noticeTask = task
+        lastNotice = text
         onNotice?(text)
     }
 
@@ -1058,6 +1063,7 @@ final class TasksStore {
         readGeneration += 1             // a read on its way is dropped
         changed()
         closed = true
+        TodoTaskStates.forget()         // [chat-mark-done]
     }
 }
 

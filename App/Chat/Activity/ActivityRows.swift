@@ -41,6 +41,8 @@ nonisolated struct ActivityRowsInput: @unchecked Sendable {
     var turnAnchor: String?
     /// Generated images whose good path wouldn't load: drawn as the "Open image: …" link row (§11.3).
     var failedImages: Set<String> = []
+    /// [chat-mark-done] The Tasks store's tasks as the close cards read them (a snapshot of `TodoTaskStates`).
+    var taskStates = TodoTaskStates.Snapshot()
 }
 
 // MARK: - Row kinds
@@ -59,6 +61,25 @@ nonisolated enum ActivityRowKind {
     case tasksOffer(TasksOfferRow)
     /// [goals step 3] A bot's goal, plan, check-in or tasks for a goal, with its buttons (boards 3 to 5).
     case goalOffer(GoalOfferRow)
+    /// [chat-mark-done] A bot's offer to close a task of yours (Mark Done / Keep Open), or its word that it marked one
+    /// done because you said so (Undo).
+    case taskClose(TaskCloseRow)
+}
+
+/// [chat-mark-done] One task a reply's `tasks_update` offered to close, or closed because you said so. `state` is the
+/// task now (read from the Tasks store when the row is built); the layout is the same in every state, so the card
+/// never jumps as you answer it.
+nonisolated struct TaskCloseRow {
+    var messageId: String
+    var taskId: String
+    var title: String
+    /// "Hermes: looks done · Ivy confirmed by email" (the task page's line); nil on the asked card.
+    var line: String?
+    /// The bot marked it done because you said so (no offer, no Keep Open).
+    var asked: Bool
+    var state: TodoCloseCards.State
+    /// The gateway takes no writes: the buttons dimmed, as on the task's page.
+    var readOnly: Bool
 }
 
 /// [goals step 3] What a reply's `goals_offer` offered, read from the store by its id (the tool's answer is the id
@@ -491,6 +512,68 @@ nonisolated enum ActivityRows {
         }
     }
 
+    // MARK: A bot's offer to close a task ([chat-mark-done])
+
+    /// Under a settled reply whose bot offered to close a task of yours (`tasks_update` with `offer_done`), or marked
+    /// one done because you said so (`status: done`, `asked`): one card per task, its last call in the reply. A result,
+    /// as the two cards above: Tool Call Style and Hide Steps don't touch it. What it shows is the task now; one the
+    /// store hasn't read yet asks for it, and the row comes once it has (`TodoTaskStates.changed` rebuilds the chat),
+    /// as a goal's offer does. Only the chat's newest card for a task keeps its buttons.
+    static func taskCloseRows(_ m: ChatMessage, calls: [ToolCall], input: ChatRowBuilder.Input) -> [ChatRow] {
+        guard !m.isStreaming else { return [] }
+        let found = closeCards(calls)
+        guard !found.isEmpty else { return [] }
+        let states = input.activity.taskStates
+        let own = input.activity.profile
+        let name: (String?) -> String = { profile in
+            let id = profile ?? own
+            if id == own || id.isEmpty { return input.speakerName }
+            return input.bots.first { $0.profile == id }?.name ?? (id == "default" ? "Hermes" : id.capitalized)
+        }
+        return found.compactMap { task -> ChatRow? in
+            let newest = newestCloseCard(task.id, in: input.messages) == m.id
+            let offerAt = task.closeOffer?.at
+            guard let state = TodoCloseCards.state(asked: task.askedDone, offer: task.closeOffer, id: task.id, newest: newest,
+                                                   in: states) else {
+                TodoTaskStates.want(task.id, at: offerAt)
+                return nil
+            }
+            // A list only from disk, or an offer newer than the store's: read it again (the card shows what it has).
+            if !states.read || TodoCloseCards.newer(offerAt, than: states.tasks[task.id]?.offer?.at) {
+                TodoTaskStates.want(task.id, at: offerAt)
+            }
+            let row = TaskCloseRow(messageId: m.id, taskId: task.id, title: task.title,
+                                   line: task.askedDone ? nil : task.closeOffer.map { TodoLists.closeLine($0, botName: name) },
+                                   asked: task.askedDone, state: state, readOnly: states.readOnly)
+            var h = Hasher()
+            h.combine(row.taskId); h.combine(row.title); h.combine(row.line); h.combine(row.asked); h.combine(row.state)
+            h.combine(row.readOnly)
+            return ChatRow(id: "\(m.id)|close|\(task.id)", messageId: m.id, scope: input.scope, fingerprint: h.finalize(),
+                           kind: .activity(.taskClose(row)), gapAbove: 8, variant: 0)
+        }
+    }
+
+    /// The tasks a reply's `tasks_update` calls offered to close or closed as asked, each once (its last call).
+    static func closeCards(_ calls: [ToolCall]) -> [AddedTask] {
+        var found: [AddedTask] = []
+        for call in calls where call.state == .done && call.name == "tasks_update" {
+            guard case .tasksAdded(let tasks)? = call.card else { continue }
+            for task in tasks where task.closeOffer != nil || task.askedDone {
+                if let i = found.firstIndex(where: { $0.id == task.id }) { found[i] = task } else { found.append(task) }
+            }
+        }
+        return found
+    }
+
+    /// The id of the chat's newest reply with a close card for this task.
+    static func newestCloseCard(_ id: String, in messages: [ChatMessage]) -> String? {
+        for m in messages.reversed() where m.role == .assistant {
+            let calls = m.parts.compactMap { part -> ToolCall? in if case .tool(let c) = part, c.name == "tasks_update" { return c } else { return nil } }
+            if closeCards(calls).contains(where: { $0.id == id }) { return m.id }
+        }
+        return nil
+    }
+
     // MARK: A goal's offer ([goals step 3], boards 3 to 5)
 
     /// Under a settled reply whose bot called `goals_offer`: one card per offer the app has read. One it hasn't read
@@ -839,6 +922,24 @@ nonisolated struct TasksOfferLayout: @unchecked Sendable {
     var offer: TodoOffer
 }
 
+/// [chat-mark-done] A bot's offer to close a task: its line (the task page's words), the task's title, then the foot: the
+/// two buttons, or one line of words with Undo at its end. The same frames in every state.
+nonisolated struct TaskCloseLayout: @unchecked Sendable {
+    var cardFrame: CGRect
+    var markFrame: CGRect?
+    var lineFrame: CGRect?
+    var circleFrame: CGRect
+    var titleFrame: CGRect
+    var footFrame: CGRect
+    var doneFrame: CGRect
+    var keepFrame: CGRect
+    var statusFrame: CGRect
+    var undoFrame: CGRect
+    var font: UIFont
+    var detailFont: UIFont
+    var row: TaskCloseRow
+}
+
 nonisolated enum ActivityLayout: @unchecked Sendable {
     case toolBubble(ToolBubbleLayout)
     case delegate(DelegateCardLayout)
@@ -848,6 +949,7 @@ nonisolated enum ActivityLayout: @unchecked Sendable {
     case tasksAdded(TasksAddedLayout)
     case tasksOffer(TasksOfferLayout)
     case goalOffer(GoalOfferLayout)
+    case taskClose(TaskCloseLayout)
 }
 
 nonisolated enum ActivityLayouts {
@@ -861,6 +963,7 @@ nonisolated enum ActivityLayouts {
         case .tasksAdded(let t): return tasksAdded(t, row: row, width: width, style: style)
         case .tasksOffer(let t): return tasksOffer(t, row: row, width: width, style: style)
         case .goalOffer(let g): return goalOffer(g, row: row, width: width, style: style)
+        case .taskClose(let t): return taskClose(t, row: row, width: width, style: style)
         }
     }
 
@@ -925,6 +1028,68 @@ nonisolated enum ActivityLayouts {
             cardFrame: CGRect(x: left, y: top, width: columnW, height: y - top), badgeFrame: badgeFrame, titleFrame: titleFrame,
             title: t.title, whyFrame: whyFrame, lines: lines, moreFrame: moreFrame, more: t.more, mainFrame: mainFrame,
             footFrame: footFrame, font: font, detailFont: detailFont, offer: t.offer))))
+    }
+
+    // MARK: A bot's offer to close a task ([chat-mark-done])
+
+    /// The foot holds both buttons on one row when they fit, else one under the other (the largest text sizes); its
+    /// words, when answered, get the same height, measured for the longest they can say, so no state moves the card.
+    private static func taskClose(_ t: TaskCloseRow, row: ChatRow, width: CGFloat, style: ChatStyle) -> RowLayout {
+        let columnW = min(TextLayout.replyWidth(width), 360)
+        let font = HQFont.face(ofSize: (16 * style.chromeBody / 17).rounded())
+        let buttonFont = HQFont.face(ofSize: font.pointSize, weight: .semibold)
+        let detailFont = HQFont.face(ofSize: (14 * style.chromeBody / 17).rounded())
+        let lineH = ceil(font.lineHeight)
+        let pad: CGFloat = 14
+        let left = ChatMetrics.sideInset
+        let top = max(0, row.gapAbove)
+        let innerW = columnW - 2 * pad
+        var y = top + 12
+        var markFrame: CGRect?, lineFrame: CGRect?
+        if let line = t.line {
+            let mark = ceil(detailFont.pointSize * 1.1)
+            let w = max(40, innerW - mark - 7)
+            let h = height(line, font: detailFont, width: w, lines: 4)
+            markFrame = CGRect(x: left + pad, y: y + ((ceil(detailFont.lineHeight) - mark) / 2).rounded(), width: mark, height: mark)
+            lineFrame = CGRect(x: left + pad + mark + 7, y: y, width: w, height: h)
+            y += h + 8
+        }
+        let circle = ceil(font.pointSize * 1.15)
+        let titleW = max(40, innerW - circle - 9)
+        let titleH = max(lineH, height(t.title, font: font, width: titleW, lines: 3))
+        let circleFrame = CGRect(x: left + pad, y: y + ((lineH - circle) / 2).rounded(), width: circle, height: circle)
+        let titleFrame = CGRect(x: left + pad + circle + 9, y: y, width: titleW, height: titleH)
+        y += titleH + 12
+        // The foot: Mark Done (filled) and Keep Open (quiet), side by side when they fit.
+        let buttonH = max(40, lineH + 18)
+        func wide(_ text: String) -> CGFloat { ceil((text as NSString).size(withAttributes: [.font: buttonFont]).width) + 28 }
+        let doneW = wide("Mark Done"), keepW = wide("Keep Open")
+        var doneFrame: CGRect, keepFrame: CGRect
+        var footH: CGFloat
+        if doneW + 8 + keepW <= innerW {
+            doneFrame = CGRect(x: left + pad, y: y, width: doneW, height: buttonH)
+            keepFrame = CGRect(x: doneFrame.maxX + 8, y: y, width: keepW, height: buttonH)
+            footH = buttonH
+        } else {
+            doneFrame = CGRect(x: left + pad, y: y, width: innerW, height: buttonH)
+            keepFrame = CGRect(x: left + pad, y: y + buttonH + 6, width: innerW, height: buttonH)
+            footH = 2 * buttonH + 6
+        }
+        // Answered: the words at the start, Undo at the end (the words wrap at the largest sizes).
+        let undoW = min(innerW / 2, wide("Undo"))
+        let mark = ceil(font.pointSize * 1.1)
+        let wordsW = max(40, innerW - undoW - 8 - mark - 7)
+        let wordsH = TodoCloseCards.allWords.map { height($0, font: buttonFont, width: wordsW, lines: 3) }.max() ?? lineH
+        footH = max(footH, wordsH + 12)
+        let footFrame = CGRect(x: left + pad, y: y, width: innerW, height: footH)
+        let undoH = max(44, buttonH)
+        let undoFrame = CGRect(x: footFrame.maxX - undoW, y: y + ((footH - undoH) / 2).rounded(), width: undoW, height: undoH)
+        let statusFrame = CGRect(x: left + pad, y: y, width: innerW - undoW - 8, height: footH)
+        y += footH + 12
+        return RowLayout(height: ceil(y + 2), content: .activity(.taskClose(TaskCloseLayout(
+            cardFrame: CGRect(x: left, y: top, width: columnW, height: y - top), markFrame: markFrame, lineFrame: lineFrame,
+            circleFrame: circleFrame, titleFrame: titleFrame, footFrame: footFrame, doneFrame: doneFrame, keepFrame: keepFrame,
+            statusFrame: statusFrame, undoFrame: undoFrame, font: font, detailFont: detailFont, row: t))))
     }
 
     // MARK: A goal's offer ([goals step 3])

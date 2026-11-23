@@ -990,6 +990,7 @@ nonisolated enum ChatRowBuilder {
         if let card = ActivityRows.tasksAddedRow(m, calls: addedTasks, input: input) { rows.append(card) }   // [tasks]
         rows += ActivityRows.tasksOfferRows(m, calls: offeredTasks, input: input)                             // [task-lists]
         rows += ActivityRows.goalOfferRows(m, calls: offeredGoals, input: input)                              // [goals step 3]
+        rows += ActivityRows.taskCloseRows(m, calls: addedTasks, input: input)                                // [chat-mark-done]
         let produced = rows.count > before
         let name = input.speakerName
         if let error = m.error, !input.expanded.contains(ChatRowBuilder.dismissedErrorKey(m.id)) {

@@ -428,6 +428,7 @@ import UIKit
             a.turnAnchor = p.hiddenTurnAnchor
         }
         a.failedImages = failedImages
+        a.taskStates = TodoTaskStates.snapshot()   // [chat-mark-done]
         if a.hideSteps { noteFolds() }
         a.folding = folding
         a.holdingActions = holdingActions
@@ -1689,6 +1690,21 @@ extension ChatViewController: ActivityCellDelegate, ChatCellMenuExtending {
         Task {
             let ok = await TasksHub.answerOffer(id, action, list: true, plan: plan, inGoal: inGoal, client: client)
             AppLog.note("goals", "chat goal card \(action.rawValue) → \(ok ? "ok" : "failed")")
+            done(ok)
+        }
+    }
+
+    /// [chat-mark-done] Mark Done, Keep Open or Undo on a bot's offer to close a task: the Tasks store's own calls, as on
+    /// the task's page. A refused save leaves the card as it was and says why under the bar.
+    func activityCellCloseTask(id: String, action: TodoCloseCards.Action, done: @escaping (Bool) -> Void) {
+        let client = (session as? LiveChatSession)?.client
+        Task {
+            let (ok, reason) = await TasksHub.closeTask(id, action, client: client)
+            AppLog.note("tasks", "chat close card \(action.rawValue) → \(ok ? "ok" : "failed")")
+            if !ok, let reason {
+                showNotice(reason, duration: 3, spinner: false)
+                HQAnnounce.say(reason)
+            }
             done(ok)
         }
     }

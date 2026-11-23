@@ -16,6 +16,7 @@ enum TasksHub {
             store.readOnlyGateway = context.readOnly
             return store
         }
+        TodoTaskStates.forget()   // [chat-mark-done] the chat's close cards read this gateway's list, not the last one's
         let made = TasksStore(api: TasksAPI(client: context.client), account: context.account,
                               directory: PagesCache.directory(for: context.account))
         made.readOnlyGateway = context.readOnly
@@ -72,6 +73,10 @@ enum TasksHub {
         }
         // [goals step 3] A chat names a goal's card the app hasn't read: the list is read again (once per card).
         center.addObserver(forName: TodoOfferStates.wanted, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { _ = Task { await current?.refresh(force: true) } }
+        }
+        // [chat-mark-done] A chat's close card names a task the list hasn't shown yet (or a newer offer on it).
+        center.addObserver(forName: TodoTaskStates.wanted, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { _ = Task { await current?.refresh(force: true) } }
         }
     }
@@ -245,6 +250,27 @@ enum TasksHub {
             AppLog.note("tasks", "offer not answered: \(PagesREST.reason(error))")
             return false
         }
+    }
+
+    /// [chat-mark-done] A chat card's Mark Done, Keep Open or Undo on a bot's offer to close a task: the same store calls
+    /// the task's page makes (`TodoSheet.markDone`, `TasksStore.keepOpen`, `TodoSheet.reopen`), so the page and the list
+    /// show it at once. A refused save gives the store's own words for why.
+    static func closeTask(_ id: String, _ action: TodoCloseCards.Action, client: (any GatewayClient)?) async -> (ok: Bool, reason: String?) {
+        guard let context = MorePages.context, client == nil || client === context.client else {
+            return (false, "Open the task on the Tasks page of the computer it’s on.")
+        }
+        let store = store(context)
+        if store.task(id) == nil { await store.refresh(force: true) }
+        guard store.task(id) != nil else { return (false, "This task is no longer on your list.") }
+        store.lastNotice = nil
+        let ok: Bool
+        switch action {
+        case .markDone: ok = await store.setDone(id, true)
+        case .keepOpen: ok = await store.keepOpen(id)
+        case .reopen: ok = await store.setDone(id, false)
+        }
+        if ok, action == .reopen { TodoTaskStates.noteReopened(id) }
+        return (ok, ok ? nil : store.lastNotice ?? "Couldn’t save the change.")
     }
 
     // MARK: The task's own chat

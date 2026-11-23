@@ -1777,6 +1777,62 @@ def seed_task_lists():
         {'role': 'assistant', 'content': 'I can keep those together in a Party list. Nothing is added until you tap the card.'},
     ], T0 - 360)
 
+CLOSE_SEEDS = [0]
+
+def seed_task_close():
+    """[chat-mark-done] Three chats where a bot answered 'that one's finished' (owner 2026-11-22): it offers to close
+    your task with `tasks_update offer_done` ('s-close-done', 's-close-keep', the second through the `tool_call`
+    bridge), and one it marked done itself because you told it to (`status: done`, `asked`: 's-close-asked'). Every name
+    is invented."""
+    t0 = local(T0)
+    def ago(minutes): return iso(t0 - datetime.timedelta(minutes=minutes))
+    # Each seed's revs rise: the app keeps a task whose rev is newer (TasksStore.adopt), so a test's Mark Done would
+    # otherwise outlive the reset into the next test.
+    CLOSE_SEEDS[0] += 1
+    def mine(tid, title, **more):
+        TASKS[tid] = {'id': tid, 'rev': 2 + 20 * CLOSE_SEEDS[0], 'title': title, 'notes': '', 'who': 'me', 'bot': None, 'status': 'open', 'status_note': '',
+                      'due': None, 'repeat': None, 'prep': False, 'steps': [], 'made': [], 'source': {'kind': 'app'},
+                      'created_at': ago(4000), 'updated_at': ago(4000), 'done_at': None, 'created_by': 'you',
+                      'log': [], 'section': None, 'position': 1.0, 'watch': '', 'chat': {},
+                      'priority': 0, 'tags': [], 'alert': None, 'starts': None}
+        TASKS[tid].update(more)
+    def offered(tid, why, minutes):
+        TASKS[tid]['offer'] = {'kind': 'done', 'by': 'default', 'text': why, 'at': ago(minutes)}
+        TASKS[tid]['offered'] = 'Offered. They tap Mark Done or Keep Open on the task.'
+        return copy.deepcopy(TASKS[tid])
+    mine('t_c_tickets', 'Book the train tickets')
+    mine('t_c_plants', 'Water the office plants')
+    mine('t_c_cake', 'Pick up the cake')
+    why = 'You booked them this morning'
+    shown = offered('t_c_tickets', why, 8)
+    add_session('s-close-done', 'default', 'Train tickets', [
+        {'role': 'user', 'content': 'I booked the train tickets this morning, so that one is finished.'},
+        {'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'call_cd1', 'type': 'function', 'function': {
+            'name': 'tasks_update', 'arguments': json.dumps({'id': 't_c_tickets', 'offer_done': why})}}]},
+        {'role': 'tool', 'tool_call_id': 'call_cd1', 'tool_name': 'tasks_update', 'content': json.dumps(shown)},
+        {'role': 'assistant', 'content': 'The shared task is ready to tap Mark Done.'},
+    ], T0 - 480)
+    why = 'Wren said they were watered on Friday'
+    shown = offered('t_c_plants', why, 7)
+    bridged = {'calls': [{'name': 'tasks_update', 'arguments': {'id': 't_c_plants', 'offer_done': why}}]}
+    add_session('s-close-keep', 'default', 'Office plants', [
+        {'role': 'user', 'content': 'Wren watered the office plants on Friday.'},
+        {'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'call_ck1', 'type': 'function', 'function': {
+            'name': 'tool_call', 'arguments': json.dumps(bridged)}}]},
+        {'role': 'tool', 'tool_call_id': 'call_ck1', 'tool_name': 'tasks_update', 'content': json.dumps(shown)},
+        {'role': 'assistant', 'content': 'That sounds finished. Tap Mark Done if it is.'},
+    ], T0 - 420)
+    TASKS['t_c_cake'].update(status='done', done_at=ago(6), asked=True, rev=TASKS['t_c_cake']['rev'] + 1,
+                             log=[{'at': ago(6), 'by': 'default', 'text': 'Marked done (asked)'}])
+    add_session('s-close-asked', 'default', 'The cake', [
+        {'role': 'user', 'content': 'I picked up the cake. Mark it done.'},
+        {'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'call_ca1', 'type': 'function', 'function': {
+            'name': 'tasks_update', 'arguments': json.dumps({'id': 't_c_cake', 'status': 'done'})}}]},
+        {'role': 'tool', 'tool_call_id': 'call_ca1', 'tool_name': 'tasks_update', 'content': json.dumps(copy.deepcopy(TASKS['t_c_cake']))},
+        {'role': 'assistant', 'content': 'Done. I marked it done for you.'},
+    ], T0 - 360)
+    TSTATE['rev'] += 1
+
 def offer_shown(offer):
     if offer.get('kind', 'list') != 'list':   # [goals steps 3-5] the add-on's _show_offer for a goal's offer
         made = offer.get('made') or {}
@@ -2687,6 +2743,7 @@ def handler(gateway):
                 with lock:
                     TMODE['older_addon'] = bool(mode.get('older_addon'))
                     if mode.get('lists'): seed_task_lists()   # [task-lists] what --task-lists starts with
+                    if mode.get('close'): seed_task_close()   # [chat-mark-done] a bot's offers to close your tasks, in chats
                     global GOAL_BOTS
                     GOAL_BOTS = bool(mode.get('goal_bots'))   # [goals steps 3-5] what --task-goal-bots starts with
                     if GOAL_BOTS and not mode.get('goals'): mode['goals'] = True

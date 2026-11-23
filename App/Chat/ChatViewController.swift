@@ -316,6 +316,8 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     private var a11yToken: NSObjectProtocol?   // [a11y]
     /// [goals step 3] A goal's card came in (its offer read after the reply named it): the rows are built again.
     private var goalOffersWatch: NSObjectProtocol?
+    /// [chat-mark-done] A task a close card names changed (done, kept, gone, read): the rows are built again.
+    private var taskCloseWatch: NSObjectProtocol?
     /// [goals step 3] This chat is that goal's own chat (Change It puts the cursor here).
     var goalChatID: String?
     private var introWatch: NSObjectProtocol?   // [settings] Intro Splash
@@ -427,6 +429,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         if let muteWatch { BotMuteCenter.shared.stopObserving(muteWatch) }   // UX study #248
         if let a11yToken { NotificationCenter.default.removeObserver(a11yToken) }   // [a11y]
         if let goalOffersWatch { NotificationCenter.default.removeObserver(goalOffersWatch) }   // [goals step 3]
+        if let taskCloseWatch { NotificationCenter.default.removeObserver(taskCloseWatch) }   // [chat-mark-done]
         if let introWatch { NotificationCenter.default.removeObserver(introWatch) }   // [settings]
         filesWatch.forEach { NotificationCenter.default.removeObserver($0) }   // [settings]
         if attached {
@@ -1028,6 +1031,14 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         goalOffersWatch = NotificationCenter.default.addObserver(forName: TodoOfferStates.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.namesGoalOffer else { return }
+                self.activityRebuildAll()
+            }
+        }
+        // [chat-mark-done] A close card shows the task as it is now: a change to it (here, on its page, another device)
+        // or the list's first read rebuilds the rows.
+        taskCloseWatch = NotificationCenter.default.addObserver(forName: TodoTaskStates.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.namesTaskClose else { return }
                 self.activityRebuildAll()
             }
         }
@@ -4520,6 +4531,15 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
     var namesGoalOffer: Bool {
         session.messages.contains { m in
             m.role == .assistant && m.parts.contains { if case .tool(let call) = $0, call.name == "goals_offer" { return true } else { return false } }
+        }
+    }
+
+    /// [chat-mark-done] A reply here offered to close a task, or closed one as asked (its card reads the Tasks store).
+    var namesTaskClose: Bool {
+        session.messages.contains { m in
+            m.role == .assistant && !ActivityRows.closeCards(m.parts.compactMap { part -> ToolCall? in
+                if case .tool(let call) = part, call.name == "tasks_update" { return call } else { return nil }
+            }).isEmpty
         }
     }
 

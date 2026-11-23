@@ -51,6 +51,11 @@ nonisolated struct AddedTask: Hashable, Sendable {
     var started = false
     /// [tasks] 0.9.33: a `tasks_update` where the bot took a part of your own task (its log's last line).
     var tookPart = false
+    /// [chat-mark-done] A `tasks_update` with `offer_done`: the bot's offer to close your task, as its result carried it.
+    var closeOffer: TodoCloseOffer?
+    /// [chat-mark-done] A `tasks_update` with `status: done` and `asked` (the add-on after 0.9.x): the bot marked your
+    /// task done because you told it to. Never on a bot's own task.
+    var askedDone = false
 
     init(id: String, title: String, who: String, bot: String?, due: String?, steps: [Step] = [], prep: Bool = false,
          started: Bool = false, tookPart: Bool = false) {
@@ -79,6 +84,9 @@ nonisolated struct AddedTask: Hashable, Sendable {
                   prep: record["prep"]?.bool ?? false,
                   started: (record["start"]?.string ?? "").hasPrefix("started") || (record["started"]?.bool ?? false),
                   tookPart: tookPart)
+        // [chat-mark-done] The cache's own keys (the wire's `offer` and `status` are read by `ToolCards.closing`).
+        closeOffer = ToolCards.closeOffer(record["close_offer"])
+        askedDone = record["asked_done"]?.bool ?? false
     }
 
     var json: JSONValue {
@@ -91,6 +99,9 @@ nonisolated struct AddedTask: Hashable, Sendable {
         if prep { o["prep"] = .bool(true) }
         if started { o["started"] = .bool(true) }
         if tookPart { o["took_part"] = .bool(true) }
+        if let closeOffer, let data = try? JSONEncoder().encode(closeOffer),
+           let value = try? JSONDecoder().decode(JSONValue.self, from: data) { o["close_offer"] = value }
+        if askedDone { o["asked_done"] = .bool(true) }
         return .object(o)
     }
 
@@ -169,7 +180,12 @@ nonisolated enum ToolCards {
             var rows: [[String: JSONValue]] = [record]
             if case .array(let many)? = record["tasks"] { rows = many.map { ActivityJSON.object($0) } }
             else if case .object(let one)? = record["task"] { rows = [one] }
-            let added = rows.prefix(maxGoals).compactMap { AddedTask($0) }
+            var added: [AddedTask] = []
+            for row in rows.prefix(maxGoals) {
+                guard var task = AddedTask(row) else { continue }
+                if name == "tasks_update" { closing(&task, args: args, record: row) }   // [chat-mark-done]
+                added.append(task)
+            }
             return added.isEmpty ? nil : .tasksAdded(added)
         case "tasks_offer":
             // [task-lists] `{offer: {...}, say: …}` (hermes-hq-push 0.9.55); a refusal is `{error: …}`.
@@ -183,6 +199,28 @@ nonisolated enum ToolCards {
         default:
             return nil
         }
+    }
+
+    /// [chat-mark-done] What a `tasks_update` said about closing the task: an offer (`offer_done` in its args, the
+    /// task's `offer` of kind "done" in its result), or done because you said so (`status: done` both ways and `asked`,
+    /// on a task that isn't the bot's own). A plain update, a refusal (no task) or a bot finishing its own task: neither.
+    static func closing(_ task: inout AddedTask, args: [String: JSONValue], record: [String: JSONValue]) {
+        let named = field(args, ["id"])
+        guard named.isEmpty || named == task.id else { return }
+        if !field(args, ["offer_done"]).isEmpty, ActivityJSON.object(record["offer"])["kind"]?.string == "done",
+           var offer = closeOffer(record["offer"]) {
+            offer.text = clip(offer.text)
+            task.closeOffer = offer
+        } else if field(args, ["status"]) == "done", field(record, ["status"]) == "done", record["asked"]?.bool == true,
+                  task.who != "bot" {
+            task.askedDone = true
+        }
+    }
+
+    /// [chat-mark-done] A close offer from a result or a saved card; nil without one.
+    static func closeOffer(_ value: JSONValue?) -> TodoCloseOffer? {
+        guard let value, case .object = value, let data = try? value.encoded() else { return nil }
+        return try? JSONDecoder().decode(TodoCloseOffer.self, from: data)
     }
 
     /// [task-lists] An offer from a tool result or a saved card; nil without an id or a list's name.

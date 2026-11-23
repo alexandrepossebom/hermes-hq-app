@@ -36,6 +36,9 @@ import UIKit
     func activityCellChangeGoalOffer(goal: String?)
     /// [goals step 3] "2 more ›": the whole card.
     func activityCellShowGoalOffer(id: String)
+    /// [chat-mark-done] Mark Done, Keep Open or Undo on a bot's offer to close a task; `done` says whether the gateway
+    /// took it.
+    func activityCellCloseTask(id: String, action: TodoCloseCards.Action, done: @escaping (Bool) -> Void)
 }
 
 enum ActivityCells {
@@ -48,6 +51,7 @@ enum ActivityCells {
         table.register(TasksAddedCell.self, forCellReuseIdentifier: TasksAddedCell.reuse)
         table.register(TasksOfferCell.self, forCellReuseIdentifier: TasksOfferCell.reuse)
         table.register(GoalOfferCell.self, forCellReuseIdentifier: GoalOfferCell.reuse)
+        table.register(TaskCloseCell.self, forCellReuseIdentifier: TaskCloseCell.reuse)
     }
 
     static func reuse(for kind: ActivityRowKind) -> String {
@@ -60,6 +64,7 @@ enum ActivityCells {
         case .tasksAdded: return TasksAddedCell.reuse
         case .tasksOffer: return TasksOfferCell.reuse
         case .goalOffer: return GoalOfferCell.reuse
+        case .taskClose: return TaskCloseCell.reuse
         }
     }
 }
@@ -1691,4 +1696,239 @@ final class TasksOfferCell: ChatBaseCell {
     @objc private func leftTapped() { leftTap?() }
     @objc private func rightTapped() { rightTap?() }
     @objc private func statesChanged() { if !busy { paint() } }
+}
+
+// MARK: - A bot's offer to close a task ([chat-mark-done])
+
+/// A bot thinks a task of yours is done and says why, under its reply: the task page's line, the task's title, and the
+/// page's two buttons, Mark Done and Keep Open. Answered (here, on the page, on another device), the buttons give way to
+/// one quiet line: "Marked Done" with Undo, "Kept Open", "No longer on your list". The bot that marked a task done
+/// because you said so draws the same card already answered, with Undo. The card (outside its buttons) opens the task.
+/// What it shows is the row's state, read from the Tasks store each time the chat's rows are built.
+final class TaskCloseCell: ChatBaseCell {
+    static let reuse = "activity.taskClose"
+
+    /// The card's body, behind the buttons: the line, the circle and the title. A tap on it opens the task.
+    private final class BodyView: UIControl {
+        let mark = UIImageView()
+        let line = UILabel()
+        let circle = UIImageView()
+        let title = UILabel()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            mark.contentMode = .scaleAspectFit
+            line.numberOfLines = 4
+            line.lineBreakMode = .byTruncatingTail
+            circle.contentMode = .scaleAspectFit
+            title.numberOfLines = 3
+            title.lineBreakMode = .byTruncatingTail
+            for v: UIView in [mark, line, circle, title] { v.isUserInteractionEnabled = false; addSubview(v) }
+            PointerEffects.surface(self)   // [mac] lit under the pointer, deeper while pressed, as a task row in the Added card
+            isAccessibilityElement = true
+            accessibilityTraits = .button
+            accessibilityHint = "Opens the task"
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+        override var isHighlighted: Bool { didSet { alpha = PointerEffects.dim(isHighlighted, to: 0.5) } }   // motion-ok: colour only
+    }
+
+    private let card = UIView()
+    private let body = BodyView()
+    private let doneButton = UIButton(type: .system)
+    private let keepButton = UIButton(type: .system)
+    private let undoButton = UIButton(type: .system)
+    private let statusMark = UIImageView()
+    private let status = UILabel()
+    private var layout: TaskCloseLayout?
+    /// A tap is on its way to the gateway: the buttons wait (the card shows what the store says once it answers).
+    private var busy: TodoCloseCards.Action?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        card.layer.cornerRadius = ChatMetrics.insetCardRadius
+        card.layer.cornerCurve = .continuous
+        card.isUserInteractionEnabled = false
+        contentView.addSubview(card)
+        body.addTarget(self, action: #selector(openTapped), for: .touchUpInside)
+        contentView.addSubview(body)
+        statusMark.contentMode = .scaleAspectFit
+        status.numberOfLines = 3
+        status.lineBreakMode = .byTruncatingTail
+        for v: UIView in [statusMark, status] { v.isUserInteractionEnabled = false; contentView.addSubview(v) }
+        doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
+        keepButton.addTarget(self, action: #selector(keepTapped), for: .touchUpInside)
+        undoButton.contentHorizontalAlignment = .trailing
+        undoButton.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
+        for v in [doneButton, keepButton, undoButton] { contentView.addSubview(v) }
+        accessibilityIdentifier = "chat.task-close"
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, ThemeGenerationTrait.self]) { (view: TaskCloseCell, _) in
+            view.card.backgroundColor = Self.contentCardFill
+            view.paint()
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func configure(_ row: ChatRow, layout: RowLayout) {
+        super.configure(row, layout: layout)
+        guard case .activity(.taskClose(let t)) = layout.content else { return }
+        if self.layout?.row.taskId != t.row.taskId || self.layout?.row.state != t.row.state { busy = nil }
+        self.layout = t
+        card.frame = t.cardFrame
+        card.backgroundColor = Self.contentCardFill   // [backdrop]
+        body.frame = t.cardFrame
+        PointerEffects.fit(body, card: t.cardFrame, radius: ChatMetrics.insetCardRadius)
+        let origin = t.cardFrame.origin
+        if let lineFrame = t.lineFrame, let markFrame = t.markFrame, let line = t.row.line {
+            body.mark.isHidden = false
+            body.line.isHidden = false
+            body.mark.frame = markFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+            body.mark.image = UIImage(systemName: "checkmark.circle",
+                                      withConfiguration: UIImage.SymbolConfiguration(font: HQFont.face(ofSize: t.detailFont.pointSize, weight: .semibold)))
+            body.line.font = t.detailFont
+            body.line.text = line
+            body.line.frame = lineFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+        } else {
+            body.mark.isHidden = true
+            body.line.isHidden = true
+        }
+        body.circle.frame = t.circleFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+        body.title.frame = t.titleFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+        doneButton.frame = t.doneFrame
+        keepButton.frame = t.keepFrame
+        undoButton.frame = t.undoFrame
+        let mark = ceil(t.font.pointSize * 1.1)
+        statusMark.frame = CGRect(x: t.statusFrame.minX, y: t.statusFrame.midY - mark / 2, width: mark, height: mark)
+        let id = t.row.taskId
+        body.accessibilityIdentifier = "chat.task-close.\(id)"
+        doneButton.accessibilityIdentifier = "chat.task-close.\(id).done"
+        keepButton.accessibilityIdentifier = "chat.task-close.\(id).keep"
+        undoButton.accessibilityIdentifier = "chat.task-close.\(id).undo"
+        status.accessibilityIdentifier = "chat.task-close.\(id).status"
+        paint()
+    }
+
+    /// The card for its state: the buttons while the offer waits, else the quiet line (and Undo on a done task).
+    private func paint() {
+        guard let t = layout else { return }
+        let row = t.row
+        let done: Bool
+        if case .done = row.state { done = true } else { done = false }
+        body.mark.tintColor = TodoInk.ready   // the task page's mark for a bot's "looks done"
+        body.line.textColor = ChatPalette.label
+        body.circle.image = UIImage(systemName: done ? "checkmark.circle.fill" : "circle",
+                                    withConfiguration: UIImage.SymbolConfiguration(pointSize: t.circleFrame.height, weight: .light))
+        body.circle.tintColor = done ? TodoInk.ready : ChatPalette.label3
+        body.title.attributedText = NSAttributedString(string: row.title, attributes: done || row.state == .gone
+            ? [.font: t.font, .foregroundColor: ChatPalette.label2, .strikethroughStyle: NSUnderlineStyle.single.rawValue]
+            : [.font: t.font, .foregroundColor: ChatPalette.label])
+        let words = TodoCloseCards.words(row.state)
+        body.accessibilityLabel = [row.line, row.title, words].compactMap { $0 }.joined(separator: ", ")
+        body.isEnabled = row.state != .gone
+
+        let waiting = row.state == .waiting
+        show(doneButton, waiting)
+        show(keepButton, waiting)
+        if waiting {
+            style(doneButton, "Mark Done", main: true, font: t.font, spinning: busy == .markDone)
+            style(keepButton, "Keep Open", main: false, font: t.font, spinning: busy == .keepOpen)
+            doneButton.isEnabled = !row.readOnly && busy == nil
+            keepButton.isEnabled = !row.readOnly && busy == nil
+        }
+        status.isHidden = waiting
+        statusMark.isHidden = !done
+        statusMark.image = UIImage(systemName: "checkmark.circle.fill")
+        statusMark.tintColor = TodoInk.ready
+        if let words {
+            let x = done ? statusMark.frame.maxX + 7 : t.statusFrame.minX
+            status.frame = CGRect(x: x, y: t.statusFrame.minY, width: t.statusFrame.maxX - x, height: t.statusFrame.height)
+            status.font = HQFont.face(ofSize: t.font.pointSize, weight: done ? .semibold : .regular)
+            status.textColor = done ? TodoInk.ready : ChatPalette.label2
+            status.text = words
+            status.accessibilityLabel = words
+        }
+        var showsUndo = false
+        if case .done(let undo) = row.state { showsUndo = undo }
+        show(undoButton, showsUndo)
+        if showsUndo {
+            let font = t.font
+            undoButton.setAttributedTitle(NSAttributedString(string: "Undo", attributes: [.font: font, .foregroundColor: ChatPalette.tintText]), for: .normal)
+            undoButton.setAttributedTitle(NSAttributedString(string: "Undo", attributes: [.font: font, .foregroundColor: ChatPalette.tintText.withAlphaComponent(0.5)]), for: .highlighted)
+            undoButton.setAttributedTitle(NSAttributedString(string: "Undo", attributes: [.font: font, .foregroundColor: ChatPalette.label3]), for: .disabled)
+            undoButton.accessibilityLabel = "Undo"
+            undoButton.accessibilityHint = "Puts the task back on your list"
+            undoButton.isEnabled = busy == nil
+        }
+    }
+
+    /// A button that isn't shown is out of the cell altogether, not only hidden: a hidden one that had been drawn stayed
+    /// in the accessibility tree (a dimmed "Mark Done" beside "Marked Done").
+    private func show(_ button: UIButton, _ shown: Bool) {
+        button.isHidden = !shown
+        if shown, button.superview == nil { contentView.addSubview(button) }
+        if !shown, button.superview != nil { button.removeFromSuperview() }
+    }
+
+    /// The task page's two buttons: the filled one, and the quiet one beside it (the look's squared corners on the
+    /// desktop look and the Mac, as the offer card's).
+    private func style(_ button: UIButton, _ title: String, main: Bool, font: UIFont, spinning: Bool) {
+        var config = main ? UIButton.Configuration.filled() : UIButton.Configuration.gray()
+        if Theme.isDesktop || DeviceWord.isMac {
+            config.cornerStyle = .fixed
+            config.background.cornerRadius = DeviceWord.isMac ? MacPush.radius : DesktopRows.radius
+        } else {
+            config.cornerStyle = .capsule
+        }
+        config.baseBackgroundColor = main ? ChatPalette.tint : ChatPalette.fill3
+        config.baseForegroundColor = main ? ChatPalette.onTint : ChatPalette.tintText
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12)
+        config.titleLineBreakMode = .byTruncatingTail
+        config.attributedTitle = AttributedString(title, attributes: AttributeContainer([
+            .font: HQFont.face(ofSize: font.pointSize, weight: .semibold)]))
+        config.showsActivityIndicator = spinning
+        button.configuration = config
+        button.accessibilityLabel = title
+    }
+
+    private func send(_ action: TodoCloseCards.Action) {
+        guard busy == nil, let id = layout?.row.taskId else { return }
+        PagesHaptics.selection()   // as the task page's Mark Done, Keep Open and Reopen
+        busy = action
+        paint()
+        (delegate as? ActivityCellDelegate)?.activityCellCloseTask(id: id, action: action) { [weak self] ok in
+            if action == .markDone, ok { PagesHaptics.success() }
+            if !ok { PagesHaptics.error() }
+            guard let self, self.layout?.row.taskId == id else { return }
+            self.busy = nil
+            self.paint()
+        }
+    }
+
+    @objc private func doneTapped() { send(.markDone) }
+    @objc private func keepTapped() { send(.keepOpen) }
+    @objc private func undoTapped() { send(.reopen) }
+
+    @objc private func openTapped() {
+        guard let id = layout?.row.taskId, layout?.row.state != .gone else { return }
+        Haptics.play(.selection)
+        (delegate as? ActivityCellDelegate)?.activityCellOpenTask(id: id)
+    }
+
+    /// The table set this cell aside (its row was drawn again in another cell): its buttons go with it. Left showing,
+    /// a set-aside cell's dimmed "Mark Done" stayed in the accessibility tree beside the new cell's "Marked Done".
+    override var isHidden: Bool {
+        didSet {
+            guard isHidden else { return }
+            busy = nil
+            for button in [doneButton, keepButton, undoButton] { show(button, false) }
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        busy = nil
+    }
 }
