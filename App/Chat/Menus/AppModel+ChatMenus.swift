@@ -162,9 +162,13 @@ extension AppModel: ChatMenuHosting {
         navigation.setViewControllers(stack, animated: true)
         Self.markPane(navigation)
         let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !words.isEmpty, let chatScreen = next as? ChatViewController {
-            chatScreen.loadViewIfNeeded()
-            chatScreen.composer.text = words
+        if let chatScreen = next as? ChatViewController {
+            // The field had the keys when /new was typed: the new chat's field takes them as it shows.
+            chatScreen.focusesOnAppear = true
+            if !words.isEmpty {
+                chatScreen.loadViewIfNeeded()
+                chatScreen.composer.text = words
+            }
         }
         AppLog.trace("chat", "/new: a new chat with \(AppLog.tag(bot.id)) opened in place\(words.isEmpty ? "" : ", \(words.count) chars in its field")")
         return true
