@@ -19,7 +19,8 @@ Controls (no auth, loopback):
                          "oldGateway":bool, "profileReasoning":"high"|null (config.get reasoning without a session),
                          "usageNoContext":bool (session.usage without context: session.context_breakdown estimates it),
                          "processes":[{session_id, command, status, uptime_seconds, output_tail}] (process.list; process.kill
-                         ends one), "seedReactions":bool (the bot's 👍 on Trip planning's second message, row 9003),
+                         ends one), "jobTurns":[{text, command}] (bot turns in the bot chat that started those
+                         jobs: the words, then the terminal call), "seedReactions":bool (the bot's 👍 on Trip planning's second message, row 9003),
                          "balances":bool (tester batch 3: the catalog adds a signed-in Nous Portal and DeepSeek, and
                          billing.state answers signed in: $7.50 to spend, an account balance of $3.40), "routerBalance":"$12.34"|null (the Credits balance line
                          /usage gives a chat on OpenRouter), "usageFail":bool (slash.exec usage answers 5030),
@@ -976,6 +977,18 @@ def menus_handler(gateway):
                 body = self._body()
                 with LOCK:
                     MODE.update({k: v for k, v in body.items() if k in DEFAULT_MODE})
+                # A bot turn that started background jobs: its words, then the terminal call, in the bot chat's
+                # history ({"jobTurns": [{"text", "command"}]}), so a Background row can be named by the bot's words.
+                if body.get('jobTurns'):
+                    with b47.LOCK:
+                        rows = b47.MESSAGES['default']
+                        for turn in body['jobTurns']:
+                            b47.append('default', 'assistant', turn.get('text', ''))
+                            call_id = 'job-%d' % b47.NEXT_ROW
+                            rows[-1]['tool_calls'] = [{'id': call_id, 'type': 'function', 'function': {
+                                'name': 'terminal', 'arguments': json.dumps({'command': turn['command'], 'background': True})}}]
+                            b47.append('default', 'tool', json.dumps({'output': 'Background process started', 'session_id': 'proc_x'}))
+                            rows[-1]['tool_call_id'] = call_id
                 if body.get('offline'):
                     with b47.LOCK:
                         clients = list(b47.CLIENTS)

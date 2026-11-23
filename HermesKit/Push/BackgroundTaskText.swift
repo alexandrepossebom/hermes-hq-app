@@ -19,23 +19,41 @@ nonisolated enum BackgroundTaskText {
     /// A readable name for a background command: "Archiving Mac build 42" for `# Archiving Mac build 42\n…`,
     /// "python3 scripts/ship.py archive · ship-42-mac" for `cd …/ship-42-mac && BUILD=42 python3 scripts/ship.py archive > log`.
     static func title(command: String?) -> String {
-        let lines = (command ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        // A comment before the first command is the bot's own name for the job.
-        if let first = lines.first, first.hasPrefix("#"), !first.hasPrefix("#!") {
-            let words = first.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
-            if !words.isEmpty { return words }
-        }
+        if let comment = comment(command: command) { return comment }
+        let (run, folder) = parts(command)
+        if let run { return folder.map { "\(run) · \($0)" } ?? run }
+        if let folder { return "cd \(folder)" }
+        // Nothing but loop words and setup (`for i in …; do sleep 30; done`): its own first line says the most.
+        return lines(command).first(where: { !$0.hasPrefix("#") }) ?? "background process"
+    }
+
+    /// The bot's own name for the job: a `# comment` before its first command (not a `#!` line).
+    static func comment(command: String?) -> String? {
+        guard let first = lines(command).first, first.hasPrefix("#"), !first.hasPrefix("#!") else { return nil }
+        let words = first.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+        return words.isEmpty ? nil : words
+    }
+
+    /// The first real program it runs ("python3 scripts/ship.py archive"), past setup steps.
+    static func program(command: String?) -> String? { parts(command).run }
+
+    /// The folder it moved into before that program (the last path component of its `cd`).
+    static func folder(command: String?) -> String? { parts(command).folder }
+
+    private static func lines(_ command: String?) -> [String] {
+        (command ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    private static func parts(_ command: String?) -> (run: String?, folder: String?) {
         var folder: String?
-        for line in lines where !line.hasPrefix("#") {
+        for line in lines(command) where !line.hasPrefix("#") {
             for segment in segments(line) {
                 if let dir = changedDirectory(segment) { folder = dir; continue }
                 guard let run = program(segment) else { continue }
-                return folder.map { "\(run) · \($0)" } ?? run
+                return (run, folder)
             }
         }
-        if let folder { return "cd \(folder)" }
-        // Nothing but loop words and setup (`for i in …; do sleep 30; done`): its own first line says the most.
-        return lines.first(where: { !$0.hasPrefix("#") }) ?? "background process"
+        return (nil, folder)
     }
 
     /// What a quiet job's row says under its name: "Writing to archive.log" when its output goes to a file (so the

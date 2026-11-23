@@ -278,7 +278,15 @@ import UIKit
         }
     }
 
-    private func showBackground(_ list: [BackgroundProcess]) {
+    private func showBackground(_ fetched: [BackgroundProcess]) {
+        // Each job is named by the bot's own words before the call that started it, read from this chat's transcript
+        // (its newest 300 messages: a job started further back is named from its command).
+        let messages = Array(chat.session.messages.suffix(300))
+        let list = fetched.map { job -> BackgroundProcess in
+            var job = job
+            job.botWords = BackgroundJobWords.botWords(for: job.command, in: messages)
+            return job
+        }
         backgroundStopping.formIntersection(list.map(\.id))
         if let live = chat.session as? LiveChatSession, let store = provider?.activityStore,
            let rid = provider?.activityRuntimeId ?? live.runtimeSessionId {
