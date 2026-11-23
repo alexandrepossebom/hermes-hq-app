@@ -135,6 +135,60 @@ struct ChatGatewayExtrasTests {
         #expect(job("").title == "Background command")
     }
 
+    /// [background] A row says what the job is FOR (owner 2026-11-22: "claude -p 'Read .goals-bri…" over "No output yet"
+    /// for 1h 22m — "Is this what you thought would count as success?").
+    @Test func backgroundRowsSayWhatTheJobIsFor() {
+        func job(_ command: String, cwd: String? = nil, up: Int = 4920, tail: String = "") -> BackgroundProcess {
+            BackgroundProcess(id: "p", command: command, status: "running", uptimeSeconds: up, exitCode: nil, tail: tail, cwd: cwd)
+        }
+        func call(_ command: String) -> ChatPart {
+            let args = String(data: try! JSONSerialization.data(withJSONObject: ["command": command, "background": true]), encoding: .utf8)
+            return .tool(ToolCall(id: "t", name: "terminal", title: "terminal", argsText: args, summary: nil, state: .done))
+        }
+        // The screenshot's job: a coding agent, nothing said before it.
+        let agentCommand = "cd ~/Projects/app-wt/goals-2 && claude -p 'Read .brief.md in this directory and carry it out completely, then write REPORT-6.md. Never commit.' --permission-mode acceptEdits --max-turns 200"
+        var agent = job(agentCommand)
+        #expect(agent.headline.hasPrefix("Read .brief.md in this directory and carry it out completely"), "\(agent.headline)")
+        #expect(!agent.headline.contains("Never commit") && !agent.headline.contains("--permission"), "its first sentence only")
+        #expect(agent.detailLine == "Claude Code · goals-2")
+        #expect(agent.statusLine == "Quiet until it's done", "not \"No output yet\" for an hour")
+
+        // The bot said what it was doing just before the call: those words name it.
+        let messages = [
+            ChatMessage(id: "u", role: .user, parts: [.text("Yeah fix those")]),
+            ChatMessage(id: "a", role: .assistant, parts: [
+                .text("Here are the screens.\n\nI'm starting a worker on the **four goal set-up fixes** from your review."),
+                call(agentCommand),
+                .text("It's running."),
+            ]),
+        ]
+        agent.botWords = BackgroundJobWords.botWords(for: String(agentCommand.prefix(200)), in: messages)
+        #expect(agent.headline == "The four goal set-up fixes from your review", "the last sentence before the call, plain, without its lead-in")
+        #expect(agent.detailLine == "Claude Code · goals-2")
+
+        // A # comment beats everything; a program the bot named keeps its program under the name.
+        let named = job("# Archiving Mac build 42\ncd ~/x/ship-42-mac && python3 scripts/ship.py archive > /tmp/archive.log 2>&1")
+        #expect(named.headline == "Archiving Mac build 42")
+        #expect(named.detailLine == "python3 scripts/ship.py archive · ship-42-mac")
+        #expect(named.statusLine == "Writing to archive.log")
+
+        // No cd: the folder comes from process.list's cwd. Quiet for a while says how long.
+        let quiet = job("npm run watch", cwd: "/Users/me/site", up: 4920)
+        #expect(quiet.headline == "npm run watch")
+        #expect(quiet.detailLine == "site")
+        #expect(quiet.statusLine == "No output for 1h 22m")
+        #expect(job("npm run watch", up: 20).statusLine == "No output yet")
+        #expect(job("npm test", tail: "PASS a.test.js\n").statusLine == "PASS a.test.js", "printed lines still win")
+
+        // Codex, and a call this chat never made.
+        #expect(BackgroundJobWords.agent("codex exec --full-auto \"Fix the flaky test\"") == .init(name: "Codex", prompt: "Fix the flaky test"))
+        #expect(BackgroundJobWords.botWords(for: "make", in: messages) == nil)
+        #expect(BackgroundJobWords.agent("claude --version") == nil)
+        #expect(BackgroundJobWords.agent("codex exec -m gpt-5 'Tidy the docs'")?.prompt == "Tidy the docs", "a flag's value is not the prompt")
+        #expect(BackgroundJobWords.withoutLeadIn("Now the app's own test gate") == "The app's own test gate")
+        #expect(BackgroundJobWords.withoutLeadIn("Running it") == "Running it", "too little left: keep the sentence")
+    }
+
     @Test func runningCommandsListsAndStopsOne() async throws {
         let h = try ChatHarness()
         h.setPage("24", rows: [])
