@@ -231,6 +231,8 @@ nonisolated enum ChatMetrics {
     static let composerContentGap: CGFloat = DeviceWord.isMac ? 32 : 8
     /// Transcript top: 12 pt below the bar plus the status line's reserved height.
     static let transcriptTopGap: CGFloat = 12
+    /// Extra room between a shown status pill and an empty chat's intro (24 pt in all with `transcriptTopGap`).
+    static let introBelowStatus: CGFloat = 12
     /// [Mac AAA 2026-11-17] 34 on the Mac: the status capsule is the activity pill's sibling there (its glass height),
     /// and the transcript starts under it, so no line of the conversation rests behind it (owner: "sized weird").
     static let statusLineHeight: CGFloat = DeviceWord.isMac ? 34 : 22

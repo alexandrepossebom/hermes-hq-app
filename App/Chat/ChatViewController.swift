@@ -2616,6 +2616,7 @@ final class ChatViewController: UIViewController, UITableViewDataSource, UITable
         // [toolnow] At the Bottom: what the bot is doing shows once, under the typing dots, not in the pill as well.
         if ToolCallSettings.style == .bottom, (session as? LiveChatSession)?.statusIsWork() == true { statusText = nil }
         statusPill.set(statusText)
+        placeholder.topClearance = statusText == nil ? 0 : ChatMetrics.introBelowStatus
         updateNoticeTop()
         updateTopEdgeReach()
         // MENUS (spec 1x §7.1): ☰ is off only while signed out (offline it still opens: cached list or the error).

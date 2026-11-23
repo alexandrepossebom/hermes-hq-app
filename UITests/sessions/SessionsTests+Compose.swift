@@ -335,6 +335,32 @@ extension SessionsTests {
         shot(app, "C5-named")
     }
 
+    /// Owner 2026-11-22: "Waking up…" over a new chat's intro, the keyboard up, sat right on the intro's name (the
+    /// head hidden under the bar). The intro keeps clear of the pill.
+    @MainActor func testC5c_WakingUpClearsTheIntro() throws {
+        let app = launch()
+        XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
+        tapChip(app, "research")
+        fixture("/__fixture/fail", ["rpc": "session.resume", "delay": 25, "count": 1])
+        app.buttons["sessions.compose"].tap()
+        let start = app.buttons["new-chat-start"]
+        if start.waitForExistence(timeout: 5) { start.tap() }   // the New Chat sheet, when it asks first
+        let pill = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Waking up…")).firstMatch
+        let talk = app.buttons["chat.intro.talk"]
+        let both = waitUntil(15) { talk.exists && pill.exists }
+        shot(app, "C5c-waking-intro")
+        XCTAssertTrue(both, "the new chat's intro under Waking up… (intro \(talk.exists), pill \(pill.exists))")
+        app.textViews["composer.text"].tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertTrue(pill.exists, "still waking")
+        shot(app, "C5c-waking-intro-keyboard")
+        // Squeezed by the keys the intro leaves out its face, so the name is its top (12 pt under the pill before).
+        let title = app.staticTexts["chat.intro.title"]
+        XCTAssertTrue(title.exists, "the intro's name is on screen")
+        XCTAssertGreaterThanOrEqual(title.frame.minY, pill.frame.maxY + 20,
+                                    "the intro starts clear of the pill (name \(title.frame), pill \(pill.frame))")
+    }
+
     /// The same shortcut in the Desktop Look (screenshots; every look is checked, not just the iOS one).
     @MainActor func testC5b_NameChatInDesktopLook() throws {
         let app = launch(extra: ["-HQDebugDesktopLook", "YES"])

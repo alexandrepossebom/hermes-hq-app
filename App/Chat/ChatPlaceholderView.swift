@@ -43,6 +43,9 @@ final class ChatPlaceholderView: UIView {
     var onInfo: (() -> Void)?
     /// Name Chat: the Rename Chat prompt, its field empty.
     var onName: (() -> Void)?
+    /// Room kept above the intro while the status pill shows over it ("Waking up…" on a new chat): squeezed by the keys,
+    /// the intro's name sat 12 pt under the pill and read as part of it (owner 2026-11-22).
+    var topClearance: CGFloat = 0 { didSet { if topClearance != oldValue { setNeedsLayout() } } }
     private let roleLabel = UILabel()
     private let capsules = UIStackView()
     private let talkButton = UIButton(configuration: .tinted())
@@ -98,6 +101,7 @@ final class ChatPlaceholderView: UIView {
         titleLabel.textColor = ChatPalette.label
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
+        titleLabel.accessibilityIdentifier = "chat.intro.title"
         bodyLabel.font = HQFont.preferred(.subheadline)
         bodyLabel.adjustsFontForContentSizeCategory = true
         bodyLabel.textColor = ChatPalette.label2
@@ -287,7 +291,8 @@ final class ChatPlaceholderView: UIView {
         // opens), in the same curve as the card. Hiding the face with no fade left it drawn whole above the shrinking card
         // until the keys settled, then it vanished.
         let verticalInset: CGFloat = Backdrop.chats.shows ? 20 : 0
-        let availableHeight = max(0, bounds.height - 2 * verticalInset)
+        let topInset = verticalInset + topClearance
+        let availableHeight = max(0, bounds.height - verticalInset - topInset)
         var fit: CGSize = .zero
         var drop: [UIView] = []
         let was = squeezed
@@ -319,7 +324,7 @@ final class ChatPlaceholderView: UIView {
             view.isHidden = true
         }
         squeezed = drop
-        stack.frame = CGRect(x: side, y: max(verticalInset, ((bounds.height - fit.height) / 2 - 20).rounded()), width: column, height: fit.height.rounded(.up))
+        stack.frame = CGRect(x: side, y: max(topInset, ((bounds.height - fit.height) / 2 - 20).rounded()), width: column, height: fit.height.rounded(.up))
         placeCard()
         if mode == .loading, window != nil { startShimmer() }
     }
