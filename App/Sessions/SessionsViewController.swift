@@ -773,7 +773,9 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
         let pageSection = !searching && SessionListPipeline.isPageSection(id)
         let view = SessionDateHeaderView(title: title, onNewChat: onNewChat, onRename: onRename, onDelete: onDelete, fold: fold,
                                          order: order, dropTarget: dropTarget, summary: summary, badge: badge,
-                                         mark: nil,   // [three-piles] the piles have no state of their own (each row says its own)
+                                         // [three-piles] the piles have no state of their own (each row says its own);
+                                         // [project-by-status] By Status's sections do.
+                                         mark: pageSection ? SessionListPipeline.pageSectionState(id) : nil,
                                          tally: pageSection ? group.total : nil,
                                          caption: firstProject ? SessionListPipeline.projectsTitle : nil, onEditCaption: onEdit,
                                          onFoldCaption: onFoldCaption, seeAll: seeAll,
@@ -2274,8 +2276,11 @@ extension SessionsViewController {
 
     /// [projects-switch] The rail's Bots | Projects switch: Projects is Group By Project; Bots goes back to the grouping
     /// the list had before (Recent the first time).
+    /// [switch-sides] Owner 2026-11-22 (reverses [switch-toggles]): each side goes to its own view, and the side already
+    /// shown is that view's home (`goHome`), as a tab bar's tab tapped again.
     func pickPills(_ pills: SessionPills) {
-        guard var state = filterStateNow(), state.prefs.pills != pills else { return }
+        guard var state = filterStateNow() else { return }
+        guard state.prefs.pills != pills else { goHome(state); return }
         Haptics.play(.selection)
         homePageBot = nil   // [bot-home] the bot is the Bots side's own again (`projectPageReturn`)
         if pills == .projects { groupBeforeProjects = state.prefs.groupBy }
@@ -2470,6 +2475,34 @@ extension SessionsViewController {
             list.alpha = 1
             rail?.alpha = 1
         }
+    }
+
+    /// [switch-sides] The side already shown, tapped: that view's main page. Chats: every bot, no New or Working, from the
+    /// top. Projects: every project (out of a project's page, whichever side it was opened from), every bot, no New or
+    /// Working, from the top. Already there: the list scrolls to its top.
+    private func goHome(_ current: SessionFilterState) {
+        guard let store else { return }
+        var state = current
+        let projects = state.prefs.pills == .projects
+        state.botFilter = nil
+        if projects { state.prefs.projectFilter = [] }
+        projectPageReturn = nil
+        homePageBot = nil
+        let changes = store.statusChip != nil || current.botFilter != nil || (projects && !current.prefs.projectFilter.isEmpty)
+        let top = { self.collectionView.setContentOffset(CGPoint(x: 0, y: -self.collectionView.adjustedContentInset.top), animated: false) }
+        guard changes else {
+            AppLog.trace("sessions", "switch: \(projects ? "projects" : "chats") home, to the top")
+            collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: !HQMotion.reduced)
+            return
+        }
+        Haptics.play(.selection)
+        AppLog.trace("sessions", "switch: \(projects ? "projects" : "chats") home")
+        let change = {
+            store.statusChip = nil
+            self.apply(state, animated: false)
+            top()
+        }
+        if isProjectPage { slide(.outOfProject, change) } else { crossfade(change) }
     }
 
     /// [sessions-fresh] All: every bot, and no status chip. [project-pills] With project pills, every project too.

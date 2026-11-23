@@ -81,6 +81,8 @@ nonisolated struct SessionListInput: Sendable {
     var projectPins: [String: Set<String>] = [:]
     /// [project-sort] Projects whose page lists Active newest first (no state order): project keys.
     var projectsByNewest: Set<String> = []
+    /// [project-by-status] Projects whose page splits Active into a section per state: project keys.
+    var projectsByStatus: Set<String> = []
     /// [project-keep] Projects whose chats stay on their own page (keys): out of Recent, the days, Group By Status and
     /// Group By Bot, and the status chips; still in their project (its page, row and counts), in Pinned when pinned
     /// everywhere, and in New for You and under the New chip while they wait on the owner.
@@ -573,10 +575,21 @@ nonisolated enum SessionListPipeline {
         }
         let shown = statusShown.filter(underPR)
         let shownDone = done.filter(underPR)
-        let sections: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] = [
-            ("pinned", "Pinned", shown.filter { $0.pinned || $0.projectPinned }, false),
-            ("active", "Active", shown.filter { !$0.pinned && !$0.projectPinned }, true),
-            ("done", "Done", input.statusChip == nil ? sort(shownDone, by: .updated) : [], true)]
+        let pinnedChats = shown.filter { $0.pinned || $0.projectPinned }
+        let activeChats = shown.filter { !$0.pinned && !$0.projectPinned }
+        // [project-by-status] ⋯ › Sort › By Status: Active split into a section per state, in rank order (a chat read
+        // since the page was last left stays under New until the page is left, as in Needs Me First). Needs You and
+        // New show every chat (the ones he acts on); Working and Earlier fold past the first rows as Active does.
+        let byStatus = input.projectsByStatus.contains(key) && !byNewest
+        let middle: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] = byStatus
+            ? [(statusSectionNeeds, "Needs You", activeChats.filter { rank($0) == SessionProjectState.needsYou.rawValue }, false),
+               (statusSectionNew, "New", activeChats.filter { rank($0) == SessionProjectState.ready.rawValue }, false),
+               (statusSectionWorking, "Working", activeChats.filter { rank($0) == SessionProjectState.working.rawValue }, true),
+               (statusSectionEarlier, "Earlier", activeChats.filter { rank($0) == SessionProjectState.quiet.rawValue }, true)]
+            : [("active", "Active", activeChats, true)]
+        let sections: [(id: String, title: String, chats: [SessionSummary], capped: Bool)] =
+            [("pinned", "Pinned", pinnedChats, false)] + middle +
+            [("done", "Done", input.statusChip == nil ? sort(shownDone, by: .updated) : [], true)]
         // A status filter or pill shows every match (a closed section would hide what it was set to find).
         let filtered = !input.prefs.statusFilter.isEmpty || input.statusChip != nil || input.projectPRState != nil
         for section in sections where !section.chats.isEmpty {
@@ -609,6 +622,18 @@ nonisolated enum SessionListPipeline {
     static let pageStartsClosed: Set<String> = [statePrefix + "done"]
     /// A section of the project page ("state-working").
     static func isPageSection(_ groupId: String) -> Bool { groupId.hasPrefix(statePrefix) }
+    /// [project-by-status] By Status's sections (after `statePrefix`).
+    static let statusSectionNeeds = "needs", statusSectionNew = "new", statusSectionWorking = "working",
+               statusSectionEarlier = "earlier"
+    /// [project-by-status] The state a By Status section stands for (its header's mark); nil for any other section.
+    static func pageSectionState(_ groupId: String) -> SessionProjectState? {
+        switch groupId {
+        case statePrefix + statusSectionNeeds: .needsYou
+        case statePrefix + statusSectionNew: .ready
+        case statePrefix + statusSectionWorking: .working
+        default: nil
+        }
+    }
 
     /// A titled group can fold to its header; a project draws its newest `projectFirstRows` until opened. `total` is
     /// every chat the group holds, `more` the ones past the drawn ones. A status or project filter narrowing the list

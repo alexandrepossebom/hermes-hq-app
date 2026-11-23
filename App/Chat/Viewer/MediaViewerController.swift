@@ -223,6 +223,8 @@ final class MediaPageController: UIViewController, UIScrollViewDelegate {
     private var fitted = false
     /// Over the preview when the full size didn't load: what happened, and a tap tries again.
     private var failedCaption: UIButton?
+    /// Owner 2026-11-22: press and hold (right-click on the Mac) on the photo: Save to Photos, Share…, Copy Image.
+    private var imageMenu: ViewerImageMenu?
 
     init(item: MediaItem, index: Int) {
         self.item = item
@@ -262,6 +264,14 @@ final class MediaPageController: UIViewController, UIScrollViewDelegate {
         let single = UITapGestureRecognizer(target: self, action: #selector(singleTapped))
         single.require(toFail: double)
         scroll.addGestureRecognizer(single)
+        let menu = ViewerImageMenu { [weak self] in
+            guard let self, self.imageView.image != nil else { return nil }
+            // The viewer (not this page inside the pager) shows "Copied" / "Saved" and the share sheet.
+            let viewer = self.parent?.parent ?? self
+            return MediaActions.menu(for: self.item, from: viewer, anchor: self.imageView)
+        }
+        menu.attach(to: imageView)
+        imageMenu = menu
         load()
     }
 

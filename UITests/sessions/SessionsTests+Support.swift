@@ -274,10 +274,23 @@ extension SessionsTests {
         closeFilter(app, file: file, line: line)
     }
 
-    /// [switch-toggles] The Chats | Projects switch (`sessions.pills.bots` is its Chats side): one button, a tap anywhere
-    /// on it flips the view.
+    /// [switch-sides] The Chats | Projects switch's leading side (`sessions.pills.bots`, Chats). Each side is a button of
+    /// its own: the other side goes there, the side shown goes to its home.
     @MainActor func pillSwitch(_ app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.pills.'")).firstMatch
+        app.buttons["sessions.pills.bots"]
+    }
+
+    /// [switch-sides] A tap on one side of the switch, as a finger does: the rail scrolls with the pills, so a picked
+    /// pill centred far along it can have the side off the screen; the rail is swiped back to its start first.
+    @MainActor func tapSide(_ app: XCUIApplication, _ side: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(side.waitForExistence(timeout: 10), "the switch's \(side.identifier)", file: file, line: line)
+        // A side wholly off the screen has no hit point (`isHittable` itself fails on it): read its frame instead.
+        let onScreen = { side.frame.minX >= 0 && side.frame.maxX <= app.windows.firstMatch.frame.maxX }
+        if !onScreen() {
+            app.scrollViews["sessions.chips"].swipeRight()
+            _ = waitUntil(4) { onScreen() }
+        }
+        side.tap()
     }
 
     /// No pill is lit: no bot, project, New or Working (the switch's side drawn was All; All itself, when the rail has

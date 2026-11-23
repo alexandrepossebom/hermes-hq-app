@@ -6,6 +6,7 @@
 // Attachments are injected with the DEBUG hook `-HQDebugAttach "<abs path>,…"`, which runs the pickers' own import
 // code. Every test starts from a clean phone (`-HQDebugResetAccounts YES`) and signs in through the form.
 
+import UIKit
 import XCTest
 
 final class AttachmentsEndToEndTests: XCTestCase {
@@ -355,6 +356,19 @@ final class AttachmentsEndToEndTests: XCTestCase {
         if sheet.exists { sheet.swipeDown(velocity: .fast) }
         XCTAssertTrue(waitUntil(timeout: 5) { !sheet.exists })
         XCTAssertTrue(app.buttons["viewer.close"].exists, "still in the viewer")
+        // Owner 2026-11-22: press and hold on the open photo: Save to Photos, Share…, Copy Image; Copy says Copied.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["Copy Image"].waitForExistence(timeout: 5), "the viewer's photo has the image menu")
+        XCTAssertTrue(app.buttons["Save to Photos"].exists)
+        XCTAssertTrue(app.buttons["Share…"].exists)
+        shot(app, "a13a-viewer-photo-menu")
+        // The viewer keeps its picture out of the accessibility tree (its "Copied" pill too): read the pasteboard.
+        UIPasteboard.general.items = []
+        app.buttons["Copy Image"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { UIPasteboard.general.hasImages }, "Copy Image puts the picture on the pasteboard")
+        XCTAssertFalse(app.alerts["Couldn’t Copy"].exists, "Copy didn't fail")
+        XCTAssertTrue(app.buttons["viewer.close"].exists, "still in the viewer after Copy")
+        sleep(2)
         // Double-tap zooms in; a swipe down then pans the picture and never dismisses (check 10).
         let viewer = app.otherElements["viewer"]
         let center = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))

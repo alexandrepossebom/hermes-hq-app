@@ -17,8 +17,8 @@ extension SessionsTests {
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15), "the switch")
         XCTAssertFalse(app.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-' AND label CONTAINS 'Atlas'")).firstMatch.exists,
                        "Atlas has no chat in the list")
-        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
-        XCTAssertTrue(waitUntil(6) { toBots.exists && !toProjects.exists }, "the Projects side")
+        tapSide(app, toProjects)
+        XCTAssertTrue(waitUntil(6) { toProjects.isSelected }, "the Projects side")
 
         func pill(_ name: String) -> XCUIElement {
             app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions.chip.project.' AND label BEGINSWITH %@", name)).firstMatch

@@ -105,10 +105,18 @@ nonisolated enum SessionProjects {
 
 /// [project-pills] Owner 2026-11-15 ("a way to manage coding projects"): a project's state comes from its chats, never
 /// set by hand (it would be stale the moment a bot finished); only Archive is the owner's. In rank order.
-/// [project-sort] A project page's ⋯ › Sort: what needs the owner first (the default), or newest first.
+/// [project-sort] A project page's ⋯ › Sort: what needs the owner first (the default), newest first, or
+/// [project-by-status] by status (owner 2026-11-22, after T3 Code's sidebar: "show if sessions are done and ready for
+/// you to view/reply"): a section per state, Needs You, New, Working, then Earlier.
 nonisolated enum ProjectPageSort: String, Hashable, Sendable, CaseIterable {
-    case needsMeFirst = "needs-me-first", newest
-    var title: String { self == .newest ? "Newest" : "Needs Me First" }
+    case needsMeFirst = "needs-me-first", newest, byStatus = "by-status"
+    var title: String {
+        switch self {
+        case .needsMeFirst: "Needs Me First"
+        case .newest: "Newest"
+        case .byStatus: "By Status"
+        }
+    }
 }
 
 nonisolated enum SessionProjectState: Int, Hashable, Sendable, CaseIterable {

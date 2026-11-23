@@ -332,6 +332,9 @@ search field always showing was turned down: "behind a click".)
   medium), their left edge on the project header's. The switch is a segmented control with a grey segment for the view
   shown, not the 44 pt glass capsule. A narrow pane drops the counts' words ("● 5"), then the switch's glyphs (it always
   says Chats and Projects), before the menu's name is cut (it had run past both edges). On a project's page the counts are only the header's.
+  [switch-sides] Owner 2026-11-22: the switch is not a toggle. Each segment goes to its own view, and the segment
+  already shown goes to that view's home (every bot or project, New/Working cleared, the list at its top), as on the
+  iPhone (`SessionsViewController.goHome`).
 - **Rows** (`SessionRowView.macTight`, `ProjectCard.rowPad`): in the iOS look at Standard density a one-line chat row
   and a project's row are 36 pt (about 32 on the screen; they were 44 and 39). Compact and the Desktop Look keep theirs.
 - **Captions** are a size under the rows' titles (`SessionDateHeaderView.captionStyle`, footnote) in the iOS look.

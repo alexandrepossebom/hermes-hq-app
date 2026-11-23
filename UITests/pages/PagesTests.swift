@@ -1910,6 +1910,17 @@ final class PagesTests: XCTestCase {
         let read = requests().first { $0.path == "/api/fs/read-data-url" && ($0.query["path"] ?? "").hasSuffix("results.png") }
         XCTAssertEqual(read?.query["session_id"], "s-reading")
         XCTAssertEqual(read?.query["profile"], "research")
+        // Owner 2026-11-22: press and hold on the image: Save to Photos, Share…, Copy Image; Copy says Copied.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["Copy Image"].waitForExistence(timeout: 5), "the image has the image menu")
+        XCTAssertTrue(app.buttons["Save to Photos"].exists)
+        XCTAssertTrue(app.buttons["Share…"].exists)
+        shot("artifact-image-menu")
+        app.buttons["Copy Image"].tap()
+        let hud = app.otherElements["menus.hud"]
+        XCTAssertTrue(waitUntil(5) { hud.exists && hud.label == "Copied" }, "Copy Image says Copied")
+        XCTAssertTrue(app.otherElements["artifact.image"].exists, "still in the viewer after Copy")
+        Thread.sleep(forTimeInterval: 2)
         app.swipeDown(velocity: .fast)
         XCTAssertTrue(app.collectionViews["artifacts.list"].waitForExistence(timeout: 5))
         XCTAssertTrue(waitUntil(5) { !app.otherElements["artifact.image"].exists }, "swipe down closes")

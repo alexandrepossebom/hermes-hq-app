@@ -11,7 +11,7 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 15))
         let toProjects = app.buttons["sessions.pills.projects"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
-        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        tapSide(app, toProjects)
         let website = app.buttons["sessions.chip.project.0"]
         XCTAssertTrue(website.waitForExistence(timeout: 6))
         onScreen(app, website).tap()

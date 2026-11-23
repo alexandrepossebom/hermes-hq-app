@@ -10,7 +10,7 @@ extension SessionsTests {
     @MainActor func openWebsitePage(_ app: XCUIApplication) {
         let toProjects = app.buttons["sessions.pills.projects"]
         XCTAssertTrue(toProjects.waitForExistence(timeout: 15))
-        toProjects.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        tapSide(app, toProjects)
         let website = app.buttons["sessions.chip.project.0"]
         XCTAssertTrue(website.waitForExistence(timeout: 6))
         onScreen(app, website).tap()
@@ -141,7 +141,7 @@ extension SessionsTests {
         XCTAssertTrue(row(app, "s-budget").exists, "still on its project's page")
         shot(app, "PS1-page-keeps-it")
 
-        toBots.tap()
+        tapSide(app, toBots)
         XCTAssertTrue(waitUntil(6) { !app.cells["sessions.projectPage"].exists }, "back on the list")
         XCTAssertTrue(row(app, "s-garden").waitForExistence(timeout: 6), "the other chats are listed")
         XCTAssertTrue(waitUntil(6) { !self.row(app, "s-budget").exists }, "Quarterly budget left Recent (\(order(app)))")
@@ -165,7 +165,7 @@ extension SessionsTests {
         openProjectSettings(app)
         flipProjectSwitch(app, "sessions.projectSettings.keep", to: false)
         closeProjectSettings(app)
-        toBots.tap()
+        tapSide(app, toBots)
         XCTAssertTrue(waitUntil(8) { self.row(app, "s-budget").exists }, "back in Recent (\(order(app)))")
         shot(app, "PS1-list-after-off")
     }
