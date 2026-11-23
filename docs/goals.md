@@ -440,7 +440,7 @@ waited for the next Task prep run. The goal's name stayed the sentence, with no 
   then tell me where it stands in one line (goals_update with stands)." Never twice for one offer (kept per gateway on
   this device over relaunches; another device's accept is a 409 there), never on Undo, never without a lead. With the
   goal's page open it goes through that chat, so the reply shows as it comes; else through a chat of its own.
-- **New Goal**: placeholder "What do you want to reach?"; the lead-only line above; the team goes in the POST
+- **New Goal**: placeholder "What's your goal? Like “Run a 5K”" (why line: "Why it matters to you (optional)"); the lead-only line above; the team goes in the POST
   (`GoalWire.createBody`; `GoalWire.teamLeft` PATCHes what an older add-on's answer doesn't carry).
 - **A waiting plan says so**: with no next task, the shelf card's and the Goals view card's next-step line reads "Plan to
   look at" (`GoalShelfNext.planWaits`); before, only the lead's orange dot said it and the line said "No plan yet".

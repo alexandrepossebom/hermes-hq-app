@@ -240,7 +240,7 @@ extension PagesTests {
         app = launchSignedIn(Self.look + ["-HQPagesForgetGoalPlanWith", "YES", "-HQPagesTab", "4", "-HQPagesMore", "tasks", "-HQPagesNewGoal", "YES"])
         let field = app.descendants(matching: .any)["goals.new.title"].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "New Goal")
-        XCTAssertTrue(field.placeholderValue == "What do you want to reach?" || (field.value as? String) == "What do you want to reach?",
+        XCTAssertTrue(field.placeholderValue == "What's your goal? Like “Run a 5K”" || (field.value as? String) == "What's your goal? Like “Run a 5K”",
                       "\(field.placeholderValue ?? "") / \(field.value ?? "")")
         XCTAssertEqual(app.staticTexts["goals.new.who.note"].firstMatch.label, "Hermes asks up to three questions, then offers a plan.")
         RunLoop.current.run(until: Date().addingTimeInterval(0.6))

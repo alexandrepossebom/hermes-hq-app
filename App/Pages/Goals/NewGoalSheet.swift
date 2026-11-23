@@ -204,7 +204,7 @@ struct NewGoalView: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 // [goals set-up] The owner typed a whole sentence as their first goal: the field invites one. The lead's plan
                 // can offer a short name for it (and keep the sentence as the why).
-                TextField("What do you want to reach?", text: $model.title, axis: .vertical)
+                TextField("What's your goal? Like “Run a 5K”", text: $model.title, axis: .vertical)
                     .lineLimit(1...3)
                     .font(Font.hq(.body).weight(.medium))
                     .focused($focus, equals: .title)
@@ -238,7 +238,7 @@ struct NewGoalView: View {
                     .accessibilityLabel("Will be named \(read.title)")
                     .accessibilityIdentifier("goals.new.read")
             }
-            TextField("Why it matters", text: $model.why, axis: .vertical)
+            TextField("Why it matters to you (optional)", text: $model.why, axis: .vertical)
                 .lineLimit(1...3)
                 .font(Font.hq(.subheadline))
                 .foregroundStyle(Color.hqLabel)
