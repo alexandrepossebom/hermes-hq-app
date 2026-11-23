@@ -52,7 +52,10 @@ this spec and stopped afterwards; invented credentials, never printed).
    (spec 03 §6.6, refined in §7 below).
 7. **Tap a photo:** a full-screen viewer with the system zoom transition (swipe down or pinch in to dismiss; a fling up closes too, `PhotoFling`), pinch to
    5×, double-tap 2.5×, paging across the message's photos, **Share** and **Save**. **Tap a file:** download with
-   progress, then Quick Look (or the share sheet for types Quick Look can't show).
+   progress, then Quick Look (or the share sheet for types Quick Look can't show). A photo file (a file row, Files,
+   More › Files, a file a bot's link names) opens in `LocalPhotoViewer` instead: Quick Look draws in another process
+   and takes no swipe, and a photo always flings away up or down (owner 2026-11-22: "I kept swiping and then swiping
+   harder"); Quick Look only if the photo doesn't decode.
 8. **Leave the chat mid-send and it still goes to its own chat** (owner, `M:voice-memo-bugs.md`,
    `M:send-lost-on-leave.md`).
 
