@@ -1202,11 +1202,12 @@ def goal_offer(bot, session_id, kind, args, with_person=True):
         fresh.append(one)
     summary = ' '.join(str(args.get('summary') or '').split())[:300] if kind == 'checkin' else ''
     if kind == 'checkin' and not summary: raise GoalError(400, 'A check-in needs its summary: two sentences on what moved since the last one.')
-    setup = plan_setup(goal, args) if kind == 'plan' else {}
+    setup, dropped = plan_setup(goal, args) if kind == 'plan' else ({}, [])
     built_on = plan_built_on(args.get('built_on')) if kind == 'plan' else []
     if kind == 'plan' and not milestones and not fresh and not setup:
-        raise GoalError(400, "A plan needs milestones, tasks or set-up fields (name, why, due, measure): the steps to the goal, "
-                             "the first week's tasks with who, or what the goal itself is missing.")
+        raise GoalError(400, "A plan needs milestones, tasks or set-up fields (name, why, due, measure): any one is enough. "
+                             "Send the steps to the goal and the first week's tasks, each with who, or only the set-up "
+                             "fields the goal lacks." + (f" Dropped: {'; '.join(dropped)}." if dropped else ''))
     if kind == 'tasks' and not fresh:
         raise GoalError(400, 'Nothing to offer: every task is under the goal already, or none was given.'
                         + (f' Already there: {json.dumps(already, ensure_ascii=False)}' if already else ''))
@@ -1238,6 +1239,7 @@ def goal_offer(bot, session_id, kind, args, with_person=True):
     OFFERS.append(made); TSTATE['rev'] += 1
     shown = offer_shown(made)
     if already: shown['already'] = already
+    if dropped: shown['setup_dropped'] = dropped   # the bot's answer only, as the add-on's: never stored
     return shown
 
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}')
@@ -1246,27 +1248,44 @@ def plan_setup(goal, args):
     """[goals set-up] What a plan offer sets on its goal, only where the goal lacks it: a name (when it differs from the
     goal's, case aside, and no other active or paused goal has it), a why (when the goal has none), a date (when it has
     none) and a number {unit, start, target} (when it has none). Only kept keys are stored."""
-    setup = {}
+    setup, dropped = {}, []
     name = gtext(args.get('name'), 200)
-    if name and name.casefold() != goal['title'].casefold() and not any(
-            g['id'] != goal['id'] and g['status'] in ('active', 'paused') and g['title'].casefold() == name.casefold() for g in GOALS.values()):
-        setup['name'] = name
+    if name and name.casefold() == goal['title'].casefold(): dropped.append("name: it is the goal's name already")
+    elif name and any(g['id'] != goal['id'] and g['status'] in ('active', 'paused') and g['title'].casefold() == name.casefold()
+                      for g in GOALS.values()): dropped.append(f'name: another goal is called \u201c{name}\u201d')
+    elif name: setup['name'] = name
     why = gtext(args.get('why'), 300)
-    if why and not (goal.get('why') or '').strip(): setup['why'] = why
+    if why and (goal.get('why') or '').strip(): dropped.append('why: the goal has a why already')
+    elif why: setup['why'] = why
     due = args.get('due')
-    if isinstance(due, str) and DATE_RE.match(due.strip()) and not goal.get('due'): setup['due'] = due.strip()[:10]
+    if isinstance(due, str) and DATE_RE.match(due.strip()):
+        if goal.get('due'): dropped.append('due: the goal has a date already')
+        else: setup['due'] = due.strip()[:10]
     measure = args.get('measure')
-    if isinstance(measure, dict) and not goal.get('measure'):
+    if isinstance(measure, dict) and goal.get('measure'): dropped.append('measure: the goal has a number already')
+    elif isinstance(measure, dict):
         start, target = gnumber(measure.get('start', 0)), gnumber(measure.get('target'))
         if start is None or target is None or start == target:
             raise GoalError(400, "A goal's number needs a target that differs from where it starts: send measure {unit, start, target}, or leave measure out.")
         setup['measure'] = {'unit': gtext(measure.get('unit'), 20), 'start': start, 'target': target}
-    return setup
+    return setup, dropped
+
+def gclip(value, cap):
+    """One line, cut at a word with an ellipsis, as the add-on cuts."""
+    text = gtext(value, 10 ** 6)
+    if len(text) <= cap: return text
+    cut = text[:cap - 1]
+    space = cut.rfind(' ')
+    if space >= cap * 0.6: cut = cut[:space]
+    return cut.rstrip(' ,;:-\u2013\u2014') + '\u2026'
 
 def plan_built_on(value):
     """[goals set-up] What the plan builds on: up to three lines, one line each, 90 characters at most."""
-    lines = [gtext(item, 90) for item in (value if isinstance(value, list) else [value] if isinstance(value, str) else [])]
-    return [line for line in lines if line][:3]
+    out = []
+    for item in (value if isinstance(value, list) else [value] if isinstance(value, str) else []):
+        line = gclip(item, 90) if isinstance(item, str) else ''
+        if line and line.casefold() not in {o.casefold() for o in out}: out.append(line)
+    return out[:3]
 
 def plan_setup_apply(goal, setup, stamp):
     """[goals set-up] Accept: the set-up goes on in the plan's write. The old name becomes the why when the goal has none
