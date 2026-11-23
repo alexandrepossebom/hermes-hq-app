@@ -156,8 +156,18 @@ struct TodoRowView: View {
     /// the row's end holds only when it is due (or its steps, with no date). The bot's line is grey, led by its small
     /// face instead of its name; only a question keeps its colour. No dot on the face: the line says what it is doing.
     /// Steps of a dated task with a bot's line end that line ("Draft ready · 1/2").
+    /// [mac-tasks-calm] Owner 2026-11-22 (a Mac screenshot of Today: "this feels SO busy on Mac"): on the Mac a row is
+    /// the task alone. The bot's line stays only for a question (it asks for you); otherwise the bot's small grey face
+    /// sits before the date and its words show under the pointer, and on the task's page beside the list. VoiceOver
+    /// still hears them (`spoken`). The name still wraps to two lines: cut to one in the narrow column it read
+    /// "Reply to Ivy ab…".
+    private var oneLine: Bool { DeviceWord.isMac && !large }
+
     private var list: some View {
-        let said = row.done ? nil : (row.words.said ?? row.words.note)
+        let words = row.done ? nil : (row.words.said ?? row.words.note)
+        let said = oneLine && row.words.tone != .needsYou ? nil : words
+        let faceAtEnd: String? = oneLine && said == nil && words != nil ? row.face : nil
+        let pointerWords: String = faceAtEnd == nil ? "" : (words ?? "")
         let stepsAtEnd = row.words.when == nil && row.words.steps != nil
         let stepsOnLine = !stepsAtEnd && said != nil && row.words.steps != nil
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -176,6 +186,7 @@ struct TodoRowView: View {
                     if !large {
                         if row.goalMark { goalMark(font: .footnote) } else if let icon = row.listIcon { listMark(icon, font: .footnote) }
                     }
+                    if let profile = faceAtEnd { lineFace(profile) }
                     if let when = row.words.when {
                         Text(when)
                             .font(Font.hq(.footnote)).monospacedDigit()
@@ -213,13 +224,22 @@ struct TodoRowView: View {
         .padding(.trailing, 20)
         .frame(minHeight: Theme.isDesktop ? 46 : 44, alignment: .leading)
         .contentShape(Rectangle())
+        .help(pointerWords)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(([row.title] + (row.words.spoken.isEmpty ? [] : [row.words.spoken]) + (row.listName.map { ["in \($0)"] } ?? [])
-                             + (row.goalName.map { ["for \($0)"] } ?? [])).joined(separator: ", "))
+        .accessibilityLabel(listSpoken)
         .accessibilityValue(row.done ? "Done" : "")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { open() }   // [lists] Mac pass round 6
         .accessibilityAction(named: row.done ? "Mark Not Done" : "Mark Done") { toggle() }
+    }
+
+    /// The list row's words for VoiceOver: the name, then what is drawn beside and under it.
+    private var listSpoken: String {
+        var parts = [row.title]
+        if !row.words.spoken.isEmpty { parts.append(row.words.spoken) }
+        if let list = row.listName { parts.append("in \(list)") }
+        if let goal = row.goalName { parts.append("for \(goal)") }
+        return parts.joined(separator: ", ")
     }
 
     /// The name, then small and grey: steps done of all, and a mark for a task that repeats. (A mark for notes was
