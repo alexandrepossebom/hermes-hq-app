@@ -222,6 +222,22 @@ nonisolated enum KanbanModel {
     }
 
     /// A board's name as people read it: its own name, else its slug in words.
+    /// [kanban-boards] The gateway's own board: it can be renamed, never deleted (`kanban_db_boards.remove_board`).
+    static let defaultBoardSlug = "default"
+    static let defaultBoardKept = "The default board can’t be deleted. You can rename it."
+    static func canDelete(_ slug: String) -> Bool { !slug.isEmpty && slug != defaultBoardSlug }
+
+    /// [kanban-boards] Delete Board's confirmation: what goes with it, and that the gateway keeps a copy.
+    static func deleteBoardMessage(title: String, total: Int?) -> String {
+        let tasks: String
+        switch total ?? 0 {
+        case 0: tasks = "It has no tasks."
+        case 1: tasks = "Its 1 task goes with it."
+        default: tasks = "Its \(total ?? 0) tasks go with it."
+        }
+        return "“\(title)” leaves Kanban on every device. \(tasks) Hermes keeps an archived copy on your gateway computer."
+    }
+
     static func boardTitle(slug: String, name: String?) -> String {
         if let name = name?.pgTrim, !name.isEmpty, name != slug { return name }
         if slug.isEmpty || slug == "default" { return "Default Board" }

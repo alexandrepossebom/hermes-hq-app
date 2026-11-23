@@ -92,7 +92,7 @@ struct AppearanceSections: View {
     let router: SettingsRouter
     /// The row a search result marks.
     var revealed: String?
-    @AppStorage(WorkingRing.key) private var workingRing = true
+    @AppStorage(WorkingRing.key) private var workingRing = false   // [ring-off-default]
 
     var body: some View {
         let _ = Theme.touch()

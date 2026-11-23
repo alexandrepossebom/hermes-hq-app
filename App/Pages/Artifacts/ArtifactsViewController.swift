@@ -1748,6 +1748,10 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
 
     /// [tile-chats] The tile's own chat (the one its bot last worked on it in), or a fresh hidden one when it has none.
     private func tileOwnChat(_ pin: ArtifactPin, bot: Bot, services: PagesServices) -> any ChatSessionModel {
+        Self.tileOwnChat(pin, bot: bot, services: services)
+    }
+
+    static func tileOwnChat(_ pin: ArtifactPin, bot: Bot, services: PagesServices) -> any ChatSessionModel {
         guard !pin.sessionId.isEmpty else { return services.tileChat(for: bot) }
         return services.chat(for: SessionSummary(id: pin.sessionId, profile: pin.profile, title: pin.sessionTitle, preview: nil,
                                                  lastActive: nil, source: nil, unread: false, isRunning: false))
@@ -2811,6 +2815,14 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     /// was made in (a new chat when there's none), hidden, as `TileMaker.act`; `ended` when the bot is done. Refused with
     /// the reason and an error buzz (most pages show nothing for a button that wasn't sent).
     private func sendFromTile(_ id: String, _ prompt: String, from host: UIViewController?, ended: (() -> Void)? = nil) -> Bool {
+        Self.sendFromTile(pins.pins.first { $0.id == id }, prompt, services: services, accountId: store.account.id, page: self,
+                          from: host, ended: ended)
+    }
+
+    /// The same, for a tile shown elsewhere ([favorites-live-tiles] a Dashboard tile on Favorites): `page` is where the
+    /// tile shows (`TileMaker`'s page).
+    static func sendFromTile(_ pin: ArtifactPin?, _ prompt: String, services: PagesServices?, accountId: String,
+                             page: UIViewController?, from host: UIViewController?, ended: (() -> Void)? = nil) -> Bool {
         guard let services else { return false }
         func refuse(_ words: String) -> Bool {
             PagesHaptics.error()
@@ -2818,12 +2830,12 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
             return false
         }
         guard !services.readOnlyGateway else { return refuse("This gateway is read-only.") }
-        guard let pin = pins.pins.first(where: { $0.id == id }), let path = pin.gatewayPath else {
+        guard let pin, let path = pin.gatewayPath else {
             return refuse("Couldn’t Send to This Tile")
         }
         guard let bot = services.bots.first(where: { $0.id == pin.profile }) else { return refuse("This Tile’s Bot Is Gone") }
         let chat = tileOwnChat(pin, bot: bot, services: services)
-        let maker = TileMaker.act(pin, path: path, bot: bot, prompt: prompt, accountId: store.account.id, chat: chat, from: self)
+        let maker = TileMaker.act(pin, path: path, bot: bot, prompt: prompt, accountId: accountId, chat: chat, from: page)
         maker.ended = ended
         return true
     }
@@ -2833,6 +2845,17 @@ final class ArtifactsViewController: UIViewController, UICollectionViewDelegate,
     @discardableResult
     func openTile(widgetKey: String) -> Bool {
         guard let pin = pins.pins.first(where: { TileWidgetIndex.key($0.id) == widgetKey }) else { return false }
+        if presentedViewController != nil { presentedViewController?.dismiss(animated: false) }
+        Haptics.play(.soft)
+        open(pin)
+        return true
+    }
+
+    /// [favorites-live-tiles] A Dashboard tile on Favorites: the tile opens here as a tap on it here opens it (the
+    /// Dashboard's own open: its page live, its menu, Change…, Versions and its chat). False when it isn't pinned now.
+    @discardableResult
+    func openTile(pinId id: String) -> Bool {
+        guard let pin = pins.pins.first(where: { $0.id == id }) else { return false }
         if presentedViewController != nil { presentedViewController?.dismiss(animated: false) }
         Haptics.play(.soft)
         open(pin)

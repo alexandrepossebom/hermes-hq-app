@@ -76,6 +76,9 @@ struct QuickTileFace: View {
     var dimmed = false
     /// [quick-actions] A Short tile (3x-morepages Q13): one line high, the icon beside the words.
     var short = false
+    /// [favorites-live-tiles] Beside a Dashboard tile the row is the tile's height: the icon stays at the top and the
+    /// words go to the foot, as a widget's (3x-morepages Q19).
+    var fills = false
 
     var body: some View {
         let side = HQFont.scaled(short ? 28 : 34)
@@ -95,9 +98,10 @@ struct QuickTileFace: View {
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     QuickTileIcon(symbol: symbol, color: color, side: side)
+                    if fills { Spacer(minLength: 0) }
                     words(reserve: true)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: fills ? .infinity : nil, alignment: .leading)
             }
         }
         .padding(.horizontal, short ? 12 : 14)

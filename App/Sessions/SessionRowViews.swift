@@ -68,7 +68,7 @@ struct SessionRowView: View {
         return over
     }
     /// [working-ring] Theme › Working Ring: off, a working chat whose row has no "Working…" line gets the working dots.
-    @AppStorage(WorkingRing.key) private var ringOn = true
+    @AppStorage(WorkingRing.key) private var ringOn = false   // [ring-off-default]
     @Environment(\.dynamicTypeSize) private var typeSize
     private var large: Bool { typeSize.isAccessibilitySize }
     /// [desktoplook2] The desktop's session row, unified with the Bots row: 32 pt face, 14 pt semibold title, one line

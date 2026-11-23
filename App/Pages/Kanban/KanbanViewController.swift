@@ -48,6 +48,8 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
     static var boardMode: Bool { DeviceWord.isMac }
     private var boardView: KanbanBoardView?
     private var barBoardButton: UIButton?
+    /// [kanban-boards] The boards page while it is open: it follows renames and deletes.
+    private weak var boardList: KanbanBoardListController?
     /// The page is the board (the window gives it the whole width, and most of it beside an open task).
     var isBoard: Bool { boardView != nil }
     private static let live = NSHashTable<KanbanViewController>.weakObjects()
@@ -661,8 +663,64 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
                 if let total = meta.total { action.subtitle = "\(total) \(total == 1 ? "task" : "tasks")" }
                 return action
             }
-            button.menu = UIMenu(title: "Boards", options: .singleSelection, children: items)
+            // [kanban-boards] Owner 2026-11-22 ("There are some on there that I’d like to delete or rename and I can’t"):
+            // the open board's Rename and Delete under the list, and Manage Boards for any other.
+            let picks = UIMenu(options: [.displayInline, .singleSelection], children: items)
+            button.menu = UIMenu(title: "Boards", children: [picks, boardActionsMenu(includeManage: true)])
         }
+    }
+
+    /// [kanban-boards] Rename and Delete for the open board, and Manage Boards (every board, each with its own).
+    private func boardActionsMenu(includeManage: Bool) -> UIMenu {
+        let slug = store.boardKey
+        var actions: [UIMenuElement] = [
+            UIAction(title: "Rename Board…", image: UIImage(systemName: "pencil")) { [weak self] _ in self?.renameBoard(slug) },
+        ]
+        if KanbanModel.canDelete(slug) {
+            actions.append(UIAction(title: "Delete Board…", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                self?.deleteBoard(slug)
+            })
+        }
+        if includeManage {
+            let manage = UIAction(title: "Manage Boards…", image: UIImage(systemName: "list.bullet")) { [weak self] _ in self?.showBoardList() }
+            manage.accessibilityIdentifier = "kanban.board.manage"
+            actions.append(manage)
+        }
+        return UIMenu(options: .displayInline, children: actions)
+    }
+
+    /// [kanban-boards] Rename Board: the name in a one-field prompt; the slug never changes.
+    func renameBoard(_ slug: String) {
+        let meta = store.boards?.boards.first { $0.slug == slug }
+        let current = KanbanModel.boardTitle(slug: slug, name: meta?.name)
+        TextPrompt.present(title: "Rename Board", text: current, placeholder: current, action: "Rename", maxLength: 80,
+                           requireChange: true, identifier: "kanban.board.rename.field", selectText: true, from: self) { [weak self] name in
+            guard let self else { return }
+            Task {
+                guard let reason = await self.store.renameBoard(slug, to: name) else { PagesHaptics.success(); return }
+                self.boardWriteFailed("Couldn’t Rename Board", reason) { [weak self] in self?.renameBoard(slug) }
+            }
+        }
+    }
+
+    /// [kanban-boards] Delete Board: a destructive confirmation naming what goes with it. The gateway archives it.
+    func deleteBoard(_ slug: String) {
+        let meta = store.boards?.boards.first { $0.slug == slug }
+        let title = KanbanModel.boardTitle(slug: slug, name: meta?.name)
+        guard KanbanModel.canDelete(slug) else { notices.show(KanbanModel.defaultBoardKept); return }
+        TextPrompt.confirm(title: "Delete “\(title)”?", message: KanbanModel.deleteBoardMessage(title: title, total: meta?.total),
+                           action: "Delete Board", from: self) { [weak self] in
+            guard let self else { return }
+            Task {
+                guard let reason = await self.store.deleteBoard(slug) else { PagesHaptics.success(); return }
+                self.boardWriteFailed("Couldn’t Delete Board", reason) { [weak self] in self?.deleteBoard(slug) }
+            }
+        }
+    }
+
+    private func boardWriteFailed(_ title: String, _ reason: String, retry: @escaping () -> Void) {
+        if reason == JobsStore.readOnlyNotice { KanbanFeedback.readOnly(from: self); return }
+        FailureAlert.present(title: title, reason: reason, from: self, retry: retry)
     }
 
     private func pickBoard(_ slug: String) {
@@ -673,12 +731,15 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
         store.select(board: slug)
     }
 
+    /// The boards page: pick one, or (swipe, hold, or Edit) rename or delete any of them ([kanban-boards]).
     private func showBoardList() {
-        let boards = store.boards?.boards ?? []
-        let list = KanbanBoardListController(boards: boards, current: store.boardKey) { [weak self] slug in
+        let list = KanbanBoardListController(boards: store.boards?.boards ?? [], current: store.boardKey) { [weak self] slug in
             self?.pickBoard(slug)
             self?.navigationController?.popViewController(animated: true)
         }
+        list.onRename = { [weak self] slug in self?.renameBoard(slug) }
+        list.onDelete = { [weak self] slug in self?.deleteBoard(slug) }
+        boardList = list
         navigationController?.pushViewController(list, animated: true)
     }
 
@@ -698,6 +759,7 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
 
     func reload(animated: Bool) {
         guard isViewLoaded else { return }
+        boardList?.update(boards: store.boards?.boards ?? [], current: store.boardKey)   // [kanban-boards]
         let names = store.board?.columns.map(\.name) ?? KanbanModel.statusOrder
         let order = KanbanModel.chipOrder(names)
         let shown = store.board.map { KanbanModel.filter($0, query) }
@@ -1104,12 +1166,17 @@ final class KanbanViewController: UIViewController, UICollectionViewDelegate, UI
     }
 }
 
-/// More than eight boards: a pushed, searchable list (search over 12).
+/// Boards: a pushed, searchable list (search over 12) — the picker past eight boards, and Manage Boards
+/// ([kanban-boards]) where each row renames or deletes its board.
 final class KanbanBoardListController: UITableViewController, UISearchResultsUpdating {
-    private let boards: [KanbanBoardMeta]
-    private let current: String
+    private var boards: [KanbanBoardMeta]
+    private var current: String
     private let pick: (String) -> Void
     private var shown: [KanbanBoardMeta]
+    /// [kanban-boards] Rename and Delete for a row (swipe, hold, or the Mac's control-click).
+    var onRename: ((String) -> Void)?
+    var onDelete: ((String) -> Void)?
+    private var words = ""
 
     init(boards: [KanbanBoardMeta], current: String, pick: @escaping (String) -> Void) {
         self.boards = boards
@@ -1137,9 +1204,61 @@ final class KanbanBoardListController: UITableViewController, UISearchResultsUpd
     }
 
     func updateSearchResults(for searchController: UISearchController) {
-        let words = (searchController.searchBar.text ?? "").pgTrim.lowercased()
+        words = (searchController.searchBar.text ?? "").pgTrim.lowercased()
+        refilter()
+    }
+
+    /// [kanban-boards] The store's boards changed (a rename or delete landed, or the list was read again).
+    func update(boards next: [KanbanBoardMeta], current nextCurrent: String) {
+        guard next != boards || nextCurrent != current else { return }
+        boards = next
+        current = nextCurrent
+        guard isViewLoaded else { return }
+        refilter()
+    }
+
+    private func refilter() {
         shown = words.isEmpty ? boards : boards.filter { KanbanModel.boardTitle(slug: $0.slug, name: $0.name).lowercased().contains(words) }
         tableView.reloadData()
+    }
+
+    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        onRename == nil ? nil : (DeviceWord.isMac ? "Control\u{2011}click a board to rename or delete it."
+                                                  : "Swipe a board or hold it to rename or delete it.")
+    }
+
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard indexPath.row < shown.count, onRename != nil else { return nil }
+        let slug = shown[indexPath.row].slug
+        var actions: [UIContextualAction] = []
+        if KanbanModel.canDelete(slug) {
+            // The alert confirms first, so the row stays until the delete lands (as a task's Delete).
+            let delete = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, done in
+                self?.onDelete?(slug); done(false)
+            }
+            delete.image = UIImage(systemName: "trash.fill")
+            actions.append(delete)
+        }
+        let rename = UIContextualAction(style: .normal, title: "Rename") { [weak self] _, _, done in
+            self?.onRename?(slug); done(true)
+        }
+        rename.image = UIImage(systemName: "pencil")
+        actions.append(rename)
+        let config = UISwipeActionsConfiguration(actions: actions)
+        config.performsFirstActionWithFullSwipe = false
+        return config
+    }
+
+    override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+        guard indexPath.row < shown.count, onRename != nil else { return nil }
+        let slug = shown[indexPath.row].slug
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            var items: [UIMenuElement] = [UIAction(title: "Rename…", image: UIImage(systemName: "pencil")) { _ in self?.onRename?(slug) }]
+            if KanbanModel.canDelete(slug) {
+                items.append(UIAction(title: "Delete…", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in self?.onDelete?(slug) })
+            }
+            return UIMenu(children: items)
+        }
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { shown.count }
@@ -1152,6 +1271,7 @@ final class KanbanBoardListController: UITableViewController, UISearchResultsUpd
         content.secondaryText = meta.total.map { "\($0) \($0 == 1 ? "task" : "tasks")" }
         cell.contentConfiguration = content
         cell.accessoryType = meta.slug == current ? .checkmark : .none
+        cell.accessibilityIdentifier = "kanban.boards.row.\(meta.slug)"   // [kanban-boards]
         return cell
     }
 

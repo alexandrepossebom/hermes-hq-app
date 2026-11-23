@@ -1,6 +1,7 @@
 // [quick-actions] More › Quick Actions (docs/spec/3x-morepages.md §25) against the morepages stand-in: the starter
 // set, Add Action and Set Up, rename, Wide, reorder, remove, a tile whose bot isn't there, and the list kept across a
 // relaunch. Run: HQN_MOREPAGES_ONLY="QuickActionsUITests" scripts/e2e-morepages.sh <udid>
+// [favorites-live-tiles] And a Dashboard tile on Favorites (§25 Q15–Q21): `testQuickActions_DashboardTile`.
 
 import XCTest
 
@@ -200,6 +201,129 @@ final class QuickActionsUITests: MorePagesCase {
         shot("quick-actions-desktop-look-editing")
         edit("Done")
         relaunch(["-HQDebugDesktopLook", "NO"])
+    }
+
+    /// [favorites-live-tiles] The share of the element's pixels within `tolerance` of `rgb` (its screenshot).
+    @MainActor private func share(of rgb: (Int, Int, Int), in element: XCUIElement, tolerance: Int = 5) -> Double {
+        guard let image = element.screenshot().image.cgImage else { return 0 }
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return 0 }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var hits = 0
+        for i in stride(from: 0, to: pixels.count, by: 4)
+        where abs(Int(pixels[i]) - rgb.0) <= tolerance && abs(Int(pixels[i + 1]) - rgb.1) <= tolerance && abs(Int(pixels[i + 2]) - rgb.2) <= tolerance {
+            hits += 1
+        }
+        return Double(hits) / Double(max(1, width * height))
+    }
+
+    /// [favorites-live-tiles] The stand-in's tile.html pictured in the cell: mostly its #f4f4f4 page (within 2, so the
+    /// light page's #f2f2f7 behind a spinner doesn't count: 0 % there, 88 % drawn) and its dark headline (every channel
+    /// 80 or under: 7 % of a Small tile; the words come out near (43, 47, 52) in the picture).
+    @MainActor private func drawsPicture(_ cell: XCUIElement) -> Bool {
+        share(of: (244, 244, 244), in: cell, tolerance: 2) > 0.25 && share(of: (0, 0, 0), in: cell, tolerance: 80) > 0.02
+    }
+
+    /// [favorites-live-tiles] A tester (2026-11-22): "it would be cool if for the new Favourites feature that you could
+    /// add actual tiles instead of just a link to tiles." A pinned page (the stand-in's site/tile.html, its picture
+    /// #f4f4f4 with "Revenue $12K") is added from Add Action's Dashboard Tiles, draws its picture on Favorites, goes
+    /// Wide, opens as the Dashboard opens it, goes 40 % while unpinned, and Remove from Favorites leaves it pinned.
+    @MainActor func testQuickActions_DashboardTile() throws {
+        launchSignedIn(["-HQDebugResetQuickActions", "YES", "-HQDebugResetPins", "YES"])
+        hook("pin-tile:/home/hermes/site/tile.html")
+        tab("More")
+        openMore("quick-actions")
+        XCTAssertTrue(tile("starter-memo").waitForExistence(timeout: 10), "the starter set")
+
+        // Add Action › Dashboard Tiles › the pinned page › Set Up (Name and Size only).
+        edit("Edit")
+        let add = app.cells["quick-actions.add-tile"]
+        reach(add)
+        add.tap()
+        let choice = app.buttons["quick.add.tile.tile.html"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 8), "Add Action lists the Dashboard's tile")
+        XCTAssertTrue(app.staticTexts["Dashboard Tiles"].exists || app.otherElements["Dashboard Tiles"].exists
+                      || app.descendants(matching: .any).matching(NSPredicate(format: "label ==[c] %@", "Dashboard Tiles")).firstMatch.exists,
+                      "under its own heading")
+        Thread.sleep(forTimeInterval: 2)   // its small picture
+        shot("favorites-tile-add-action")
+        choice.tap()
+        XCTAssertTrue(app.navigationBars["Set Up"].waitForExistence(timeout: 5), "a Dashboard tile opens Set Up")
+        let name = app.textFields["quick.setup.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        let pinName = name.value as? String ?? ""
+        XCTAssertFalse(pinName.isEmpty, "the name starts as the pin's")
+        XCTAssertTrue(app.segmentedControls["quick.setup.size"].exists, "Size (Small / Wide)")
+        XCTAssertFalse(app.segmentedControls["quick.setup.height"].exists, "no Height: a picture is never Short")
+        XCTAssertFalse(app.buttons["quick.setup.symbol.star.fill"].exists, "no icon grid")
+        XCTAssertFalse(app.buttons["quick.setup.color.indigo"].exists, "no colours")
+        XCTAssertTrue(app.descendants(matching: .any)["quick.setup.preview"].exists, "the real tile, previewed")
+        Thread.sleep(forTimeInterval: 2)
+        shot("favorites-tile-setup")
+        app.buttons["quick.setup.save"].tap()
+
+        // On Favorites: the tile itself, its picture drawn (the page's own #f4f4f4).
+        let dashboardTiles = grid.cells.matching(NSPredicate(format: "label ENDSWITH %@", ", Dashboard tile"))
+        let added = dashboardTiles.firstMatch
+        XCTAssertTrue(added.waitForExistence(timeout: 8), "the Dashboard tile is on Favorites")
+        let id = added.identifier
+        let cell = app.cells[id]
+        XCTAssertEqual(cell.label, "\(pinName), Dashboard tile")
+        edit("Done")
+        reach(cell)
+        let drawn = waitUntil(25) { self.drawsPicture(cell) }
+        shot("favorites-tile-small")
+        XCTAssertTrue(drawn, "the tile shows its page's picture: \(share(of: (244, 244, 244), in: cell, tolerance: 2)) page, \(share(of: (0, 0, 0), in: cell, tolerance: 80)) words")
+        XCTAssertLessThan(abs(cell.frame.width - tile("starter-memo").frame.width), 2, "Small: one column")
+        XCTAssertLessThan(abs(cell.frame.height - cell.frame.width), cell.frame.width * 0.2, "square-ish, as a Dashboard Small tile")
+
+        // Wide, from the hold menu (Open, Small, Wide, Edit…, Remove from Favorites; no Tall / Short).
+        cell.press(forDuration: 1.2)
+        for word in ["Open", "Small", "Wide", "Edit…", "Remove from Favorites"] {
+            XCTAssertTrue(app.buttons[word].waitForExistence(timeout: 3), "the hold menu offers \(word)")
+        }
+        XCTAssertFalse(app.buttons["Short"].exists || app.buttons["Tall"].exists, "no Tall / Short for a picture")
+        shot("favorites-tile-hold-menu")
+        app.buttons["Wide"].tap()
+        XCTAssertTrue(waitUntil(5) { cell.frame.width > self.tile("starter-memo").frame.width * 1.6 }, "Wide: both columns")
+        XCTAssertTrue(waitUntil(25) { self.drawsPicture(cell) }, "its picture, Wide")
+        reach(cell)
+        shot("favorites-tile-wide")
+
+        // A tap opens it as the Dashboard does: the page itself, with the opened tile's Updates button.
+        cell.tap()
+        let headline = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Revenue $12K")).firstMatch
+        XCTAssertTrue(headline.waitForExistence(timeout: 15), "the tile's page opens")
+        XCTAssertTrue(app.buttons["tile.updates.button"].firstMatch.waitForExistence(timeout: 5), "opened as a tile (its Updates)")
+        shot("favorites-tile-opened")
+        app.buttons["sheet.close"].firstMatch.tap()
+        XCTAssertTrue(app.collectionViews["pinned.list"].waitForExistence(timeout: 5), "over the Dashboard, on Favorites' stack")
+        back()
+        XCTAssertTrue(grid.waitForExistence(timeout: 5), "Back comes to Favorites")
+
+        // Unpinned on the Dashboard: kept at 40 %, a tap says why; pinned again, it is back.
+        hook("unpin-tile:/home/hermes/site/tile.html")
+        XCTAssertTrue(waitUntil(8) { cell.value as? String == "Unavailable" }, "unpinned: switched off")
+        reach(cell)
+        shot("favorites-tile-unpinned")
+        cell.tap()
+        let notice = app.descendants(matching: .any)["pages.notice"]
+        XCTAssertTrue(waitUntil(5) { notice.exists && notice.label.contains("isn’t on your Dashboard any more.") }, "one sentence")
+        hook("pin-tile:/home/hermes/site/tile.html")
+        XCTAssertTrue(waitUntil(8) { (cell.value as? String) != "Unavailable" }, "pinned again: on again")
+
+        // Remove from Favorites: gone here, still pinned on the Dashboard.
+        cell.press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["Remove from Favorites"].waitForExistence(timeout: 3))
+        app.buttons["Remove from Favorites"].tap()
+        XCTAssertTrue(waitUntil(5) { !cell.exists }, "removed from Favorites")
+        back()
+        openMore("pinned")
+        XCTAssertTrue(app.collectionViews["pinned.list"].cells["pin-card-tile.html"].waitForExistence(timeout: 10),
+                      "still pinned on the Dashboard")
     }
 
     /// Settings › Tabs can make Quick Actions a tab of its own; it then leaves More.

@@ -105,6 +105,21 @@ nonisolated struct KanbanAPI: Sendable {
         nudger.nudge(board)
     }
 
+    // MARK: Board writes ([kanban-boards] owner 2026-11-22: "There are some on there that I’d like to delete or rename")
+
+    /// Renames a board (`PATCH /boards/<slug>` `{"name"}`; the slug never changes, `plugin_api.py` `rename_board`).
+    func renameBoard(_ slug: String, to name: String) async throws {
+        _ = try await PagesREST.send(client, "PATCH", Self.boardPath(slug), json: ["name": .string(name.pgTrim)])
+    }
+
+    /// Deletes a board the recoverable way: the gateway moves it to `boards/_archived/` (`DELETE /boards/<slug>`
+    /// without `?delete=true`, `plugin_api.py` `delete_board`). The default board can't be removed (400).
+    func deleteBoard(_ slug: String) async throws {
+        _ = try await PagesREST.send(client, "DELETE", Self.boardPath(slug))
+    }
+
+    static func boardPath(_ slug: String) -> String { base + "/boards/" + PagesREST.segment(slug) }
+
     /// Makes a model call on the gateway: only on an explicit tap.
     func estimate(_ id: String, board: String) async throws -> String {
         let json = try await PagesREST.json(client, "POST", taskPath(id, "/estimate"), query: q(board), json: .object([:]), timeout: 120)

@@ -54,6 +54,11 @@ import UIKit
             for row in pages.quickActionChoices().flatMap({ $0.rows() }) where byID[row.id] == nil { byID[row.id] = row.title }
             world.pages = byID
         }
+        // [favorites-live-tiles] The pins on this account's Dashboard (none known while signed out: never "missing").
+        if let store = FavoriteTiles.store(root) {
+            let pins = ArtifactPins.of(accountId: store.account.id)
+            world.pins = Dictionary(store.hidden.visible(pins.pins).map { ($0.id, pins.name($0)) }, uniquingKeysWith: { first, _ in first })
+        }
         return world
     }
 
@@ -128,6 +133,16 @@ import UIKit
             page.navigationController?.pushViewController(next, animated: true)
             return
         }
+        // [favorites-live-tiles] A Dashboard tile, the page a tab or a More page: the Dashboard on the page's own stack
+        // (Back comes here again), the tile opened over it as a tap on it there opens it.
+        if case .dashboardTile(let id) = route, !page.inSheet, let navigation = page.navigationController {
+            guard let tiles = root?.pages?.makePinned() as? ArtifactsViewController else { return say(.failed(missingTile(tile))) }
+            navigation.pushViewController(tiles, animated: true)
+            await settled(navigation)
+            tiles.loadViewIfNeeded()
+            if !tiles.openTile(pinId: id) { say(.failed(missingTile(tile))) }
+            return
+        }
         if page.inSheet { await close(page) }
         guard let root = root ?? MainTabController.current else { return }
         switch route {
@@ -148,9 +163,39 @@ import UIKit
             if !openPage(id, root: root) { notice(missingPage(tile), root: root) }
         case .search:
             await IntentsRuntime.shared.route("search", id: "", epoch: nil)
+        case .dashboardTile(let id):
+            // [favorites-live-tiles] From the sheet: the Dashboard on show (its tab, or More's row), the tile opened over
+            // it, as its Home Screen widget opens it (`WidgetRouter`).
+            guard let tiles = dashboard(root) else { return notice(missingTile(tile), root: root) }
+            tiles.loadViewIfNeeded()
+            try? await Task.sleep(for: .milliseconds(350))   // as a widget's tap: the page's lists settle first
+            if !tiles.openTile(pinId: id) { notice(missingTile(tile), root: root) }
         case .runJob, .sendInBackground, .unavailable:
             break
         }
+    }
+
+    /// The push's (or pop's) animation done.
+    private static func settled(_ navigation: UINavigationController) async {
+        guard let coordinator = navigation.transitionCoordinator else { return }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            // false: no animation to wait on (the completion then never comes).
+            if !coordinator.animate(alongsideTransition: nil, completion: { _ in done.resume() }) { done.resume() }
+        }
+    }
+
+    /// [favorites-live-tiles] The Dashboard (Tiles) page on show: as a widget's tap shows it, else as More's row (the
+    /// Mac's sidebar), found on screen.
+    private static func dashboard(_ root: MainTabController) -> ArtifactsViewController? {
+        if let tiles = WidgetRouter.showTiles(root) { return tiles }
+        guard openPage("pinned", root: root) else { return nil }
+        func find(_ vc: UIViewController) -> ArtifactsViewController? {
+            if let tiles = vc as? ArtifactsViewController, tiles.pinnedOnly, tiles.viewIfLoaded?.window != nil { return tiles }
+            if let stack = vc as? UINavigationController, let top = stack.topViewController { return find(top) }
+            for child in vc.children { if let hit = find(child) { return hit } }
+            return nil
+        }
+        return find(root)
     }
 
     private static func close(_ page: QuickActionsViewController) async {
@@ -195,6 +240,7 @@ import UIKit
 
     private static func missingBot(_ tile: QuickTile) -> String { "\(tile.botName ?? tile.bot ?? "That bot") isn’t on this gateway." }
     private static func missingPage(_ tile: QuickTile) -> String { "\(tile.pageName ?? tile.name) isn’t on this gateway." }
+    private static func missingTile(_ tile: QuickTile) -> String { QuickTileRules.notOnDashboard(tile) }
 
     private static func notice(_ message: String, root: MainTabController) {
         let alert = UIAlertController(title: "Couldn’t Run That Action", message: message, preferredStyle: .alert)

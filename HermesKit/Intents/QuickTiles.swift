@@ -19,11 +19,17 @@ nonisolated enum QuickTileKind: String, CaseIterable, Sendable {
     case runJob = "run-job"
     case page
     case search
+    /// [favorites-live-tiles] A Dashboard tile itself, drawn as the Dashboard draws it (its picture, or its page live).
+    case dashboardTile = "dashboard-tile"
 
     /// Done in the background: the page stays open and says what happened.
     var staysOnPage: Bool { self == .runJob }
 
     var needsBot: Bool { [.newChat, .memo, .talk, .send, .openChat].contains(self) }
+
+    /// [favorites-live-tiles] A picture, not an icon and words: Set Up has no icon grid, colour or Height, and it is
+    /// never Short (3x-morepages Q16).
+    var isPicture: Bool { self == .dashboardTile }
 
     /// The name a new tile of this kind is given (the setup form's Name starts with it).
     func defaultName(bot: String?, job: String?, page: String?) -> String {
@@ -37,6 +43,7 @@ nonisolated enum QuickTileKind: String, CaseIterable, Sendable {
         case .runJob: job.flatMap { $0.isEmpty ? nil : $0 } ?? "Run Job"
         case .page: page.flatMap { $0.isEmpty ? nil : $0 } ?? "Page"
         case .search: "Search Chats"
+        case .dashboardTile: page.flatMap { $0.isEmpty ? nil : $0 } ?? "Tile"
         }
     }
 
@@ -52,6 +59,7 @@ nonisolated enum QuickTileKind: String, CaseIterable, Sendable {
         case .runJob: ("bolt.fill", .orange)
         case .page: ("square.grid.2x2.fill", .gray)
         case .search: ("magnifyingglass", .gray)
+        case .dashboardTile: ("chart.xyaxis.line", .accent)
         }
     }
 }
@@ -91,12 +99,28 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
     /// A page's More row id, and its title.
     var page: String? = nil
     var pageName: String? = nil
+    /// [favorites-live-tiles] A Dashboard tile's pin (`ArtifactPin.id`), and its name when it was added (the tile's
+    /// name follows the pin's while the two are the same: `shownName`).
+    var pin: String? = nil
+    var pinName: String? = nil
 
     /// A stored entry this build could not read at all: kept, as written, and drawn switched off.
     var unreadable: JSONValue? = nil
+    /// [favorites-live-tiles] What a newer build stored on a tile that this build has no field for (Q8: a newer kind's
+    /// own fields, as `pin` was to the builds before it): written back as it was.
+    var extra: [String: JSONValue] = [:]
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, kind, name, symbol, color, wide, short, bot, botName, project, projectName, message, flag, job, jobName, page, pageName
+        case pin, pinName
+    }
+
+    /// Any key, for `extra`.
+    private struct AnyKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
     }
 
     var known: QuickTileKind? { unreadable == nil ? QuickTileKind(rawValue: kind) : nil }
@@ -155,6 +179,10 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
         jobName = try c.decodeIfPresent(String.self, forKey: .jobName)
         page = try c.decodeIfPresent(String.self, forKey: .page)
         pageName = try c.decodeIfPresent(String.self, forKey: .pageName)
+        pin = try c.decodeIfPresent(String.self, forKey: .pin)
+        pinName = try c.decodeIfPresent(String.self, forKey: .pinName)
+        let keys = Set(CodingKeys.allCases.map(\.stringValue))
+        if let all = try? JSONValue(from: decoder).object { extra = all.filter { !keys.contains($0.key) } }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -177,6 +205,18 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
         try c.encodeIfPresent(jobName, forKey: .jobName)
         try c.encodeIfPresent(page, forKey: .page)
         try c.encodeIfPresent(pageName, forKey: .pageName)
+        try c.encodeIfPresent(pin, forKey: .pin)
+        try c.encodeIfPresent(pinName, forKey: .pinName)
+        guard !extra.isEmpty else { return }
+        var more = encoder.container(keyedBy: AnyKey.self)
+        for (key, value) in extra { try more.encode(value, forKey: AnyKey(stringValue: key)) }
+    }
+
+    /// [favorites-live-tiles] A Dashboard tile's name: its own, or the pin's name now while it was never typed over
+    /// (it is still the name the pin had when it was added). `current`: the pin's name on the Dashboard (nil: gone).
+    func shownName(currentPinName current: String?) -> String {
+        guard known == .dashboardTile, let current, !current.isEmpty, name == pinName || name.isEmpty else { return name }
+        return current
     }
 
     /// What the tile does, in a few words under its name ("to otto", "in Site", "run job").
@@ -194,6 +234,7 @@ nonisolated struct QuickTile: Codable, Equatable, Identifiable, Sendable {
         case .runJob: return "run job"
         case .page: return "page"
         case .search: return "all chats"
+        case .dashboardTile: return "tile"
         case nil: return "needs a newer app"
         }
     }
@@ -206,11 +247,14 @@ nonisolated struct QuickTileWorld: Sendable {
     var bots: [String: String]?
     var jobs: Set<String>?
     var pages: [String: String]?
+    /// [favorites-live-tiles] The pins on this account's Dashboard: id → name.
+    var pins: [String: String]?
 
-    init(bots: [String: String]? = nil, jobs: Set<String>? = nil, pages: [String: String]? = nil) {
+    init(bots: [String: String]? = nil, jobs: Set<String>? = nil, pages: [String: String]? = nil, pins: [String: String]? = nil) {
         self.bots = bots
         self.jobs = jobs
         self.pages = pages
+        self.pins = pins
     }
 }
 
@@ -236,6 +280,8 @@ nonisolated enum QuickTileRoute: Equatable, Sendable {
     case page(id: String)
     /// The Home Screen item's Search Chats (DECISION I6).
     case search
+    /// [favorites-live-tiles] A Dashboard tile, opened by the Dashboard's own open (as its Home Screen widget is).
+    case dashboardTile(id: String)
     /// Not on this gateway (or not this build's): one sentence, nothing runs.
     case unavailable(String)
 
@@ -265,6 +311,7 @@ nonisolated enum QuickTileRoute: Equatable, Sendable {
         case .runJob: return .runJob(key: tile.job ?? "", name: tile.jobName ?? tile.name)
         case .page: return .page(id: tile.page ?? "")
         case .search: return .search
+        case .dashboardTile: return .dashboardTile(id: tile.pin ?? "")
         }
     }
 }
@@ -287,8 +334,16 @@ nonisolated enum QuickTileRules {
             guard let page = tile.page, !page.isEmpty else { return "Choose a page for this action in Edit." }
             if let pages = world.pages, pages[page] == nil { return "\(tile.pageName ?? tile.name) isn’t on this gateway." }
         }
+        if kind == .dashboardTile {
+            // [favorites-live-tiles] Unpinned (or another account's): kept, at 40 %, until it is pinned again or removed.
+            guard let pin = tile.pin, !pin.isEmpty else { return notOnDashboard(tile) }
+            if let pins = world.pins, pins[pin] == nil { return notOnDashboard(tile) }
+        }
         return nil
     }
+
+    /// [favorites-live-tiles] A Dashboard tile whose pin isn't on this account's Dashboard now.
+    static func notOnDashboard(_ tile: QuickTile) -> String { "“\(tile.pinName ?? tile.name)” isn’t on your Dashboard any more." }
 }
 
 /// The page's tiles on this device.
@@ -309,9 +364,13 @@ nonisolated struct QuickTileList: Equatable, Sendable {
         if let index = tiles.firstIndex(where: { $0.id == id }) { tiles[index].wide = wide }
     }
 
+    /// A Dashboard tile is never Short (a picture has no one-line form): it stays as it is.
     mutating func setShort(_ id: String, _ short: Bool) {
-        if let index = tiles.firstIndex(where: { $0.id == id }) { tiles[index].short = short }
+        if let index = tiles.firstIndex(where: { $0.id == id }), tiles[index].known?.isPicture != true { tiles[index].short = short }
     }
+
+    /// [favorites-live-tiles] The pins already on the page (Add Action leaves them out).
+    var pins: Set<String> { Set(tiles.compactMap { $0.known == .dashboardTile ? $0.pin : nil }) }
 
     /// Moves the tile to `index` (clamped).
     mutating func move(_ id: String, to index: Int) {

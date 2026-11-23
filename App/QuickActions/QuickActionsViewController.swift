@@ -4,9 +4,12 @@
 // removes (−), resizes (drag the corner handle), reorders (drag) and adds (＋ Add Action); holding a tile out of Edit offers Small, Wide, Edit… and Remove.
 // The list is this device's (`QuickTileStore`, `hqn.quickActions`). Opened as a sheet by every shortcut and link, and
 // pushed from More › Quick Actions or shown as a tab.
+// [favorites-live-tiles] A tile can be a Dashboard tile itself (FavoriteDashboardTiles.swift): drawn as the Dashboard
+// draws it, live when its page is, opened by the Dashboard's own open.
 
 import SwiftUI
 import UIKit
+import WebKit
 
 final class QuickActionsViewController: UIViewController, UICollectionViewDelegate {
     /// In the page's own sheet (every shortcut's way in), or pushed / a tab.
@@ -21,6 +24,12 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
     private var seeding = false
     /// The dashed ＋ Add Action tile's id (shown while editing).
     static let addID = "quick-actions.add"
+    /// [favorites-live-tiles] The account's pins and their pictures (made on first need, again for another account),
+    /// and the Dashboard tiles running live here.
+    private var dashboard: FavoriteTiles?
+    private var liveTiles: LiveTiles?
+    /// A tile is being dragged (a redraw then waits: applying a snapshot mid-move is refused).
+    private var moving = false
 
     init(inSheet: Bool) {
         self.inSheet = inSheet
@@ -97,6 +106,22 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
                 MainActor.assumeIsolated { self?.reload() }
             }
         }
+        // [favorites-live-tiles] A pin renamed, redrawn, unpinned, removed in Artifacts, or Show Names turned; its
+        // updates' mark or its bot working on it: the Dashboard tiles here follow.
+        for name in [ArtifactPins.didChange, ArtifactHidden.didChange, ArtifactPins.viewChanged, TileUpdates.changed, TileMaker.changed] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dashboardChanged() }
+            }
+        }
+        NotificationCenter.default.addObserver(forName: TileMaker.tileChanged, object: nil, queue: .main) { [weak self] note in
+            let id = note.userInfo?["id"] as? String
+            MainActor.assumeIsolated {
+                guard let self, let id, let pin = self.dashboard?.pin(id) else { return }
+                self.dashboard?.pictures.redraw([pin])
+                self.liveTiles?.reload(id)
+                self.redraw(pin: id)
+            }
+        }
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _: UITraitCollection) in
             self.reload()
         }
@@ -106,10 +131,12 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         reload()   // a bot, job or page may have come or gone meanwhile
+        liveTiles?.watch(true)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        liveTiles?.watch(false)   // [favorites-live-tiles] as the Dashboard: hidden, every live view goes
         if isEditing, navigationController?.presentedViewController == nil, presentedViewController == nil {
             setEditing(false, animated: false)
         }
@@ -233,6 +260,9 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         change { $0.setShort(id, short) }
     }
 
+    /// [favorites-live-tiles] Whether the tile is a Dashboard tile (a picture: no Short, no icon).
+    private func isPicture(_ tile: QuickTile) -> Bool { tile.known?.isPicture == true }
+
     /// The corner drag's start: the tile's size and its frame then (thresholds stay put while the tile changes).
     private var resizeStart: (id: String, wide: Bool, short: Bool, size: CGSize)?
 
@@ -245,7 +275,9 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         case .changed:
             guard let start = resizeStart, start.id == id, let tile = list.tiles.first(where: { $0.id == id }) else { return }
             let wide = start.wide ? moved.x > -start.size.width * 0.25 : moved.x > start.size.width * 0.3
-            let short = start.short ? moved.y < start.size.height * 0.3 : moved.y < -start.size.height * 0.3
+            // [favorites-live-tiles] A Dashboard tile only goes Small ↔ Wide.
+            let short = isPicture(tile) ? tile.short
+                : start.short ? moved.y < start.size.height * 0.3 : moved.y < -start.size.height * 0.3
             guard wide != tile.wide || short != tile.short else { return }
             PagesHaptics.selection()
             change { list in
@@ -256,7 +288,7 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
             if resizeStart?.id == id {
                 resizeStart = nil
                 if let tile = list.tiles.first(where: { $0.id == id }) {
-                    HQAnnounce.say("\(tile.wide ? "Wide" : "Small"), \(tile.short ? "Short" : "Tall")")
+                    HQAnnounce.say(isPicture(tile) ? (tile.wide ? "Wide" : "Small") : "\(tile.wide ? "Wide" : "Small"), \(tile.short ? "Short" : "Tall")")
                 }
             }
         }
@@ -292,28 +324,57 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         cells = Array(cells.prefix(count))
         guard !cells.isEmpty else { return Self.emptySection() }
         let half = gap / 2
+        let pageWidth = environment.container.effectiveContentSize.width
         let rows = QuickTileGrid.rows(cells, columns: stacked ? 1 : 2).map { row -> NSCollectionLayoutGroup in
             // A row is only as wide as its tiles: a small tile alone before a wide one would otherwise be repeated
             // to fill the row, taking the next tile's place, and every width after it would land one tile off.
             let shares = row.map { index -> CGFloat in stacked || cells[index].wide ? 1 : 0.5 }
             let width = min(1, shares.reduce(0, +))
+            // [favorites-live-tiles] A row with a Dashboard tile is about the tile's height (the cells size themselves:
+            // the row takes its tallest, and every tile in it fills that, `FavoriteTileSize`).
+            let estimate = row.map { index in tileHeight(cells[index], width: pageWidth) ?? 120 }.max() ?? 120
             let items = shares.map { share -> NSCollectionLayoutItem in
                 let item = NSCollectionLayoutItem(layoutSize: .init(widthDimension: .fractionalWidth(share / width),
-                                                                    heightDimension: .estimated(120)))
+                                                                    heightDimension: .estimated(estimate)))
                 item.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: half, bottom: 0, trailing: half)
                 return item
             }
             return NSCollectionLayoutGroup.horizontal(layoutSize: .init(widthDimension: .fractionalWidth(width),
-                                                                         heightDimension: .estimated(120)), subitems: items)
+                                                                         heightDimension: .estimated(estimate)), subitems: items)
         }
         let group = NSCollectionLayoutGroup.vertical(layoutSize: .init(widthDimension: .fractionalWidth(1),
                                                                         heightDimension: .estimated(CGFloat(rows.count) * 120)),
                                                      subitems: rows)
         group.interItemSpacing = .fixed(gap)
         let section = NSCollectionLayoutSection(group: group)
-        let side = max(16, environment.container.effectiveContentSize.width > 700 ? 24 : 16) - half
+        let side = Self.side(pageWidth) - half
         section.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: side, bottom: 24, trailing: side)
         return section
+    }
+
+    /// The room either side of the grid, to the tiles' edges.
+    private static func side(_ width: CGFloat) -> CGFloat { max(16, width > 700 ? 24 : 16) }
+
+    /// [favorites-live-tiles] A Dashboard tile's picture size on this page (nil: not one).
+    private func pictureSize(_ tile: QuickTile, width: CGFloat? = nil) -> CGSize? {
+        guard isPicture(tile) else { return nil }
+        let width = width ?? (collectionView.bounds.width > 0 ? collectionView.bounds.width : view.bounds.width)
+        return FavoriteTileSize.picture(width: width, side: Self.side(width), gap: gap, wide: tile.wide, stacked: stacked)
+    }
+
+    /// [favorites-live-tiles] A Dashboard tile's height on this page, its name's line included (nil: not one).
+    private func tileHeight(_ tile: QuickTile, width: CGFloat? = nil) -> CGFloat? {
+        pictureSize(tile, width: width).map {
+            FavoriteTileSize.height(picture: $0, names: ArtifactPins.showsNames, nameHeight: PinTileView.nameHeight)
+        }
+    }
+
+    /// [favorites-live-tiles] Whether the tile shares its row with a Dashboard tile (an action tile then fills the
+    /// row's height: its icon at the top, its words at the foot).
+    private func sharesRowWithPicture(_ id: String) -> Bool {
+        guard !stacked, let index = list.tiles.firstIndex(where: { $0.id == id }) else { return false }
+        let row = QuickTileGrid.rows(list.tiles, columns: 2).first { $0.contains(index) } ?? []
+        return row.count > 1 && row.contains { isPicture(list.tiles[$0]) }
     }
 
     // MARK: Cells
@@ -322,28 +383,158 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         let world = QuickActionsRouter.world()
         let missing = QuickTileRules.missing(tile, world: world)
         let subtitle = tile.subtitle(botName: QuickActionsRouter.botName(tile.bot))
-        cell.contentConfiguration = UIHostingConfiguration {
-            QuickTileFace(name: tile.name, subtitle: subtitle, symbol: tile.symbol, color: QuickTileLook.color(tile.tint),
-                          stacked: stacked, dimmed: missing != nil, short: tile.short)
+        var name = tile.name
+        if isPicture(tile) {
+            name = configureDashboardTile(cell, tile, missing: missing != nil)
+        } else {
+            let fill = sharesRowWithPicture(tile.id)
+            cell.contentConfiguration = UIHostingConfiguration {
+                QuickTileFace(name: tile.name, subtitle: subtitle, symbol: tile.symbol, color: QuickTileLook.color(tile.tint),
+                              stacked: stacked, dimmed: missing != nil, short: tile.short, fills: fill)
+            }
+            .margins(.all, 0)
+            cell.style(inSheet: inSheet, dashed: false, dimmed: missing != nil)
         }
-        .margins(.all, 0)
-        cell.style(inSheet: inSheet, dashed: false, dimmed: missing != nil)
         cell.accessibilityIdentifier = "quick-tile-\(tile.id)"
         cell.isAccessibilityElement = true
-        cell.accessibilityLabel = "\(tile.name), \(subtitle)"
-        cell.accessibilityValue = missing == nil ? nil : "Unavailable"
+        // [favorites-live-tiles] Q18: "<name>, Dashboard tile".
+        cell.accessibilityLabel = isPicture(tile) ? "\(name), Dashboard tile" : "\(tile.name), \(subtitle)"
+        cell.accessibilityValue = missing == nil ? dashboardHealthWords(tile) : "Unavailable"
         cell.accessibilityTraits = .button
-        cell.accessibilityCustomActions = accessibilityActions(tile)
+        cell.accessibilityCustomActions = liveButtonActions(tile) + accessibilityActions(tile)
         cell.onRemove = isEditing ? { [weak self] in self?.remove(tile.id) } : nil
-        cell.badgeLabel = "Remove \(tile.name)"
+        cell.badgeLabel = "Remove \(name)"
         // A single-column page (largest text) draws every tile full width, so its size can't show: no size button.
         cell.onResize = isEditing && !stacked ? { [weak self] in self?.setWide(tile.id, !tile.wide) } : nil
         cell.onResizeDrag = isEditing && !stacked ? { [weak self, weak cell] moved, state in
             guard let self, let cell else { return }
             self.resizeDrag(tile.id, moved: moved, state: state, cell: cell)
         } : nil
-        cell.setResize(wide: tile.wide, name: tile.name)
+        cell.setResize(wide: tile.wide, name: name)
         cell.setWiggling(isEditing)
+    }
+
+    // MARK: Dashboard tiles ([favorites-live-tiles])
+
+    /// The account's pins and pictures, made again for another account (with its own live tiles).
+    private func dashboardTiles() -> FavoriteTiles? {
+        guard let store = FavoriteTiles.store() else { return nil }
+        if dashboard?.store !== store {
+            liveTiles?.watch(false)
+            let made = FavoriteTiles(store: store)
+            made.pictures.onUpdate = { [weak self, weak made] id in
+                guard let self, let made else { return }
+                // Its page's title names it from now on, as on the Dashboard (Mac polish #45).
+                if let pin = made.pin(id), pin.isPage, let path = pin.gatewayPath,
+                   let head = PageSnapshots.shared.head(path: path, context: made.pictures.context(pin)) {
+                    made.pins.notePage(id: id, head: head)
+                }
+                self.redraw(pin: id)
+            }
+            made.previews.onUpdate = { [weak self] id in
+                if id.hasPrefix("pin:") { self?.redraw(pin: String(id.dropFirst(4))) }
+            }
+            dashboard = made
+            liveTiles = makeLiveTiles(made)
+            if viewIfLoaded?.window != nil { liveTiles?.watch(true) }
+        }
+        return dashboard
+    }
+
+    /// Draws a Dashboard tile's cell: `PinTileView`, as the Dashboard draws it (its picture, live page, health mark and
+    /// "Updating…"); a gone pin as its stand-in at 40 %. Answers the name it shows.
+    private func configureDashboardTile(_ cell: QuickTileCell, _ tile: QuickTile, missing: Bool) -> String {
+        let source = dashboardTiles()
+        let kept = missing ? nil : source?.pin(tile.pin)
+        let name = tile.shownName(currentPinName: kept.map { source?.pins.name($0) ?? $0.name })
+        let size = pictureSize(tile) ?? CGSize(width: 160, height: 160)
+        let height = tileHeight(tile) ?? size.height
+        let dark = traitCollection.userInterfaceStyle == .dark
+        var pin = kept ?? ArtifactPin.standIn(id: tile.pin, name: name)
+        pin.title = name   // the Favorites tile's own name (it follows the pin's until typed over)
+        var picture: UIImage?, busy = false, failed = missing, health = TileJobs.Health.none
+        var working: String?, live: WKWebView?
+        if let kept, let source {
+            let shape = FavoriteTiles.shape(size)
+            picture = source.pictures.picture(kept, dark: dark, pixels: max(size.width, size.height) * traitCollection.displayScale, shape: shape)
+            busy = picture == nil && source.pictures.waiting(kept, dark: dark, shape: shape)
+            failed = source.pictures.failed(kept)
+            health = failed && kept.isPage ? .failed(TileHealthMark.goneWords) : TileUpdates.shared.health(kept.id)
+            working = TileMaker.working(on: kept.id, accountId: source.accountId)?.tileWords
+            live = isEditing ? nil : liveTiles?.view(for: kept, dark: dark)   // Edit shows pictures, as Edit Tiles
+        }
+        let shown = pin
+        cell.contentConfiguration = UIHostingConfiguration {
+            FavoriteTileFace(pin: shown, picture: picture, busy: busy, health: isEditing ? .none : health, live: live,
+                             failed: failed, working: isEditing ? nil : working, height: height, dimmed: missing)
+        }
+        .margins(.all, 0)
+        cell.style(inSheet: inSheet, dashed: false, dimmed: false, bare: true)
+        return name
+    }
+
+    /// The Dashboard tile's mark in words (after its name), as the Dashboard reads it.
+    private func dashboardHealthWords(_ tile: QuickTile) -> String? {
+        guard isPicture(tile), let pin = dashboard?.pin(tile.pin) else { return nil }
+        return TileHealthMark.words(TileUpdates.shared.health(pin.id))
+    }
+
+    /// The pins changed (or their marks, names or makers): the Dashboard tiles drawn again.
+    private func dashboardChanged() {
+        guard isViewLoaded, list.tiles.contains(where: isPicture) else { return }
+        reload()
+    }
+
+    /// One pin's tiles drawn again (its picture landed, its live view is ready or gone), after this turn.
+    private func redraw(pin id: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isViewLoaded, !self.moving else { return }
+            let ids = self.list.tiles.filter { self.isPicture($0) && $0.pin == id }.map(\.id)
+            var snapshot = self.dataSource.snapshot()
+            let shown = ids.filter { snapshot.indexOfItem($0) != nil }
+            guard !shown.isEmpty else { return }
+            snapshot.reconfigureItems(shown)
+            self.dataSource.apply(snapshot, animatingDifferences: false)
+        }
+    }
+
+    /// The page's live tiles, wired as the Dashboard's (`ArtifactsViewController.makeLiveTiles`): a tap on nothing
+    /// pressable opens the tile; a button's prompt goes to the tile's bot, hidden, as `TileMaker.act`.
+    private func makeLiveTiles(_ source: FavoriteTiles) -> LiveTiles {
+        let live = LiveTiles(host: self)
+        live.pin = { [weak source] id in source?.pin(id) }
+        live.context = { [weak source] pin in source?.pictures.context(pin) ?? MediaContext(accountId: "", profile: pin.profile) }
+        live.onChange = { [weak self] id in self?.redraw(pin: id) }
+        live.onScreen = { [weak self] in
+            guard let self, let collectionView = self.collectionView else { return [] }
+            return Set(collectionView.indexPathsForVisibleItems.compactMap { path -> String? in
+                guard let id = self.dataSource.itemIdentifier(for: path) else { return nil }
+                return self.list.tiles.first { $0.id == id && self.isPicture($0) }?.pin
+            })
+        }
+        live.open = { [weak self] id in
+            guard let self, !self.isEditing, self.presentedViewController == nil,
+                  let tile = self.list.tiles.first(where: { self.isPicture($0) && $0.pin == id }) else { return }
+            Haptics.play(.soft)
+            QuickActionsRouter.run(tile, from: self) { [weak self] said in self?.say(said) }
+        }
+        live.send = { [weak self, weak source] id, prompt in
+            guard let self, let source else { return false }
+            return ArtifactsViewController.sendFromTile(source.pin(id), prompt, services: MainTabController.current?.pages?.services,
+                                                        accountId: source.accountId, page: self, from: self)
+        }
+        return live
+    }
+
+    /// A live tile's own buttons, by their words: VoiceOver reads the tile as one element, so they are its actions.
+    private func liveButtonActions(_ tile: QuickTile) -> [UIAccessibilityCustomAction] {
+        guard isPicture(tile), !isEditing, let id = tile.pin, let liveTiles, liveTiles.isRunning(id) else { return [] }
+        return liveTiles.buttons(id).map { words in
+            UIAccessibilityCustomAction(name: words) { [weak liveTiles] _ in
+                liveTiles?.press(id, button: words)
+                return true
+            }
+        }
     }
 
     private func configureAdd(_ cell: QuickTileCell) {
@@ -392,14 +583,24 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
             self?.setWide(id, !tile.wide)
             return true
         })
-        actions.append(UIAccessibilityCustomAction(name: tile.short ? "Make Tall" : "Make Short") { [weak self] _ in
-            self?.setShort(id, !tile.short)
-            return true
-        })
+        if !isPicture(tile) {
+            actions.append(UIAccessibilityCustomAction(name: tile.short ? "Make Tall" : "Make Short") { [weak self] _ in
+                self?.setShort(id, !tile.short)
+                return true
+            })
+        }
         return actions
     }
 
     // MARK: Taps
+
+    /// [favorites-live-tiles] A live Dashboard tile's own page takes its taps: a button runs, a tap on nothing opens it
+    /// (`LiveTiles.open`). VoiceOver opens it as any tile.
+    func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
+        guard !isEditing, !HQAccessibility.voiceOver, let id = dataSource.itemIdentifier(for: indexPath),
+              let tile = list.tiles.first(where: { $0.id == id }), isPicture(tile), let pin = tile.pin else { return true }
+        return liveTiles?.isRunning(pin) != true
+    }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
@@ -449,6 +650,18 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
             let short = UIAction(title: "Short", image: UIImage(systemName: "rectangle.compress.vertical"), state: tile.short ? .on : .off) { _ in
                 self?.setShort(id, true)
             }
+            // [favorites-live-tiles] A Dashboard tile: Open, Small / Wide, Edit…, and Remove from Favorites (it stays on
+            // the Dashboard). A picture has no Tall / Short.
+            if self?.isPicture(tile) == true {
+                let open = UIAction(title: "Open", image: UIImage(systemName: "arrow.up.forward.app")) { _ in
+                    guard let self else { return }
+                    QuickActionsRouter.run(tile, from: self) { [weak self] said in self?.say(said) }
+                }
+                remove.title = "Remove from Favorites"
+                return UIMenu(children: [UIMenu(options: .displayInline, children: [open]),
+                                         UIMenu(options: .displayInline, children: [small, wide]),
+                                         UIMenu(options: .displayInline, children: [edit, remove])])
+            }
             return UIMenu(children: [UIMenu(options: .displayInline, children: [small, wide]),
                                      UIMenu(options: .displayInline, children: [tall, short]),
                                      UIMenu(options: .displayInline, children: [edit, remove])])
@@ -466,12 +679,15 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
         case .began:
             guard let path = collectionView.indexPathForItem(at: point), dataSource.itemIdentifier(for: path) != Self.addID,
                   collectionView.beginInteractiveMovementForItem(at: path) else { return }
+            moving = true
             PagesHaptics.selection()
         case .changed:
             collectionView.updateInteractiveMovementTargetPosition(point)
         case .ended:
+            moving = false
             collectionView.endInteractiveMovement()
         default:
+            moving = false
             collectionView.cancelInteractiveMovement()
         }
     }
@@ -485,7 +701,11 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
     // MARK: Add and Set Up
 
     func showAdd() {
-        let add = QuickActionAddSheet.make(choices: { [weak self] in self?.pageChoices() ?? [] }) { [weak self] tile in
+        // [favorites-live-tiles] The Dashboard's tiles not on Favorites yet, with their pictures (the sheet's own).
+        let source = FavoriteTiles.store().map(FavoriteTiles.init)
+        let tiles = source.map { QuickActionChoice.dashboardTiles($0.shown, names: $0.names, on: list) } ?? []
+        let add = QuickActionAddSheet.make(choices: { [weak self] in self?.pageChoices() ?? [] }, tiles: tiles,
+                                           source: source) { [weak self] tile in
             self?.change { $0.add(tile) }
             HQAnnounce.say("Added \(tile.name)")
         }
@@ -494,7 +714,8 @@ final class QuickActionsViewController: UIViewController, UICollectionViewDelega
 
     func showSetup(editing id: String) {
         guard let tile = list.tiles.first(where: { $0.id == id }) else { return }
-        let setup = QuickActionSetup.sheet(editing: tile) { [weak self] saved in
+        let pictures = isPicture(tile) ? FavoriteTiles.store().map { FavoriteTilePictures(FavoriteTiles(store: $0)) } : nil
+        let setup = QuickActionSetup.sheet(editing: tile, pictures: pictures) { [weak self] saved in
             self?.change { $0.replace(saved) }
         }
         present(setup, animated: true)
@@ -583,10 +804,11 @@ final class QuickTileCell: UICollectionViewCell {
 
     /// The card: the sheet's card in the page's sheet, the page's card when pushed; outlined in the Desktop Look. The
     /// ＋ tile is a dashed outline on nothing.
-    func style(inSheet: Bool, dashed: Bool, dimmed: Bool) {
+    /// `bare`: [favorites-live-tiles] a Dashboard tile draws its own soft card (`PinTileView`).
+    func style(inSheet: Bool, dashed: Bool, dimmed: Bool, bare: Bool = false) {
         var background = UIBackgroundConfiguration.clear()
         background.cornerRadius = Self.radius
-        if !dashed {
+        if !dashed, !bare {
             let card = inSheet ? HQPalette.sheetCard : HQPalette.card
             background.backgroundColor = dimmed ? card.withAlphaComponent(0.5) : card
             if Theme.isDesktop {

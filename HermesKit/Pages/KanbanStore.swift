@@ -400,5 +400,85 @@ final class KanbanStore {
         }
     }
 
+    // MARK: Board writes ([kanban-boards] owner 2026-11-22)
+
+    /// The board slug a write names: '' (the server's current board) resolves to its slug.
+    private func resolved(_ slug: String) -> String { slug.isEmpty ? (boards?.current ?? "") : slug }
+
+    /// Renames a board; the list shows the new name at once and is read again whatever happens. Returns the gateway's
+    /// reason when it failed (the caller shows it with Try Again).
+    func renameBoard(_ slug: String, to name: String) async -> String? {
+        let target = resolved(slug), title = name.pgTrim
+        guard !target.isEmpty, !title.isEmpty else { return nil }
+        if readOnlyGateway {
+            AppLog.note("config", "kanban rename board refused: gateway is read-only")
+            return JobsStore.readOnlyNotice
+        }
+        let before = boards
+        if var list = boards, let i = list.boards.firstIndex(where: { $0.slug == target }) {
+            list.boards[i].name = title
+            boards = list
+            onChange?()
+        }
+        let start = ContinuousClock.now, api = self.api
+        let outcome = await Result.of { try await api.renameBoard(target, to: title) }
+        var failure: String?
+        if case .failure(let error) = outcome {
+            failure = PagesREST.reason(error)
+            boards = before
+            onChange?()
+            AppLog.note("config", "kanban rename board \(AppLog.tag(target)) failed after \(AppLog.ms(since: start)) ms: \(failure ?? "")")
+        } else {
+            AppLog.trace("config", "kanban rename board \(AppLog.tag(target)) ok in \(AppLog.ms(since: start)) ms")
+        }
+        await readBoards()
+        return failure
+    }
+
+    /// Deletes a board (the gateway archives it, so it can be recovered there). It leaves the list at once; when it was
+    /// the board on screen, the page goes to the server's current one. Returns the gateway's reason when it failed.
+    func deleteBoard(_ slug: String) async -> String? {
+        let target = resolved(slug)
+        guard !target.isEmpty else { return nil }
+        if target == KanbanModel.defaultBoardSlug { return KanbanModel.defaultBoardKept }
+        if readOnlyGateway {
+            AppLog.note("config", "kanban delete board refused: gateway is read-only")
+            return JobsStore.readOnlyNotice
+        }
+        let before = boards
+        let wasShown = boardKey == target
+        if var list = boards {
+            list.boards.removeAll { $0.slug == target }
+            if list.current == target { list.current = KanbanModel.defaultBoardSlug }
+            boards = list
+            onChange?()
+        }
+        let start = ContinuousClock.now, api = self.api
+        let outcome = await Result.of { try await api.deleteBoard(target) }
+        if case .failure(let error) = outcome {
+            let failure = PagesREST.reason(error)
+            boards = before
+            onChange?()
+            AppLog.note("config", "kanban delete board \(AppLog.tag(target)) failed after \(AppLog.ms(since: start)) ms: \(failure)")
+            await readBoards()
+            return failure
+        }
+        AppLog.trace("config", "kanban delete board \(AppLog.tag(target)) ok in \(AppLog.ms(since: start)) ms")
+        if let url = boardURL(target) { try? FileManager.default.removeItem(at: url) }
+        await readBoards()
+        if wasShown {
+            // The page leaves the gone board for the server's current one (the gateway falls back to default).
+            if slug.isEmpty {
+                boardGeneration += 1
+                board = nil
+                onChange?()
+                await readBoard()
+            } else {
+                select(board: "")
+            }
+        }
+        return nil
+    }
+
     func reset() { stop(); board = nil; boards = nil }
 }

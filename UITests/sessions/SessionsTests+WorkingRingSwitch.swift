@@ -131,7 +131,7 @@ extension SessionsTests {
         let app = launch()
         setWorkingRing(app, true)
 
-        // On, the default: the working row wears the ring.
+        // On (turned on above; off is the default since 2026-11-22): the working row wears the ring.
         XCTAssertTrue(row(app, "s-trip").waitForExistence(timeout: 15))
         openChat(app, "s-trip")
         type(app, "Add a fourth hotel", send: true)

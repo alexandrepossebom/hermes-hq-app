@@ -17,6 +17,8 @@
 // - [quick-actions] `-HQDebugIntent quick-actions-intent`   perform `OpenQuickActionsIntent`
 // - [quick-actions] URL only: `quick-tile-add:<kind>:<value>`   a tile added to the page's stored list: `new-chat:<profile>`,
 //                                                   `run-job:<owner|id>`, `send:<profile>`, `page:<row id>`
+// - [favorites-live-tiles] URL only: `pin-tile:<absolute path>` / `unpin-tile:<path>`   that file pinned to (unpinned
+//                                                   from) the Dashboard, as Hermes's
 // - [quick-actions] `-HQDebugResetQuickActions YES`  clear the Quick Actions list (and its seeded flag) before launch
 // - `-HQDebugVoiceNote seed-pending:<profile>`      a 4 s synthetic WAV under Application Support/HermesAttachments and
 //   `seed-pending-foreign:` / `seed-pending-missing:`  a matching saved older-build note (another account / no file)
@@ -188,6 +190,18 @@ import UIKit
             Task { do { _ = try await OpenQuickActionsIntent().perform() } catch { record("error " + describe(error)) } }
         case "quick-tile-add":
             quickTile(value)
+        case "pin-tile", "unpin-tile":
+            // [favorites-live-tiles] `pin-tile:<absolute path>`: that file pinned to the Dashboard (Hermes's), as Pin does;
+            // `unpin-tile:<path>` unpins it.
+            guard let store = FavoriteTiles.store(), value.hasPrefix("/") else { record("error \(name) " + value); return }
+            let pins = ArtifactPins.of(accountId: store.account.id)
+            if name == "unpin-tile" {
+                pins.unpin(profile: "default", value: value)
+            } else {
+                pins.pin(ArtifactPin(kind: .file, value: value, label: (value as NSString).lastPathComponent, profile: "default",
+                                     sessionId: "", sessionTitle: ""))
+            }
+            record("\(name) " + (value as NSString).lastPathComponent)
         case "seed-pending", "seed-pending-foreign", "seed-pending-missing":
             seed(profile: value, foreign: name == "seed-pending-foreign", missing: name == "seed-pending-missing")
         case "continue":

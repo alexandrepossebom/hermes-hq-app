@@ -229,7 +229,7 @@ extension WorkingArc {
 /// row changed for another reason (seen in the simulator: off, the ring kept travelling). `@AppStorage` follows the key,
 /// so the ring goes and comes back at once, for a change made here or taken from another device.
 private struct WorkingRingGate<Ring: View>: View {
-    @AppStorage(WorkingRing.key) private var allowed = true
+    @AppStorage(WorkingRing.key) private var allowed = false   // [ring-off-default]
     var on: Bool
     @ViewBuilder var ring: () -> Ring
     var body: some View {

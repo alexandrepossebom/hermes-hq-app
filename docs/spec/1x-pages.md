@@ -529,7 +529,8 @@ asked a question it cannot answer itself.","actions":[{"kind":"unblock","label":
 "last_seen_at":1791629201,"data":{}}]`. Real cards also carry `age`, `current_run_started_at` (`plugin_api.py:181-194`),
 `started_at`, `completed_at`, `workspace_kind`, `reasoning_effort`, `last_failure_error`.
 
-Not used: the `/events` WebSocket (D-P7), boards create/rename/archive/export/import, links, bulk, specify, decompose,
+Board rename and delete (archive) are used since [kanban-boards] (§4.3 item 2). Not used: the `/events` WebSocket
+(D-P7), boards create/export/import, the hard board delete (`?delete=true`), links, bulk, specify, decompose,
 orchestration writes, attachment upload, model overrides (§8).
 
 ### 4.2 Is Kanban on? (tab 3 rule, D-P2)
@@ -556,6 +557,16 @@ Grouped background, 20 pt gutters (`kanban.css:3-5`):
    (`kanban.css:8-12`). Disabled until boards loaded. Tap → `UIMenu` "Boards" single-select, each row title +
    subtitle "N tasks" (`board-page.tsx:208-226`); more than 8 boards → a pushed searchable list (search over 12).
    Picking the server's current board stores `''` (`board-page.tsx:215`); picking clears the search; selection haptic.
+   [kanban-boards] Under the boards (owner 2026-11-22: "There are some on there that I’d like to delete or rename and I
+   can’t"): **Rename Board…** (a one-field prompt, old name selected; `PATCH …/boards/<slug>` `{"name"}`, the slug never
+   changes), **Delete Board…** (not on `default`, which the gateway refuses; a destructive alert "“<name>” leaves
+   Kanban on every device. Its N tasks go with it. Hermes keeps an archived copy on your gateway computer.", then
+   `DELETE …/boards/<slug>` without `?delete=true`, so the gateway archives it to `boards/_archived/`), and **Manage
+   Boards…**: the pushed boards list, each row renaming or deleting its board by swipe or hold (control-click on the
+   Mac). The list shows a rename or delete at once and puts it back with "Couldn’t Rename/Delete Board" + Try Again
+   when refused; deleting the board on screen moves the page to the server's current one (`KanbanStore.renameBoard`,
+   `deleteBoard`; `KanbanBoardWritesTests`, UI `testKB14_RenameAndDeleteBoards`). The pushed list past eight boards
+   carries the same row actions.
 3. **Status chips**: one horizontal scroller, edge to edge, 8 pt gaps, chips 36 pt tall, 14 pt side padding,
    capsule, cell background, Subheadline semibold label, an 8 pt dot in the status tone, count in regular label-2
    tabular (`kanban.css:16-30`). Empty status: regular label-2. **Blocked** with tasks, not selected: red text and count.
@@ -1020,7 +1031,7 @@ Lists: `UICollectionView` + diffable data source keyed by stable ids (job id, ta
 |---|---|---|
 | New Job, Edit Job, job templates ("Start From" blueprints), delivery-target checklist, model override | outside this round's scope (D-P5); the form is large (presets, time wheel, cron editor, `HO/DESIGN.md:1143-1146`); no dead buttons meanwhile | `POST /api/cron/jobs` `{prompt,schedule,name?,deliver?,model?,provider?}` (`V/api/cron.ts:81-89`, `V/types/hermes.ts` `CronJobCreatePayload`); `PUT /api/cron/jobs/<id>` `{"updates":{…}}` (`:91-99`; normaliser `AG/hermes_cli/web_routers/cron.py:52-76`); `GET /api/cron/delivery-targets`, `GET /api/cron/blueprints` |
 | Kanban `/events` socket | the web phone never opened it (D-P7); a second ticketed socket needs its own reconnect | `ws(s)://…/api/plugins/kanban/events?board=&since=<cursor>&ticket=<ws ticket>`, frames `{"events":[…],"cursor":N}` (`AG/plugins/kanban/dashboard/plugin_api.py:1802-1847`) |
-| Kanban boards create/rename/archive/import/export, links, bulk select, specify/decompose, orchestration settings, profile descriptions | desktop-board work; the phone board never offered them (`S/ui-kanban/board-page.tsx:1-5`) | `V/plugins/kanban/api.ts:470-518` |
+| Kanban boards create/import/export (rename and delete-as-archive shipped, [kanban-boards] 2026-11-22), links, bulk select, specify/decompose, orchestration settings, profile descriptions | desktop-board work; the phone board never offered them (`S/ui-kanban/board-page.tsx:1-5`) | `V/plugins/kanban/api.ts:470-518` |
 | Kanban attachment **upload**, model/reasoning override edits | multipart upload is not in `GatewayClient`; the phone never edited overrides (`MEM/kanban-phone.md`) | `POST …/tasks/<id>/attachments` multipart; `PATCH {model_override, clear_model_override…}` |
 | Text file editing (the web's spot editor) | writes the user's files; needs its own review | `POST /api/fs/write-text` (`AG/hermes_cli/web_routers/files.py:834-890`) |
 | Save to Photos, artifact Delete in the image Info | P3 in DESIGN; needs a photo-library permission string; there is no artifact delete API | — |

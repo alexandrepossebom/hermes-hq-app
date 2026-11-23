@@ -35,9 +35,11 @@ enum IntroSplash {
 }
 
 /// [working-ring] Settings › Appearance › Theme › Working Ring (owner 2026-11-15: "a toggle to be able to remove the animation
-/// that goes around a bot or session to show it's working"). On, the default: a working bot's row, its pinned face and a
-/// working chat's row wear the travelling ring (`WorkingArc`). Off: no ring anywhere; the working dots on a bot's face
-/// and a chat's "Working…" line still say it is busy. Synced with the other Appearance settings.
+/// that goes around a bot or session to show it's working"). On: a working bot's row, its pinned face and a working chat's
+/// row wear the travelling ring (`WorkingArc`). Off: no ring anywhere; the working dots on a bot's face and a chat's
+/// "Working…" line still say it is busy. Synced with the other Appearance settings.
+/// [ring-off-default] Owner 2026-11-22 ("have the working ring be off by default going forward"): off unless turned on.
+/// Both values are stored explicitly, so a device on an older build (where nothing stored meant on) reads the same.
 nonisolated enum WorkingRing {
     static let key = "hqn.workingRing"
     /// Posted when the switch changes here (or is taken from another device): the Bots, Sessions and Other Apps lists
@@ -45,11 +47,10 @@ nonisolated enum WorkingRing {
     static let didChange = Notification.Name("hqn.workingRing.changed")
 
     static var isOn: Bool {
-        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? false }
         set {
             guard newValue != isOn else { return }
-            // On, the default, is stored as nothing.
-            if newValue { UserDefaults.standard.removeObject(forKey: key) } else { UserDefaults.standard.set(false, forKey: key) }
+            UserDefaults.standard.set(newValue, forKey: key)
             NotificationCenter.default.post(name: didChange, object: nil)
         }
     }

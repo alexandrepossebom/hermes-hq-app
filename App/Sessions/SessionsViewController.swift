@@ -37,6 +37,8 @@ final class SessionsViewController: UIViewController, UICollectionViewDelegate, 
     }()
     /// The swipe has gone back already (once per swipe).
     private var pageEdgeSwipeSpent = false
+    /// [sessions-motion] Settles a `slide` still running at once (nil when none is).
+    private var finishSlide: (() -> Void)?
     /// The Other Apps page while it is in the stack (its rows' actions and reloads go through this list).
     private weak var otherAppsPage: OtherAppsViewController?
     /// The roster by profile, rebuilt once per reload: rows draw their owner's name and head from it.
@@ -2364,9 +2366,15 @@ extension SessionsViewController {
         }
         // [sessions-ux] Into a project's page or back out the whole list changes, from its top, not rows flying
         // between sections under a list left scrolled where the tapped row was. [sessions-motion] Into a page it slides
-        // in from the right, back out to the list it slides away to the right; one page to another fades.
+        // in from the right, back out to the list it slides away to the right; one page to another slides the way the
+        // pills go (owner 2026-11-22: the smooth move everywhere it is needed; it faded before).
         let wasPage = isProjectPage
-        let motion: SessionsSlide? = key == nil ? (wasPage ? .outOfProject : nil) : (wasPage ? nil : .intoProject)
+        let motion: SessionsSlide?
+        if let key {
+            motion = wasPage ? Self.pageToPage(from: projectPageKey, to: key, pills: headerModel.shownProjects.map(\.key)) : .intoProject
+        } else {
+            motion = wasPage ? .outOfProject : nil
+        }
         let change = {
             self.apply(state, animated: false)
             self.collectionView.setContentOffset(CGPoint(x: 0, y: -self.collectionView.adjustedContentInset.top), animated: false)
@@ -2386,6 +2394,13 @@ extension SessionsViewController {
         return pills.isEmpty ? groups.compactMap { SessionListPipeline.projectKey($0.id) }.filter { $0 != SessionProjects.homeKey } : pills
     }
     #endif
+
+    /// [sessions-motion] One project's page to another: on along the pills or back along them; nil (a fade) when
+    /// either is not a pill.
+    nonisolated static func pageToPage(from: String?, to: String, pills: [String]) -> SessionsSlide? {
+        guard let from, from != to, let old = pills.firstIndex(of: from), let new = pills.firstIndex(of: to) else { return nil }
+        return new > old ? .toNextProject : .toPreviousProject
+    }
 
     /// A project's page is on show (the Projects side, one project picked).
     var isProjectPage: Bool { groups.contains { $0.id == SessionListPipeline.pageId } }
@@ -2426,11 +2441,19 @@ extension SessionsViewController {
         return true
     }
 
-    /// [sessions-motion] The list moving to another view: the old one (a picture of it) slides out and fades as the new
-    /// one slides in from the other side, the pills cross-fading above. Sideways for the switch (a short way: the same
-    /// place, another view of it), a page's width into and out of a project (a step deeper, as a page pushed and
-    /// popped). Under Reduce Motion, the cross-fade alone.
+    /// [sessions-motion] The list moving to another view, in one continuous move with nothing fading out first.
+    /// Owner 2026-11-22 (screen recording of opening a project: "It feels jerky"): the old list faded away before the new one
+    /// faded up, so for a few frames neither was there and the move read as two jumps with a dark gap between. Now both
+    /// views stay fully drawn the whole way:
+    /// - into a project's page, the page slides in over the list from the right while the list drifts a third of the
+    ///   way left beneath it, cut off at the page's leading edge (a page pushed); out of it, the reverse (a page
+    ///   popped). The cut keeps the two from ever standing over each other, picture backgrounds included.
+    /// - the Chats | Projects switch and one project's page to another: the two views side by side, moving together
+    ///   (a pager), so they never overlap either.
+    /// The pills dissolve from their old look under the new one rather than blinking out. Under Reduce Motion, the
+    /// cross-fade alone.
     private func slide(_ motion: SessionsSlide, _ change: () -> Void) {
+        finishSlide?()   // a slide still running settles first: a picture of a half-moved list would be taken
         guard view.window != nil, !HQMotion.reduced, let list = collectionView, let superview = list.superview,
               let oldList = list.snapshotView(afterScreenUpdates: false) else {
             crossfade(change); return
@@ -2448,32 +2471,55 @@ extension SessionsViewController {
         change()
         view.layoutIfNeeded()
         let width = list.bounds.width
-        let (inFrom, outTo) = motion.offsets(width: width)
-        list.transform = CGAffineTransform(translationX: inFrom, y: 0)
-        list.alpha = 0
-        rail?.alpha = 0
-        let finish = { (_: Bool) in
+        let path = motion.path(width: width)
+        // The view going deeper is on top; the one beneath is cut at its leading edge as it moves.
+        if path.layering == .newOnTop { superview.insertSubview(oldList, belowSubview: list) }
+        let under: UIView? = switch path.layering {
+        case .sideBySide: nil
+        case .newOnTop: oldList
+        case .oldOnTop: list
+        }
+        let cut = under.map { under -> UIView in
+            let cut = UIView()
+            cut.backgroundColor = .black
+            // Tall enough for any scroll of the list beneath (a list's mask sits in its scrolled bounds).
+            let reach = max(under.bounds.height, (under as? UIScrollView)?.contentSize.height ?? 0) + under.bounds.height
+            cut.frame = CGRect(x: under.bounds.minX, y: under.bounds.minY - reach,
+                               width: path.underShown(atStart: true), height: reach * 3)
+            under.mask = cut
+            return cut
+        }
+        list.transform = CGAffineTransform(translationX: path.newFrom, y: 0)
+        var settled = false
+        let finish = { [weak self] in
+            guard !settled else { return }
+            settled = true
             oldList.removeFromSuperview()
             oldRail?.removeFromSuperview()
+            list.mask = nil
             list.transform = .identity
             list.alpha = 1
             rail?.alpha = 1
+            if self?.finishSlide != nil { self?.finishSlide = nil }
         }
-        // The move runs the whole time; the fades are staggered so the two views never stand half over each other: the
-        // old one is mostly gone before the new one comes up (a frame of both at half read as doubled words).
-        let duration = motion.duration
-        UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,   // motion-ok: guarded above (Reduce Motion: crossfade)
+        finishSlide = {
+            list.layer.removeAllAnimations()
+            cut?.layer.removeAllAnimations()
+            finish()
+        }
+        // One spring moves every piece, so the page's edge and the cut beneath it stay together to the pixel.
+        UIView.animate(withDuration: motion.duration, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,   // motion-ok: guarded above (Reduce Motion: crossfade)
                        options: [.allowUserInteraction, .beginFromCurrentState]) {
             list.transform = .identity
-            oldList.transform = CGAffineTransform(translationX: outTo, y: 0)
-        } completion: { finished in finish(finished) }
-        UIView.animate(withDuration: duration * 0.4, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: guarded above
-            oldList.alpha = 0
-            oldRail?.alpha = 0
-        }
-        UIView.animate(withDuration: duration * 0.6, delay: duration * 0.25, options: [.curveEaseOut, .allowUserInteraction]) {   // motion-ok: guarded above
-            list.alpha = 1
-            rail?.alpha = 1
+            oldList.transform = CGAffineTransform(translationX: path.oldTo, y: 0)
+            if let cut { cut.frame.size.width = path.underShown(atStart: false) }
+        } completion: { _ in finish() }
+        // The old pills fade off the new ones, which are drawn in full beneath from the start: what both show stays
+        // put, only what changed dissolves.
+        if let oldRail {
+            UIView.animate(withDuration: motion.duration * 0.6, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {   // motion-ok: guarded above
+                oldRail.alpha = 0
+            }
         }
     }
 
@@ -2810,23 +2856,52 @@ private final class UnfoldTick: NSObject {
 }
 
 /// [sessions-motion] How the Sessions list moves to another view (`SessionsViewController.slide`).
-enum SessionsSlide {
+enum SessionsSlide: Equatable {
     case toProjects, toBots, intoProject, outOfProject
+    /// One project's page to the next or the previous one along the pills.
+    case toNextProject, toPreviousProject
 
-    /// Where the new view starts and where the old one goes (points, + is right).
-    func offsets(width: CGFloat) -> (inFrom: CGFloat, outTo: CGFloat) {
-        let side = min(width * 0.18, 80), deep = width
-        switch self {
-        case .toProjects: return (side, -side)
-        case .toBots: return (-side, side)
-        case .intoProject: return (deep, -deep * 0.3)
-        case .outOfProject: return (-deep * 0.3, deep)
+    enum Layering: Equatable {
+        /// Side by side, a width apart: they never overlap.
+        case sideBySide
+        /// The new view comes over the old (a page pushed), the old cut at the new one's leading edge.
+        case newOnTop
+        /// The old view leaves over the new (a page popped), the new cut at the old one's leading edge.
+        case oldOnTop
+    }
+
+    /// Where the new view starts and the old one ends (points, + is right), and which is on top.
+    struct Path: Equatable {
+        let width: CGFloat
+        let newFrom: CGFloat
+        let oldTo: CGFloat
+        let layering: Layering
+
+        /// How much of the view beneath shows, from its own leading edge to the edge of the one on top.
+        func underShown(atStart: Bool) -> CGFloat {
+            let new = atStart ? newFrom : 0, old = atStart ? 0 : oldTo
+            let shown: CGFloat = switch layering {
+            case .sideBySide: width
+            case .newOnTop: new - old
+            case .oldOnTop: old - new
+            }
+            return min(max(shown, 0), width)
+        }
+    }
+
+    func path(width: CGFloat) -> Path {
+        let back = (width * 0.3).rounded()   // how far the page beneath drifts, as a pushed page's does
+        return switch self {
+        case .toProjects, .toNextProject: Path(width: width, newFrom: width, oldTo: -width, layering: .sideBySide)
+        case .toBots, .toPreviousProject: Path(width: width, newFrom: -width, oldTo: width, layering: .sideBySide)
+        case .intoProject: Path(width: width, newFrom: width, oldTo: -back, layering: .newOnTop)
+        case .outOfProject: Path(width: width, newFrom: -back, oldTo: width, layering: .oldOnTop)
         }
     }
 
     var duration: TimeInterval {
         switch self {
-        case .toProjects, .toBots: HQMotion.move
+        case .toProjects, .toBots, .toNextProject, .toPreviousProject: 0.36
         case .intoProject, .outOfProject: 0.42
         }
     }

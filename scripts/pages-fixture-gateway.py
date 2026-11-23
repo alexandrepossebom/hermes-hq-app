@@ -368,6 +368,21 @@ def kanban(method, path, query, body):
     if NO_KANBAN: return 404, {'detail': 'Not Found'}
     sub = path[len('/api/plugins/kanban'):]
     slug, board = kboard(query)
+    # [kanban-boards] Rename (PATCH {name}) and delete (DELETE, archived; 'default' refused) as plugin_api.py does.
+    if sub.startswith('/boards/') and method in ('PATCH', 'DELETE') and sub.count('/') == 2:
+        target = unquote(sub[len('/boards/'):])
+        if method == 'DELETE' and target == 'default':
+            return 400, {'detail': "the 'default' board cannot be removed"}
+        if target not in BOARDS:
+            return 404 if method == 'PATCH' else 400, {'detail': f"board {target!r} does not exist"}
+        if method == 'PATCH':
+            name = str((body or {}).get('name') or '').strip()
+            if name: BOARDS[target]['name'] = name
+            return 200, {'board': {'slug': target, 'name': BOARDS[target]['name']}}
+        del BOARDS[target]
+        if KSTATE['current'] == target:
+            KSTATE['current'] = 'default' if 'default' in BOARDS else next(iter(BOARDS), 'default')
+        return 200, {'result': {'slug': target, 'action': 'archived', 'new_path': None}, 'current': KSTATE['current']}
     if board is None and sub not in ('/boards', '/profiles', '/orchestration', '/dispatch'):
         return 404, {'detail': f'board {slug} not found'}
     if method == 'GET' and sub == '/boards':

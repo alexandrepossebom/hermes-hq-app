@@ -16,20 +16,21 @@ import Testing
     @Test func isOnUntilTurnedOffAndTellsTheLists() {
         keeping {
             UserDefaults.standard.removeObject(forKey: WorkingRing.key)
-            #expect(WorkingRing.isOn, "on by default")
+            #expect(!WorkingRing.isOn, "[ring-off-default] off by default")
             var told = 0
             let token = NotificationCenter.default.addObserver(forName: WorkingRing.didChange, object: nil, queue: nil) { _ in told += 1 }
             defer { NotificationCenter.default.removeObserver(token) }
-            WorkingRing.isOn = false
-            WorkingRing.isOn = false
-            #expect(!WorkingRing.isOn)
-            #expect(UserDefaults.standard.object(forKey: WorkingRing.key) as? Bool == false)
-            #expect(told == 1, "told once, not again for the same value")
             WorkingRing.isOn = true
-            #expect(WorkingRing.isOn && told == 2)
-            #expect(UserDefaults.standard.object(forKey: WorkingRing.key) == nil, "on, the default, is stored as nothing")
+            WorkingRing.isOn = true
+            #expect(WorkingRing.isOn)
+            #expect(UserDefaults.standard.object(forKey: WorkingRing.key) as? Bool == true)
+            #expect(told == 1, "told once, not again for the same value")
+            WorkingRing.isOn = false
+            #expect(!WorkingRing.isOn && told == 2)
+            #expect(UserDefaults.standard.object(forKey: WorkingRing.key) as? Bool == false,
+                    "off is stored too: an older build reads nothing stored as on")
             UserDefaults.standard.set("nope", forKey: WorkingRing.key)
-            #expect(WorkingRing.isOn, "a value that is not a Bool reads as the default")
+            #expect(!WorkingRing.isOn, "a value that is not a Bool reads as the default")
         }
     }
 

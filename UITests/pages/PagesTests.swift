@@ -636,6 +636,51 @@ final class PagesTests: XCTestCase {
         XCTAssertNil(last?.query["board"], "the current board needs no param")
     }
 
+    /// P-KB-14 ([kanban-boards] owner 2026-11-22: "some on there that I’d like to delete or rename and I can’t"): the
+    /// board menu renames the open board; Manage Boards deletes another (confirmed first, archived on the gateway).
+    @MainActor func testKB14_RenameAndDeleteBoards() throws {
+        app = launchSignedIn()
+        tab("Kanban")
+        let board = app.buttons["kanban.board"]
+        XCTAssertTrue(board.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil(5) { board.isEnabled })
+        board.tap()
+        let rename = menuItem("Rename Board…")
+        XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        XCTAssertTrue(menuItem("Delete Board…").exists, "the open board can be deleted from the menu")
+        shot("kanban-board-menu-manage")
+        rename.tap()
+        let field = app.textFields["kanban.board.rename.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        shot("kanban-board-rename-prompt")
+        field.typeText("Release 2.5")   // the old name starts selected, so typing replaces it
+        app.alerts.buttons["Rename"].tap()
+        XCTAssertTrue(waitUntil(5) { board.label.contains("Release 2.5") }, "the new name on the button")
+        let patch = requests().first { $0.method == "PATCH" && $0.path == "/api/plugins/kanban/boards/release-2-4" }
+        XCTAssertEqual(patch?.body?["name"] as? String, "Release 2.5")
+
+        board.tap()
+        menuItem("Manage Boards…").tap()
+        let home = app.cells["kanban.boards.row.home"]
+        XCTAssertTrue(home.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.cells["kanban.boards.row.release-2-4"].staticTexts["Release 2.5"].exists)
+        shot("kanban-boards-manage-list")
+        home.swipeLeft()
+        Thread.sleep(forTimeInterval: 0.6)
+        shot("kanban-boards-row-swiped")
+        app.buttons["Delete"].firstMatch.tap()
+        let confirm = app.alerts.buttons["Delete Board"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "confirmed before anything is sent")
+        XCTAssertFalse(requests().contains { $0.method == "DELETE" })
+        shot("kanban-board-delete-confirm")
+        confirm.tap()
+        XCTAssertTrue(waitUntil(5) { !home.exists }, "the row leaves the list")
+        let delete = requests().first { $0.method == "DELETE" && $0.path == "/api/plugins/kanban/boards/home" }
+        XCTAssertNotNil(delete)
+        XCTAssertNil(delete?.query["delete"], "archived, never the hard delete")
+        shot("kanban-boards-after-delete")
+    }
+
     /// P-KB-11: the board is styled in its first frames, light and dark (`MEM/kanban-css-preload.md`): chips and the
     /// grouped list are there as soon as the tab shows.
     @MainActor func testKB11_StyledInTheFirstFrameLightAndDark() throws {

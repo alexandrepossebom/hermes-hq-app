@@ -2,6 +2,8 @@
 // in three groups (Chats, Work, Pages) with a search field; a choice opens Set Up: what the action needs (bot,
 // project, words, job), then its Look (name, icon, colour), with the tile drawn live at the top. Editing a tile reopens
 // Set Up with Save.
+// [favorites-live-tiles] Add Action also lists the Dashboard's tiles (3x-morepages Q15): one opens Set Up with the real
+// tile drawn at the top, and only Name and Size (a tile is a picture: no icon, colour or Height).
 
 import SwiftUI
 import UIKit
@@ -18,6 +20,8 @@ struct QuickActionChoice: Identifiable {
     var symbol: String
     var color: UIColor
     var page: (id: String, title: String)? = nil
+    /// [favorites-live-tiles] A Dashboard tile: its pin (named as the Dashboard names it).
+    var pin: ArtifactPin? = nil
 
     static let chats: [QuickActionChoice] = [
         choice(.newChat, "New Chat", "bot · project · words"),
@@ -52,9 +56,30 @@ struct QuickActionChoice: Identifiable {
         return out
     }
 
+    /// [favorites-live-tiles] The Dashboard's tiles in its order (`names`: each pin's name as the Dashboard shows it),
+    /// less those already on Favorites (`list`).
+    static func dashboardTiles(_ pins: [ArtifactPin], names: [String: String], on list: QuickTileList) -> [QuickActionChoice] {
+        let added = list.pins
+        return pins.filter { !added.contains($0.id) }.map { pin in
+            var named = pin
+            named.title = names[pin.id] ?? pin.name
+            return QuickActionChoice(id: "tile." + pin.id, kind: .dashboardTile, title: named.name, detail: "tile",
+                                     symbol: PinCardView.glyph(pin), color: HQPalette.tint, pin: named)
+        }
+    }
+
+    /// The row's identifier (a pin's id holds a separator character: its file's name stands in).
+    var identifier: String { pin.map { "quick.add.tile.\($0.label)" } ?? "quick.add.\(id)" }
+
     /// The new tile this choice starts Set Up with.
     func newTile() -> QuickTile {
         var tile = QuickTile(kind: kind)
+        if let pin {
+            tile.pin = pin.id
+            tile.pinName = pin.name
+            tile.name = pin.name
+            tile.symbol = QuickTileLook.symbol(symbol)
+        }
         if let page {
             tile.page = page.id
             tile.pageName = page.title
@@ -85,8 +110,10 @@ struct QuickActionChoice: Identifiable {
 
 enum QuickActionAddSheet {
     /// Add Action in its own sheet; `onAdd` takes the tile Set Up made (the sheet then closes).
-    static func make(choices: @escaping () -> [MoreSection], onAdd: @escaping (QuickTile) -> Void) -> UINavigationController {
-        let host = QuickActionAddHost(pages: QuickActionChoice.pages(choices()), onAdd: onAdd)
+    /// `tiles`: [favorites-live-tiles] the Dashboard's tiles not on Favorites yet, and their pictures.
+    static func make(choices: @escaping () -> [MoreSection], tiles: [QuickActionChoice] = [], source: FavoriteTiles? = nil,
+                     onAdd: @escaping (QuickTile) -> Void) -> UINavigationController {
+        let host = QuickActionAddHost(pages: QuickActionChoice.pages(choices()), tiles: tiles, source: source, onAdd: onAdd)
         let navigation = ChatSheet.wrap(host, title: "Add Action", detents: [.large()])
         navigation.view.accessibilityIdentifier = "quick-actions.add-sheet"
         return navigation
@@ -94,22 +121,25 @@ enum QuickActionAddSheet {
 }
 
 final class QuickActionAddHost: UIHostingController<HQScaledRoot<QuickActionAddView>> {
-    init(pages: [QuickActionChoice], onAdd: @escaping (QuickTile) -> Void) {
-        var view = QuickActionAddView(pages: pages)
+    init(pages: [QuickActionChoice], tiles: [QuickActionChoice] = [], source: FavoriteTiles? = nil, onAdd: @escaping (QuickTile) -> Void) {
+        let pictures = source.map(FavoriteTilePictures.init)
+        var view = QuickActionAddView(pages: pages, tiles: tiles, pictures: pictures)
         weak var weakSelf: QuickActionAddHost?
         view.choose = { choice in weakSelf?.setUp(choice) }
         self.onAdd = onAdd
+        self.pictures = pictures
         super.init(rootView: HQScaledRoot(view))
         weakSelf = self
     }
 
     private let onAdd: (QuickTile) -> Void
+    private let pictures: FavoriteTilePictures?
 
     @MainActor required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     private func setUp(_ choice: QuickActionChoice) {
         PagesHaptics.selection()
-        let setup = QuickActionSetup.page(tile: choice.newTile(), isNew: true) { [weak self] tile in
+        let setup = QuickActionSetup.page(tile: choice.newTile(), isNew: true, pictures: pictures) { [weak self] tile in
             guard let self else { return }
             PagesHaptics.success()
             self.onAdd(tile)
@@ -124,6 +154,9 @@ final class QuickActionAddHost: UIHostingController<HQScaledRoot<QuickActionAddV
 
 struct QuickActionAddView: View {
     var pages: [QuickActionChoice]
+    /// [favorites-live-tiles] The Dashboard's tiles (none: no section).
+    var tiles: [QuickActionChoice] = []
+    var pictures: FavoriteTilePictures? = nil
     var choose: (QuickActionChoice) -> Void = { _ in }
     @State private var words = ""
 
@@ -131,8 +164,9 @@ struct QuickActionAddView: View {
         List {
             group("Chats", QuickActionChoice.chats)
             group("Work", QuickActionChoice.work)
+            group("Dashboard Tiles", tiles)
             group("Pages", pages)
-            if [QuickActionChoice.chats, QuickActionChoice.work, pages].allSatisfy({ $0.allSatisfy { !$0.matches(words) } }) {
+            if [QuickActionChoice.chats, QuickActionChoice.work, tiles, pages].allSatisfy({ $0.allSatisfy { !$0.matches(words) } }) {
                 Text("No actions or pages match “\(words)”.")
                     .font(Font.hq(.body))
                     .foregroundStyle(Color.hqLabel2)
@@ -150,7 +184,11 @@ struct QuickActionAddView: View {
                 ForEach(shown) { choice in
                     Button { choose(choice) } label: {
                         HStack(spacing: 12) {
-                            QuickTileIcon(symbol: choice.symbol, color: choice.color, side: HQFont.scaled(29))
+                            if let pin = choice.pin {
+                                DashboardTileThumb(pin: pin, pictures: pictures, side: HQFont.scaled(29))
+                            } else {
+                                QuickTileIcon(symbol: choice.symbol, color: choice.color, side: HQFont.scaled(29))
+                            }
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(choice.title).font(Font.hq(.body)).foregroundStyle(Color.hqLabel)
                                 Text(choice.detail).font(Font.hq(.footnote)).foregroundStyle(Color.hqLabel2)
@@ -166,7 +204,7 @@ struct QuickActionAddView: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(choice.title), \(choice.detail)")
                     .accessibilityAddTraits(.isButton)
-                    .accessibilityIdentifier("quick.add.\(choice.id)")
+                    .accessibilityIdentifier(choice.identifier)
                 }
             } header: { HQSectionLabel { Text(title) } }
             .hqSheetRows()
@@ -186,12 +224,21 @@ final class QuickActionDraft {
 
     let bots: [(id: String, name: String)]
     let jobs: [JobShortcutRecord]
+    /// [favorites-live-tiles] A Dashboard tile's pin and pictures, for the preview.
+    @ObservationIgnored let pictures: FavoriteTilePictures?
 
-    init(tile: QuickTile, isNew: Bool) {
+    init(tile: QuickTile, isNew: Bool, pictures: FavoriteTilePictures? = nil) {
+        var tile = tile
+        self.pictures = pictures
+        // [favorites-live-tiles] A name that follows its pin starts as the pin's name now (renamed on the Dashboard).
+        if tile.known == .dashboardTile, tile.name == tile.pinName, let now = pictures?.source.pin(tile.pin).map({ pictures?.source.pins.name($0) ?? $0.name }) {
+            tile.name = now
+            tile.pinName = now
+        }
         self.tile = tile
         original = tile
         self.isNew = isNew
-        nameTouched = !isNew
+        nameTouched = !isNew && !(tile.known == .dashboardTile && tile.name == tile.pinName)
         let roster = MainTabController.current?.services.bots.map { (id: $0.id, name: $0.name) } ?? []
         // A tile's bot that isn't on this gateway stays choosable (named as it was saved).
         if let bot = tile.bot, !bot.isEmpty, !roster.contains(where: { $0.id == bot }) {
@@ -270,6 +317,7 @@ final class QuickActionDraft {
         if kind == .send, (tile.message ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         if kind == .runJob, (tile.job ?? "").isEmpty { return false }
         if kind == .page, (tile.page ?? "").isEmpty { return false }
+        if kind == .dashboardTile, (tile.pin ?? "").isEmpty { return false }
         return true
     }
 
@@ -280,19 +328,23 @@ final class QuickActionDraft {
         var tile = tile
         tile.name = tile.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if let words = tile.message?.trimmingCharacters(in: .whitespacesAndNewlines) { tile.message = words.isEmpty ? nil : words }
+        // [favorites-live-tiles] Never typed over: it keeps following the pin's name.
+        if tile.known == .dashboardTile, !nameTouched { tile.pinName = tile.name }
         return tile
     }
 }
 
 enum QuickActionSetup {
     /// Set Up as a page pushed in Add Action (Back, Add).
-    static func page(tile: QuickTile, isNew: Bool, onSave: @escaping (QuickTile) -> Void) -> UIViewController {
-        QuickActionSetupHost(draft: QuickActionDraft(tile: tile, isNew: isNew), onSave: onSave)
+    static func page(tile: QuickTile, isNew: Bool, pictures: FavoriteTilePictures? = nil,
+                     onSave: @escaping (QuickTile) -> Void) -> UIViewController {
+        QuickActionSetupHost(draft: QuickActionDraft(tile: tile, isNew: isNew, pictures: pictures), onSave: onSave)
     }
 
     /// Set Up for a tile on the page, in its own sheet (Cancel, Save).
-    static func sheet(editing tile: QuickTile, onSave: @escaping (QuickTile) -> Void) -> UINavigationController {
-        let host = QuickActionSetupHost(draft: QuickActionDraft(tile: tile, isNew: false), onSave: onSave)
+    static func sheet(editing tile: QuickTile, pictures: FavoriteTilePictures? = nil,
+                      onSave: @escaping (QuickTile) -> Void) -> UINavigationController {
+        let host = QuickActionSetupHost(draft: QuickActionDraft(tile: tile, isNew: false, pictures: pictures), onSave: onSave)
         let navigation = ChatSheet.wrap(host, title: "Edit Action", detents: [.large()])
         host.installCancel()
         SheetEditGuard.install(on: navigation)
@@ -390,7 +442,15 @@ struct QuickActionSetupView: View {
     }
 
     /// The tile as it will look on the page (half the width, as a Small tile; all of it, as a Wide one).
-    private var preview: some View {
+    @ViewBuilder private var preview: some View {
+        if draft.kind == .dashboardTile {
+            DashboardTilePreview(tile: draft.tile, pictures: draft.pictures, stacked: typeSize >= .accessibility3)
+        } else {
+            actionPreview
+        }
+    }
+
+    private var actionPreview: some View {
         let tile = draft.tile
         let subtitle = tile.subtitle(botName: draft.bots.first { $0.id == tile.bot }?.name)
         return HStack {
@@ -482,14 +542,24 @@ struct QuickActionSetupView: View {
                     .accessibilityIdentifier("quick.setup.size")
                 }
                 // [quick-actions] Owner 2026-11-21: "I also want to be able to change the height to make them shorter."
-                LabeledContent("Height") {
-                    HQSegmentedPicker("Height", options: [("Tall", false), ("Short", true)], selection: $draft.tile.short,
-                                      wholeLabels: true)
-                    .fixedSize()
-                    .accessibilityIdentifier("quick.setup.height")
+                // [favorites-live-tiles] Not for a Dashboard tile: a picture has no one-line form.
+                if draft.kind?.isPicture != true {
+                    LabeledContent("Height") {
+                        HQSegmentedPicker("Height", options: [("Tall", false), ("Short", true)], selection: $draft.tile.short,
+                                          wholeLabels: true)
+                        .fixedSize()
+                        .accessibilityIdentifier("quick.setup.height")
+                    }
                 }
             } header: { HQSectionLabel { Text("Look") } }
             .hqSheetRows()
+            if draft.kind?.isPicture != true { iconAndColor }
+        }
+    }
+
+    /// The icon grid and the colours (not for a Dashboard tile).
+    private var iconAndColor: some View {
+        Group {
             Section {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: HQFont.scaled(44)), spacing: 8)], spacing: 8) {
                     ForEach(QuickTileLook.symbols, id: \.self) { symbol in symbolButton(symbol) }

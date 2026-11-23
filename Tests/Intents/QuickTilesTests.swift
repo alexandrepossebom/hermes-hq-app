@@ -77,6 +77,30 @@ private func tile(_ kind: QuickTileKind, id: String = UUID().uuidString, bot: St
         #expect(QuickTileStore.load(box.defaults).tiles.map(\.id).prefix(2) == ["a", "b"])
     }
 
+    // Q8 ([favorites-live-tiles]): a newer build's tile keeps the fields this build has no name for (as a Dashboard
+    // tile's `pin` was to the builds before it), through an edit of another tile here.
+    @Test func aNewerKindsOwnFieldsAreKept() throws {
+        let box = IntentsDefaults()
+        let json = """
+        {"version":1,"seeded":true,"tiles":[
+          {"id":"a","kind":"memo","name":"Memo","symbol":"mic.fill","color":"red","bot":"ivy"},
+          {"id":"b","kind":"teleport","name":"Beam Me","symbol":"sparkles","color":"pink","where":"orbit","crew":["otto","wren"]}
+        ]}
+        """
+        box.defaults.set(Data(json.utf8), forKey: QuickTileStore.key)
+        var list = QuickTileStore.load(box.defaults)
+        list.setWide("a", true)
+        list.setWide("b", true)
+        QuickTileStore.save(list, box.defaults)
+        let raw = try #require(JSONSerialization.jsonObject(with: box.defaults.data(forKey: QuickTileStore.key) ?? Data()) as? [String: Any])
+        let tiles = try #require(raw["tiles"] as? [[String: Any]])
+        #expect(tiles[1]["kind"] as? String == "teleport")
+        #expect(tiles[1]["where"] as? String == "orbit", "written back as it was")
+        #expect(tiles[1]["crew"] as? [String] == ["otto", "wren"])
+        #expect(tiles[1]["wide"] as? Bool == true, "and this build's own edit")
+        #expect(tiles[0]["where"] == nil)
+    }
+
     // Q7: a list that can't be read at all is never wiped: it is copied aside, and no starter set goes over it.
     @Test func aDecodeErrorNeverWipesTheList() {
         let box = IntentsDefaults()

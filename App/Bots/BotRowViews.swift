@@ -15,7 +15,7 @@ struct BotAvatar: View {
     /// The unread dot on the face's corner (rows and pinned tiles; not Bot Info's header).
     var presence = true
     /// [working-ring] Theme › Working Ring (owner 2026-11-15: where the ring was all that said a bot works, say it).
-    @AppStorage(WorkingRing.key) private var ringOn = true
+    @AppStorage(WorkingRing.key) private var ringOn = false   // [ring-off-default]
 
     var body: some View {
         // [perf] The face's ring shape (a head resolve and a photo lookup) only when the ring is drawn: a row never is.
