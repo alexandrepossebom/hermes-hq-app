@@ -169,7 +169,7 @@ extension PhoneMark {
     var uiColor: UIColor {
         switch self {
         case .phone, .success: ChatPalette.green
-        case .warning, .voicemail, .missed: ChatPalette.orange
+        case .warning, .voicemail, .missed: PhoneCardColors.attention
         case .failed: ChatPalette.red
         case .proposal: ChatPalette.tint
         case .ended: ChatPalette.label2
@@ -199,6 +199,14 @@ final class PhoneResultCell: ChatBaseCell {
 
 
 enum PhoneCardColors {
+    /// The fill that says "needs you" or "did not connect" (owner-approved drawings: a bright orange). The theme's
+    /// orange is an ink: in a light appearance it is a dark red-orange made to be read as words on white, which as a
+    /// fill reads as red, the colour of Hang up. So a light appearance fills with the bright orange and a dark one
+    /// keeps the theme's, which is bright already. Words still use the theme's orange.
+    static let attention = UIColor { @Sendable traits in
+        traits.userInterfaceStyle == .dark ? ChatPalette.orange.resolvedColor(with: traits)
+            : UIColor(red: 1, green: 0.584, blue: 0, alpha: 1)
+    }
     static let onAccent = ink(on: HQPalette.tint)
     static let onRed = ink(on: HQPalette.red)
 

@@ -255,8 +255,8 @@ struct PhoneCallScreen: View {
             }
         }
         .padding(14).phoneCard(radius: 22)
-        .overlay { RoundedRectangle(cornerRadius: HQShape.radius(22, .card)).strokeBorder(Color.hqOrange, lineWidth: 2).allowsHitTesting(false) }
-        .shadow(color: Color.hqOrange.opacity(0.18), radius: 12, y: 5)
+        .overlay { RoundedRectangle(cornerRadius: HQShape.radius(22, .card)).strokeBorder(Color(uiColor: PhoneCardColors.attention), lineWidth: 2).allowsHitTesting(false) }
+        .shadow(color: Color(uiColor: PhoneCardColors.attention).opacity(0.22), radius: 12, y: 5)
         .padding(.horizontal, typeSize.isAccessibilitySize ? 12 : 0)
     }
 

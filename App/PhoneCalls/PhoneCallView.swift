@@ -364,7 +364,7 @@ extension PhoneMark {
     var color: Color {
         switch self {
         case .phone, .success: .hqGreen
-        case .warning, .voicemail, .missed: .hqOrange
+        case .warning, .voicemail, .missed: Color(uiColor: PhoneCardColors.attention)
         case .failed: .hqRed
         case .proposal: .hqTint
         case .ended: .hqLabel2
