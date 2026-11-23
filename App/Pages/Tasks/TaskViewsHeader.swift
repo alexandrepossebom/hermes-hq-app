@@ -104,15 +104,15 @@ private struct TaskViewsBand: View {
 
     @ViewBuilder private var rail: some View {
         if DeviceWord.isMac {
-            // [Mac UI check 2026-11-13] Every view in sight: the pills wrap to a second line in a narrow pane ("Bots 2"
-            // stood cut at the pane's edge, a scroll a Mac gives no cue for).
-            PagesFlowLayout(spacing: 8, lineSpacing: 0) { pills }
+            // [mac-tasks-calm] Owner 2026-11-22 (a Mac screenshot of Today: "this feels SO busy on Mac"): the pills had
+            // wrapped to two rows of counts over the list ([Mac UI check 2026-11-13] kept every view in sight that
+            // way). On the Mac the view is one line, its name a pop-up button as a Mac's list title is: every view and
+            // its count in the menu, with the lists' own actions.
+            macPicker
                 .padding(.horizontal, Theme.isDesktop ? DesktopRows.gutter : 16)
                 .padding(.top, DesktopRows.underBar)
                 .padding(.bottom, Theme.isDesktop ? 2 : 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .hqPickGlassRow()
-                .hqFlatPicks()   // [Mac UI check 2026-11-13] no glass to carry the picked pill's blue onto its neighbours
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Views")
                 .accessibilityIdentifier("tasks.views")
@@ -148,6 +148,52 @@ private struct TaskViewsBand: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Views")
         .accessibilityIdentifier("tasks.views")
+    }
+
+    /// [mac-tasks-calm] "Today 7 ⌄": the view on show, a pop-up of every view.
+    private var macPicker: some View {
+        let current = model.pills.first { $0.view == model.picked } ?? model.pills.first
+        return Menu {
+            Picker("View", selection: Binding(get: { model.picked }, set: { onPick($0) })) {
+                ForEach(model.pills) { pill in
+                    Text(pill.count.flatMap { $0 > 0 ? "\(pill.title)   \($0)" : nil } ?? pill.title)
+                        .tag(pill.view)
+                        .accessibilityIdentifier(pill.identifier)
+                }
+            }
+            .pickerStyle(.inline)
+            if let current {
+                Section { menu(for: current) }
+            }
+            if model.editsLists {
+                Button { actions.newList() } label: { Label("New List…", systemImage: "plus") }
+                    .accessibilityIdentifier("tasks.view.new-list")
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(current?.title ?? "")
+                    .font(Font.hq(.title3).weight(.semibold))
+                    .foregroundStyle(Color.hqLabel)
+                if let count = current?.count, count > 0 {
+                    Text("\(count)")
+                        .font(Font.hq(.title3)).monospacedDigit()
+                        .foregroundStyle(Color.hqLabel2)
+                }
+                Image(systemName: "chevron.down")
+                    .font(Font.hq(.caption).weight(.semibold))
+                    .foregroundStyle(Color.hqLabel2)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Choose a view")
+        .accessibilityLabel("View")
+        .accessibilityValue(current.map(spoken) ?? "")
+        .accessibilityIdentifier("tasks.views.picker")
     }
 
     private func spoken(_ pill: TaskViewPill) -> String {
