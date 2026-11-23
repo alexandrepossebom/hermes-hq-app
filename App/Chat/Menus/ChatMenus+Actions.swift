@@ -548,6 +548,12 @@ final class ComposerEditBanner: UIView, ComposerFieldWatching {
         saveButton?.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// [threads] Reply in Thread's banner: "Reply in Thread" over one line of the message the thread will hang under.
+    static func threading(excerpt: String) -> ComposerEditBanner {
+        ComposerEditBanner(title: "Reply in Thread", symbol: "bubble.left.and.bubble.right", note: excerpt, noteLines: 1,
+                           cancelLabel: "Cancel Thread", identifier: "composer.threading")
+    }
+
     /// Swipe to Reply's banner: "Replying to <bot>" over one line of the message.
     static func replying(to sender: String, excerpt: String) -> ComposerEditBanner {
         ComposerEditBanner(title: "Replying to \(sender)", symbol: "arrowshape.turn.up.left", note: excerpt, noteLines: 1,

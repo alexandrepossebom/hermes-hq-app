@@ -190,6 +190,15 @@ final class LiveChatSession: ChatSessionModel {
     var onDraftReturned: ((_ text: String, _ reason: String) -> Void)?
     /// One-line toasts ("Couldn't stop — Hermes finished the reply.", chat-level errors).
     var onNotice: ((String) -> Void)?
+    /// [threads] A bot's own chat that cannot take typed words now sends them on in a thread instead of handing them
+    /// back (docs/spec/3x-threads.md §9). Set by the app model; true = a thread took `text` as its message. `localId`
+    /// is the send's bubble in this chat, which the thread's seed leaves out.
+    var onBusyThread: ((_ text: String, _ localId: String) -> Bool)?
+    /// [threads] How long such a send waits for another run to let go of the chat before it goes on in a thread.
+    var threadAfter: Duration = .seconds(5)
+    /// [threads] Sends this chat has taken (`prompt.submit` accepted): a thread that took a busy chat's words takes the
+    /// next ones too, until the chat takes a send itself.
+    private(set) var acceptedSends = 0
     /// `4064 Profile '<name>' does not exist.`: the roster is stale — refetch `/api/profiles`, never retry (04 §1.4).
     var onRosterStale: (() -> Void)?
     /// The open failed with nothing to show (03 §4.7): the screen shows an error state with Retry (`start()` again).
@@ -381,6 +390,11 @@ final class LiveChatSession: ChatSessionModel {
     // [talk] A live voice conversation keeps the chat listening off screen the same way (LiveChatSession+Talk.swift).
     var voiceHold = false { didSet { if voiceHold != oldValue { voiceHoldChanged() } } }
     var onVoiceChange: (() -> Void)?
+    /// [threads] A thread the bot chat draws in place keeps listening with no screen of its own, the same way
+    /// (App/Chat/Threads/ThreadStore.swift holds it and lets go once the thread has gone quiet).
+    var threadHold = false { didSet { if threadHold != oldValue, !threadHold { endAwayDrainIfDone() } } }
+    /// [threads] Every change, on screen or off: the chat the thread hangs in redraws it.
+    var onThreadChange: (() -> Void)?
     /// The app's chats keep their queue beyond the screen (the stash, the off-screen drain); set by the app model with
     /// `keepQueue()` before the first frame. Off for chats made by tests and previews.
     private(set) var keepsQueue = false
@@ -692,7 +706,7 @@ final class LiveChatSession: ChatSessionModel {
         }
     }
 
-    private func beginOpen(failedOpen: Bool) {
+    func beginOpen(failedOpen: Bool) {
         started = true
         openError = nil
         chatGone = false
@@ -736,7 +750,7 @@ final class LiveChatSession: ChatSessionModel {
         if !keepsQueue { memoQueueLeaving() }
         // A /btw or /bg still out keeps the chat listening too: its result lands while away (SideTasks.swift).
         let sideOut = sideTasksOut()
-        drainingAway = (keepsQueue && waiting) || voiceHold || sideOut   // [talk] voiceHold
+        drainingAway = (keepsQueue && waiting) || voiceHold || threadHold || sideOut   // [talk] voiceHold [threads] threadHold
         AppLog.trace("chat", "screen off \(logIds): rows=\(messages.count) busy=\(turn.busy) queued=\(queuedMessages.count) parked=\(isQueueParked) ownerWait=\(turn.waitingForOwner != nil) sideOut=\(sideOut) voice=\(voiceHold) → \(drainingAway ? "keeps listening off screen" : "stops listening")")
         if sideOut { armSideTaskLimit() }
         if !drainingAway { stopListening() }
@@ -771,7 +785,7 @@ final class LiveChatSession: ChatSessionModel {
         queueDrainTask?.cancel(); queueDrainTask = nil
     }
 
-    private func subscribe() {
+    func subscribe() {
         let events = client.events()
         eventTask = Task { [weak self] in
             for await event in events {
@@ -1334,6 +1348,18 @@ final class LiveChatSession: ChatSessionModel {
             if stopEpoch != epoch { withdrawStoppedSend(localId: localId, text: draft, attachments: attachments); return }
             refuseSend(localId: localId, text: draft, reason: reason, queued: queued, attachments: attachments)
         }
+        // [threads] §9: typed words a bot's own chat cannot take now go on in a thread. Words only: nothing attached,
+        // no memo, no voice, no rewind, no skill or titled request (`draft` differs), and never a queue's drain (the
+        // queue waits, as it always has).
+        func threadable() -> Bool {
+            onBusyThread != nil && !queued && !interrupted && !voiceHold && attachments.isEmpty && draft == text
+                && memoSends[localId] == nil && voiceLiveSends[localId] == nil && rewindParams(for: localId) == nil
+        }
+        func threadTakes() -> Bool {
+            guard stopEpoch == epoch, threadable(), onBusyThread?(text, localId) == true else { return false }
+            sendWentToThread(localId)
+            return true
+        }
         // [attachments] the send keeps running while the app is in the background (docs/spec/1x-attachments.md §6.6)
         let background = attachments.isEmpty ? nil : AttachmentPipeline.beginBackground()
         defer { AttachmentPipeline.endBackground(background) }
@@ -1518,7 +1544,9 @@ final class LiveChatSession: ChatSessionModel {
                     if ownerDeadline == nil {
                         let kind = Self.ownerWait(error)
                         AppLog.note("chat", "send waits for the chat's owner: \(AppLog.scrub(error.message))")
-                        ownerDeadline = ContinuousClock.now + (kind == .otherWindow ? ownerWaitShortWindow : ownerWaitWindow)
+                        let window = kind == .otherWindow ? ownerWaitShortWindow : ownerWaitWindow
+                        // [threads] words a thread can take wait only `threadAfter` for the chat (§9)
+                        ownerDeadline = ContinuousClock.now + (threadable() ? min(window, threadAfter) : window)
                         turn.waitingForOwner = kind
                         turn.preparingSendId = localId   // not on the gateway yet: no watchdog, no running:false settle
                         changes.markState()
@@ -1542,6 +1570,7 @@ final class LiveChatSession: ChatSessionModel {
                         continue
                     }
                     endOwnerWait()
+                    if threadTakes() { probeTailSoon(); return }   // [threads] §9: it goes on in a thread, not back
                     AppLog.note("chat", "send refused, the chat is still owned: \(AppLog.scrub(error.message))")
                     await detachPhotos(attached)                                                              // [attachments]
                     refuse(error.message)
@@ -1558,6 +1587,7 @@ final class LiveChatSession: ChatSessionModel {
                         continue
                     }
                     await detachPhotos(attached)                                                              // [attachments]
+                    if threadTakes() { return }   // [threads] §9
                     refuse(error.message)
                     return
                 case 4001, 4007:
@@ -1610,6 +1640,7 @@ final class LiveChatSession: ChatSessionModel {
     }
 
     private func acknowledge(localId: String, result: JSONValue, epoch: Int) {
+        acceptedSends += 1   // [threads]
         _ = memoSendFinished(localId, .acknowledged)   // VOICE
         voiceLiveSends[localId] = nil   // [gpt-live]
         rewindAcknowledged(localId: localId, result: result)   // MENUS: the kept rows' new ids
@@ -2230,6 +2261,7 @@ final class LiveChatSession: ChatSessionModel {
         }
         if drainingAway && !observing { endAwayDrainIfDone() }   // verify round 3
         onVoiceChange?()   // [talk] the conversation hears every change, on screen or off
+        onThreadChange?()  // [threads]
         guard !changes.isEmpty else { return }
         watchForDoubledReply()                                   // [doubled-reply]
         let emitted = changes.emissions()
